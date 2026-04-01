@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { AuthGate } from "@/components/AuthGate";
 import { AppProvider } from "@/lib/context";
 import { PantallaHoy } from "@/components/PantallaHoy";
 import { PantallaPlan } from "@/components/PantallaPlan";
@@ -11,6 +12,14 @@ import { Buscador } from "@/components/Buscador";
 type Vista = "hoy" | "plan" | "mapa" | "resultado";
 
 export default function Home() {
+  return (
+    <AuthGate>
+      {(userId) => <AppShell userId={userId} />}
+    </AuthGate>
+  );
+}
+
+function AppShell({ userId }: { userId: string }) {
   const [vista, setVista] = useState<Vista>("hoy");
   const [showBuscador, setShowBuscador] = useState(false);
   const [detalleResultadoId, setDetalleResultadoId] = useState<string | null>(null);
@@ -21,7 +30,7 @@ export default function Home() {
   }
 
   return (
-    <AppProvider>
+    <AppProvider userId={userId}>
       <div className="mx-auto flex min-h-dvh w-full max-w-lg flex-col pb-14">
         {vista === "hoy" && (
           <PantallaHoy onOpenBuscador={() => setShowBuscador(true)} />

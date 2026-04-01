@@ -2,6 +2,7 @@
 
 import { AppState, EQUIPO_DEFAULT } from "./types";
 import { buildSeedSOPs } from "./seed-sops";
+import { getSupabase } from "./supabase";
 
 const OLD_STORAGE_KEY = "laguna-del-tiempo";
 const STORAGE_KEY = "laguna-time-app";
@@ -122,7 +123,9 @@ function migrateV1(raw: any): AppState {
 }
 /* eslint-enable @typescript-eslint/no-explicit-any */
 
-export function loadState(): AppState {
+/* ---- localStorage (cache local + fallback) ---- */
+
+export function loadStateLocal(): AppState {
   if (typeof window === "undefined") return INITIAL_STATE;
   try {
     const oldRaw = localStorage.getItem(OLD_STORAGE_KEY);
@@ -131,9 +134,7 @@ export function loadState(): AppState {
       try {
         localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
         localStorage.removeItem(OLD_STORAGE_KEY);
-      } catch {
-        // Keep old key to retry later
-      }
+      } catch { /* keep old key */ }
       _loadedSuccessfully = true;
       return state;
     }
@@ -146,33 +147,75 @@ export function loadState(): AppState {
     _loadedSuccessfully = true;
     return state;
   } catch (err) {
-    console.error("[loadState] CRITICAL: migration error, NOT overwriting stored data:", err);
+    console.error("[loadStateLocal] migration error:", err);
     _loadedSuccessfully = false;
     return INITIAL_STATE;
   }
 }
 
+export function saveStateLocal(state: AppState): void {
+  if (typeof window === "undefined") return;
+  if (!_loadedSuccessfully) return;
+  try {
+    const existing = localStorage.getItem(STORAGE_KEY);
+    if (existing) {
+      try { localStorage.setItem(BACKUP_KEY, existing); } catch { /* best-effort */ }
+    }
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+  } catch { /* storage full */ }
+}
+
+/* ---- Supabase (cloud persistence) ---- */
+
+export async function loadStateCloud(userId: string): Promise<AppState | null> {
+  const supabase = getSupabase();
+  if (!supabase || userId === "local") return null;
+
+  try {
+    const { data, error } = await supabase
+      .from("user_data")
+      .select("state")
+      .eq("user_id", userId)
+      .single();
+
+    if (error || !data?.state) return null;
+    return migrateV1(data.state);
+  } catch {
+    return null;
+  }
+}
+
+let _saveTimer: ReturnType<typeof setTimeout> | null = null;
+
+export function saveStateCloud(userId: string, state: AppState): void {
+  if (userId === "local") return;
+  const supabase = getSupabase();
+  if (!supabase) return;
+
+  if (_saveTimer) clearTimeout(_saveTimer);
+  _saveTimer = setTimeout(async () => {
+    try {
+      await supabase.from("user_data").upsert(
+        { user_id: userId, state, updated_at: new Date().toISOString() },
+        { onConflict: "user_id" },
+      );
+    } catch (err) {
+      console.error("[saveStateCloud] error:", err);
+    }
+  }, 1000);
+}
+
+/* ---- Legacy exports (backwards compat for other files) ---- */
+
+export const loadState = loadStateLocal;
+export const saveState = saveStateLocal;
+
 export function didLoadSuccessfully(): boolean {
   return _loadedSuccessfully;
 }
 
-export function saveState(state: AppState): void {
-  if (typeof window === "undefined") return;
-  if (!_loadedSuccessfully) {
-    console.warn("[saveState] Skipping save: load failed, protecting stored data.");
-    return;
-  }
-  try {
-    const existing = localStorage.getItem(STORAGE_KEY);
-    if (existing) {
-      try {
-        localStorage.setItem(BACKUP_KEY, existing);
-      } catch { /* backup is best-effort */ }
-    }
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-  } catch {
-    // Storage full or unavailable
-  }
+export function setLoadedSuccessfully(val: boolean): void {
+  _loadedSuccessfully = val;
 }
 
 export function exportData(): string {

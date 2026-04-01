@@ -5,33 +5,72 @@ import {
   useContext,
   useReducer,
   useEffect,
+  useRef,
   type ReactNode,
   type Dispatch,
 } from "react";
 import type { AppState } from "./types";
-import { loadState, saveState, didLoadSuccessfully, INITIAL_STATE } from "./store";
+import {
+  loadStateLocal,
+  saveStateLocal,
+  loadStateCloud,
+  saveStateCloud,
+  setLoadedSuccessfully,
+  didLoadSuccessfully,
+  INITIAL_STATE,
+} from "./store";
 import { reducer, type Action } from "./reducer";
 import { runMigrations } from "./migrations";
 
 const StateCtx = createContext<AppState>(INITIAL_STATE);
 const DispatchCtx = createContext<Dispatch<Action>>(() => {});
 
-export function AppProvider({ children }: { children: ReactNode }) {
+interface ProviderProps {
+  userId: string;
+  children: ReactNode;
+}
+
+export function AppProvider({ userId, children }: ProviderProps) {
   const [state, dispatch] = useReducer(reducer, INITIAL_STATE);
+  const initialized = useRef(false);
 
   useEffect(() => {
-    const loaded = loadState();
-    dispatch({ type: "INIT", state: loaded });
-    if (didLoadSuccessfully()) {
-      runMigrations(loaded, dispatch);
+    if (initialized.current) return;
+    initialized.current = true;
+
+    async function init() {
+      const cloudState = await loadStateCloud(userId);
+
+      if (cloudState) {
+        setLoadedSuccessfully(true);
+        dispatch({ type: "INIT", state: cloudState });
+        saveStateLocal(cloudState);
+        runMigrations(cloudState, dispatch);
+        return;
+      }
+
+      const localState = loadStateLocal();
+      dispatch({ type: "INIT", state: localState });
+
+      if (didLoadSuccessfully()) {
+        runMigrations(localState, dispatch);
+
+        if (userId !== "local" && localState !== INITIAL_STATE) {
+          saveStateCloud(userId, localState);
+          console.log("[init] Datos locales migrados a la nube");
+        }
+      }
     }
-  }, []);
+
+    init();
+  }, [userId]);
 
   useEffect(() => {
     if (state !== INITIAL_STATE) {
-      saveState(state);
+      saveStateLocal(state);
+      saveStateCloud(userId, state);
     }
-  }, [state]);
+  }, [state, userId]);
 
   return (
     <StateCtx.Provider value={state}>
