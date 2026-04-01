@@ -241,19 +241,17 @@ export function flushPendingCloudSave(): void {
 
   try {
     const url = `${process.env.NEXT_PUBLIC_SUPABASE_URL}/rest/v1/user_data?on_conflict=user_id`;
-    const headers: Record<string, string> = {
-      "Content-Type": "application/json",
-      apikey: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? "",
-      Authorization: `Bearer ${process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? ""}`,
-      Prefer: "resolution=merge-duplicates",
-    };
-
-    if (navigator.sendBeacon) {
-      const blob = new Blob([payload], { type: "application/json" });
-      navigator.sendBeacon(url, blob);
-    } else {
-      fetch(url, { method: "POST", headers, body: payload, keepalive: true });
-    }
+    fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        apikey: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? "",
+        Authorization: `Bearer ${process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? ""}`,
+        Prefer: "resolution=merge-duplicates",
+      },
+      body: payload,
+      keepalive: true,
+    });
   } catch {
     // Best-effort on page close
   }

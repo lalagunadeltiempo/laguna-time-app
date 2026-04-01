@@ -144,7 +144,7 @@ export function PasoActivoCard({ paso }: CardProps) {
               </svg>
             )}
           </button>
-          <Timer startTime={paso.inicioTs!} pausas={paso.pausas} compact />
+          {paso.inicioTs && <Timer startTime={paso.inicioTs} pausas={paso.pausas} compact />}
           <button type="button" onClick={toggleExpanded} className="shrink-0 text-zinc-400" aria-label={expanded ? "Contraer" : "Expandir"}>
             <svg
               width="14"

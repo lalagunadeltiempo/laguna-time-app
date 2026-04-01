@@ -29,10 +29,11 @@ function resolveCuandoLabel(cuando: string): string {
   if (cuando === "manana") {
     const d = new Date();
     d.setDate(d.getDate() + 1);
-    return formatDate(d.toISOString());
+    return d.toLocaleDateString("es-ES", { weekday: "short", day: "numeric", month: "short" });
   }
   if (cuando && cuando !== "otro" && cuando !== "depende") {
-    return formatDate(new Date(cuando).toISOString());
+    const d = new Date(cuando + "T12:00:00");
+    return d.toLocaleDateString("es-ES", { weekday: "short", day: "numeric", month: "short" });
   }
   return "";
 }

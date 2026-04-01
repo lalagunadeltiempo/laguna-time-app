@@ -185,7 +185,17 @@ export function reducer(state: AppState, action: Action): AppState {
       return { ...state, pasos: state.pasos.map((p) => p.id === action.id ? { ...p, nombre: action.nombre } : p) };
 
     case "DELETE_PASO":
-      return { ...state, pasos: state.pasos.filter((p) => p.id !== action.id), pasosActivos: state.pasosActivos.filter((id) => id !== action.id) };
+      return {
+        ...state,
+        pasos: state.pasos.filter((p) => p.id !== action.id),
+        pasosActivos: state.pasosActivos.filter((id) => id !== action.id),
+        ejecuciones: state.ejecuciones.map((ej) => {
+          if (!ej.pasosLanzados) return ej;
+          const entries = Object.entries(ej.pasosLanzados).filter(([, v]) => v !== action.id);
+          if (entries.length === Object.keys(ej.pasosLanzados).length) return ej;
+          return { ...ej, pasosLanzados: Object.fromEntries(entries) };
+        }),
+      };
 
     // --- Entregables ---
     case "RENAME_ENTREGABLE":
@@ -302,13 +312,17 @@ export function reducer(state: AppState, action: Action): AppState {
     }
 
     // --- Importar / Inbox / Contactos ---
-    case "IMPORT_DATA":
+    case "IMPORT_DATA": {
+      const existingProjIds = new Set(state.proyectos.map((p) => p.id));
+      const existingResIds = new Set(state.resultados.map((r) => r.id));
+      const existingEntIds = new Set(state.entregables.map((e) => e.id));
       return {
         ...state,
-        proyectos: [...state.proyectos, ...action.proyectos],
-        resultados: [...state.resultados, ...action.resultados],
-        entregables: [...state.entregables, ...action.entregables],
+        proyectos: [...state.proyectos, ...action.proyectos.filter((p) => !existingProjIds.has(p.id))],
+        resultados: [...state.resultados, ...action.resultados.filter((r) => !existingResIds.has(r.id))],
+        entregables: [...state.entregables, ...action.entregables.filter((e) => !existingEntIds.has(e.id))],
       };
+    }
 
     case "ADD_INBOX":
       return { ...state, inbox: [...state.inbox, action.payload] };
