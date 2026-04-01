@@ -11,7 +11,6 @@ interface Props {
 export function AuthGate({ children }: Props) {
   const supabase = getSupabase();
   const [session, setSession] = useState<Session | null | undefined>(undefined);
-  const [mode, setMode] = useState<"login" | "signup">("login");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
@@ -55,14 +54,8 @@ export function AuthGate({ children }: Props) {
     setLoading(true);
 
     try {
-      if (mode === "signup") {
-        const { error: err } = await supabase.auth.signUp({ email, password });
-        if (err) { setError(err.message); return; }
-        setError("Revisa tu email para confirmar la cuenta.");
-      } else {
-        const { error: err } = await supabase.auth.signInWithPassword({ email, password });
-        if (err) { setError(err.message); return; }
-      }
+      const { error: err } = await supabase.auth.signInWithPassword({ email, password });
+      if (err) setError("Email o contraseña incorrectos");
     } finally {
       setLoading(false);
     }
@@ -73,7 +66,7 @@ export function AuthGate({ children }: Props) {
       <div className="w-full max-w-sm">
         <h1 className="mb-2 text-center text-3xl font-bold text-zinc-900">Laguna Time App</h1>
         <p className="mb-8 text-center text-base text-zinc-500">
-          {mode === "login" ? "Inicia sesión para continuar" : "Crea tu cuenta"}
+          Inicia sesión para continuar
         </p>
 
         <form onSubmit={handleSubmit} className="space-y-4">
@@ -100,12 +93,12 @@ export function AuthGate({ children }: Props) {
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               className="w-full rounded-lg border-2 border-zinc-200 px-4 py-3 text-base text-zinc-900 outline-none transition-colors focus:border-amber-400"
-              placeholder="Mínimo 6 caracteres"
+              placeholder="Contraseña"
             />
           </div>
 
           {error && (
-            <p className={`rounded-lg px-4 py-2 text-sm ${error.includes("email") || error.includes("Revisa") ? "bg-blue-50 text-blue-700" : "bg-red-50 text-red-600"}`}>
+            <p className="rounded-lg bg-red-50 px-4 py-2 text-sm text-red-600">
               {error}
             </p>
           )}
@@ -115,16 +108,9 @@ export function AuthGate({ children }: Props) {
             disabled={loading}
             className="w-full rounded-lg bg-amber-500 px-4 py-3 text-base font-semibold text-white transition-colors hover:bg-amber-600 disabled:opacity-50"
           >
-            {loading ? "..." : mode === "login" ? "Entrar" : "Crear cuenta"}
+            {loading ? "..." : "Entrar"}
           </button>
         </form>
-
-        <button
-          onClick={() => { setMode(mode === "login" ? "signup" : "login"); setError(""); }}
-          className="mt-6 block w-full text-center text-sm text-zinc-500 hover:text-zinc-700"
-        >
-          {mode === "login" ? "¿No tienes cuenta? Crear una" : "Ya tengo cuenta, iniciar sesión"}
-        </button>
       </div>
     </div>
   );
