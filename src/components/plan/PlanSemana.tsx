@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { useAppState } from "@/lib/context";
-import { USUARIO_ACTUAL } from "@/lib/usuario";
+import { useUsuario } from "@/lib/usuario";
 import { type Area } from "@/lib/types";
 
 const DAYS = ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"];
@@ -38,6 +38,7 @@ interface WeekBlock {
 }
 
 export function PlanSemana() {
+  const { nombre: currentUser } = useUsuario();
   const state = useAppState();
   const [viewMode, setViewMode] = useState<"yo" | "equipo">("yo");
 
@@ -55,7 +56,7 @@ export function PlanSemana() {
 
       const ent = state.entregables.find((e) => e.id === paso.entregableId);
       if (!ent) continue;
-      if (viewMode === "yo" && ent.responsable !== USUARIO_ACTUAL) continue;
+      if (viewMode === "yo" && ent.responsable !== currentUser) continue;
 
       const res = state.resultados.find((r) => r.id === ent.resultadoId);
       const proj = res ? state.proyectos.find((p) => p.id === res.proyectoId) : undefined;
@@ -88,7 +89,7 @@ export function PlanSemana() {
 
       const ent = state.entregables.find((e) => e.id === paso.entregableId);
       if (!ent) continue;
-      if (viewMode === "yo" && ent.responsable !== USUARIO_ACTUAL) continue;
+      if (viewMode === "yo" && ent.responsable !== currentUser) continue;
 
       const res = state.resultados.find((r) => r.id === ent.resultadoId);
       const proj = res ? state.proyectos.find((p) => p.id === res.proyectoId) : undefined;
@@ -104,7 +105,7 @@ export function PlanSemana() {
     }
 
     return result;
-  }, [state, weekDates, viewMode]);
+  }, [state, weekDates, viewMode, currentUser]);
 
   const blocksByDay = useMemo(() => {
     const map = new Map<string, WeekBlock[]>();

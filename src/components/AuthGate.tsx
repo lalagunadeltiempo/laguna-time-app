@@ -5,7 +5,7 @@ import { getSupabase } from "@/lib/supabase";
 import type { Session } from "@supabase/supabase-js";
 
 interface Props {
-  children: (userId: string) => ReactNode;
+  children: (userId: string, displayName: string) => ReactNode;
 }
 
 export function AuthGate({ children }: Props) {
@@ -32,7 +32,7 @@ export function AuthGate({ children }: Props) {
   }, [supabase]);
 
   if (!supabase) {
-    return <>{children("local")}</>;
+    return <>{children("local", "Gabi")}</>;
   }
 
   if (session === undefined) {
@@ -44,7 +44,9 @@ export function AuthGate({ children }: Props) {
   }
 
   if (session) {
-    return <>{children(session.user.id)}</>;
+    const meta = session.user.user_metadata;
+    const displayName = meta?.display_name || meta?.nombre || session.user.email?.split("@")[0] || "Usuario";
+    return <>{children(session.user.id, displayName)}</>;
   }
 
   async function handleSubmit(e: React.FormEvent) {

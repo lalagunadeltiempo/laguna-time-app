@@ -3,7 +3,7 @@
 import { useState, useMemo } from "react";
 import { useAppState, useAppDispatch } from "@/lib/context";
 import { generateId } from "@/lib/store";
-import { USUARIO_ACTUAL } from "@/lib/usuario";
+import { useUsuario } from "@/lib/usuario";
 import type { Area, Paso } from "@/lib/types";
 
 const HOURS = Array.from({ length: 15 }, (_, i) => i + 7);
@@ -25,6 +25,7 @@ interface Block {
 }
 
 export function PlanHoy() {
+  const { nombre: currentUser } = useUsuario();
   const state = useAppState();
   const dispatch = useAppDispatch();
   const [confirmBlock, setConfirmBlock] = useState<Block | null>(null);
@@ -75,7 +76,7 @@ export function PlanHoy() {
 
     return state.entregables.filter((e) => {
       if (e.tipo !== "sop" || e.estado === "hecho" || e.estado === "cancelada") return false;
-      if (e.responsable !== USUARIO_ACTUAL) return false;
+      if (e.responsable !== currentUser) return false;
       const res = state.resultados.find((r) => r.id === e.resultadoId);
       return res?.semana === currentWeek;
     }).map((e) => {
@@ -83,7 +84,7 @@ export function PlanHoy() {
       const proj = res ? state.proyectos.find((p) => p.id === res.proyectoId) : undefined;
       return { entregable: e, resultadoNombre: res?.nombre ?? "", proyectoNombre: proj?.nombre ?? "", area: proj?.area ?? ("operativa" as Area) };
     });
-  }, [state]);
+  }, [state, currentUser]);
 
   const pasosActivosHoy = useMemo(() => {
     return state.pasosActivos
@@ -110,7 +111,7 @@ export function PlanHoy() {
         finTs: null,
         estado: "",
         contexto: { urls: [...src.contexto.urls], apps: [...src.contexto.apps], notas: "" },
-        implicados: [{ tipo: "equipo", nombre: USUARIO_ACTUAL }],
+        implicados: [{ tipo: "equipo", nombre: currentUser }],
         pausas: [],
         siguientePaso: null,
       },
@@ -129,7 +130,7 @@ export function PlanHoy() {
         finTs: null,
         estado: "",
         contexto: { urls: [], apps: [], notas: "" },
-        implicados: [{ tipo: "equipo", nombre: USUARIO_ACTUAL }],
+        implicados: [{ tipo: "equipo", nombre: currentUser }],
         pausas: [],
         siguientePaso: null,
       },

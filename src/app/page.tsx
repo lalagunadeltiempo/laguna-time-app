@@ -3,6 +3,8 @@
 import { useState } from "react";
 import { AuthGate } from "@/components/AuthGate";
 import { AppProvider } from "@/lib/context";
+import { UsuarioContext, useUsuario } from "@/lib/usuario";
+import { getSupabase } from "@/lib/supabase";
 import { PantallaHoy } from "@/components/PantallaHoy";
 import { PantallaPlan } from "@/components/PantallaPlan";
 import { PantallaMapa } from "@/components/PantallaMapa";
@@ -65,7 +67,11 @@ const NAV_ITEMS: { id: Vista; label: string; sublabel: string; icon: React.React
 export default function Home() {
   return (
     <AuthGate>
-      {(userId) => <AppShell key={userId} userId={userId} />}
+      {(userId, displayName) => (
+        <UsuarioContext.Provider value={{ userId, nombre: displayName }}>
+          <AppShell key={userId} userId={userId} />
+        </UsuarioContext.Provider>
+      )}
     </AuthGate>
   );
 }
@@ -161,6 +167,9 @@ function AppShell({ userId }: { userId: string }) {
             })}
           </nav>
 
+          {/* User + Logout */}
+          <UserFooter collapsed={collapsed} />
+
           {/* Collapse toggle */}
           <div className="border-t border-border px-2 py-2">
             <button
@@ -230,5 +239,40 @@ function AppShell({ userId }: { userId: string }) {
         {showBuscador && <Buscador onClose={() => setShowBuscador(false)} />}
       </div>
     </AppProvider>
+  );
+}
+
+function UserFooter({ collapsed }: { collapsed: boolean }) {
+  const { nombre } = useUsuario();
+
+  async function handleLogout() {
+    const supabase = getSupabase();
+    if (supabase) await supabase.auth.signOut();
+  }
+
+  return (
+    <div className="border-t border-border px-2 py-2">
+      <div className={`flex items-center gap-2 rounded-lg px-3 py-2 ${collapsed ? "justify-center" : ""}`}>
+        <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-accent text-xs font-bold text-white">
+          {nombre.charAt(0).toUpperCase()}
+        </div>
+        {!collapsed && (
+          <div className="flex min-w-0 flex-1 items-center justify-between">
+            <span className="truncate text-sm font-medium text-foreground">{nombre}</span>
+            <button
+              onClick={handleLogout}
+              aria-label="Cerrar sesión"
+              className="shrink-0 rounded-lg p-1 text-muted transition-colors hover:bg-surface-hover hover:text-foreground"
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+                <polyline points="16 17 21 12 16 7" />
+                <line x1="21" y1="12" x2="9" y2="12" />
+              </svg>
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
   );
 }

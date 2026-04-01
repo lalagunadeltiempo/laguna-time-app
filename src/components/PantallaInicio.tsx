@@ -13,7 +13,7 @@ import {
   type EsperandoItem,
 } from "@/lib/hooks";
 import { generateId, exportData, importData, restoreBackup } from "@/lib/store";
-import { USUARIO_ACTUAL } from "@/lib/usuario";
+import { useUsuario } from "@/lib/usuario";
 import { getISOWeek, formatMin } from "@/lib/utils";
 import { progLabel, fechaKey } from "@/lib/sop-scheduler";
 import type { AppState, Paso, Entregable, Resultado, EjecucionSOP, PlantillaProceso, PasoPlantilla } from "@/lib/types";
@@ -30,6 +30,7 @@ interface Props {
 export function PantallaInicio({ onOpenBuscador, onOpenDetalle }: Props) {
   const state = useAppState();
   const dispatch = useAppDispatch();
+  const { nombre: currentUser } = useUsuario();
   const pasosActivos = usePasosActivos();
   const pendientes = usePendientes();
   const pasosHoy = usePasosHoy();
@@ -77,7 +78,7 @@ export function PantallaInicio({ onOpenBuscador, onOpenDetalle }: Props) {
         contexto: ultimoPaso
           ? { urls: [...ultimoPaso.contexto.urls], apps: [...ultimoPaso.contexto.apps], notas: "" }
           : { urls: [], apps: [], notas: "" },
-        implicados: [{ tipo: "equipo", nombre: USUARIO_ACTUAL }],
+        implicados: [{ tipo: "equipo", nombre: currentUser }],
         pausas: [],
         siguientePaso: null,
       },
@@ -110,7 +111,7 @@ export function PantallaInicio({ onOpenBuscador, onOpenDetalle }: Props) {
         <div>
           <h1 className="text-2xl font-bold text-zinc-900">Laguna Time App</h1>
           <p className="mt-1 text-sm text-zinc-500">
-            {USUARIO_ACTUAL} &middot;{" "}
+            {currentUser} &middot;{" "}
             {new Date().toLocaleDateString("es-ES", { weekday: "long", day: "numeric", month: "long" })}
           </p>
         </div>

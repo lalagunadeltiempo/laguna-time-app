@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useAppState, useAppDispatch } from "@/lib/context";
 import { generateId } from "@/lib/store";
-import { USUARIO_ACTUAL } from "@/lib/usuario";
+import { useUsuario } from "@/lib/usuario";
 
 export function AddResultadoInline({ proyectoId }: { proyectoId: string }) {
   const dispatch = useAppDispatch();
@@ -43,10 +43,11 @@ export function AddResultadoInline({ proyectoId }: { proyectoId: string }) {
 export function AddEntregableInline({ resultadoId }: { resultadoId: string }) {
   const state = useAppState();
   const dispatch = useAppDispatch();
+  const { nombre: currentUser } = useUsuario();
   const [editing, setEditing] = useState(false);
   const [nombre, setNombre] = useState("");
   const [dias, setDias] = useState("3");
-  const [responsable, setResponsable] = useState(USUARIO_ACTUAL);
+  const [responsable, setResponsable] = useState(currentUser);
 
   function save() {
     if (!nombre.trim()) return;
@@ -60,7 +61,7 @@ export function AddEntregableInline({ resultadoId }: { resultadoId: string }) {
         semana: null, fechaLimite: null, fechaInicio: null,
       },
     });
-    setNombre(""); setDias("3"); setResponsable(USUARIO_ACTUAL); setEditing(false);
+    setNombre(""); setDias("3"); setResponsable(currentUser); setEditing(false);
   }
 
   if (!editing) {

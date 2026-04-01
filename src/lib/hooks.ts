@@ -3,7 +3,7 @@
 import { useMemo } from "react";
 import { useAppState } from "./context";
 import { AREAS_PERSONAL, AREAS_EMPRESA, ambitoDeArea, type DependeDe, type Entregable, type Paso } from "./types";
-import { USUARIO_ACTUAL } from "./usuario";
+import { useUsuario } from "./usuario";
 import { getSOPsHoy, getSOPsDemanda, type SOPHoy } from "./sop-scheduler";
 import type { PlantillaProceso } from "./types";
 
@@ -60,6 +60,7 @@ export interface Pendiente {
 
 export function usePendientes(): Pendiente[] {
   const state = useAppState();
+  const { nombre: currentUser } = useUsuario();
 
   return useMemo(() => {
     const entregablesActivosIds = new Set(
@@ -86,7 +87,7 @@ export function usePendientes(): Pendiente[] {
 
     return state.entregables
       .filter((e) => e.estado !== "hecho" && e.estado !== "cancelada")
-      .filter((e) => e.responsable === USUARIO_ACTUAL)
+      .filter((e) => e.responsable === currentUser)
       .filter((e) => !entregablesActivosIds.has(e.id))
       .map((e) => {
         const pendingPaso = pendingByEntregable.get(e.id) ?? null;
@@ -116,7 +117,7 @@ export function usePendientes(): Pendiente[] {
         if (oa !== ob) return oa - ob;
         return new Date(b.entregable.creado).getTime() - new Date(a.entregable.creado).getTime();
       });
-  }, [state]);
+  }, [state, currentUser]);
 }
 
 export interface EsperandoItem {
@@ -194,19 +195,21 @@ export function usePasosHoy() {
 
 export function useSOPsHoy(): { mios: SOPHoy[]; equipo: SOPHoy[] } {
   const state = useAppState();
+  const { nombre: currentUser } = useUsuario();
   return useMemo(() => {
     const todos = getSOPsHoy(state);
-    const mios = todos.filter((s) => s.plantilla.responsableDefault === USUARIO_ACTUAL);
-    const equipo = todos.filter((s) => s.plantilla.responsableDefault !== USUARIO_ACTUAL);
+    const mios = todos.filter((s) => s.plantilla.responsableDefault === currentUser);
+    const equipo = todos.filter((s) => s.plantilla.responsableDefault !== currentUser);
     return { mios, equipo };
-  }, [state]);
+  }, [state, currentUser]);
 }
 
 export function useSOPsDemanda(): PlantillaProceso[] {
   const state = useAppState();
+  const { nombre: currentUser } = useUsuario();
   return useMemo(
-    () => getSOPsDemanda(state).filter((pl) => pl.responsableDefault === USUARIO_ACTUAL),
-    [state],
+    () => getSOPsDemanda(state).filter((pl) => pl.responsableDefault === currentUser),
+    [state, currentUser],
   );
 }
 

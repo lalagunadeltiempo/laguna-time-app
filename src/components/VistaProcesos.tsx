@@ -6,7 +6,7 @@ import type { PlantillaProceso, PasoPlantilla, Programacion, Resultado, Entregab
 import { AREAS_EMPRESA, AREA_COLORS } from "@/lib/types";
 import { parseMarkdownProcesos } from "@/lib/parse-procesos";
 import { generateId } from "@/lib/store";
-import { USUARIO_ACTUAL } from "@/lib/usuario";
+import { useUsuario } from "@/lib/usuario";
 import { getISOWeek } from "@/lib/utils";
 import { progLabel } from "@/lib/sop-scheduler";
 import { downloadPDF } from "@/lib/export-sop";
@@ -266,11 +266,12 @@ export function VistaProcesos({ onBack }: Props) {
 function CrearSOP({ onBack }: { onBack: () => void }) {
   const state = useAppState();
   const dispatch = useAppDispatch();
+  const { nombre: currentUser } = useUsuario();
 
   const [nombre, setNombre] = useState("");
   const [area, setArea] = useState<AreaEmpresa>("operativa");
   const [objetivo, setObjetivo] = useState("");
-  const [responsable, setResponsable] = useState(USUARIO_ACTUAL);
+  const [responsable, setResponsable] = useState(currentUser);
   const [disparador, setDisparador] = useState("");
   const [programacion, setProgramacion] = useState<Programacion | null>(null);
   const [proyectoId, setProyectoId] = useState("");
@@ -799,8 +800,9 @@ function EditarSOP({ plantilla, onBack }: { plantilla: PlantillaProceso; onBack:
 function ImportarMarkdown({ onBack }: { onBack: () => void }) {
   const dispatch = useAppDispatch();
   const state = useAppState();
+  const { nombre: currentUser } = useUsuario();
   const [text, setText] = useState("");
-  const [responsable, setResponsable] = useState(USUARIO_ACTUAL);
+  const [responsable, setResponsable] = useState(currentUser);
 
   const preview = useMemo(() => text.trim() ? parseMarkdownProcesos(text, responsable) : [], [text, responsable]);
 

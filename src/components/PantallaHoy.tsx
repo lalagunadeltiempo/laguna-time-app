@@ -4,13 +4,14 @@ import { useState, useMemo } from "react";
 import { useAppState, useAppDispatch } from "@/lib/context";
 import { usePasosActivos } from "@/lib/hooks";
 import { generateId } from "@/lib/store";
-import { USUARIO_ACTUAL } from "@/lib/usuario";
+import { useUsuario } from "@/lib/usuario";
 import type { InboxItem } from "@/lib/types";
 import { PasoActivoCard } from "./PasoActivo";
 import { NuevoPaso } from "./NuevoPaso";
 import { VistaInbox } from "./VistaInbox";
 
 export function PantallaHoy() {
+  const { nombre: currentUser } = useUsuario();
   const state = useAppState();
   const dispatch = useAppDispatch();
   const pasosActivos = usePasosActivos();
@@ -37,7 +38,7 @@ export function PantallaHoy() {
       <div className="mb-8">
         <h1 className="text-3xl font-bold text-foreground">Hoy</h1>
         <p className="mt-1 text-sm text-muted">
-          {USUARIO_ACTUAL} · {new Date().toLocaleDateString("es-ES", { weekday: "long", day: "numeric", month: "long" })}
+          {currentUser} · {new Date().toLocaleDateString("es-ES", { weekday: "long", day: "numeric", month: "long" })}
         </p>
       </div>
 

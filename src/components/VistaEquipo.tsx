@@ -4,7 +4,7 @@ import { useState, useMemo } from "react";
 import { useAppState, useAppDispatch } from "@/lib/context";
 import { generateId } from "@/lib/store";
 import type { MiembroInfo } from "@/lib/types";
-import { USUARIO_ACTUAL } from "@/lib/usuario";
+import { useUsuario } from "@/lib/usuario";
 import { ModalConfirm } from "./ModalConfirm";
 
 const COLORS = ["#F59E0B", "#3B82F6", "#10B981", "#EF4444", "#8B5CF6", "#EC4899", "#06B6D4", "#F97316", "#84CC16", "#A855F7"];
@@ -12,6 +12,7 @@ const COLORS = ["#F59E0B", "#3B82F6", "#10B981", "#EF4444", "#8B5CF6", "#EC4899"
 interface Props { onBack: () => void }
 
 export function VistaEquipo({ onBack }: Props) {
+  const { nombre: currentUser } = useUsuario();
   const state = useAppState();
   const dispatch = useAppDispatch();
   const [selectedMember, setSelectedMember] = useState<string | null>(null);
@@ -73,7 +74,7 @@ export function VistaEquipo({ onBack }: Props) {
       <div className="flex-1 space-y-2 overflow-y-auto">
         {state.miembros.map((m) => {
           const s = statsFor(m);
-          const isMe = m.nombre === USUARIO_ACTUAL;
+          const isMe = m.nombre === currentUser;
           const isEditing = editingId === m.id;
 
           if (isEditing) {

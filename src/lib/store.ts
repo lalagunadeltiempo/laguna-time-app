@@ -171,18 +171,38 @@ export function saveStateLocal(state: AppState): void {
 
 /* ---- Supabase (cloud persistence) ---- */
 
+const WORKSPACE_ID = "workspace-laguna";
+
 export async function loadStateCloud(userId: string): Promise<AppState | null> {
   const supabase = getSupabase();
   if (!supabase || userId === "local") return null;
 
   try {
+    // Shared workspace: all team members read the same state
     const { data, error } = await supabase
       .from("user_data")
       .select("state")
-      .eq("user_id", userId)
+      .eq("user_id", WORKSPACE_ID)
       .single();
 
-    if (error || !data?.state) return null;
+    if (error || !data?.state) {
+      // Fallback: try to load the user's own data (migration from per-user to shared)
+      const { data: userData } = await supabase
+        .from("user_data")
+        .select("state")
+        .eq("user_id", userId)
+        .single();
+      if (userData?.state) {
+        const migrated = migrateV1(userData.state);
+        // Promote to shared workspace
+        await supabase.from("user_data").upsert(
+          { user_id: WORKSPACE_ID, state: migrated, updated_at: new Date().toISOString() },
+          { onConflict: "user_id" },
+        );
+        return migrated;
+      }
+      return null;
+    }
     return migrateV1(data.state);
   } catch {
     return null;
@@ -197,7 +217,7 @@ export function saveStateCloud(userId: string, state: AppState): void {
   const supabase = getSupabase();
   if (!supabase) return;
 
-  _pendingSave = { userId, state };
+  _pendingSave = { userId: WORKSPACE_ID, state };
 
   if (_saveTimer) clearTimeout(_saveTimer);
   _saveTimer = setTimeout(async () => {
@@ -208,7 +228,7 @@ export function saveStateCloud(userId: string, state: AppState): void {
 
     try {
       const { error } = await supabase.from("user_data").upsert(
-        { user_id: pending.userId, state: pending.state, updated_at: new Date().toISOString() },
+        { user_id: WORKSPACE_ID, state: pending.state, updated_at: new Date().toISOString() },
         { onConflict: "user_id" },
       );
       if (error) {

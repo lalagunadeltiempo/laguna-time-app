@@ -3,7 +3,7 @@
 import { useState, useMemo } from "react";
 import { useAppState, useAppDispatch } from "@/lib/context";
 import { generateId } from "@/lib/store";
-import { USUARIO_ACTUAL } from "@/lib/usuario";
+import { useUsuario } from "@/lib/usuario";
 import {
   type Ambito,
   type Area,
@@ -18,6 +18,7 @@ interface Props {
 export function NuevoPaso({ onClose }: Props) {
   const state = useAppState();
   const dispatch = useAppDispatch();
+  const { nombre: currentUser } = useUsuario();
 
   const [proyectoId, setProyectoId] = useState<string | null>(null);
   const [newProyecto, setNewProyecto] = useState("");
@@ -33,9 +34,9 @@ export function NuevoPaso({ onClose }: Props) {
   const [newEntregable, setNewEntregable] = useState("");
   const [diasEst, setDiasEst] = useState("3");
 
-  const [asignadoA, setAsignadoA] = useState(USUARIO_ACTUAL);
+  const [asignadoA, setAsignadoA] = useState(currentUser);
   const [showAsignar, setShowAsignar] = useState(false);
-  const esParaOtro = asignadoA !== USUARIO_ACTUAL;
+  const esParaOtro = asignadoA !== currentUser;
 
   const proyectos = useMemo(() => {
     const lastActivity = new Map<string, number>();
@@ -169,8 +170,8 @@ export function NuevoPaso({ onClose }: Props) {
         estado: "",
         contexto: { urls: [], apps: [], notas: "" },
         implicados: esParaOtro
-          ? [{ tipo: "equipo", nombre: USUARIO_ACTUAL }, { tipo: "equipo", nombre: asignadoA }]
-          : [{ tipo: "equipo", nombre: USUARIO_ACTUAL }],
+          ? [{ tipo: "equipo", nombre: currentUser }, { tipo: "equipo", nombre: asignadoA }]
+          : [{ tipo: "equipo", nombre: currentUser }],
         pausas: [],
         siguientePaso: null,
       },
@@ -201,7 +202,7 @@ export function NuevoPaso({ onClose }: Props) {
           <div className="mb-3 flex items-center gap-2 rounded-lg bg-blue-50 px-3 py-2 text-sm text-blue-700">
             Asignando a <strong>{asignadoA}</strong>
             <button
-              onClick={() => { setAsignadoA(USUARIO_ACTUAL); setShowAsignar(false); }}
+              onClick={() => { setAsignadoA(currentUser); setShowAsignar(false); }}
               className="ml-auto text-blue-500 hover:underline"
             >
               Cancelar
@@ -430,7 +431,7 @@ export function NuevoPaso({ onClose }: Props) {
               )}
               {showAsignar && !esParaOtro && (
                 <div className="flex flex-wrap gap-1.5">
-                  {state.miembros.map((mb) => mb.nombre).filter((m) => m !== USUARIO_ACTUAL).map((m) => (
+                  {state.miembros.map((mb) => mb.nombre).filter((m) => m !== currentUser).map((m) => (
                     <button
                       key={m}
                       onClick={() => { setAsignadoA(m); setShowAsignar(false); }}

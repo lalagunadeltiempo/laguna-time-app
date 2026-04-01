@@ -7,7 +7,7 @@ interface UrlEntry {
   url: string;
   nombre: string;
   descripcion: string;
-  pasos: { id: string; nombre: string; fecha: string | null }[];
+  pasos: { id: string; nombre: string; fecha: string | null; persona: string }[];
 }
 
 export function PantallaURLs() {
@@ -18,12 +18,13 @@ export function PantallaURLs() {
     const map = new Map<string, UrlEntry>();
 
     for (const paso of state.pasos) {
+      const persona = paso.implicados?.find((i) => i.tipo === "equipo")?.nombre ?? "";
       for (const u of paso.contexto.urls) {
         if (!u.url) continue;
         const key = u.url.toLowerCase().replace(/\/+$/, "");
         const existing = map.get(key);
         if (existing) {
-          existing.pasos.push({ id: paso.id, nombre: paso.nombre, fecha: paso.inicioTs });
+          existing.pasos.push({ id: paso.id, nombre: paso.nombre, fecha: paso.inicioTs, persona });
           if (u.nombre && !existing.nombre) existing.nombre = u.nombre;
           if (u.descripcion && !existing.descripcion) existing.descripcion = u.descripcion;
         } else {
@@ -31,7 +32,7 @@ export function PantallaURLs() {
             url: u.url,
             nombre: u.nombre || "",
             descripcion: u.descripcion || "",
-            pasos: [{ id: paso.id, nombre: paso.nombre, fecha: paso.inicioTs }],
+            pasos: [{ id: paso.id, nombre: paso.nombre, fecha: paso.inicioTs, persona }],
           });
         }
       }
@@ -118,21 +119,39 @@ function UrlCard({ entry }: { entry: UrlEntry }) {
             <p className="mt-1 text-sm text-muted">{entry.descripcion}</p>
           )}
         </div>
-        <button
-          onClick={() => setOpen(!open)}
-          className="shrink-0 rounded-lg px-2 py-1 text-xs text-muted transition-colors hover:bg-surface"
-        >
-          {entry.pasos.length} {entry.pasos.length === 1 ? "paso" : "pasos"}
-        </button>
+        <div className="flex shrink-0 items-center gap-2">
+          {(() => {
+            const people = [...new Set(entry.pasos.map((p) => p.persona).filter(Boolean))];
+            if (people.length > 0) {
+              return (
+                <span className="text-[10px] text-muted">
+                  {people.join(", ")}
+                </span>
+              );
+            }
+            return null;
+          })()}
+          <button
+            onClick={() => setOpen(!open)}
+            className="rounded-lg px-2 py-1 text-xs text-muted transition-colors hover:bg-surface"
+          >
+            {entry.pasos.length} {entry.pasos.length === 1 ? "paso" : "pasos"}
+          </button>
+        </div>
       </div>
       {open && (
         <div className="mt-3 border-t border-border pt-3">
           {entry.pasos.map((p) => (
             <div key={p.id} className="flex items-center gap-2 py-1 text-xs text-muted">
               <span className="h-1.5 w-1.5 rounded-full bg-muted" />
+              {p.persona && (
+                <span className="shrink-0 rounded-full bg-accent-soft px-2 py-0.5 text-[10px] font-semibold text-accent">
+                  {p.persona}
+                </span>
+              )}
               <span className="flex-1 truncate">{p.nombre}</span>
               {p.fecha && (
-                <span>
+                <span className="shrink-0">
                   {new Date(p.fecha).toLocaleDateString("es-ES", { day: "numeric", month: "short" })}
                 </span>
               )}

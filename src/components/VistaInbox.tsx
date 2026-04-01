@@ -3,7 +3,7 @@
 import { useState, useMemo } from "react";
 import { useAppState, useAppDispatch } from "@/lib/context";
 import { generateId } from "@/lib/store";
-import { USUARIO_ACTUAL } from "@/lib/usuario";
+import { useUsuario } from "@/lib/usuario";
 
 interface Props {
   onClose: () => void;
@@ -95,12 +95,13 @@ function ConvertForm({ texto, mode, onDone, onCancel }: {
 }) {
   const state = useAppState();
   const dispatch = useAppDispatch();
+  const { nombre: currentUser } = useUsuario();
 
   const [nombre, setNombre] = useState(texto);
   const [proyectoId, setProyectoId] = useState("");
   const [resultadoId, setResultadoId] = useState("");
   const [entregableId, setEntregableId] = useState("");
-  const [responsable, setResponsable] = useState(USUARIO_ACTUAL);
+  const [responsable, setResponsable] = useState(currentUser);
 
   const [newProyecto, setNewProyecto] = useState("");
   const [newResultado, setNewResultado] = useState("");
@@ -219,7 +220,7 @@ function ConvertForm({ texto, mode, onDone, onCancel }: {
           id: generateId(), entregableId: eId, nombre: nombre.trim(),
           inicioTs: null, finTs: null, estado: "",
           contexto: { urls: [], apps: [], notas: "" },
-          implicados: [{ tipo: "equipo", nombre: USUARIO_ACTUAL }],
+          implicados: [{ tipo: "equipo", nombre: currentUser }],
           pausas: [],
           siguientePaso: null,
         },
