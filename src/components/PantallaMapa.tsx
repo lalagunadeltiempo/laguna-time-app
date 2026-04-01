@@ -440,16 +440,17 @@ function EntregableBlock({ entregable, index, total }: { entregable: Entregable;
 
   function assignDate(period: string) {
     const now = new Date();
+    const localDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
     let target: string;
     if (period === "hoy") {
-      target = now.toISOString().slice(0, 10);
+      target = localDate;
     } else if (period === "semana") {
       const day = now.getDay() || 7;
       const monday = new Date(now);
       monday.setDate(now.getDate() - day + 1);
-      target = `W${monday.toISOString().slice(0, 10)}`;
+      target = `W${monday.getFullYear()}-${String(monday.getMonth() + 1).padStart(2, "0")}-${String(monday.getDate()).padStart(2, "0")}`;
     } else if (period === "mes") {
-      target = `M${now.toISOString().slice(0, 7)}`;
+      target = `M${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
     } else if (period === "trimestre") {
       const q = Math.ceil((now.getMonth() + 1) / 3);
       target = `Q${now.getFullYear()}-Q${q}`;

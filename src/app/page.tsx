@@ -65,7 +65,7 @@ const NAV_ITEMS: { id: Vista; label: string; sublabel: string; icon: React.React
 export default function Home() {
   return (
     <AuthGate>
-      {(userId) => <AppShell userId={userId} />}
+      {(userId) => <AppShell key={userId} userId={userId} />}
     </AuthGate>
   );
 }

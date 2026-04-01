@@ -182,6 +182,8 @@ function EndOfDayFlow({
       role="dialog"
       aria-modal="true"
       aria-label="Cerrar el día"
+      tabIndex={-1}
+      ref={(el) => el?.focus()}
       onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
       onKeyDown={(e) => { if (e.key === "Escape") onClose(); }}
     >

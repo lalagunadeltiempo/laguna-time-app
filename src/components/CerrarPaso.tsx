@@ -8,8 +8,15 @@ import { generateId } from "@/lib/store";
 type Step = "nombre_paso" | "siguiente";
 type CuandoMode = "manana" | "otro" | "depende";
 
-function formatDuration(startIso: string): string {
-  const mins = Math.round((Date.now() - new Date(startIso).getTime()) / 60000);
+function formatDuration(paso: Paso): string {
+  if (!paso.inicioTs) return "—";
+  const totalMs = Date.now() - new Date(paso.inicioTs).getTime();
+  const pausedMs = (paso.pausas ?? []).reduce((acc, p) => {
+    const start = new Date(p.pauseTs).getTime();
+    const end = p.resumeTs ? new Date(p.resumeTs).getTime() : Date.now();
+    return acc + (end - start);
+  }, 0);
+  const mins = Math.max(0, Math.round((totalMs - pausedMs) / 60000));
   if (mins < 60) return `${mins} min`;
   return `${Math.floor(mins / 60)}h ${mins % 60}m`;
 }
@@ -128,7 +135,7 @@ export function CerrarPaso({ paso, onClose }: Props) {
               </p>
             </div>
             <span className="shrink-0 rounded-lg bg-zinc-100 px-2 py-1 text-xs font-medium text-zinc-500">
-              {paso.inicioTs ? formatDuration(paso.inicioTs) : "—"}
+              {formatDuration(paso)}
             </span>
           </div>
         </div>
@@ -298,9 +305,19 @@ export function CerrarPaso({ paso, onClose }: Props) {
             )}
 
             <button onClick={handleFinish}
-              className="w-full rounded-xl bg-green-600 py-3 text-base font-semibold text-white transition-colors hover:bg-green-700">
+              disabled={
+                (sigTipo === "continuar" && sigCuando === "depende" && dependePersonas.length === 0) ||
+                (sigTipo === "continuar" && sigCuando === "otro" && !sigFechaCustom)
+              }
+              className="w-full rounded-xl bg-green-600 py-3 text-base font-semibold text-white transition-colors hover:bg-green-700 disabled:opacity-40 disabled:cursor-not-allowed">
               {sigTipo === "fin" ? "Paso dado y entregable terminado" : "Paso dado"}
             </button>
+            {sigTipo === "continuar" && sigCuando === "depende" && dependePersonas.length === 0 && (
+              <p className="text-center text-xs text-red-500">Selecciona al menos una persona</p>
+            )}
+            {sigTipo === "continuar" && sigCuando === "otro" && !sigFechaCustom && (
+              <p className="text-center text-xs text-red-500">Selecciona una fecha</p>
+            )}
           </div>
         )}
     </div>

@@ -40,8 +40,12 @@ export function usePasosActivos() {
   return useMemo(() => {
     return state.pasosActivos
       .map((id) => state.pasos.find((p) => p.id === id))
-      .filter(Boolean) as Paso[];
-  }, [state.pasosActivos, state.pasos]);
+      .filter((p): p is Paso => {
+        if (!p) return false;
+        const ent = state.entregables.find((e) => e.id === p.entregableId);
+        return !!ent;
+      });
+  }, [state.pasosActivos, state.pasos, state.entregables]);
 }
 
 export interface Pendiente {

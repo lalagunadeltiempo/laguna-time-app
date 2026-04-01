@@ -112,7 +112,13 @@ export function reducer(state: AppState, action: Action): AppState {
 
     // --- Pasos ---
     case "START_PASO":
-      return { ...state, pasos: [...state.pasos, action.payload], pasosActivos: [...state.pasosActivos, action.payload.id] };
+      return {
+        ...state,
+        pasos: [...state.pasos, action.payload],
+        pasosActivos: state.pasosActivos.includes(action.payload.id)
+          ? state.pasosActivos
+          : [...state.pasosActivos, action.payload.id],
+      };
 
     case "ADD_PASO":
       return { ...state, pasos: [...state.pasos, action.payload] };
@@ -121,7 +127,9 @@ export function reducer(state: AppState, action: Action): AppState {
       return {
         ...state,
         pasos: state.pasos.map((p) => p.id === action.id ? { ...p, inicioTs: new Date().toISOString() } : p),
-        pasosActivos: [...state.pasosActivos, action.id],
+        pasosActivos: state.pasosActivos.includes(action.id)
+          ? state.pasosActivos
+          : [...state.pasosActivos, action.id],
       };
 
     case "PAUSE_PASO":

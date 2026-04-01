@@ -15,6 +15,7 @@ import {
   saveStateLocal,
   loadStateCloud,
   saveStateCloud,
+  flushPendingCloudSave,
   setLoadedSuccessfully,
   didLoadSuccessfully,
   INITIAL_STATE,
@@ -33,6 +34,13 @@ interface ProviderProps {
 export function AppProvider({ userId, children }: ProviderProps) {
   const [state, dispatch] = useReducer(reducer, INITIAL_STATE);
   const initialized = useRef(false);
+  const prevUserId = useRef(userId);
+
+  // Reset initialization when userId changes
+  if (prevUserId.current !== userId) {
+    prevUserId.current = userId;
+    initialized.current = false;
+  }
 
   useEffect(() => {
     if (initialized.current) return;
@@ -65,12 +73,21 @@ export function AppProvider({ userId, children }: ProviderProps) {
     init();
   }, [userId]);
 
+  // Persist state changes
   useEffect(() => {
-    if (state !== INITIAL_STATE) {
-      saveStateLocal(state);
-      saveStateCloud(userId, state);
-    }
+    if (state === INITIAL_STATE) return;
+    saveStateLocal(state);
+    saveStateCloud(userId, state);
   }, [state, userId]);
+
+  // Flush pending cloud save on page close
+  useEffect(() => {
+    function handleBeforeUnload() {
+      flushPendingCloudSave();
+    }
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => window.removeEventListener("beforeunload", handleBeforeUnload);
+  }, []);
 
   return (
     <StateCtx.Provider value={state}>

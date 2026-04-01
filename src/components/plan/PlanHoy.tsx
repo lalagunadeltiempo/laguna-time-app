@@ -241,6 +241,8 @@ export function PlanHoy() {
           role="dialog"
           aria-modal="true"
           aria-label="Confirmar inicio de paso"
+          tabIndex={-1}
+          ref={(el) => el?.focus()}
           onClick={(e) => { if (e.target === e.currentTarget) setConfirmBlock(null); }}
           onKeyDown={(e) => { if (e.key === "Escape") setConfirmBlock(null); }}
         >

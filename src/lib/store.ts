@@ -162,7 +162,11 @@ export function saveStateLocal(state: AppState): void {
       try { localStorage.setItem(BACKUP_KEY, existing); } catch { /* best-effort */ }
     }
     localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-  } catch { /* storage full */ }
+  } catch (err) {
+    if (err instanceof DOMException && err.name === "QuotaExceededError") {
+      console.warn("[saveStateLocal] localStorage lleno — los datos se guardan en la nube si está disponible");
+    }
+  }
 }
 
 /* ---- Supabase (cloud persistence) ---- */
@@ -186,23 +190,73 @@ export async function loadStateCloud(userId: string): Promise<AppState | null> {
 }
 
 let _saveTimer: ReturnType<typeof setTimeout> | null = null;
+let _pendingSave: { userId: string; state: AppState } | null = null;
 
 export function saveStateCloud(userId: string, state: AppState): void {
   if (userId === "local") return;
   const supabase = getSupabase();
   if (!supabase) return;
 
+  _pendingSave = { userId, state };
+
   if (_saveTimer) clearTimeout(_saveTimer);
   _saveTimer = setTimeout(async () => {
+    const pending = _pendingSave;
+    _pendingSave = null;
+    _saveTimer = null;
+    if (!pending) return;
+
     try {
-      await supabase.from("user_data").upsert(
-        { user_id: userId, state, updated_at: new Date().toISOString() },
+      const { error } = await supabase.from("user_data").upsert(
+        { user_id: pending.userId, state: pending.state, updated_at: new Date().toISOString() },
         { onConflict: "user_id" },
       );
+      if (error) {
+        console.error("[saveStateCloud] Supabase error:", error.message);
+      }
     } catch (err) {
-      console.error("[saveStateCloud] error:", err);
+      console.error("[saveStateCloud] network error:", err);
     }
   }, 1000);
+}
+
+export function flushPendingCloudSave(): void {
+  if (!_pendingSave) return;
+  const { userId, state } = _pendingSave;
+  _pendingSave = null;
+  if (_saveTimer) {
+    clearTimeout(_saveTimer);
+    _saveTimer = null;
+  }
+
+  const supabase = getSupabase();
+  if (!supabase || userId === "local") return;
+
+  // sendBeacon for reliability on page close — falls back to fire-and-forget fetch
+  const payload = JSON.stringify({
+    user_id: userId,
+    state,
+    updated_at: new Date().toISOString(),
+  });
+
+  try {
+    const url = `${process.env.NEXT_PUBLIC_SUPABASE_URL}/rest/v1/user_data?on_conflict=user_id`;
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+      apikey: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? "",
+      Authorization: `Bearer ${process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? ""}`,
+      Prefer: "resolution=merge-duplicates",
+    };
+
+    if (navigator.sendBeacon) {
+      const blob = new Blob([payload], { type: "application/json" });
+      navigator.sendBeacon(url, blob);
+    } else {
+      fetch(url, { method: "POST", headers, body: payload, keepalive: true });
+    }
+  } catch {
+    // Best-effort on page close
+  }
 }
 
 /* ---- Legacy exports (backwards compat for other files) ---- */
@@ -227,7 +281,13 @@ export function importData(json: string): AppState {
   const raw = JSON.parse(json);
   const state = migrateV1(raw);
   _loadedSuccessfully = true;
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+  } catch (err) {
+    if (err instanceof DOMException && err.name === "QuotaExceededError") {
+      console.warn("[importData] localStorage lleno");
+    }
+  }
   return state;
 }
 
@@ -238,7 +298,7 @@ export function restoreBackup(): AppState | null {
   try {
     const state = migrateV1(JSON.parse(backup));
     _loadedSuccessfully = true;
-    localStorage.setItem(STORAGE_KEY, backup);
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
     return state;
   } catch {
     return null;
