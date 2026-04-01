@@ -30,7 +30,7 @@ function areaLabel(id: Area): string {
 }
 
 /* ============================================================
-   MAIN COMPONENT
+   MAIN
    ============================================================ */
 
 export function PantallaMapa({ onOpenDetalle }: Props) {
@@ -38,35 +38,27 @@ export function PantallaMapa({ onOpenDetalle }: Props) {
   const dispatch = useAppDispatch();
 
   return (
-    <div className="mx-auto flex w-full max-w-3xl flex-1 flex-col px-5 py-8">
+    <div className="mx-auto w-full max-w-4xl px-4 py-8 sm:px-8">
 
-      {/* ---- EMPRESA ---- */}
       <AmbitoHeader
         value={state.ambitoLabels.empresa}
         onChange={(v) => dispatch({ type: "SET_AMBITO_LABELS", labels: { empresa: v } })}
       />
+      {EMPRESA_ORDER.map((id) => <AreaSection key={id} areaId={id} />)}
 
-      {EMPRESA_ORDER.map((areaId) => (
-        <AreaSection key={areaId} areaId={areaId} />
-      ))}
+      <hr className="my-10 border-zinc-200" />
 
-      <div className="my-10 border-t border-zinc-200" />
-
-      {/* ---- PERSONAL ---- */}
       <AmbitoHeader
         value={state.ambitoLabels.personal}
         onChange={(v) => dispatch({ type: "SET_AMBITO_LABELS", labels: { personal: v } })}
       />
-
-      {PERSONAL_ORDER.map((areaId) => (
-        <AreaSection key={areaId} areaId={areaId} />
-      ))}
+      {PERSONAL_ORDER.map((id) => <AreaSection key={id} areaId={id} />)}
     </div>
   );
 }
 
 /* ============================================================
-   EDITABLE TEXT (inline editing, MD-like)
+   EDITABLE TEXT
    ============================================================ */
 
 function EditableText({
@@ -74,32 +66,44 @@ function EditableText({
   onChange,
   className = "",
   placeholder = "Sin nombre",
-  tag: Tag = "span",
+  multiline = false,
 }: {
   value: string;
   onChange: (v: string) => void;
   className?: string;
   placeholder?: string;
-  tag?: "span" | "h1" | "h2" | "h3" | "p";
+  multiline?: boolean;
 }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(value);
-  const ref = useRef<HTMLInputElement>(null);
+  const ref = useRef<HTMLInputElement | HTMLTextAreaElement>(null);
 
-  useEffect(() => {
-    if (editing) ref.current?.focus();
-  }, [editing]);
+  useEffect(() => { if (editing) ref.current?.focus(); }, [editing]);
 
   const save = useCallback(() => {
-    const trimmed = draft.trim();
-    if (trimmed && trimmed !== value) onChange(trimmed);
+    const t = draft.trim();
+    if (t && t !== value) onChange(t);
     setEditing(false);
   }, [draft, value, onChange]);
 
   if (editing) {
+    const shared = `w-full rounded-md border-2 border-blue-400 bg-white px-3 py-2 outline-none ${className}`;
+    if (multiline) {
+      return (
+        <textarea
+          ref={ref as React.RefObject<HTMLTextAreaElement>}
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onBlur={save}
+          onKeyDown={(e) => { if (e.key === "Escape") { setDraft(value); setEditing(false); } }}
+          rows={3}
+          className={shared}
+        />
+      );
+    }
     return (
       <input
-        ref={ref}
+        ref={ref as React.RefObject<HTMLInputElement>}
         value={draft}
         onChange={(e) => setDraft(e.target.value)}
         onBlur={save}
@@ -107,64 +111,42 @@ function EditableText({
           if (e.key === "Enter") save();
           if (e.key === "Escape") { setDraft(value); setEditing(false); }
         }}
-        className={`w-full border-b-2 border-blue-400 bg-transparent outline-none ${className}`}
+        className={shared}
       />
     );
   }
 
   return (
-    <Tag
+    <span
       onClick={() => { setDraft(value); setEditing(true); }}
-      className={`cursor-text rounded px-0.5 transition-colors hover:bg-blue-50/60 ${className}`}
+      className={`cursor-text rounded-md px-3 py-1 transition-colors hover:bg-blue-50 ${className}`}
     >
-      {value || <span className="italic text-zinc-300">{placeholder}</span>}
-    </Tag>
+      {value || <span className="italic text-zinc-400">{placeholder}</span>}
+    </span>
   );
 }
 
 /* ============================================================
-   MOVE ARROWS
+   REORDER ARROWS (big touch targets)
    ============================================================ */
 
-function MoveArrows({
-  canUp,
-  canDown,
-  onUp,
-  onDown,
-}: {
-  canUp: boolean;
-  canDown: boolean;
-  onUp: () => void;
-  onDown: () => void;
-}) {
+function MoveArrows({ canUp, canDown, onUp, onDown }: { canUp: boolean; canDown: boolean; onUp: () => void; onDown: () => void }) {
   return (
-    <span className="inline-flex flex-col opacity-0 transition-opacity group-hover/row:opacity-100">
-      <button
-        onClick={(e) => { e.stopPropagation(); onUp(); }}
-        disabled={!canUp}
-        className="text-zinc-300 hover:text-zinc-600 disabled:invisible"
-        aria-label="Mover arriba"
-      >
-        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round">
-          <polyline points="18 15 12 9 6 15" />
-        </svg>
+    <span className="inline-flex flex-col gap-0.5 opacity-0 transition-opacity group-hover/row:opacity-100">
+      <button onClick={(e) => { e.stopPropagation(); onUp(); }} disabled={!canUp}
+        className="flex h-6 w-6 items-center justify-center rounded hover:bg-zinc-100 disabled:invisible" aria-label="Subir">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round"><polyline points="18 15 12 9 6 15" /></svg>
       </button>
-      <button
-        onClick={(e) => { e.stopPropagation(); onDown(); }}
-        disabled={!canDown}
-        className="text-zinc-300 hover:text-zinc-600 disabled:invisible"
-        aria-label="Mover abajo"
-      >
-        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round">
-          <polyline points="6 9 12 15 18 9" />
-        </svg>
+      <button onClick={(e) => { e.stopPropagation(); onDown(); }} disabled={!canDown}
+        className="flex h-6 w-6 items-center justify-center rounded hover:bg-zinc-100 disabled:invisible" aria-label="Bajar">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round"><polyline points="6 9 12 15 18 9" /></svg>
       </button>
     </span>
   );
 }
 
 /* ============================================================
-   ADD BUTTON (inline "+" at the end of each list)
+   ADD BUTTON
    ============================================================ */
 
 function AddButton({ label, onAdd }: { label: string; onAdd: (name: string) => void }) {
@@ -181,46 +163,39 @@ function AddButton({ label, onAdd }: { label: string; onAdd: (name: string) => v
 
   if (active) {
     return (
-      <div className="mt-1.5 flex items-center gap-1">
-        <input
-          ref={ref}
-          value={text}
-          onChange={(e) => setText(e.target.value)}
-          onBlur={submit}
-          onKeyDown={(e) => { if (e.key === "Enter") submit(); if (e.key === "Escape") setActive(false); }}
-          placeholder={label}
-          className="flex-1 border-b border-dashed border-zinc-300 bg-transparent py-1 text-sm text-zinc-600 outline-none placeholder:text-zinc-300"
-        />
-      </div>
+      <input
+        ref={ref}
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+        onBlur={submit}
+        onKeyDown={(e) => { if (e.key === "Enter") submit(); if (e.key === "Escape") setActive(false); }}
+        placeholder={`Nombre del ${label.toLowerCase()}...`}
+        className="mt-2 w-full rounded-lg border-2 border-dashed border-zinc-300 bg-white px-4 py-3 text-base text-zinc-700 outline-none placeholder:text-zinc-400 focus:border-blue-400"
+      />
     );
   }
 
   return (
-    <button
-      onClick={() => setActive(true)}
-      className="mt-1.5 flex items-center gap-1.5 rounded px-1 py-1 text-xs text-zinc-300 transition-colors hover:text-zinc-500"
-    >
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-        <line x1="12" y1="5" x2="12" y2="19" />
-        <line x1="5" y1="12" x2="19" y2="12" />
+    <button onClick={() => setActive(true)}
+      className="mt-2 flex w-full items-center gap-2 rounded-lg border-2 border-dashed border-zinc-200 px-4 py-3 text-sm text-zinc-400 transition-colors hover:border-zinc-400 hover:text-zinc-600">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+        <line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" />
       </svg>
-      {label}
+      Añadir {label.toLowerCase()}
     </button>
   );
 }
 
 /* ============================================================
-   DELETE BUTTON (small x on hover)
+   DELETE BUTTON
    ============================================================ */
 
 function DeleteBtn({ onDelete }: { onDelete: () => void }) {
   return (
-    <button
-      onClick={(e) => { e.stopPropagation(); onDelete(); }}
-      className="ml-auto shrink-0 rounded p-0.5 text-zinc-200 opacity-0 transition-all hover:bg-red-50 hover:text-red-400 group-hover/row:opacity-100"
-      aria-label="Eliminar"
-    >
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+    <button onClick={(e) => { e.stopPropagation(); onDelete(); }}
+      className="ml-auto flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-zinc-300 opacity-0 transition-all hover:bg-red-50 hover:text-red-500 group-hover/row:opacity-100"
+      aria-label="Eliminar">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
         <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
       </svg>
     </button>
@@ -228,39 +203,49 @@ function DeleteBtn({ onDelete }: { onDelete: () => void }) {
 }
 
 /* ============================================================
-   CHEVRON
+   TOGGLE ROW — big clickable row that replaces tiny chevrons
    ============================================================ */
 
-function Chevron({ open }: { open: boolean }) {
+function ToggleRow({
+  open,
+  onToggle,
+  children,
+}: {
+  open: boolean;
+  onToggle: () => void;
+  children: React.ReactNode;
+}) {
   return (
-    <svg
-      width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"
-      className={`shrink-0 text-zinc-300 transition-transform ${open ? "rotate-90" : ""}`}
+    <div
+      onClick={onToggle}
+      className="group/row flex min-h-[44px] cursor-pointer items-center gap-2 rounded-lg px-3 py-2 transition-colors hover:bg-zinc-50"
+      role="button"
+      tabIndex={0}
+      onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") onToggle(); }}
     >
-      <polyline points="9 6 15 12 9 18" />
-    </svg>
-  );
-}
-
-/* ============================================================
-   ÁMBITO HEADER (H1 editable)
-   ============================================================ */
-
-function AmbitoHeader({ value, onChange }: { value: string; onChange: (v: string) => void }) {
-  return (
-    <div className="mb-5">
-      <EditableText
-        value={value}
-        onChange={onChange}
-        className="text-2xl font-bold tracking-tight text-zinc-900"
-        tag="h1"
-      />
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"
+        className={`shrink-0 text-zinc-500 transition-transform ${open ? "rotate-90" : ""}`}>
+        <polyline points="9 6 15 12 9 18" />
+      </svg>
+      {children}
     </div>
   );
 }
 
 /* ============================================================
-   AREA SECTION (always visible, even if empty)
+   ÁMBITO HEADER
+   ============================================================ */
+
+function AmbitoHeader({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  return (
+    <div className="mb-6">
+      <EditableText value={value} onChange={onChange} className="text-3xl font-bold tracking-tight text-zinc-900" />
+    </div>
+  );
+}
+
+/* ============================================================
+   AREA SECTION
    ============================================================ */
 
 function AreaSection({ areaId }: { areaId: Area }) {
@@ -274,69 +259,58 @@ function AreaSection({ areaId }: { areaId: Area }) {
   const sops = state.plantillas.filter((pl) => pl.area === areaId);
 
   return (
-    <section className="mb-6">
-      {/* Area heading */}
-      <button
-        onClick={() => setOpen(!open)}
-        className="mb-2 flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left transition-colors hover:bg-zinc-50"
-      >
-        <span className={`inline-flex h-6 w-6 items-center justify-center rounded text-xs font-bold text-white ${c.dot}`}>
-          {c.initial}
-        </span>
-        <h2 className={`text-base font-bold uppercase tracking-wide ${c.text}`}>{label}</h2>
-        <Chevron open={open} />
+    <section className="mb-8">
+      <button onClick={() => setOpen(!open)}
+        className="mb-3 flex w-full items-center gap-3 rounded-xl px-4 py-3 text-left transition-colors hover:bg-zinc-50">
+        <span className={`inline-flex h-8 w-8 items-center justify-center rounded-lg text-sm font-bold text-white ${c.dot}`}>{c.initial}</span>
+        <h2 className={`text-lg font-bold uppercase tracking-wide ${c.text}`}>{label}</h2>
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"
+          className={`ml-auto text-zinc-400 transition-transform ${open ? "rotate-90" : ""}`}>
+          <polyline points="9 6 15 12 9 18" />
+        </svg>
       </button>
 
       {open && (
-        <div className="ml-5 border-l-2 pl-5" style={{ borderColor: `var(--area-border, #e4e4e7)` }}>
+        <div className="ml-6 border-l-[3px] pl-6 sm:ml-8 sm:pl-8" style={{ borderColor: c.dot.includes("rose") ? "#f43f5e" : c.dot.includes("pink") ? "#ec4899" : c.dot.includes("indigo") ? "#6366f1" : c.dot.includes("violet") ? "#8b5cf6" : c.dot.includes("emerald") ? "#10b981" : c.dot.includes("blue") ? "#3b82f6" : c.dot.includes("amber") ? "#f59e0b" : "#a855f6" }}>
 
-          {/* ---- PROYECTOS ---- */}
-          <div className="mb-4">
-            <p className="mb-2 flex items-center gap-1.5 text-xs font-bold uppercase tracking-widest text-zinc-400">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" className="text-zinc-300">
+          {/* PROYECTOS */}
+          <div className="mb-6">
+            <h3 className="mb-3 flex items-center gap-2 text-sm font-bold uppercase tracking-widest text-zinc-500">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" className="text-zinc-400">
                 <rect x="3" y="3" width="7" height="7" /><rect x="14" y="3" width="7" height="7" /><rect x="3" y="14" width="7" height="7" /><rect x="14" y="14" width="7" height="7" />
               </svg>
               Proyectos
-            </p>
+            </h3>
             {proyectos.length > 0 ? (
-              proyectos.map((proj, i) => (
-                <ProyectoBlock key={proj.id} proyecto={proj} index={i} total={proyectos.length} />
-              ))
+              <div className="space-y-1">
+                {proyectos.map((proj, i) => (
+                  <ProyectoBlock key={proj.id} proyecto={proj} index={i} total={proyectos.length} />
+                ))}
+              </div>
             ) : (
-              <p className="py-1 text-sm italic text-zinc-300">Sin proyectos</p>
+              <p className="py-2 text-base italic text-zinc-400">Sin proyectos</p>
             )}
-            <AddButton
-              label="Proyecto"
-              onAdd={(nombre) =>
-                dispatch({
-                  type: "ADD_PROYECTO",
-                  payload: {
-                    id: generateId(),
-                    nombre,
-                    descripcion: null,
-                    area: areaId,
-                    creado: new Date().toISOString(),
-                    fechaInicio: null,
-                  },
-                })
-              }
-            />
+            <AddButton label="Proyecto" onAdd={(nombre) =>
+              dispatch({ type: "ADD_PROYECTO", payload: { id: generateId(), nombre, descripcion: null, area: areaId, creado: new Date().toISOString(), fechaInicio: null } })
+            } />
           </div>
 
-          {/* ---- PROCESOS ---- */}
-          <div className="mb-2">
-            <p className="mb-2 flex items-center gap-1.5 text-xs font-bold uppercase tracking-widest text-purple-400">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" className="text-purple-300">
+          {/* PROCESOS */}
+          <div className="mb-4">
+            <h3 className="mb-3 flex items-center gap-2 text-sm font-bold uppercase tracking-widest text-purple-500">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" className="text-purple-400">
                 <polyline points="16 3 21 3 21 8" /><line x1="4" y1="20" x2="21" y2="3" /><polyline points="21 16 21 21 16 21" /><line x1="15" y1="15" x2="21" y2="21" /><line x1="4" y1="4" x2="9" y2="9" />
               </svg>
               Procesos
-            </p>
+            </h3>
             {sops.length > 0 ? (
-              sops.map((sop, i) => (
-                <SOPBlock key={sop.id} sop={sop} index={i} total={sops.length} />
-              ))
+              <div className="space-y-1">
+                {sops.map((sop, i) => (
+                  <SOPBlock key={sop.id} sop={sop} index={i} total={sops.length} />
+                ))}
+              </div>
             ) : (
-              <p className="py-1 text-sm italic text-zinc-300">Sin procesos</p>
+              <p className="py-2 text-base italic text-zinc-400">Sin procesos</p>
             )}
           </div>
         </div>
@@ -346,7 +320,7 @@ function AreaSection({ areaId }: { areaId: Area }) {
 }
 
 /* ============================================================
-   PROYECTO BLOCK
+   PROYECTO
    ============================================================ */
 
 function ProyectoBlock({ proyecto, index, total }: { proyecto: Proyecto; index: number; total: number }) {
@@ -358,68 +332,35 @@ function ProyectoBlock({ proyecto, index, total }: { proyecto: Proyecto; index: 
   const resultados = state.resultados.filter((r) => r.proyectoId === proyecto.id);
 
   return (
-    <div className="mb-1.5">
-      <div className="group/row flex items-center gap-1.5">
-        <button onClick={() => setOpen(!open)} className="shrink-0"><Chevron open={open} /></button>
-
-        <MoveArrows
-          canUp={index > 0}
-          canDown={index < total - 1}
+    <div className="rounded-lg border border-zinc-100 bg-white">
+      <ToggleRow open={open} onToggle={() => setOpen(!open)}>
+        <MoveArrows canUp={index > 0} canDown={index < total - 1}
           onUp={() => dispatch({ type: "REORDER_PROYECTO", id: proyecto.id, direction: "up" })}
-          onDown={() => dispatch({ type: "REORDER_PROYECTO", id: proyecto.id, direction: "down" })}
-        />
-
-        <EditableText
-          value={proyecto.nombre}
-          onChange={(v) => dispatch({ type: "RENAME_PROYECTO", id: proyecto.id, nombre: v })}
-          className="text-sm font-semibold text-zinc-800"
-        />
-
-        <span className="text-[10px] text-zinc-300">{resultados.length}r</span>
+          onDown={() => dispatch({ type: "REORDER_PROYECTO", id: proyecto.id, direction: "down" })} />
+        <EditableText value={proyecto.nombre} onChange={(v) => dispatch({ type: "RENAME_PROYECTO", id: proyecto.id, nombre: v })}
+          className="text-base font-semibold text-zinc-800" />
+        <span className="rounded-full bg-zinc-100 px-2 py-0.5 text-xs text-zinc-500">{resultados.length} result.</span>
         <DeleteBtn onDelete={() => setConfirm(true)} />
-      </div>
+      </ToggleRow>
 
-      {confirm && (
-        <ConfirmDelete
-          label={proyecto.nombre}
-          onConfirm={() => { dispatch({ type: "DELETE_PROYECTO", id: proyecto.id }); setConfirm(false); }}
-          onCancel={() => setConfirm(false)}
-        />
-      )}
+      {confirm && <ConfirmDelete label={proyecto.nombre}
+        onConfirm={() => { dispatch({ type: "DELETE_PROYECTO", id: proyecto.id }); setConfirm(false); }}
+        onCancel={() => setConfirm(false)} />}
 
       {open && (
-        <div className="ml-7 border-l border-zinc-100 pl-4">
-          <EditableText
-            value={proyecto.descripcion ?? ""}
-            onChange={(v) => dispatch({ type: "UPDATE_PROYECTO", id: proyecto.id, changes: { descripcion: v || null } })}
-            className="mb-1 text-xs italic text-zinc-400"
-            placeholder="Descripción del proyecto..."
-            tag="p"
-          />
+        <div className="px-4 pb-4 pl-12">
+          <EditableText value={proyecto.descripcion ?? ""} onChange={(v) => dispatch({ type: "UPDATE_PROYECTO", id: proyecto.id, changes: { descripcion: v || null } })}
+            className="mb-3 text-sm italic text-zinc-400" placeholder="Descripción del proyecto..." />
 
-          {resultados.map((res, i) => (
-            <ResultadoBlock key={res.id} resultado={res} index={i} total={resultados.length} />
-          ))}
+          <div className="space-y-1">
+            {resultados.map((res, i) => (
+              <ResultadoBlock key={res.id} resultado={res} index={i} total={resultados.length} />
+            ))}
+          </div>
 
-          <AddButton
-            label="Resultado"
-            onAdd={(nombre) =>
-              dispatch({
-                type: "ADD_RESULTADO",
-                payload: {
-                  id: generateId(),
-                  nombre,
-                  descripcion: null,
-                  proyectoId: proyecto.id,
-                  creado: new Date().toISOString(),
-                  semana: null,
-                  fechaLimite: null,
-                  fechaInicio: null,
-                  diasEstimados: null,
-                },
-              })
-            }
-          />
+          <AddButton label="Resultado" onAdd={(nombre) =>
+            dispatch({ type: "ADD_RESULTADO", payload: { id: generateId(), nombre, descripcion: null, proyectoId: proyecto.id, creado: new Date().toISOString(), semana: null, fechaLimite: null, fechaInicio: null, diasEstimados: null } })
+          } />
         </div>
       )}
     </div>
@@ -427,7 +368,7 @@ function ProyectoBlock({ proyecto, index, total }: { proyecto: Proyecto; index: 
 }
 
 /* ============================================================
-   RESULTADO BLOCK
+   RESULTADO
    ============================================================ */
 
 function ResultadoBlock({ resultado, index, total }: { resultado: Resultado; index: number; total: number }) {
@@ -439,65 +380,31 @@ function ResultadoBlock({ resultado, index, total }: { resultado: Resultado; ind
   const entregables = state.entregables.filter((e) => e.resultadoId === resultado.id);
 
   return (
-    <div className="mb-1">
-      <div className="group/row flex items-center gap-1.5">
-        <button onClick={() => setOpen(!open)} className="shrink-0"><Chevron open={open} /></button>
-
-        <MoveArrows
-          canUp={index > 0}
-          canDown={index < total - 1}
+    <div className="rounded-lg border border-zinc-50 bg-zinc-50/50">
+      <ToggleRow open={open} onToggle={() => setOpen(!open)}>
+        <MoveArrows canUp={index > 0} canDown={index < total - 1}
           onUp={() => dispatch({ type: "REORDER_RESULTADO", id: resultado.id, direction: "up" })}
-          onDown={() => dispatch({ type: "REORDER_RESULTADO", id: resultado.id, direction: "down" })}
-        />
-
-        <EditableText
-          value={resultado.nombre}
-          onChange={(v) => dispatch({ type: "RENAME_RESULTADO", id: resultado.id, nombre: v })}
-          className="text-sm text-zinc-700"
-        />
-
-        <span className="text-[10px] text-zinc-300">{entregables.length}e</span>
+          onDown={() => dispatch({ type: "REORDER_RESULTADO", id: resultado.id, direction: "down" })} />
+        <EditableText value={resultado.nombre} onChange={(v) => dispatch({ type: "RENAME_RESULTADO", id: resultado.id, nombre: v })}
+          className="text-[15px] font-medium text-zinc-700" />
+        <span className="rounded-full bg-zinc-200/60 px-2 py-0.5 text-xs text-zinc-500">{entregables.length} entreg.</span>
         <DeleteBtn onDelete={() => setConfirm(true)} />
-      </div>
+      </ToggleRow>
 
-      {confirm && (
-        <ConfirmDelete
-          label={resultado.nombre}
-          onConfirm={() => { dispatch({ type: "DELETE_RESULTADO", id: resultado.id }); setConfirm(false); }}
-          onCancel={() => setConfirm(false)}
-        />
-      )}
+      {confirm && <ConfirmDelete label={resultado.nombre}
+        onConfirm={() => { dispatch({ type: "DELETE_RESULTADO", id: resultado.id }); setConfirm(false); }}
+        onCancel={() => setConfirm(false)} />}
 
       {open && (
-        <div className="ml-7 border-l border-zinc-50 pl-4">
-          {entregables.map((ent, i) => (
-            <EntregableBlock key={ent.id} entregable={ent} index={i} total={entregables.length} />
-          ))}
-
-          <AddButton
-            label="Entregable"
-            onAdd={(nombre) =>
-              dispatch({
-                type: "ADD_ENTREGABLE",
-                payload: {
-                  id: generateId(),
-                  nombre,
-                  resultadoId: resultado.id,
-                  tipo: "raw" as TipoEntregable,
-                  plantillaId: null,
-                  diasEstimados: 3,
-                  diasHechos: 0,
-                  esDiaria: false,
-                  responsable: "gabi",
-                  estado: "a_futuro",
-                  creado: new Date().toISOString(),
-                  semana: null,
-                  fechaLimite: null,
-                  fechaInicio: null,
-                },
-              })
-            }
-          />
+        <div className="px-4 pb-4 pl-12">
+          <div className="space-y-1">
+            {entregables.map((ent, i) => (
+              <EntregableBlock key={ent.id} entregable={ent} index={i} total={entregables.length} />
+            ))}
+          </div>
+          <AddButton label="Entregable" onAdd={(nombre) =>
+            dispatch({ type: "ADD_ENTREGABLE", payload: { id: generateId(), nombre, resultadoId: resultado.id, tipo: "raw" as TipoEntregable, plantillaId: null, diasEstimados: 3, diasHechos: 0, esDiaria: false, responsable: "gabi", estado: "a_futuro", creado: new Date().toISOString(), semana: null, fechaLimite: null, fechaInicio: null } })
+          } />
         </div>
       )}
     </div>
@@ -505,7 +412,7 @@ function ResultadoBlock({ resultado, index, total }: { resultado: Resultado; ind
 }
 
 /* ============================================================
-   ENTREGABLE BLOCK
+   ENTREGABLE
    ============================================================ */
 
 function EntregableBlock({ entregable, index, total }: { entregable: Entregable; index: number; total: number }) {
@@ -516,59 +423,32 @@ function EntregableBlock({ entregable, index, total }: { entregable: Entregable;
 
   const pasos = state.pasos
     .filter((p) => p.entregableId === entregable.id)
-    .sort((a, b) => {
-      if (!a.inicioTs) return 1;
-      if (!b.inicioTs) return -1;
-      return a.inicioTs.localeCompare(b.inicioTs);
-    });
+    .sort((a, b) => { if (!a.inicioTs) return 1; if (!b.inicioTs) return -1; return a.inicioTs.localeCompare(b.inicioTs); });
 
   const tipoTag = entregable.tipo !== "raw" ? entregable.tipo.toUpperCase() : null;
-  const dotColor =
-    entregable.estado === "hecho" ? "bg-green-400"
-    : entregable.estado === "en_proceso" ? "bg-amber-400"
-    : "bg-zinc-300";
+  const dotColor = entregable.estado === "hecho" ? "bg-green-500" : entregable.estado === "en_proceso" ? "bg-amber-500" : "bg-zinc-300";
 
   return (
-    <div className="mb-0.5">
-      <div className="group/row flex items-center gap-1.5">
-        <button onClick={() => setOpen(!open)} className="shrink-0"><Chevron open={open} /></button>
-
-        <MoveArrows
-          canUp={index > 0}
-          canDown={index < total - 1}
+    <div>
+      <ToggleRow open={open} onToggle={() => setOpen(!open)}>
+        <MoveArrows canUp={index > 0} canDown={index < total - 1}
           onUp={() => dispatch({ type: "REORDER_ENTREGABLE", id: entregable.id, direction: "up" })}
-          onDown={() => dispatch({ type: "REORDER_ENTREGABLE", id: entregable.id, direction: "down" })}
-        />
-
-        <span className={`h-2 w-2 shrink-0 rounded-full ${dotColor}`} />
-
-        <EditableText
-          value={entregable.nombre}
-          onChange={(v) => dispatch({ type: "RENAME_ENTREGABLE", id: entregable.id, nombre: v })}
-          className="text-xs text-zinc-600"
-        />
-
-        {tipoTag && (
-          <span className="rounded bg-purple-100 px-1.5 py-0.5 text-[8px] font-bold text-purple-600">{tipoTag}</span>
-        )}
-
-        {pasos.length > 0 && <span className="text-[10px] text-zinc-300">{pasos.length}p</span>}
+          onDown={() => dispatch({ type: "REORDER_ENTREGABLE", id: entregable.id, direction: "down" })} />
+        <span className={`h-3 w-3 shrink-0 rounded-full ${dotColor}`} />
+        <EditableText value={entregable.nombre} onChange={(v) => dispatch({ type: "RENAME_ENTREGABLE", id: entregable.id, nombre: v })}
+          className="text-sm text-zinc-600" />
+        {tipoTag && <span className="rounded-md bg-purple-100 px-2 py-0.5 text-[10px] font-bold text-purple-600">{tipoTag}</span>}
+        {pasos.length > 0 && <span className="text-xs text-zinc-400">{pasos.length}p</span>}
         <DeleteBtn onDelete={() => setConfirm(true)} />
-      </div>
+      </ToggleRow>
 
-      {confirm && (
-        <ConfirmDelete
-          label={entregable.nombre}
-          onConfirm={() => { dispatch({ type: "DELETE_ENTREGABLE", id: entregable.id }); setConfirm(false); }}
-          onCancel={() => setConfirm(false)}
-        />
-      )}
+      {confirm && <ConfirmDelete label={entregable.nombre}
+        onConfirm={() => { dispatch({ type: "DELETE_ENTREGABLE", id: entregable.id }); setConfirm(false); }}
+        onCancel={() => setConfirm(false)} />}
 
       {open && pasos.length > 0 && (
-        <div className="ml-7 pl-4">
-          {pasos.map((paso) => (
-            <PasoLine key={paso.id} paso={paso} />
-          ))}
+        <div className="pb-2 pl-14">
+          {pasos.map((paso) => <PasoLine key={paso.id} paso={paso} />)}
         </div>
       )}
     </div>
@@ -576,7 +456,7 @@ function EntregableBlock({ entregable, index, total }: { entregable: Entregable;
 }
 
 /* ============================================================
-   PASO LINE
+   PASO
    ============================================================ */
 
 function PasoLine({ paso }: { paso: Paso }) {
@@ -585,41 +465,32 @@ function PasoLine({ paso }: { paso: Paso }) {
   const done = !!paso.finTs;
 
   return (
-    <div className="mb-0.5">
-      <div className="group/row flex items-center gap-1.5">
-        <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${done ? "bg-green-400" : "bg-zinc-300"}`} />
-
-        <EditableText
-          value={paso.nombre}
-          onChange={(v) => dispatch({ type: "RENAME_PASO", id: paso.id, nombre: v })}
-          className={`text-xs ${done ? "text-zinc-400 line-through" : "text-zinc-600"}`}
-        />
-
+    <div className="mb-1">
+      <div className="group/row flex min-h-[40px] items-center gap-2 rounded-lg px-3 py-1.5 hover:bg-zinc-50">
+        <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${done ? "bg-green-500" : "bg-zinc-300"}`} />
+        <EditableText value={paso.nombre} onChange={(v) => dispatch({ type: "RENAME_PASO", id: paso.id, nombre: v })}
+          className={`text-sm ${done ? "text-zinc-400 line-through" : "text-zinc-600"}`} />
         {paso.inicioTs && (
-          <span className="text-[10px] text-zinc-300">
+          <span className="text-xs text-zinc-400">
             {new Date(paso.inicioTs).toLocaleDateString("es-ES", { day: "numeric", month: "short" })}
           </span>
         )}
-
-        <button
-          onClick={() => setShowDetail(!showDetail)}
-          className="rounded p-0.5 text-zinc-200 opacity-0 transition-all hover:text-zinc-500 group-hover/row:opacity-100"
-        >
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-            <circle cx="12" cy="12" r="1" /><circle cx="19" cy="12" r="1" /><circle cx="5" cy="12" r="1" />
+        <button onClick={() => setShowDetail(!showDetail)}
+          className="flex h-8 w-8 items-center justify-center rounded-lg text-zinc-300 opacity-0 hover:bg-zinc-100 hover:text-zinc-600 group-hover/row:opacity-100">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <circle cx="12" cy="12" r="1.5" /><circle cx="19" cy="12" r="1.5" /><circle cx="5" cy="12" r="1.5" />
           </svg>
         </button>
-
         <DeleteBtn onDelete={() => dispatch({ type: "DELETE_PASO", id: paso.id })} />
       </div>
 
       {showDetail && (
-        <div className="ml-5 mt-1 rounded bg-zinc-50 p-3 text-xs text-zinc-500">
-          {paso.contexto.notas && <p className="mb-1">{paso.contexto.notas}</p>}
+        <div className="ml-8 mt-1 rounded-lg bg-zinc-50 p-4 text-sm text-zinc-500">
+          {paso.contexto.notas && <p className="mb-2">{paso.contexto.notas}</p>}
           {paso.contexto.urls.length > 0 && (
-            <div className="space-y-0.5">
+            <div className="space-y-1">
               {paso.contexto.urls.map((u, i) => (
-                <a key={i} href={u.url} target="_blank" rel="noopener noreferrer" className="block truncate text-blue-500 hover:underline">
+                <a key={i} href={u.url} target="_blank" rel="noopener noreferrer" className="block truncate text-blue-600 underline hover:text-blue-800">
                   {u.nombre || u.url}
                 </a>
               ))}
@@ -633,7 +504,7 @@ function PasoLine({ paso }: { paso: Paso }) {
 }
 
 /* ============================================================
-   SOP BLOCK
+   SOP
    ============================================================ */
 
 function SOPBlock({ sop, index, total }: { sop: PlantillaProceso; index: number; total: number }) {
@@ -642,67 +513,40 @@ function SOPBlock({ sop, index, total }: { sop: PlantillaProceso; index: number;
   const [confirm, setConfirm] = useState(false);
 
   return (
-    <div className="mb-1">
-      <div className="group/row flex items-center gap-1.5">
-        <button onClick={() => setOpen(!open)} className="shrink-0"><Chevron open={open} /></button>
-
-        <MoveArrows
-          canUp={index > 0}
-          canDown={index < total - 1}
+    <div className="rounded-lg border border-purple-100 bg-white">
+      <ToggleRow open={open} onToggle={() => setOpen(!open)}>
+        <MoveArrows canUp={index > 0} canDown={index < total - 1}
           onUp={() => dispatch({ type: "REORDER_PLANTILLA", id: sop.id, direction: "up" })}
-          onDown={() => dispatch({ type: "REORDER_PLANTILLA", id: sop.id, direction: "down" })}
-        />
-
-        <span className="h-2 w-2 shrink-0 rounded-full bg-purple-400" />
-
-        <EditableText
-          value={sop.nombre}
-          onChange={(v) => dispatch({ type: "UPDATE_PLANTILLA", id: sop.id, changes: { nombre: v } })}
-          className="text-xs text-zinc-600"
-        />
-
-        <span className="text-[10px] text-zinc-300">{sop.pasos.length}p</span>
+          onDown={() => dispatch({ type: "REORDER_PLANTILLA", id: sop.id, direction: "down" })} />
+        <span className="h-3 w-3 shrink-0 rounded-full bg-purple-400" />
+        <EditableText value={sop.nombre} onChange={(v) => dispatch({ type: "UPDATE_PLANTILLA", id: sop.id, changes: { nombre: v } })}
+          className="text-base text-zinc-700" />
+        <span className="rounded-full bg-purple-50 px-2 py-0.5 text-xs text-purple-500">{sop.pasos.length} pasos</span>
         <DeleteBtn onDelete={() => setConfirm(true)} />
-      </div>
+      </ToggleRow>
 
-      {confirm && (
-        <ConfirmDelete
-          label={sop.nombre}
-          onConfirm={() => { dispatch({ type: "DELETE_PLANTILLA", id: sop.id }); setConfirm(false); }}
-          onCancel={() => setConfirm(false)}
-        />
-      )}
+      {confirm && <ConfirmDelete label={sop.nombre}
+        onConfirm={() => { dispatch({ type: "DELETE_PLANTILLA", id: sop.id }); setConfirm(false); }}
+        onCancel={() => setConfirm(false)} />}
 
       {open && (
-        <div className="ml-7 rounded bg-zinc-50/60 p-3 text-xs text-zinc-500">
+        <div className="px-5 pb-5 pl-14">
           {sop.objetivo && (
-            <EditableText
-              value={sop.objetivo}
-              onChange={(v) => dispatch({ type: "UPDATE_PLANTILLA", id: sop.id, changes: { objetivo: v } })}
-              className="mb-1.5 block text-xs italic text-zinc-400"
-              placeholder="Objetivo..."
-              tag="p"
-            />
+            <EditableText value={sop.objetivo} onChange={(v) => dispatch({ type: "UPDATE_PLANTILLA", id: sop.id, changes: { objetivo: v } })}
+              className="mb-2 block text-sm italic text-zinc-400" placeholder="Objetivo..." />
           )}
           {sop.responsableDefault && (
-            <p className="mb-1.5">
-              Responsable: <strong>{sop.responsableDefault}</strong>
-            </p>
+            <p className="mb-2 text-sm text-zinc-500">Responsable: <strong className="text-zinc-700">{sop.responsableDefault}</strong></p>
           )}
           {sop.disparador && (
-            <EditableText
-              value={sop.disparador}
-              onChange={(v) => dispatch({ type: "UPDATE_PLANTILLA", id: sop.id, changes: { disparador: v } })}
-              className="mb-1.5 block text-xs text-zinc-400"
-              placeholder="Disparador..."
-              tag="p"
-            />
+            <EditableText value={sop.disparador} onChange={(v) => dispatch({ type: "UPDATE_PLANTILLA", id: sop.id, changes: { disparador: v } })}
+              className="mb-3 block text-sm text-zinc-400" placeholder="Disparador..." />
           )}
-          <ol className="ml-4 list-decimal space-y-1">
+          <ol className="ml-5 list-decimal space-y-1.5 text-sm text-zinc-600">
             {sop.pasos.map((p) => (
-              <li key={p.id}>
+              <li key={p.id} className="leading-relaxed">
                 {p.nombre}
-                {p.minutosEstimados ? ` [${p.minutosEstimados}min]` : ""}
+                {p.minutosEstimados ? <span className="ml-1 text-xs text-zinc-400">[{p.minutosEstimados}min]</span> : ""}
               </li>
             ))}
           </ol>
@@ -713,19 +557,15 @@ function SOPBlock({ sop, index, total }: { sop: PlantillaProceso; index: number;
 }
 
 /* ============================================================
-   CONFIRM DELETE (inline)
+   CONFIRM DELETE
    ============================================================ */
 
 function ConfirmDelete({ label, onConfirm, onCancel }: { label: string; onConfirm: () => void; onCancel: () => void }) {
   return (
-    <div className="my-1 ml-7 flex items-center gap-2 rounded border border-red-200 bg-red-50 px-3 py-2 text-sm">
-      <span className="text-red-600">Eliminar &ldquo;{label}&rdquo;?</span>
-      <button onClick={onConfirm} className="rounded bg-red-500 px-2.5 py-1 text-xs font-semibold text-white hover:bg-red-600">
-        Sí
-      </button>
-      <button onClick={onCancel} className="text-xs text-zinc-500 hover:text-zinc-700">
-        No
-      </button>
+    <div className="mx-4 my-2 flex items-center gap-3 rounded-lg border-2 border-red-200 bg-red-50 px-4 py-3 text-sm">
+      <span className="text-red-700">Eliminar &ldquo;{label}&rdquo;?</span>
+      <button onClick={onConfirm} className="rounded-lg bg-red-500 px-4 py-1.5 text-sm font-semibold text-white hover:bg-red-600">Sí</button>
+      <button onClick={onCancel} className="text-sm text-zinc-500 hover:text-zinc-700">No</button>
     </div>
   );
 }
