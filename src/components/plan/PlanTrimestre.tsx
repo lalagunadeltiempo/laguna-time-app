@@ -89,7 +89,7 @@ export function PlanTrimestre() {
     return items.sort((a, b) => a.startMonth - b.startMonth);
   }, [state, currentYear, now]);
 
-  const ragColors = { green: "bg-green-500", amber: "bg-amber-500", red: "bg-red-500" };
+  const RAG_HEX = { green: "#22c55e", amber: "#f59e0b", red: "#ef4444" };
 
   return (
     <div className="flex-1 overflow-x-auto">
@@ -137,13 +137,14 @@ export function PlanTrimestre() {
                   ))}
                 </div>
                 <div
-                  className={`absolute top-0 flex h-8 items-center rounded-lg px-2 transition-colors ${ragColors[p.rag]}/20 border border-${p.rag === "green" ? "green" : p.rag === "amber" ? "amber" : "red"}-300`}
+                  className="absolute top-0 flex h-8 items-center rounded-lg px-2 transition-colors"
                   style={{
                     left: `${(p.startMonth / 12) * 100}%`,
                     width: `${(p.spanMonths / 12) * 100}%`,
                     backgroundColor: BORDER_HEX[p.proyecto.area] + "20",
                     borderColor: BORDER_HEX[p.proyecto.area],
                     borderWidth: "1px",
+                    borderStyle: "solid",
                   }}
                 >
                   <div
@@ -158,7 +159,7 @@ export function PlanTrimestre() {
                   </span>
                 </div>
               </div>
-              <span className={`w-6 text-center text-xs font-bold ${p.rag === "green" ? "text-green-600" : p.rag === "amber" ? "text-amber-600" : "text-red-600"}`}>
+              <span className="w-6 text-center text-xs font-bold" style={{ color: RAG_HEX[p.rag] }}>
                 ●
               </span>
             </div>

@@ -14,13 +14,21 @@ interface ResultadoProgress {
   rag: "green" | "amber" | "red";
 }
 
+const RAG_HEX = { green: "#22c55e", amber: "#f59e0b", red: "#ef4444" };
+const RAG_BG = { green: "#22c55e15", amber: "#f59e0b15", red: "#ef444415" };
+const RAG_BORDER = { green: "#22c55e40", amber: "#f59e0b40", red: "#ef444440" };
+
 export function PlanMes() {
   const state = useAppState();
 
-  const now = new Date();
-  const mesLabel = now.toLocaleDateString("es-ES", { month: "long", year: "numeric" });
+  const todayStr = useMemo(() => new Date().toISOString().slice(0, 10), []);
+
+  const mesLabel = useMemo(() => {
+    return new Date().toLocaleDateString("es-ES", { month: "long", year: "numeric" });
+  }, []);
 
   const resultados = useMemo(() => {
+    const nowMs = new Date(todayStr).getTime();
     const items: ResultadoProgress[] = [];
 
     for (const res of state.resultados) {
@@ -38,7 +46,7 @@ export function PlanMes() {
       let rag: "green" | "amber" | "red" = "green";
       if (res.fechaLimite) {
         const deadline = new Date(res.fechaLimite);
-        const daysLeft = Math.ceil((deadline.getTime() - now.getTime()) / 86400000);
+        const daysLeft = Math.ceil((deadline.getTime() - nowMs) / 86400000);
         if (daysLeft < 0) rag = "red";
         else if (daysLeft < 7 && percent < 80) rag = "amber";
       }
@@ -54,7 +62,7 @@ export function PlanMes() {
         if (ragOrder[a.rag] !== ragOrder[b.rag]) return ragOrder[a.rag] - ragOrder[b.rag];
         return b.percent - a.percent;
       });
-  }, [state, now]);
+  }, [state, todayStr]);
 
   const byProject = useMemo(() => {
     const map = new Map<string, { proyecto: Proyecto; items: ResultadoProgress[] }>();
@@ -66,10 +74,6 @@ export function PlanMes() {
     }
     return Array.from(map.values());
   }, [resultados]);
-
-  const ragColors = { green: "bg-green-500", amber: "bg-amber-500", red: "bg-red-500" };
-  const ragBg = { green: "bg-green-50 border-green-200", amber: "bg-amber-50 border-amber-200", red: "bg-red-50 border-red-200" };
-  const ragText = { green: "text-green-700", amber: "text-amber-700", red: "text-red-700" };
 
   return (
     <div className="flex-1">
@@ -86,14 +90,18 @@ export function PlanMes() {
               <h3 className="mb-3 text-sm font-bold text-foreground">{proyecto.nombre}</h3>
               <div className="space-y-2">
                 {items.map((r) => (
-                  <div key={r.resultado.id} className={`rounded-xl border p-4 ${ragBg[r.rag]}`}>
+                  <div
+                    key={r.resultado.id}
+                    className="rounded-xl p-4"
+                    style={{ backgroundColor: RAG_BG[r.rag], border: `1px solid ${RAG_BORDER[r.rag]}` }}
+                  >
                     <div className="mb-2 flex items-center gap-2">
-                      <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${ragColors[r.rag]}`} />
+                      <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: RAG_HEX[r.rag] }} />
                       <span className="flex-1 text-sm font-medium text-foreground">{r.resultado.nombre}</span>
-                      <span className={`text-xs font-bold ${ragText[r.rag]}`}>{r.percent}%</span>
+                      <span className="text-xs font-bold" style={{ color: RAG_HEX[r.rag] }}>{r.percent}%</span>
                     </div>
-                    <div className="mb-2 h-2 rounded-full bg-white/60">
-                      <div className={`h-2 rounded-full transition-all ${ragColors[r.rag]}`} style={{ width: `${r.percent}%` }} />
+                    <div className="mb-2 h-2 rounded-full bg-surface">
+                      <div className="h-2 rounded-full transition-all" style={{ width: `${r.percent}%`, backgroundColor: RAG_HEX[r.rag] }} />
                     </div>
                     <div className="flex gap-3 text-xs text-muted">
                       <span>{r.completados} hechos</span>

@@ -113,6 +113,7 @@ function AppShell({ userId }: { userId: string }) {
           <div className="px-2 pt-3">
             <button
               onClick={() => setShowBuscador(true)}
+              aria-label="Buscar"
               className={`flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm text-muted transition-colors hover:bg-surface-hover ${
                 collapsed ? "justify-center" : ""
               }`}
@@ -164,6 +165,7 @@ function AppShell({ userId }: { userId: string }) {
           <div className="border-t border-border px-2 py-2">
             <button
               onClick={() => setCollapsed(!collapsed)}
+              aria-label={collapsed ? "Expandir sidebar" : "Colapsar sidebar"}
               className="flex w-full items-center justify-center rounded-lg px-3 py-2 text-muted transition-colors hover:bg-surface-hover hover:text-foreground"
             >
               <svg
@@ -183,11 +185,11 @@ function AppShell({ userId }: { userId: string }) {
           <div className="flex-1 overflow-y-auto pb-16 md:pb-0">
             {vista === "hoy" && (
               <div className="mx-auto max-w-3xl">
-                <PantallaHoy onOpenBuscador={() => setShowBuscador(true)} />
+                <PantallaHoy />
               </div>
             )}
             {vista === "plan" && (
-              <PantallaPlan onOpenDetalle={openDetalle} />
+              <PantallaPlan />
             )}
             {vista === "mapa" && (
               <PantallaMapa onOpenDetalle={openDetalle} />

@@ -7,10 +7,6 @@ import { PlanMes } from "./plan/PlanMes";
 import { PlanTrimestre } from "./plan/PlanTrimestre";
 import { PlanAnio } from "./plan/PlanAnio";
 
-interface Props {
-  onOpenDetalle: (resultadoId: string) => void;
-}
-
 type Tab = "hoy" | "semana" | "mes" | "trimestre" | "anio";
 
 const TABS: { id: Tab; label: string; sublabel: string }[] = [
@@ -21,7 +17,7 @@ const TABS: { id: Tab; label: string; sublabel: string }[] = [
   { id: "anio", label: "Año", sublabel: "Visionario" },
 ];
 
-export function PantallaPlan({ onOpenDetalle }: Props) {
+export function PantallaPlan() {
   const [tab, setTab] = useState<Tab>("hoy");
 
   return (
@@ -34,10 +30,12 @@ export function PantallaPlan({ onOpenDetalle }: Props) {
       </div>
 
       {/* Tab bar */}
-      <div className="mb-6 flex gap-1 rounded-xl bg-surface p-1">
+      <div className="mb-6 flex gap-1 rounded-xl bg-surface p-1" role="tablist" aria-label="Horizontes de planificación">
         {TABS.map((t) => (
           <button
             key={t.id}
+            role="tab"
+            aria-selected={tab === t.id}
             onClick={() => setTab(t.id)}
             className={`flex-1 rounded-lg py-2.5 text-xs font-semibold transition-colors ${
               tab === t.id
@@ -51,7 +49,7 @@ export function PantallaPlan({ onOpenDetalle }: Props) {
       </div>
 
       {/* Tab content */}
-      {tab === "hoy" && <PlanHoy onOpenDetalle={onOpenDetalle} />}
+      {tab === "hoy" && <PlanHoy />}
       {tab === "semana" && <PlanSemana />}
       {tab === "mes" && <PlanMes />}
       {tab === "trimestre" && <PlanTrimestre />}

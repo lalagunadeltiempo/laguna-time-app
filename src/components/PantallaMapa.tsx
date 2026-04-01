@@ -19,7 +19,7 @@ import {
 } from "@/lib/types";
 
 interface Props {
-  onOpenDetalle: (resultadoId: string) => void;
+  onOpenDetalle?: (resultadoId: string) => void;
 }
 
 const EMPRESA_ORDER: AreaEmpresa[] = ["financiera", "operativa", "comercial", "administrativa"];

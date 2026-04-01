@@ -103,13 +103,13 @@ export function PlanAnio() {
 
       {/* Project status counts */}
       <div className="mb-8 grid grid-cols-3 gap-3">
-        <div className="rounded-xl border border-green-200 bg-green-50 p-4 text-center">
-          <p className="text-2xl font-bold text-green-700">{completadosProj}</p>
-          <p className="text-xs text-green-600">Completados</p>
+        <div className="rounded-xl p-4 text-center" style={{ backgroundColor: "#22c55e15", border: "1px solid #22c55e40" }}>
+          <p className="text-2xl font-bold" style={{ color: "#22c55e" }}>{completadosProj}</p>
+          <p className="text-xs" style={{ color: "#22c55e" }}>Completados</p>
         </div>
-        <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-center">
-          <p className="text-2xl font-bold text-amber-700">{enCursoProj}</p>
-          <p className="text-xs text-amber-600">En curso</p>
+        <div className="rounded-xl p-4 text-center" style={{ backgroundColor: "#f59e0b15", border: "1px solid #f59e0b40" }}>
+          <p className="text-2xl font-bold" style={{ color: "#f59e0b" }}>{enCursoProj}</p>
+          <p className="text-xs" style={{ color: "#f59e0b" }}>En curso</p>
         </div>
         <div className="rounded-xl border border-border bg-surface p-4 text-center">
           <p className="text-2xl font-bold text-muted">{sinEmpezarProj}</p>
@@ -161,7 +161,7 @@ export function PlanAnio() {
               />
             </div>
             <span className="w-10 text-right text-xs font-bold text-muted">{p.percent}%</span>
-            <span className={`text-xs ${p.status === "completado" ? "text-green-600" : p.status === "en_curso" ? "text-amber-600" : "text-muted"}`}>
+            <span className="text-xs" style={{ color: p.status === "completado" ? "#22c55e" : p.status === "en_curso" ? "#f59e0b" : undefined }}>
               {p.status === "completado" ? "✓" : p.status === "en_curso" ? "●" : "○"}
             </span>
           </div>

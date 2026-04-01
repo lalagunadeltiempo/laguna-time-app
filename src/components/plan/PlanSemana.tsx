@@ -41,8 +41,8 @@ export function PlanSemana() {
   const state = useAppState();
   const [viewMode, setViewMode] = useState<"yo" | "equipo">("yo");
 
-  const weekDates = useMemo(() => getWeekDates(), []);
-  const todayKey = dateKey(new Date());
+  const todayKey = useMemo(() => dateKey(new Date()), []);
+  const weekDates = useMemo(() => getWeekDates(), [todayKey]);
 
   const blocks = useMemo(() => {
     const result: WeekBlock[] = [];
@@ -73,8 +73,14 @@ export function PlanSemana() {
     for (const paso of state.pasos) {
       if (!paso.finTs || !paso.siguientePaso) continue;
       if (paso.siguientePaso.tipo !== "continuar") continue;
-      const fp = paso.siguientePaso.fechaProgramada;
+      let fp = paso.siguientePaso.fechaProgramada;
       if (!fp) continue;
+
+      if (fp === "manana") {
+        const finDate = new Date(paso.finTs);
+        finDate.setDate(finDate.getDate() + 1);
+        fp = dateKey(finDate);
+      }
 
       const isInWeek = weekDates.some((d) => dateKey(d) === fp);
       if (!isInWeek) continue;

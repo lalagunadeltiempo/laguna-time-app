@@ -10,11 +10,7 @@ import { PasoActivoCard } from "./PasoActivo";
 import { NuevoPaso } from "./NuevoPaso";
 import { VistaInbox } from "./VistaInbox";
 
-interface Props {
-  onOpenBuscador?: () => void;
-}
-
-export function PantallaHoy({ onOpenBuscador }: Props) {
+export function PantallaHoy() {
   const state = useAppState();
   const dispatch = useAppDispatch();
   const pasosActivos = usePasosActivos();
@@ -181,7 +177,14 @@ function EndOfDayFlow({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 px-4 backdrop-blur-sm">
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 px-4 backdrop-blur-sm"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Cerrar el día"
+      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+      onKeyDown={(e) => { if (e.key === "Escape") onClose(); }}
+    >
       <div className="w-full max-w-md rounded-2xl bg-background p-6 shadow-2xl">
         <div className="mb-6 flex items-center gap-3">
           <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-accent-soft">
