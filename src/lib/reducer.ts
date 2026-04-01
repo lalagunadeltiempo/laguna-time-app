@@ -172,9 +172,12 @@ export function reducer(state: AppState, action: Action): AppState {
         ...state,
         pasos: state.pasos.map((p) => (p.id === updated.id ? updated : p)),
         pasosActivos: state.pasosActivos.filter((id) => id !== updated.id),
-        entregables: state.entregables.map((e) =>
-          e.id !== updated.entregableId ? e : { ...e, diasHechos: e.diasHechos + 1, estado: terminado ? "hecho" : "en_proceso" },
-        ),
+        entregables: state.entregables.map((e) => {
+          if (e.id !== updated.entregableId) return e;
+          // Don't revert "hecho" to "en_proceso" if already completed
+          const nuevoEstado = terminado ? "hecho" : (e.estado === "hecho" ? "hecho" : "en_proceso");
+          return { ...e, diasHechos: e.diasHechos + 1, estado: nuevoEstado };
+        }),
       };
     }
 
@@ -188,8 +191,13 @@ export function reducer(state: AppState, action: Action): AppState {
     case "RENAME_ENTREGABLE":
       return { ...state, entregables: state.entregables.map((e) => e.id === action.id ? { ...e, nombre: action.nombre } : e) };
 
-    case "UPDATE_ENTREGABLE":
-      return { ...state, entregables: state.entregables.map((e) => e.id === action.id ? { ...e, ...action.changes } : e) };
+    case "UPDATE_ENTREGABLE": {
+      const newState = { ...state, entregables: state.entregables.map((e) => e.id === action.id ? { ...e, ...action.changes } : e) };
+      if (action.changes.estado === "hecho" || action.changes.estado === "cancelada") {
+        newState.pasosActivos = clearPasosActivos(state, new Set([action.id]));
+      }
+      return newState;
+    }
 
     case "DELETE_ENTREGABLE": {
       const eIds = new Set([action.id]);
@@ -198,6 +206,7 @@ export function reducer(state: AppState, action: Action): AppState {
         entregables: state.entregables.filter((e) => e.id !== action.id),
         pasos: state.pasos.filter((p) => p.entregableId !== action.id),
         pasosActivos: clearPasosActivos(state, eIds),
+        ejecuciones: state.ejecuciones.filter((ej) => ej.entregableId !== action.id),
       };
     }
 
@@ -227,10 +236,14 @@ export function reducer(state: AppState, action: Action): AppState {
       const oldRes = state.resultados.find((r) => r.id === ent.resultadoId);
       if (!oldRes) return state;
       const nuevo: Resultado = { id: action.nuevoResultadoId, nombre: ent.nombre, descripcion: null, proyectoId: oldRes.proyectoId, creado: new Date().toISOString(), semana: null, fechaLimite: null, fechaInicio: null, diasEstimados: null };
+      const updatedEntregables = state.entregables.map((e) => e.id === action.entregableId ? { ...e, resultadoId: action.nuevoResultadoId } : e);
+      const oldResStillHasChildren = updatedEntregables.some((e) => e.resultadoId === oldRes.id);
       return {
         ...state,
-        resultados: [...state.resultados, nuevo],
-        entregables: state.entregables.map((e) => e.id === action.entregableId ? { ...e, resultadoId: action.nuevoResultadoId } : e),
+        resultados: oldResStillHasChildren
+          ? [...state.resultados, nuevo]
+          : [...state.resultados.filter((r) => r.id !== oldRes.id), nuevo],
+        entregables: updatedEntregables,
       };
     }
 
@@ -263,6 +276,7 @@ export function reducer(state: AppState, action: Action): AppState {
         entregables: state.entregables.filter((e) => e.resultadoId !== action.id),
         pasos: state.pasos.filter((p) => !eIds.has(p.entregableId)),
         pasosActivos: clearPasosActivos(state, eIds),
+        ejecuciones: state.ejecuciones.filter((ej) => !ej.entregableId || !eIds.has(ej.entregableId)),
       };
     }
 
@@ -283,6 +297,7 @@ export function reducer(state: AppState, action: Action): AppState {
         entregables: state.entregables.filter((e) => !rIds.has(e.resultadoId)),
         pasos: state.pasos.filter((p) => !eIds.has(p.entregableId)),
         pasosActivos: clearPasosActivos(state, eIds),
+        ejecuciones: state.ejecuciones.filter((ej) => !ej.entregableId || !eIds.has(ej.entregableId)),
       };
     }
 
@@ -312,7 +327,14 @@ export function reducer(state: AppState, action: Action): AppState {
       return { ...state, plantillas: [...state.plantillas, action.payload] };
 
     case "DELETE_PLANTILLA":
-      return { ...state, plantillas: state.plantillas.filter((p) => p.id !== action.id) };
+      return {
+        ...state,
+        plantillas: state.plantillas.filter((p) => p.id !== action.id),
+        entregables: state.entregables.map((e) =>
+          e.plantillaId === action.id ? { ...e, plantillaId: null, tipo: e.tipo === "sop" ? "raw" as const : e.tipo } : e,
+        ),
+        ejecuciones: state.ejecuciones.filter((ej) => ej.plantillaId !== action.id),
+      };
 
     case "UPDATE_PLANTILLA":
       return { ...state, plantillas: state.plantillas.map((p) => p.id === action.id ? { ...p, ...action.changes } : p) };
@@ -321,11 +343,48 @@ export function reducer(state: AppState, action: Action): AppState {
     case "ADD_MIEMBRO":
       return { ...state, miembros: [...state.miembros, action.payload] };
 
-    case "UPDATE_MIEMBRO":
-      return { ...state, miembros: state.miembros.map((m) => m.id === action.id ? { ...m, ...action.changes } : m) };
+    case "UPDATE_MIEMBRO": {
+      const oldMember = state.miembros.find((m) => m.id === action.id);
+      const newName = action.changes.nombre;
+      const nameChanged = oldMember && newName && newName !== oldMember.nombre;
+      const oldName = oldMember?.nombre ?? "";
 
-    case "DELETE_MIEMBRO":
-      return { ...state, miembros: state.miembros.filter((m) => m.id !== action.id) };
+      let newState = { ...state, miembros: state.miembros.map((m) => m.id === action.id ? { ...m, ...action.changes } : m) };
+
+      if (nameChanged) {
+        newState = {
+          ...newState,
+          entregables: newState.entregables.map((e) =>
+            e.responsable === oldName ? { ...e, responsable: newName } : e,
+          ),
+          pasos: newState.pasos.map((p) => ({
+            ...p,
+            implicados: p.implicados.map((imp) =>
+              imp.tipo === "equipo" && imp.nombre === oldName ? { ...imp, nombre: newName } : imp,
+            ),
+          })),
+          plantillas: newState.plantillas.map((pl) =>
+            pl.responsableDefault === oldName ? { ...pl, responsableDefault: newName } : pl,
+          ),
+        };
+      }
+      return newState;
+    }
+
+    case "DELETE_MIEMBRO": {
+      const member = state.miembros.find((m) => m.id === action.id);
+      const memberName = member?.nombre ?? "";
+      return {
+        ...state,
+        miembros: state.miembros.filter((m) => m.id !== action.id),
+        entregables: state.entregables.map((e) =>
+          e.responsable === memberName ? { ...e, responsable: "" } : e,
+        ),
+        plantillas: state.plantillas.map((pl) =>
+          pl.responsableDefault === memberName ? { ...pl, responsableDefault: "" } : pl,
+        ),
+      };
+    }
 
     // --- Ejecuciones SOP ---
     case "ADD_EJECUCION":
