@@ -1,0 +1,377 @@
+import type {
+  AppState,
+  Paso,
+  Entregable,
+  Resultado,
+  Proyecto,
+  InboxItem,
+  ContactoExterno,
+  PlantillaProceso,
+  MiembroInfo,
+  EjecucionSOP,
+  AmbitoLabels,
+} from "./types";
+
+export type Action =
+  | { type: "INIT"; state: AppState }
+  | { type: "SET_AMBITO_LABELS"; labels: Partial<AmbitoLabels> }
+  | { type: "ADD_PROYECTO"; payload: Proyecto }
+  | { type: "ADD_RESULTADO"; payload: Resultado }
+  | { type: "ADD_ENTREGABLE"; payload: Entregable }
+  | { type: "START_PASO"; payload: Paso }
+  | { type: "ADD_PASO"; payload: Paso }
+  | { type: "ACTIVATE_PASO"; id: string }
+  | { type: "UPDATE_PASO_CONTEXTO"; id: string; contexto: Paso["contexto"] }
+  | { type: "UPDATE_PASO_IMPLICADOS"; id: string; implicados: Paso["implicados"] }
+  | { type: "CLOSE_PASO"; payload: Paso }
+  | { type: "RENAME_PASO"; id: string; nombre: string }
+  | { type: "DELETE_PASO"; id: string }
+  | { type: "RENAME_ENTREGABLE"; id: string; nombre: string }
+  | { type: "UPDATE_ENTREGABLE"; id: string; changes: Partial<Pick<Entregable, "nombre" | "responsable" | "tipo" | "plantillaId" | "diasEstimados" | "estado" | "fechaLimite" | "fechaInicio">> }
+  | { type: "DELETE_ENTREGABLE"; id: string }
+  | { type: "PROMOTE_PASO_TO_ENTREGABLE"; pasoId: string; nuevoEntregableId: string }
+  | { type: "PROMOTE_ENTREGABLE_TO_RESULTADO"; entregableId: string; nuevoResultadoId: string }
+  | { type: "MOVE_RESULTADO"; resultadoId: string; nuevoProyectoId: string }
+  | { type: "PROMOTE_RESULTADO"; resultadoId: string; area: Proyecto["area"]; nuevoProyectoId: string }
+  | { type: "DELETE_RESULTADO"; id: string }
+  | { type: "RENAME_RESULTADO"; id: string; nombre: string }
+  | { type: "UPDATE_RESULTADO"; id: string; changes: Partial<Pick<Resultado, "nombre" | "descripcion" | "semana" | "fechaLimite" | "fechaInicio" | "diasEstimados">> }
+  | { type: "DELETE_PROYECTO"; id: string }
+  | { type: "RENAME_PROYECTO"; id: string; nombre: string }
+  | { type: "UPDATE_PROYECTO"; id: string; changes: Partial<Pick<Proyecto, "nombre" | "descripcion" | "area" | "fechaInicio">> }
+  | { type: "IMPORT_DATA"; proyectos: Proyecto[]; resultados: Resultado[]; entregables: Entregable[] }
+  | { type: "ADD_INBOX"; payload: InboxItem }
+  | { type: "PROCESS_INBOX"; id: string }
+  | { type: "ADD_CONTACTO"; payload: ContactoExterno }
+  | { type: "IMPORT_PLANTILLAS"; plantillas: PlantillaProceso[] }
+  | { type: "ADD_PLANTILLA"; payload: PlantillaProceso }
+  | { type: "DELETE_PLANTILLA"; id: string }
+  | { type: "UPDATE_PLANTILLA"; id: string; changes: Partial<Pick<PlantillaProceso, "nombre" | "area" | "objetivo" | "disparador" | "programacion" | "excepciones" | "responsableDefault" | "pasos" | "herramientas" | "dependeDeIds">> }
+  | { type: "ADD_MIEMBRO"; payload: MiembroInfo }
+  | { type: "UPDATE_MIEMBRO"; id: string; changes: Partial<Pick<MiembroInfo, "nombre" | "rol" | "color" | "capacidadDiaria" | "diasLaborables">> }
+  | { type: "DELETE_MIEMBRO"; id: string }
+  | { type: "ADD_EJECUCION"; payload: EjecucionSOP }
+  | { type: "UPDATE_EJECUCION"; id: string; changes: Partial<Pick<EjecucionSOP, "entregableId" | "pasosLanzados" | "estado">> }
+  | { type: "TOGGLE_PASO_EJECUCION"; ejecucionId: string; pasoId: string }
+  | { type: "COMPLETE_EJECUCION"; id: string }
+  | { type: "PAUSE_PASO"; id: string }
+  | { type: "RESUME_PASO"; id: string }
+  | { type: "SET_MIGRATION_VERSION"; version: number }
+  | { type: "REORDER_PROYECTO"; id: string; direction: "up" | "down" }
+  | { type: "REORDER_RESULTADO"; id: string; direction: "up" | "down" }
+  | { type: "REORDER_ENTREGABLE"; id: string; direction: "up" | "down" }
+  | { type: "REORDER_PLANTILLA"; id: string; direction: "up" | "down" };
+
+function swapSiblings<T extends { id: string }>(
+  arr: T[],
+  id: string,
+  direction: "up" | "down",
+  siblingIds: string[],
+): T[] {
+  const posInSiblings = siblingIds.indexOf(id);
+  if (posInSiblings === -1) return arr;
+  const targetPos = direction === "up" ? posInSiblings - 1 : posInSiblings + 1;
+  if (targetPos < 0 || targetPos >= siblingIds.length) return arr;
+  const targetId = siblingIds[targetPos];
+  const idx1 = arr.findIndex((x) => x.id === id);
+  const idx2 = arr.findIndex((x) => x.id === targetId);
+  if (idx1 === -1 || idx2 === -1) return arr;
+  const copy = [...arr];
+  [copy[idx1], copy[idx2]] = [copy[idx2], copy[idx1]];
+  return copy;
+}
+
+function entregableIdsDe(state: AppState, resultadoIds: Set<string>): Set<string> {
+  return new Set(
+    state.entregables.filter((e) => resultadoIds.has(e.resultadoId)).map((e) => e.id),
+  );
+}
+
+function clearPasosActivos(state: AppState, entregableIds: Set<string>): string[] {
+  return state.pasosActivos.filter((id) => {
+    const paso = state.pasos.find((p) => p.id === id);
+    return !paso || !entregableIds.has(paso.entregableId);
+  });
+}
+
+export function reducer(state: AppState, action: Action): AppState {
+  switch (action.type) {
+    case "INIT":
+      return action.state;
+
+    case "SET_AMBITO_LABELS":
+      return { ...state, ambitoLabels: { ...state.ambitoLabels, ...action.labels } };
+
+    // --- Crear ---
+    case "ADD_PROYECTO":
+      return { ...state, proyectos: [...state.proyectos, action.payload] };
+    case "ADD_RESULTADO":
+      return { ...state, resultados: [...state.resultados, action.payload] };
+    case "ADD_ENTREGABLE":
+      return { ...state, entregables: [...state.entregables, action.payload] };
+
+    // --- Pasos ---
+    case "START_PASO":
+      return { ...state, pasos: [...state.pasos, action.payload], pasosActivos: [...state.pasosActivos, action.payload.id] };
+
+    case "ADD_PASO":
+      return { ...state, pasos: [...state.pasos, action.payload] };
+
+    case "ACTIVATE_PASO":
+      return {
+        ...state,
+        pasos: state.pasos.map((p) => p.id === action.id ? { ...p, inicioTs: new Date().toISOString() } : p),
+        pasosActivos: [...state.pasosActivos, action.id],
+      };
+
+    case "PAUSE_PASO":
+      return {
+        ...state,
+        pasos: state.pasos.map((p) =>
+          p.id === action.id
+            ? { ...p, pausas: [...p.pausas, { pauseTs: new Date().toISOString(), resumeTs: null }] }
+            : p
+        ),
+      };
+
+    case "RESUME_PASO":
+      return {
+        ...state,
+        pasos: state.pasos.map((p) =>
+          p.id === action.id
+            ? {
+                ...p,
+                pausas: p.pausas.map((pause, i) =>
+                  i === p.pausas.length - 1 && !pause.resumeTs
+                    ? { ...pause, resumeTs: new Date().toISOString() }
+                    : pause
+                ),
+              }
+            : p
+        ),
+      };
+
+    case "UPDATE_PASO_CONTEXTO":
+      return { ...state, pasos: state.pasos.map((p) => p.id === action.id ? { ...p, contexto: action.contexto } : p) };
+
+    case "UPDATE_PASO_IMPLICADOS":
+      return { ...state, pasos: state.pasos.map((p) => p.id === action.id ? { ...p, implicados: action.implicados } : p) };
+
+    case "CLOSE_PASO": {
+      const updated = action.payload;
+      const terminado = updated.siguientePaso?.tipo === "fin";
+      return {
+        ...state,
+        pasos: state.pasos.map((p) => (p.id === updated.id ? updated : p)),
+        pasosActivos: state.pasosActivos.filter((id) => id !== updated.id),
+        entregables: state.entregables.map((e) =>
+          e.id !== updated.entregableId ? e : { ...e, diasHechos: e.diasHechos + 1, estado: terminado ? "hecho" : "en_proceso" },
+        ),
+      };
+    }
+
+    case "RENAME_PASO":
+      return { ...state, pasos: state.pasos.map((p) => p.id === action.id ? { ...p, nombre: action.nombre } : p) };
+
+    case "DELETE_PASO":
+      return { ...state, pasos: state.pasos.filter((p) => p.id !== action.id), pasosActivos: state.pasosActivos.filter((id) => id !== action.id) };
+
+    // --- Entregables ---
+    case "RENAME_ENTREGABLE":
+      return { ...state, entregables: state.entregables.map((e) => e.id === action.id ? { ...e, nombre: action.nombre } : e) };
+
+    case "UPDATE_ENTREGABLE":
+      return { ...state, entregables: state.entregables.map((e) => e.id === action.id ? { ...e, ...action.changes } : e) };
+
+    case "DELETE_ENTREGABLE": {
+      const eIds = new Set([action.id]);
+      return {
+        ...state,
+        entregables: state.entregables.filter((e) => e.id !== action.id),
+        pasos: state.pasos.filter((p) => p.entregableId !== action.id),
+        pasosActivos: clearPasosActivos(state, eIds),
+      };
+    }
+
+    // --- Promociones ---
+    case "PROMOTE_PASO_TO_ENTREGABLE": {
+      const paso = state.pasos.find((p) => p.id === action.pasoId);
+      if (!paso) return state;
+      const old = state.entregables.find((e) => e.id === paso.entregableId);
+      if (!old) return state;
+      const nuevo: Entregable = {
+        id: action.nuevoEntregableId, nombre: paso.nombre, resultadoId: old.resultadoId,
+        tipo: "raw", plantillaId: null,
+        diasEstimados: 3, diasHechos: 1, esDiaria: false, responsable: old.responsable,
+        estado: "en_proceso", creado: new Date().toISOString(),
+        semana: null, fechaLimite: null, fechaInicio: null,
+      };
+      return {
+        ...state,
+        entregables: [...state.entregables, nuevo],
+        pasos: state.pasos.map((p) => p.id === action.pasoId ? { ...p, entregableId: action.nuevoEntregableId } : p),
+      };
+    }
+
+    case "PROMOTE_ENTREGABLE_TO_RESULTADO": {
+      const ent = state.entregables.find((e) => e.id === action.entregableId);
+      if (!ent) return state;
+      const oldRes = state.resultados.find((r) => r.id === ent.resultadoId);
+      if (!oldRes) return state;
+      const nuevo: Resultado = { id: action.nuevoResultadoId, nombre: ent.nombre, descripcion: null, proyectoId: oldRes.proyectoId, creado: new Date().toISOString(), semana: null, fechaLimite: null, fechaInicio: null, diasEstimados: null };
+      return {
+        ...state,
+        resultados: [...state.resultados, nuevo],
+        entregables: state.entregables.map((e) => e.id === action.entregableId ? { ...e, resultadoId: action.nuevoResultadoId } : e),
+      };
+    }
+
+    // --- Resultados ---
+    case "MOVE_RESULTADO":
+      return { ...state, resultados: state.resultados.map((r) => r.id === action.resultadoId ? { ...r, proyectoId: action.nuevoProyectoId } : r) };
+
+    case "PROMOTE_RESULTADO": {
+      const res = state.resultados.find((r) => r.id === action.resultadoId);
+      if (!res) return state;
+      const proj: Proyecto = { id: action.nuevoProyectoId, nombre: res.nombre, descripcion: null, area: action.area, creado: new Date().toISOString(), fechaInicio: null };
+      return {
+        ...state,
+        proyectos: [...state.proyectos, proj],
+        resultados: state.resultados.map((r) => r.id === action.resultadoId ? { ...r, proyectoId: action.nuevoProyectoId } : r),
+      };
+    }
+
+    case "RENAME_RESULTADO":
+      return { ...state, resultados: state.resultados.map((r) => r.id === action.id ? { ...r, nombre: action.nombre } : r) };
+
+    case "UPDATE_RESULTADO":
+      return { ...state, resultados: state.resultados.map((r) => r.id === action.id ? { ...r, ...action.changes } : r) };
+
+    case "DELETE_RESULTADO": {
+      const eIds = new Set(state.entregables.filter((e) => e.resultadoId === action.id).map((e) => e.id));
+      return {
+        ...state,
+        resultados: state.resultados.filter((r) => r.id !== action.id),
+        entregables: state.entregables.filter((e) => e.resultadoId !== action.id),
+        pasos: state.pasos.filter((p) => !eIds.has(p.entregableId)),
+        pasosActivos: clearPasosActivos(state, eIds),
+      };
+    }
+
+    // --- Proyectos ---
+    case "RENAME_PROYECTO":
+      return { ...state, proyectos: state.proyectos.map((p) => p.id === action.id ? { ...p, nombre: action.nombre } : p) };
+
+    case "UPDATE_PROYECTO":
+      return { ...state, proyectos: state.proyectos.map((p) => p.id === action.id ? { ...p, ...action.changes } : p) };
+
+    case "DELETE_PROYECTO": {
+      const rIds = new Set(state.resultados.filter((r) => r.proyectoId === action.id).map((r) => r.id));
+      const eIds = entregableIdsDe(state, rIds);
+      return {
+        ...state,
+        proyectos: state.proyectos.filter((p) => p.id !== action.id),
+        resultados: state.resultados.filter((r) => r.proyectoId !== action.id),
+        entregables: state.entregables.filter((e) => !rIds.has(e.resultadoId)),
+        pasos: state.pasos.filter((p) => !eIds.has(p.entregableId)),
+        pasosActivos: clearPasosActivos(state, eIds),
+      };
+    }
+
+    // --- Importar / Inbox / Contactos ---
+    case "IMPORT_DATA":
+      return {
+        ...state,
+        proyectos: [...state.proyectos, ...action.proyectos],
+        resultados: [...state.resultados, ...action.resultados],
+        entregables: [...state.entregables, ...action.entregables],
+      };
+
+    case "ADD_INBOX":
+      return { ...state, inbox: [...state.inbox, action.payload] };
+
+    case "PROCESS_INBOX":
+      return { ...state, inbox: state.inbox.map((i) => i.id === action.id ? { ...i, procesado: true } : i) };
+
+    case "ADD_CONTACTO":
+      return { ...state, contactos: [...state.contactos, action.payload] };
+
+    // --- Plantillas ---
+    case "IMPORT_PLANTILLAS":
+      return { ...state, plantillas: [...state.plantillas, ...action.plantillas] };
+
+    case "ADD_PLANTILLA":
+      return { ...state, plantillas: [...state.plantillas, action.payload] };
+
+    case "DELETE_PLANTILLA":
+      return { ...state, plantillas: state.plantillas.filter((p) => p.id !== action.id) };
+
+    case "UPDATE_PLANTILLA":
+      return { ...state, plantillas: state.plantillas.map((p) => p.id === action.id ? { ...p, ...action.changes } : p) };
+
+    // --- Miembros ---
+    case "ADD_MIEMBRO":
+      return { ...state, miembros: [...state.miembros, action.payload] };
+
+    case "UPDATE_MIEMBRO":
+      return { ...state, miembros: state.miembros.map((m) => m.id === action.id ? { ...m, ...action.changes } : m) };
+
+    case "DELETE_MIEMBRO":
+      return { ...state, miembros: state.miembros.filter((m) => m.id !== action.id) };
+
+    // --- Ejecuciones SOP ---
+    case "ADD_EJECUCION":
+      return { ...state, ejecuciones: [...state.ejecuciones, action.payload] };
+
+    case "UPDATE_EJECUCION":
+      return { ...state, ejecuciones: state.ejecuciones.map((ej) => ej.id === action.id ? { ...ej, ...action.changes } : ej) };
+
+    case "TOGGLE_PASO_EJECUCION":
+      return {
+        ...state,
+        ejecuciones: state.ejecuciones.map((ej) => {
+          if (ej.id !== action.ejecucionId) return ej;
+          const done = ej.pasosCompletados.includes(action.pasoId);
+          const pasosCompletados = done
+            ? ej.pasosCompletados.filter((id) => id !== action.pasoId)
+            : [...ej.pasosCompletados, action.pasoId];
+          return { ...ej, pasosCompletados, estado: pasosCompletados.length > 0 ? "en_curso" : "pendiente" };
+        }),
+      };
+
+    case "COMPLETE_EJECUCION":
+      return { ...state, ejecuciones: state.ejecuciones.map((ej) => ej.id === action.id ? { ...ej, estado: "completado" as const } : ej) };
+
+    case "SET_MIGRATION_VERSION":
+      return { ...state, _migrationVersion: action.version };
+
+    // --- Reordenar ---
+    case "REORDER_PROYECTO": {
+      const p = state.proyectos.find((x) => x.id === action.id);
+      if (!p) return state;
+      const siblings = state.proyectos.filter((x) => x.area === p.area).map((x) => x.id);
+      return { ...state, proyectos: swapSiblings(state.proyectos, action.id, action.direction, siblings) };
+    }
+    case "REORDER_RESULTADO": {
+      const r = state.resultados.find((x) => x.id === action.id);
+      if (!r) return state;
+      const siblings = state.resultados.filter((x) => x.proyectoId === r.proyectoId).map((x) => x.id);
+      return { ...state, resultados: swapSiblings(state.resultados, action.id, action.direction, siblings) };
+    }
+    case "REORDER_ENTREGABLE": {
+      const e = state.entregables.find((x) => x.id === action.id);
+      if (!e) return state;
+      const siblings = state.entregables.filter((x) => x.resultadoId === e.resultadoId).map((x) => x.id);
+      return { ...state, entregables: swapSiblings(state.entregables, action.id, action.direction, siblings) };
+    }
+    case "REORDER_PLANTILLA": {
+      const pl = state.plantillas.find((x) => x.id === action.id);
+      if (!pl) return state;
+      const siblings = state.plantillas.filter((x) => x.area === pl.area).map((x) => x.id);
+      return { ...state, plantillas: swapSiblings(state.plantillas, action.id, action.direction, siblings) };
+    }
+
+    default:
+      return state;
+  }
+}
