@@ -57,12 +57,17 @@ export function CerrarPaso({ paso, onClose }: Props) {
     .filter((p) => p.entregableId === entregable?.id && p.finTs)
     .sort((a, b) => (a.inicioTs ?? "").localeCompare(b.inicioTs ?? ""));
 
+  const matchesSOP = (pp: { nombre: string }, rp: { nombre: string; estado: string }) =>
+    rp.nombre === pp.nombre || rp.estado === pp.nombre;
+
+  const pasosIncluyendoActual = [...pasosDelEntregable, paso];
+
   const nextSOPStep = plantilla
-    ? plantilla.pasos.find((pp) => !pasosDelEntregable.some((rp) => rp.nombre === pp.nombre || rp.estado === pp.nombre))
+    ? plantilla.pasos.find((pp) => !pasosIncluyendoActual.some((rp) => matchesSOP(pp, rp)))
     : null;
 
   const allSOPStepsDone = plantilla
-    ? plantilla.pasos.every((pp) => pasosDelEntregable.some((rp) => rp.nombre === pp.nombre || rp.estado === pp.nombre))
+    ? plantilla.pasos.every((pp) => pasosIncluyendoActual.some((rp) => matchesSOP(pp, rp)))
     : false;
 
   const defaultNombre =
@@ -88,10 +93,13 @@ export function CerrarPaso({ paso, onClose }: Props) {
     if (allSOPStepsDone && entregable?.tipo === "sop") {
       setSigTipo("fin");
     }
-    if (nextSOPStep && entregable?.tipo === "sop" && !sigNombre) {
-      setSigNombre(nextSOPStep.nombre);
+  }, [allSOPStepsDone, entregable?.tipo]);
+
+  useEffect(() => {
+    if (nextSOPStep && entregable?.tipo === "sop") {
+      setSigNombre((prev) => prev || nextSOPStep.nombre);
     }
-  }, [allSOPStepsDone, nextSOPStep, entregable?.tipo, sigNombre]);
+  }, [nextSOPStep, entregable?.tipo]);
 
   const cuandoActual = sigCuando === "otro" ? sigFechaCustom : sigCuando;
   const cuandoLabel = resolveCuandoLabel(cuandoActual);
@@ -218,7 +226,7 @@ export function CerrarPaso({ paso, onClose }: Props) {
                     <p className="text-[10px] font-semibold uppercase tracking-wider text-purple-500">Siguiente paso del SOP:</p>
                     <div className="space-y-1 max-h-40 overflow-y-auto">
                       {plantilla.pasos.map((pp, idx) => {
-                        const done = pasosDelEntregable.some((rp) => rp.nombre === pp.nombre || rp.estado === pp.nombre);
+                        const done = pasosIncluyendoActual.some((rp) => matchesSOP(pp, rp));
                         const isNext = nextSOPStep?.id === pp.id;
                         return (
                           <button key={pp.id} type="button"
@@ -394,7 +402,7 @@ export function CerrarPaso({ paso, onClose }: Props) {
               className="w-full rounded-xl bg-green-600 py-3 text-base font-semibold text-white transition-colors hover:bg-green-700 disabled:opacity-40 disabled:cursor-not-allowed">
               {sigTipo === "fin" ? "Paso dado y entregable terminado" : "Paso dado"}
             </button>
-            {sigTipo === "fin" && entregable && entregable.tipo !== "sop" && pasosDelEntregable.length >= 2 && (
+            {sigTipo === "fin" && entregable && entregable.tipo !== "sop" && pasosDelEntregable.length >= 1 && (
               <button
                 type="button"
                 onClick={() => {
