@@ -526,6 +526,7 @@ function ResultadoBlock({ resultado, index, total }: { resultado: Resultado; ind
   const [open, setOpen] = useState(!!filter);
   const [confirm, setConfirm] = useState(false);
   const [showNotas, setShowNotas] = useState(false);
+  const [showMove, setShowMove] = useState(false);
 
   const allEntregables = state.entregables.filter((e) => e.resultadoId === resultado.id);
   const entregables = filter ? allEntregables.filter((e) => filter.entregables.has(e.id)) : allEntregables;
@@ -546,8 +547,26 @@ function ResultadoBlock({ resultado, index, total }: { resultado: Resultado; ind
         {isEmpresa && <ResponsableBadge nombre={resultado.responsable ?? parentProj?.responsable} />}
         <span className="rounded-full bg-surface px-2.5 py-0.5 text-xs text-muted">{entregables.length} entreg.</span>
         <NotasIcon count={notasCount} onClick={() => setShowNotas(!showNotas)} />
+        {!isMentor && (
+          <button onClick={(e) => { e.stopPropagation(); setShowMove(!showMove); }}
+            className="flex h-7 items-center gap-0.5 rounded-md px-1.5 text-[10px] text-muted opacity-50 hover:bg-surface hover:opacity-100 sm:opacity-0 group-hover/row:opacity-100" title="Mover a otro proyecto">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M5 12h14M12 5l7 7-7 7" /></svg>
+          </button>
+        )}
         {!isMentor && <DeleteBtn onDelete={() => setConfirm(true)} />}
       </ToggleRow>
+
+      {showMove && (
+        <div className="mx-5 mb-3 ml-14 rounded-lg border border-border bg-surface/50 p-3">
+          <p className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-muted">Mover a proyecto:</p>
+          <div className="flex flex-wrap gap-1">
+            {state.proyectos.filter((p) => p.id !== resultado.proyectoId).map((p) => (
+              <button key={p.id} onClick={() => { dispatch({ type: "MOVE_RESULTADO", resultadoId: resultado.id, nuevoProyectoId: p.id }); setShowMove(false); }}
+                className="rounded-md border border-border px-2 py-1 text-[10px] text-foreground hover:border-accent hover:bg-accent-soft">{p.nombre}</button>
+            ))}
+          </div>
+        </div>
+      )}
 
       {confirm && <ConfirmDelete label={resultado.nombre}
         onConfirm={() => { dispatch({ type: "DELETE_RESULTADO", id: resultado.id }); setConfirm(false); }}
@@ -593,6 +612,7 @@ function EntregableBlock({ entregable, index, total }: { entregable: Entregable;
   const [confirm, setConfirm] = useState(false);
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [justAssigned, setJustAssigned] = useState(false);
+  const [showMove, setShowMove] = useState(false);
   const justAssignedTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
   const customDateRef = useRef<HTMLInputElement>(null);
   useEffect(() => () => clearTimeout(justAssignedTimer.current), []);
@@ -683,8 +703,31 @@ function EntregableBlock({ entregable, index, total }: { entregable: Entregable;
           </button>
         )}
 
+        {!isMentor && (
+          <button onClick={(e) => { e.stopPropagation(); setShowMove(!showMove); }}
+            className="flex h-7 items-center gap-0.5 rounded-md px-1.5 text-[10px] text-muted opacity-50 hover:bg-surface hover:opacity-100 sm:opacity-0 group-hover/row:opacity-100" title="Mover a otro resultado">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M5 12h14M12 5l7 7-7 7" /></svg>
+          </button>
+        )}
         {!isMentor && <DeleteBtn onDelete={() => setConfirm(true)} />}
       </ToggleRow>
+
+      {showMove && (
+        <div className="mx-5 mb-3 ml-14 rounded-lg border border-border bg-surface/50 p-3">
+          <p className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-muted">Mover a resultado:</p>
+          <div className="flex flex-wrap gap-1">
+            {state.resultados.filter((r) => r.id !== entregable.resultadoId).map((r) => {
+              const proj = state.proyectos.find((p) => p.id === r.proyectoId);
+              return (
+                <button key={r.id} onClick={() => { dispatch({ type: "MOVE_ENTREGABLE", entregableId: entregable.id, nuevoResultadoId: r.id }); setShowMove(false); }}
+                  className="rounded-md border border-border px-2 py-1 text-[10px] text-foreground hover:border-accent hover:bg-accent-soft">
+                  {proj ? `${proj.nombre} → ` : ""}{r.nombre}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {showDatePicker && (
         <div className="ml-12 mb-2 flex flex-wrap items-center gap-2 px-3">

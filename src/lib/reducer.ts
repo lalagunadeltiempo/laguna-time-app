@@ -41,6 +41,7 @@ export type Action =
   | { type: "PROMOTE_PASO_TO_ENTREGABLE"; pasoId: string; nuevoEntregableId: string }
   | { type: "PROMOTE_ENTREGABLE_TO_RESULTADO"; entregableId: string; nuevoResultadoId: string }
   | { type: "MOVE_RESULTADO"; resultadoId: string; nuevoProyectoId: string }
+  | { type: "MOVE_ENTREGABLE"; entregableId: string; nuevoResultadoId: string }
   | { type: "PROMOTE_RESULTADO"; resultadoId: string; area: Proyecto["area"]; nuevoProyectoId: string }
   | { type: "DELETE_RESULTADO"; id: string }
   | { type: "RENAME_RESULTADO"; id: string; nombre: string }
@@ -285,6 +286,9 @@ export function reducer(state: AppState, action: Action): AppState {
     // --- Resultados ---
     case "MOVE_RESULTADO":
       return { ...state, resultados: state.resultados.map((r) => r.id === action.resultadoId ? { ...r, proyectoId: action.nuevoProyectoId } : r) };
+
+    case "MOVE_ENTREGABLE":
+      return { ...state, entregables: state.entregables.map((e) => e.id === action.entregableId ? { ...e, resultadoId: action.nuevoResultadoId } : e) };
 
     case "PROMOTE_RESULTADO": {
       const res = state.resultados.find((r) => r.id === action.resultadoId);
