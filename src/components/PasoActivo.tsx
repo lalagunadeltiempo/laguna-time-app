@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useRef } from "react";
 import { useAppState, useAppDispatch } from "@/lib/context";
 import { useArbol } from "@/lib/hooks";
 import { generateId } from "@/lib/store";
@@ -33,6 +33,9 @@ export function PasoActivoCard({ paso }: CardProps) {
   const [newContactoEmail, setNewContactoEmail] = useState("");
   const [newContactoTel, setNewContactoTel] = useState("");
   const [urlDraft, setUrlDraft] = useState<UrlRef>({ nombre: "", descripcion: "", url: "" });
+  const [showAddPaso, setShowAddPaso] = useState(false);
+  const [newPasoName, setNewPasoName] = useState("");
+  const addPasoRef = useRef<HTMLInputElement>(null);
 
   const updateContexto = useCallback(
     (contexto: Contexto) => {
@@ -231,6 +234,46 @@ export function PasoActivoCard({ paso }: CardProps) {
                       </div>
                     );
                   })}
+                  {showAddPaso ? (
+                    <div className="flex items-center gap-1 px-2 py-1">
+                      <input
+                        ref={addPasoRef}
+                        type="text"
+                        value={newPasoName}
+                        onChange={(e) => setNewPasoName(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" && newPasoName.trim()) {
+                            dispatch({ type: "ADD_PASO", payload: { id: generateId(), entregableId: entregable.id, nombre: newPasoName.trim(), inicioTs: null, finTs: null, estado: "", contexto: { urls: [], apps: [], notas: "" }, implicados: [], pausas: [], siguientePaso: null } });
+                            setNewPasoName("");
+                            addPasoRef.current?.focus();
+                          }
+                          if (e.key === "Escape") { setShowAddPaso(false); setNewPasoName(""); }
+                        }}
+                        autoFocus
+                        placeholder="Nombre del paso..."
+                        className="flex-1 rounded border border-zinc-200 bg-white px-1.5 py-1 text-[10px] focus:border-green-400 focus:outline-none"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (newPasoName.trim()) {
+                            dispatch({ type: "ADD_PASO", payload: { id: generateId(), entregableId: entregable.id, nombre: newPasoName.trim(), inicioTs: null, finTs: null, estado: "", contexto: { urls: [], apps: [], notas: "" }, implicados: [], pausas: [], siguientePaso: null } });
+                            setNewPasoName("");
+                            addPasoRef.current?.focus();
+                          }
+                        }}
+                        className="rounded bg-green-500 px-2 py-1 text-[10px] font-medium text-white hover:bg-green-600"
+                      >+</button>
+                      <button type="button" onClick={() => { setShowAddPaso(false); setNewPasoName(""); }}
+                        className="text-[10px] text-zinc-400 hover:text-zinc-600">✕</button>
+                    </div>
+                  ) : (
+                    <button type="button" onClick={() => setShowAddPaso(true)}
+                      className="flex items-center gap-1 px-2 py-1 text-[10px] text-zinc-400 hover:text-green-600">
+                      <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></svg>
+                      Añadir paso
+                    </button>
+                  )}
                 </div>
               )}
             </div>
@@ -371,13 +414,9 @@ export function PasoActivoCard({ paso }: CardProps) {
                     placeholder="Descripción" className="flex-1 rounded border border-zinc-200 px-1.5 py-1 text-[10px] focus:border-amber-400 focus:outline-none" />
                 </div>
               </div>
-              <textarea value={paso.contexto.notas}
-                onChange={(e) => updateContexto({ ...paso.contexto, notas: e.target.value })}
-                placeholder="Notas rápidas..." rows={2}
-                className="w-full resize-none rounded border border-zinc-200 bg-white p-2 text-xs text-zinc-900 placeholder:text-zinc-400 focus:border-amber-400 focus:outline-none" />
             </div>
 
-            {/* Notas estructuradas */}
+            {/* Notas */}
             <div className="space-y-1.5">
               <p className="text-[10px] font-semibold uppercase tracking-wider text-zinc-400">Notas</p>
               <NotasSection notas={paso.notas ?? []} nivel="paso" targetId={paso.id} />
