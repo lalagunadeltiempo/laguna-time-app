@@ -9,6 +9,7 @@ const STORAGE_KEY = "laguna-time-app";
 const BACKUP_KEY = "laguna-time-app-backup";
 
 let _loadedSuccessfully = false;
+let _cloudLoadedOk = false;
 
 export const INITIAL_STATE: AppState = {
   ambitoLabels: { personal: "Ganesha 🐘", empresa: "La Laguna del Tiempo ⛰️☀️" },
@@ -175,12 +176,16 @@ export function saveStateLocal(state: AppState): void {
 
 const WORKSPACE_ID = "workspace-laguna";
 
-export async function loadStateCloud(userId: string): Promise<AppState | null> {
+export interface CloudLoadResult {
+  data: AppState | null;
+  error: boolean;
+}
+
+export async function loadStateCloud(userId: string): Promise<CloudLoadResult> {
   const supabase = getSupabase();
-  if (!supabase || userId === "local") return null;
+  if (!supabase || userId === "local") return { data: null, error: false };
 
   try {
-    // Shared workspace: all team members read the same state
     const { data, error } = await supabase
       .from("user_data")
       .select("state")
@@ -188,36 +193,52 @@ export async function loadStateCloud(userId: string): Promise<AppState | null> {
       .single();
 
     if (error || !data?.state) {
-      // Fallback: try to load the user's own data (migration from per-user to shared)
-      const { data: userData } = await supabase
+      const { data: userData, error: userError } = await supabase
         .from("user_data")
         .select("state")
         .eq("user_id", userId)
         .single();
+      if (userError && userError.code !== "PGRST116") {
+        return { data: null, error: true };
+      }
       if (userData?.state) {
         const migrated = migrateV1(userData.state);
-        // Promote to shared workspace
         await supabase.from("user_data").upsert(
           { user_id: WORKSPACE_ID, state: migrated, updated_at: new Date().toISOString() },
           { onConflict: "user_id" },
         );
-        return migrated;
+        _cloudLoadedOk = true;
+        return { data: migrated, error: false };
       }
-      return null;
+      if (error && error.code !== "PGRST116") {
+        return { data: null, error: true };
+      }
+      return { data: null, error: false };
     }
-    return migrateV1(data.state);
+    _cloudLoadedOk = true;
+    return { data: migrateV1(data.state), error: false };
   } catch {
-    return null;
+    return { data: null, error: true };
   }
 }
 
 let _saveTimer: ReturnType<typeof setTimeout> | null = null;
 let _pendingSave: { userId: string; state: AppState } | null = null;
 
+export function markCloudLoadOk(): void {
+  _cloudLoadedOk = true;
+}
+
 export function saveStateCloud(userId: string, state: AppState): void {
   if (userId === "local") return;
+  if (!_cloudLoadedOk) return;
   const supabase = getSupabase();
   if (!supabase) return;
+
+  if (state.proyectos.length === 0 && state.entregables.length === 0 && state.pasos.length === 0) {
+    console.warn("[saveStateCloud] blocked: refusing to save empty state over cloud");
+    return;
+  }
 
   _pendingSave = { userId: WORKSPACE_ID, state };
 

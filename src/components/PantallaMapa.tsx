@@ -3,11 +3,12 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { useAppState, useAppDispatch } from "@/lib/context";
 import { generateId } from "@/lib/store";
-import { useUsuario } from "@/lib/usuario";
+import { useUsuario, useIsMentor } from "@/lib/usuario";
 import {
   AREAS_PERSONAL,
   AREAS_EMPRESA,
   AREA_COLORS,
+  ambitoDeArea,
   type Area,
   type AreaPersonal,
   type AreaEmpresa,
@@ -15,6 +16,7 @@ import {
   type Resultado,
   type Entregable,
   type Paso,
+  type Nota,
   type PlantillaProceso,
   type TipoEntregable,
 } from "@/lib/types";
@@ -43,23 +45,27 @@ function areaLabel(id: Area): string {
 export function PantallaMapa({ onOpenDetalle }: Props) {
   const state = useAppState();
   const dispatch = useAppDispatch();
+  const isMentor = useIsMentor();
 
   return (
     <div className="w-full px-6 py-8 sm:px-10">
 
       <AmbitoHeader
         value={state.ambitoLabels.empresa}
-        onChange={(v) => dispatch({ type: "SET_AMBITO_LABELS", labels: { empresa: v } })}
+        onChange={isMentor ? () => {} : (v) => dispatch({ type: "SET_AMBITO_LABELS", labels: { empresa: v } })}
       />
       {EMPRESA_ORDER.map((id) => <AreaSection key={id} areaId={id} />)}
 
-      <div className="my-12 border-t border-border" />
-
-      <AmbitoHeader
-        value={state.ambitoLabels.personal}
-        onChange={(v) => dispatch({ type: "SET_AMBITO_LABELS", labels: { personal: v } })}
-      />
-      {PERSONAL_ORDER.map((id) => <AreaSection key={id} areaId={id} />)}
+      {!isMentor && (
+        <>
+          <div className="my-12 border-t border-border" />
+          <AmbitoHeader
+            value={state.ambitoLabels.personal}
+            onChange={(v) => dispatch({ type: "SET_AMBITO_LABELS", labels: { personal: v } })}
+          />
+          {PERSONAL_ORDER.map((id) => <AreaSection key={id} areaId={id} />)}
+        </>
+      )}
     </div>
   );
 }
@@ -255,6 +261,7 @@ function AmbitoHeader({ value, onChange }: { value: string; onChange: (v: string
 function AreaSection({ areaId }: { areaId: Area }) {
   const state = useAppState();
   const dispatch = useAppDispatch();
+  const isMentor = useIsMentor();
   const [open, setOpen] = useState(false);
   const [openProj, setOpenProj] = useState(false);
   const [openSOP, setOpenSOP] = useState(false);
@@ -303,9 +310,11 @@ function AreaSection({ areaId }: { areaId: Area }) {
                 ) : (
                   <p className="py-3 text-base italic text-muted">Sin proyectos</p>
                 )}
-                <AddButton label="Proyecto" onAdd={(nombre) =>
-                  dispatch({ type: "ADD_PROYECTO", payload: { id: generateId(), nombre, descripcion: null, area: areaId, creado: new Date().toISOString(), fechaInicio: null } })
-                } />
+                {!isMentor && (
+                  <AddButton label="Proyecto" onAdd={(nombre) =>
+                    dispatch({ type: "ADD_PROYECTO", payload: { id: generateId(), nombre, descripcion: null, area: areaId, creado: new Date().toISOString(), fechaInicio: null } })
+                  } />
+                )}
               </>
             )}
           </div>
@@ -350,31 +359,49 @@ function AreaSection({ areaId }: { areaId: Area }) {
 function ProyectoBlock({ proyecto, index, total }: { proyecto: Proyecto; index: number; total: number }) {
   const state = useAppState();
   const dispatch = useAppDispatch();
+  const isMentor = useIsMentor();
   const [open, setOpen] = useState(false);
   const [confirm, setConfirm] = useState(false);
+  const [showNotas, setShowNotas] = useState(false);
+  const isEmpresa = ambitoDeArea(proyecto.area) === "empresa";
 
   const resultados = state.resultados.filter((r) => r.proyectoId === proyecto.id);
+  const notasCount = (proyecto.notas ?? []).length;
 
   return (
     <div className="rounded-xl border border-border bg-background">
       <ToggleRow open={open} onToggle={() => setOpen(!open)}>
-        <MoveArrows canUp={index > 0} canDown={index < total - 1}
+        {!isMentor && <MoveArrows canUp={index > 0} canDown={index < total - 1}
           onUp={() => dispatch({ type: "REORDER_PROYECTO", id: proyecto.id, direction: "up" })}
-          onDown={() => dispatch({ type: "REORDER_PROYECTO", id: proyecto.id, direction: "down" })} />
-        <EditableText value={proyecto.nombre} onChange={(v) => dispatch({ type: "RENAME_PROYECTO", id: proyecto.id, nombre: v })}
-          className="text-lg font-semibold text-foreground" />
+          onDown={() => dispatch({ type: "REORDER_PROYECTO", id: proyecto.id, direction: "down" })} />}
+        {isMentor
+          ? <span className="text-lg font-semibold text-foreground">{proyecto.nombre}</span>
+          : <EditableText value={proyecto.nombre} onChange={(v) => dispatch({ type: "RENAME_PROYECTO", id: proyecto.id, nombre: v })} className="text-lg font-semibold text-foreground" />
+        }
+        {isEmpresa && <ResponsableBadge nombre={proyecto.responsable} />}
         <span className="rounded-full bg-surface px-3 py-1 text-xs font-medium text-muted">{resultados.length} result.</span>
-        <DeleteBtn onDelete={() => setConfirm(true)} />
+        <NotasIcon count={notasCount} onClick={() => setShowNotas(!showNotas)} />
+        {!isMentor && <DeleteBtn onDelete={() => setConfirm(true)} />}
       </ToggleRow>
 
       {confirm && <ConfirmDelete label={proyecto.nombre}
         onConfirm={() => { dispatch({ type: "DELETE_PROYECTO", id: proyecto.id }); setConfirm(false); }}
         onCancel={() => setConfirm(false)} />}
 
+      {showNotas && (
+        <div className="mx-5 mb-3 ml-14">
+          <NotasSection notas={proyecto.notas ?? []} nivel="proyecto" targetId={proyecto.id} />
+        </div>
+      )}
+
       {open && (
         <div className="px-5 pb-5 pl-14">
-          <EditableText value={proyecto.descripcion ?? ""} onChange={(v) => dispatch({ type: "UPDATE_PROYECTO", id: proyecto.id, changes: { descripcion: v || null } })}
-            className="mb-4 text-sm italic text-muted" placeholder="Descripción del proyecto..." multiline />
+          {!isMentor ? (
+            <EditableText value={proyecto.descripcion ?? ""} onChange={(v) => dispatch({ type: "UPDATE_PROYECTO", id: proyecto.id, changes: { descripcion: v || null } })}
+              className="mb-4 text-sm italic text-muted" placeholder="Descripción del proyecto..." multiline />
+          ) : proyecto.descripcion ? (
+            <p className="mb-4 text-sm italic text-muted">{proyecto.descripcion}</p>
+          ) : null}
 
           {proyecto.fechaInicio && (
             <p className="mb-3 text-xs text-muted">
@@ -388,9 +415,11 @@ function ProyectoBlock({ proyecto, index, total }: { proyecto: Proyecto; index: 
             ))}
           </div>
 
-          <AddButton label="Resultado" onAdd={(nombre) =>
-            dispatch({ type: "ADD_RESULTADO", payload: { id: generateId(), nombre, descripcion: null, proyectoId: proyecto.id, creado: new Date().toISOString(), semana: null, fechaLimite: null, fechaInicio: null, diasEstimados: null } })
-          } />
+          {!isMentor && (
+            <AddButton label="Resultado" onAdd={(nombre) =>
+              dispatch({ type: "ADD_RESULTADO", payload: { id: generateId(), nombre, descripcion: null, proyectoId: proyecto.id, creado: new Date().toISOString(), semana: null, fechaLimite: null, fechaInicio: null, diasEstimados: null } })
+            } />
+          )}
         </div>
       )}
     </div>
@@ -405,26 +434,41 @@ function ResultadoBlock({ resultado, index, total }: { resultado: Resultado; ind
   const state = useAppState();
   const dispatch = useAppDispatch();
   const { nombre: currentUser } = useUsuario();
+  const isMentor = useIsMentor();
   const [open, setOpen] = useState(false);
   const [confirm, setConfirm] = useState(false);
+  const [showNotas, setShowNotas] = useState(false);
 
   const entregables = state.entregables.filter((e) => e.resultadoId === resultado.id);
+  const parentProj = state.proyectos.find((p) => p.id === resultado.proyectoId);
+  const isEmpresa = parentProj ? ambitoDeArea(parentProj.area) === "empresa" : false;
+  const notasCount = (resultado.notas ?? []).length;
 
   return (
     <div className="rounded-xl border border-border/50 bg-surface/30">
       <ToggleRow open={open} onToggle={() => setOpen(!open)}>
-        <MoveArrows canUp={index > 0} canDown={index < total - 1}
+        {!isMentor && <MoveArrows canUp={index > 0} canDown={index < total - 1}
           onUp={() => dispatch({ type: "REORDER_RESULTADO", id: resultado.id, direction: "up" })}
-          onDown={() => dispatch({ type: "REORDER_RESULTADO", id: resultado.id, direction: "down" })} />
-        <EditableText value={resultado.nombre} onChange={(v) => dispatch({ type: "RENAME_RESULTADO", id: resultado.id, nombre: v })}
-          className="text-base font-medium text-foreground" />
+          onDown={() => dispatch({ type: "REORDER_RESULTADO", id: resultado.id, direction: "down" })} />}
+        {isMentor
+          ? <span className="text-base font-medium text-foreground">{resultado.nombre}</span>
+          : <EditableText value={resultado.nombre} onChange={(v) => dispatch({ type: "RENAME_RESULTADO", id: resultado.id, nombre: v })} className="text-base font-medium text-foreground" />
+        }
+        {isEmpresa && <ResponsableBadge nombre={resultado.responsable ?? parentProj?.responsable} />}
         <span className="rounded-full bg-surface px-2.5 py-0.5 text-xs text-muted">{entregables.length} entreg.</span>
-        <DeleteBtn onDelete={() => setConfirm(true)} />
+        <NotasIcon count={notasCount} onClick={() => setShowNotas(!showNotas)} />
+        {!isMentor && <DeleteBtn onDelete={() => setConfirm(true)} />}
       </ToggleRow>
 
       {confirm && <ConfirmDelete label={resultado.nombre}
         onConfirm={() => { dispatch({ type: "DELETE_RESULTADO", id: resultado.id }); setConfirm(false); }}
         onCancel={() => setConfirm(false)} />}
+
+      {showNotas && (
+        <div className="mx-5 mb-3 ml-14">
+          <NotasSection notas={resultado.notas ?? []} nivel="resultado" targetId={resultado.id} />
+        </div>
+      )}
 
       {open && (
         <div className="px-5 pb-5 pl-14">
@@ -436,9 +480,11 @@ function ResultadoBlock({ resultado, index, total }: { resultado: Resultado; ind
               <EntregableBlock key={ent.id} entregable={ent} index={i} total={entregables.length} />
             ))}
           </div>
-          <AddButton label="Entregable" onAdd={(nombre) =>
-            dispatch({ type: "ADD_ENTREGABLE", payload: { id: generateId(), nombre, resultadoId: resultado.id, tipo: "raw" as TipoEntregable, plantillaId: null, diasEstimados: 3, diasHechos: 0, esDiaria: false, responsable: currentUser, estado: "a_futuro", creado: new Date().toISOString(), semana: null, fechaLimite: null, fechaInicio: null } })
-          } />
+          {!isMentor && (
+            <AddButton label="Entregable" onAdd={(nombre) =>
+              dispatch({ type: "ADD_ENTREGABLE", payload: { id: generateId(), nombre, resultadoId: resultado.id, tipo: "raw" as TipoEntregable, plantillaId: null, diasEstimados: 3, diasHechos: 0, esDiaria: false, responsable: currentUser, estado: "a_futuro", creado: new Date().toISOString(), semana: null, fechaLimite: null, fechaInicio: null } })
+            } />
+          )}
         </div>
       )}
     </div>
@@ -452,6 +498,7 @@ function ResultadoBlock({ resultado, index, total }: { resultado: Resultado; ind
 function EntregableBlock({ entregable, index, total }: { entregable: Entregable; index: number; total: number }) {
   const state = useAppState();
   const dispatch = useAppDispatch();
+  const isMentor = useIsMentor();
   const [open, setOpen] = useState(false);
   const [confirm, setConfirm] = useState(false);
   const [showDatePicker, setShowDatePicker] = useState(false);
@@ -464,11 +511,15 @@ function EntregableBlock({ entregable, index, total }: { entregable: Entregable;
     .filter((p) => p.entregableId === entregable.id)
     .sort((a, b) => { if (!a.inicioTs) return 1; if (!b.inicioTs) return -1; return a.inicioTs.localeCompare(b.inicioTs); });
 
+  const [showNotas, setShowNotas] = useState(false);
+
   const tipoTag = entregable.tipo !== "raw" ? entregable.tipo.toUpperCase() : null;
   const dotColor = entregable.estado === "hecho" ? "bg-green-500" : entregable.estado === "en_proceso" ? "bg-amber-500" : "bg-border";
   const parentRes = state.resultados.find((r) => r.id === entregable.resultadoId);
   const parentProj = parentRes ? state.proyectos.find((p) => p.id === parentRes.proyectoId) : undefined;
   const entAreaHex = parentProj ? (AREA_COLORS[parentProj.area]?.hex ?? "#888") : "#888";
+  const isEmpresa = parentProj ? ambitoDeArea(parentProj.area) === "empresa" : false;
+  const notasCount = (entregable.notas ?? []).length;
 
   const isProgrammed = !!entregable.fechaInicio;
   const programLabel = isProgrammed ? formatFechaInicio(entregable.fechaInicio!) : null;
@@ -510,13 +561,16 @@ function EntregableBlock({ entregable, index, total }: { entregable: Entregable;
   return (
     <div>
       <ToggleRow open={open} onToggle={() => setOpen(!open)}>
-        <MoveArrows canUp={index > 0} canDown={index < total - 1}
+        {!isMentor && <MoveArrows canUp={index > 0} canDown={index < total - 1}
           onUp={() => dispatch({ type: "REORDER_ENTREGABLE", id: entregable.id, direction: "up" })}
-          onDown={() => dispatch({ type: "REORDER_ENTREGABLE", id: entregable.id, direction: "down" })} />
+          onDown={() => dispatch({ type: "REORDER_ENTREGABLE", id: entregable.id, direction: "down" })} />}
         <span className={`h-3 w-3 shrink-0 rounded-full ${dotColor}`} />
-        <EditableText value={entregable.nombre} onChange={(v) => dispatch({ type: "RENAME_ENTREGABLE", id: entregable.id, nombre: v })}
-          className="text-sm text-foreground" />
+        {isMentor
+          ? <span className="text-sm text-foreground">{entregable.nombre}</span>
+          : <EditableText value={entregable.nombre} onChange={(v) => dispatch({ type: "RENAME_ENTREGABLE", id: entregable.id, nombre: v })} className="text-sm text-foreground" />
+        }
         {tipoTag && <span className="rounded-md px-2 py-0.5 text-[11px] font-bold" style={{ backgroundColor: entAreaHex + "15", color: entAreaHex }}>{tipoTag}</span>}
+        {isEmpresa && <ResponsableBadge nombre={entregable.responsable} />}
         {programLabel && (
           <span className="rounded-md bg-accent/10 px-2 py-0.5 text-[11px] font-medium text-accent">{programLabel}</span>
         )}
@@ -524,18 +578,21 @@ function EntregableBlock({ entregable, index, total }: { entregable: Entregable;
           <span className="animate-pulse rounded-md bg-green-100 px-2 py-0.5 text-[11px] font-bold text-green-700">Planificado</span>
         )}
         {pasos.length > 0 && <span className="text-xs text-muted">{pasos.length}p</span>}
+        <NotasIcon count={notasCount} onClick={() => setShowNotas(!showNotas)} />
 
-        <button
-          onClick={(e) => { e.stopPropagation(); setShowDatePicker(!showDatePicker); }}
-          className={`flex h-7 items-center gap-1 rounded-md px-2 text-xs transition-all hover:bg-accent-soft hover:text-accent ${isProgrammed ? "text-accent" : "text-muted opacity-60 hover:opacity-100"}`}
-          title="Asignar a un periodo"
-        >
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-            <rect x="3" y="4" width="18" height="18" rx="2" /><line x1="16" y1="2" x2="16" y2="6" /><line x1="8" y1="2" x2="8" y2="6" /><line x1="3" y1="10" x2="21" y2="10" />
-          </svg>
-        </button>
+        {!isMentor && (
+          <button
+            onClick={(e) => { e.stopPropagation(); setShowDatePicker(!showDatePicker); }}
+            className={`flex h-7 items-center gap-1 rounded-md px-2 text-xs transition-all hover:bg-accent-soft hover:text-accent ${isProgrammed ? "text-accent" : "text-muted opacity-60 hover:opacity-100"}`}
+            title="Asignar a un periodo"
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+              <rect x="3" y="4" width="18" height="18" rx="2" /><line x1="16" y1="2" x2="16" y2="6" /><line x1="8" y1="2" x2="8" y2="6" /><line x1="3" y1="10" x2="21" y2="10" />
+            </svg>
+          </button>
+        )}
 
-        <DeleteBtn onDelete={() => setConfirm(true)} />
+        {!isMentor && <DeleteBtn onDelete={() => setConfirm(true)} />}
       </ToggleRow>
 
       {showDatePicker && (
@@ -569,9 +626,15 @@ function EntregableBlock({ entregable, index, total }: { entregable: Entregable;
         onConfirm={() => { dispatch({ type: "DELETE_ENTREGABLE", id: entregable.id }); setConfirm(false); }}
         onCancel={() => setConfirm(false)} />}
 
+      {showNotas && (
+        <div className="mx-5 mb-3 ml-16">
+          <NotasSection notas={entregable.notas ?? []} nivel="entregable" targetId={entregable.id} />
+        </div>
+      )}
+
       {open && pasos.length > 0 && (
         <div className="pb-2 pl-16">
-          {pasos.map((paso) => <PasoLine key={paso.id} paso={paso} />)}
+          {pasos.map((paso, i) => <PasoLine key={paso.id} paso={paso} index={i} total={pasos.length} isEmpresa={isEmpresa} entResponsable={entregable.responsable} />)}
         </div>
       )}
     </div>
@@ -582,33 +645,49 @@ function EntregableBlock({ entregable, index, total }: { entregable: Entregable;
    PASO
    ============================================================ */
 
-function PasoLine({ paso }: { paso: Paso }) {
+function PasoLine({ paso, index, total, isEmpresa, entResponsable }: { paso: Paso; index: number; total: number; isEmpresa: boolean; entResponsable?: string }) {
   const dispatch = useAppDispatch();
+  const isMentor = useIsMentor();
   const [showDetail, setShowDetail] = useState(false);
+  const [showNotas, setShowNotas] = useState(false);
   const done = !!paso.finTs;
+  const notasCount = (paso.notas ?? []).length;
 
   return (
     <div className="mb-1">
       <div className="group/row flex min-h-[44px] items-center gap-2 rounded-lg px-3 py-2 hover:bg-surface">
+        {!isMentor && <MoveArrows canUp={index > 0} canDown={index < total - 1}
+          onUp={() => dispatch({ type: "REORDER_PASO", id: paso.id, direction: "up" })}
+          onDown={() => dispatch({ type: "REORDER_PASO", id: paso.id, direction: "down" })} />}
         <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${done ? "bg-green-500" : "bg-border"}`} />
-        <EditableText value={paso.nombre} onChange={(v) => dispatch({ type: "RENAME_PASO", id: paso.id, nombre: v })}
-          className={`text-sm ${done ? "text-muted line-through" : "text-foreground"}`} />
+        {isMentor
+          ? <span className={`text-sm ${done ? "text-muted line-through" : "text-foreground"}`}>{paso.nombre}</span>
+          : <EditableText value={paso.nombre} onChange={(v) => dispatch({ type: "RENAME_PASO", id: paso.id, nombre: v })} className={`text-sm ${done ? "text-muted line-through" : "text-foreground"}`} />
+        }
+        {isEmpresa && <ResponsableBadge nombre={entResponsable} />}
         {paso.inicioTs && (
           <span className="text-xs text-muted">
             {new Date(paso.inicioTs).toLocaleDateString("es-ES", { day: "numeric", month: "short" })}
           </span>
         )}
+        <NotasIcon count={notasCount} onClick={() => setShowNotas(!showNotas)} />
         <button onClick={() => setShowDetail(!showDetail)}
           className="flex h-8 w-8 items-center justify-center rounded-lg text-muted opacity-40 hover:bg-surface-hover hover:text-foreground sm:opacity-0 group-hover/row:opacity-100">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
             <circle cx="12" cy="12" r="1.5" /><circle cx="19" cy="12" r="1.5" /><circle cx="5" cy="12" r="1.5" />
           </svg>
         </button>
-        <DeleteBtn onDelete={() => dispatch({ type: "DELETE_PASO", id: paso.id })} />
+        {!isMentor && <DeleteBtn onDelete={() => dispatch({ type: "DELETE_PASO", id: paso.id })} />}
       </div>
 
+      {showNotas && (
+        <div className="ml-12 mt-1 mb-2">
+          <NotasSection notas={paso.notas ?? []} nivel="paso" targetId={paso.id} />
+        </div>
+      )}
+
       {showDetail && (
-        <div className="ml-8 mt-1 rounded-xl bg-surface p-4 text-sm text-muted">
+        <div className="ml-12 mt-1 rounded-xl bg-surface p-4 text-sm text-muted">
           {paso.contexto.notas && <p className="mb-2">{paso.contexto.notas}</p>}
           {paso.contexto.urls.length > 0 && (
             <div className="space-y-1">
@@ -867,5 +946,74 @@ function ConfirmDelete({ label, onConfirm, onCancel }: { label: string; onConfir
       <button onClick={onConfirm} className="rounded-lg bg-red-500 px-4 py-1.5 text-sm font-semibold text-white hover:bg-red-600">Sí</button>
       <button onClick={onCancel} className="text-sm text-muted hover:text-foreground">No</button>
     </div>
+  );
+}
+
+function ResponsableBadge({ nombre }: { nombre?: string }) {
+  if (!nombre) return null;
+  return (
+    <span className="rounded-md bg-surface px-2 py-0.5 text-[11px] font-medium text-muted" title="Responsable">
+      {nombre}
+    </span>
+  );
+}
+
+function NotasSection({ notas, nivel, targetId }: { notas: Nota[]; nivel: "paso" | "entregable" | "resultado" | "proyecto"; targetId: string }) {
+  const dispatch = useAppDispatch();
+  const { nombre: currentUser } = useUsuario();
+  const [draft, setDraft] = useState("");
+  const [showForm, setShowForm] = useState(false);
+
+  function addNota() {
+    const t = draft.trim();
+    if (!t) return;
+    dispatch({ type: "ADD_NOTA", nivel, targetId, nota: { id: generateId(), texto: t, autor: currentUser, creadoTs: new Date().toISOString() } });
+    setDraft("");
+    setShowForm(false);
+  }
+
+  return (
+    <div className="mt-2 space-y-1.5">
+      {notas.map((n) => (
+        <div key={n.id} className="flex items-start gap-2 rounded-lg bg-surface/50 px-3 py-2">
+          <div className="flex-1 min-w-0">
+            <p className="text-xs text-foreground whitespace-pre-wrap">{n.texto}</p>
+            <p className="mt-0.5 text-[10px] text-muted">
+              {n.autor} · {new Date(n.creadoTs).toLocaleDateString("es-ES", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}
+            </p>
+          </div>
+          <button onClick={() => dispatch({ type: "DELETE_NOTA", nivel, targetId, notaId: n.id })}
+            className="shrink-0 text-muted opacity-40 hover:text-red-500 hover:opacity-100" title="Borrar nota">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
+          </button>
+        </div>
+      ))}
+      {showForm ? (
+        <div className="flex gap-2">
+          <input value={draft} onChange={(e) => setDraft(e.target.value)} placeholder="Escribe una nota..."
+            onKeyDown={(e) => { if (e.key === "Enter") addNota(); if (e.key === "Escape") setShowForm(false); }}
+            autoFocus className="flex-1 rounded-lg border border-border bg-background px-3 py-1.5 text-xs text-foreground outline-none focus:border-accent" />
+          <button onClick={addNota} className="rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-white hover:bg-accent/90">Añadir</button>
+        </div>
+      ) : (
+        <button onClick={() => setShowForm(true)} className="flex items-center gap-1 text-[11px] text-muted hover:text-accent">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></svg>
+          Añadir nota
+        </button>
+      )}
+    </div>
+  );
+}
+
+function NotasIcon({ count, onClick }: { count: number; onClick: () => void }) {
+  return (
+    <button onClick={(e) => { e.stopPropagation(); onClick(); }}
+      className={`flex h-7 items-center gap-0.5 rounded-md px-1.5 text-xs transition-all hover:bg-accent-soft ${count > 0 ? "text-accent" : "text-muted opacity-50 hover:opacity-100"}`}
+      title={`${count} nota(s)`}>
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+        <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" /><polyline points="14 2 14 8 20 8" /><line x1="16" y1="13" x2="8" y2="13" /><line x1="16" y1="17" x2="8" y2="17" />
+      </svg>
+      {count > 0 && <span className="font-medium">{count}</span>}
+    </button>
   );
 }

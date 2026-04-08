@@ -19,6 +19,7 @@ import {
   flushPendingCloudSave,
   setLoadedSuccessfully,
   didLoadSuccessfully,
+  markCloudLoadOk,
   INITIAL_STATE,
   generateId,
 } from "./store";
@@ -61,18 +62,30 @@ export function AppProvider({ userId, children }: ProviderProps) {
     initialized.current = false;
   }
 
+  const initDone = useRef(false);
+
   useEffect(() => {
     if (initialized.current) return;
     initialized.current = true;
+    initDone.current = false;
 
     async function init() {
-      const cloudState = await loadStateCloud(userId);
+      const cloudResult = await loadStateCloud(userId);
 
-      if (cloudState) {
+      if (cloudResult.data) {
         setLoadedSuccessfully(true);
-        dispatch({ type: "INIT", state: cloudState });
-        saveStateLocal(cloudState);
-        runMigrations(cloudState, dispatch);
+        dispatch({ type: "INIT", state: cloudResult.data });
+        saveStateLocal(cloudResult.data);
+        runMigrations(cloudResult.data, dispatch);
+        initDone.current = true;
+        return;
+      }
+
+      if (cloudResult.error) {
+        console.warn("[init] Cloud load failed — loading local only, cloud saves blocked");
+        const localState = loadStateLocal();
+        dispatch({ type: "INIT", state: localState });
+        initDone.current = true;
         return;
       }
 
@@ -83,18 +96,20 @@ export function AppProvider({ userId, children }: ProviderProps) {
         runMigrations(localState, dispatch);
 
         if (userId !== "local" && localState !== INITIAL_STATE) {
+          markCloudLoadOk();
           saveStateCloud(userId, localState);
           console.log("[init] Datos locales migrados a la nube");
         }
       }
+      initDone.current = true;
     }
 
     init();
   }, [userId]);
 
-  // Persist state changes
   useEffect(() => {
     if (state === INITIAL_STATE) return;
+    if (!initDone.current) return;
     saveStateLocal(state);
     saveStateCloud(userId, state);
   }, [state, userId]);

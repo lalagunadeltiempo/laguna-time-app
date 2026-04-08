@@ -1,10 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { AuthGate } from "@/components/AuthGate";
-import { AppProvider } from "@/lib/context";
+import { AppProvider, useAppState } from "@/lib/context";
 import { UsuarioContext, useUsuario } from "@/lib/usuario";
 import { getSupabase } from "@/lib/supabase";
+import type { RolUsuario } from "@/lib/types";
 import { PantallaHoy } from "@/components/PantallaHoy";
 import { PantallaPlan } from "@/components/PantallaPlan";
 import { PantallaMapa } from "@/components/PantallaMapa";
@@ -80,15 +81,13 @@ export default function Home() {
   return (
     <AuthGate>
       {(userId, displayName) => (
-        <UsuarioContext.Provider value={{ userId, nombre: displayName }}>
-          <AppShell key={userId} userId={userId} />
-        </UsuarioContext.Provider>
+        <AppShell key={userId} userId={userId} displayName={displayName} />
       )}
     </AuthGate>
   );
 }
 
-function AppShell({ userId }: { userId: string }) {
+function AppShell({ userId, displayName }: { userId: string; displayName: string }) {
   const [vista, setVista] = useState<Vista>("hoy");
   const [collapsed, setCollapsed] = useState(false);
   const [showBuscador, setShowBuscador] = useState(false);
@@ -108,6 +107,7 @@ function AppShell({ userId }: { userId: string }) {
 
   return (
     <AppProvider userId={userId}>
+      <UsuarioWithRol userId={userId} nombre={displayName}>
       <div className="flex h-dvh overflow-hidden bg-background text-foreground">
         {/* ── Sidebar (desktop md+) ── */}
         <aside
@@ -255,7 +255,19 @@ function AppShell({ userId }: { userId: string }) {
         {/* ── Global overlays ── */}
         {showBuscador && <Buscador onClose={() => setShowBuscador(false)} />}
       </div>
+      </UsuarioWithRol>
     </AppProvider>
+  );
+}
+
+function UsuarioWithRol({ userId, nombre, children }: { userId: string; nombre: string; children: ReactNode }) {
+  const state = useAppState();
+  const member = state.miembros.find((m) => m.nombre === nombre || m.id === userId);
+  const rol: RolUsuario = (member?.rol as RolUsuario) ?? "miembro";
+  return (
+    <UsuarioContext.Provider value={{ userId, nombre, rol }}>
+      {children}
+    </UsuarioContext.Provider>
   );
 }
 

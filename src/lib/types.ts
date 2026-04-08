@@ -24,10 +24,12 @@ export function ambitoDeArea(area: Area): Ambito {
     : "empresa";
 }
 
+export type RolUsuario = "admin" | "miembro" | "mentor";
+
 export interface MiembroInfo {
   id: string;
   nombre: string;
-  rol?: string;
+  rol?: RolUsuario;
   color: string;
   capacidadDiaria: number;
   diasLaborables: number[];
@@ -43,6 +45,13 @@ export const EQUIPO_DEFAULT: MiembroInfo[] = [
 
 /* ---- Jerarquía: Paso → Entregable → Resultado → Proyecto → Área → Ámbito ---- */
 
+export interface Nota {
+  id: string;
+  texto: string;
+  autor: string;
+  creadoTs: string;
+}
+
 export interface Proyecto {
   id: string;
   nombre: string;
@@ -50,6 +59,8 @@ export interface Proyecto {
   area: Area;
   creado: string;
   fechaInicio: string | null;
+  responsable?: string;
+  notas?: Nota[];
 }
 
 export interface Resultado {
@@ -62,6 +73,8 @@ export interface Resultado {
   fechaLimite: string | null;
   fechaInicio: string | null;
   diasEstimados: number | null;
+  responsable?: string;
+  notas?: Nota[];
 }
 
 export type TipoEntregable = "raw" | "sop" | "a-sop";
@@ -81,6 +94,7 @@ export interface Entregable {
   semana: string | null;
   fechaLimite: string | null;
   fechaInicio: string | null;
+  notas?: Nota[];
 }
 
 export interface UrlRef {
@@ -115,12 +129,14 @@ export interface Paso {
   id: string;
   entregableId: string;
   nombre: string;
+  orden?: number;
   inicioTs: string | null;
   finTs: string | null;
   estado: string;
   contexto: Contexto;
   implicados: Implicado[];
   pausas: PausaEntry[];
+  notas?: Nota[];
   siguientePaso: {
     tipo: "fin" | "continuar";
     nombre?: string;

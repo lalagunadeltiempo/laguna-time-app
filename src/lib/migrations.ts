@@ -22,6 +22,7 @@ export function runMigrations(state: AppState, dispatch: Dispatch): void {
 
 function migrationSeedPersonal(state: AppState, dispatch: Dispatch): void {
   if (state.proyectos.length > 0) return;
+  if (state.entregables.length > 0 || state.resultados.length > 0) return;
   const { proyectos, resultados, entregables } = buildPersonalSeedData();
   dispatch({ type: "IMPORT_DATA", proyectos, resultados, entregables });
 }

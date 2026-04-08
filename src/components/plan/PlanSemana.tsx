@@ -2,7 +2,7 @@
 
 import { useMemo, useState, useEffect } from "react";
 import { useAppState, useAppDispatch } from "@/lib/context";
-import { useUsuario } from "@/lib/usuario";
+import { useUsuario, useIsMentor } from "@/lib/usuario";
 import { AREA_COLORS, type Area, type Entregable } from "@/lib/types";
 import { projectSOPsForDate, type ProjectedSOP } from "@/lib/sop-projector";
 import { generateId } from "@/lib/store";
@@ -41,6 +41,7 @@ interface Props {
 
 export function PlanSemana({ selectedDate }: Props) {
   const { nombre: currentUser } = useUsuario();
+  const isMentor = useIsMentor();
   const state = useAppState();
   const dispatch = useAppDispatch();
   const [viewMode, setViewMode] = useState<"yo" | "equipo">("yo");
@@ -290,7 +291,7 @@ export function PlanSemana({ selectedDate }: Props) {
                   const sopHex = AREA_COLORS[sop.area]?.hex ?? "#888";
                   return (
                     <button key={`sop-${sop.plantillaId}`} type="button"
-                      onClick={() => !isPast && setConfirmSOP({ sop, dateKey: key })}
+                      onClick={() => !isPast && !isMentor && setConfirmSOP({ sop, dateKey: key })}
                       disabled={isPast}
                       className="w-full rounded-lg border border-dashed px-2 py-1.5 text-left transition-all hover:brightness-95"
                       style={{ borderColor: sopHex + "50", backgroundColor: sopHex + "10" }}>
@@ -304,13 +305,13 @@ export function PlanSemana({ selectedDate }: Props) {
                 })}
                 {dayBlocks.length === 0 && (
                   <button
-                    onClick={() => !isPast && setPickDay(key)}
-                    disabled={isPast}
+                    onClick={() => !isPast && !isMentor && setPickDay(key)}
+                    disabled={isPast || isMentor}
                     className={`flex flex-1 items-center justify-center rounded-lg border border-dashed border-border py-4 transition-colors ${!isPast ? "cursor-pointer hover:border-accent/50 hover:bg-surface/50" : ""}`}>
                     <span className="text-xs text-muted/50">{isPast ? "—" : "+"}</span>
                   </button>
                 )}
-                {dayBlocks.length > 0 && !isPast && (
+                {dayBlocks.length > 0 && !isPast && !isMentor && (
                   <button onClick={() => setPickDay(key)}
                     className="mt-1 flex items-center justify-center rounded-lg py-1.5 text-xs text-muted/40 transition-colors hover:bg-surface/50 hover:text-muted">
                     +

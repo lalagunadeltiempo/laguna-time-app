@@ -3,8 +3,11 @@
 import { useState, useMemo, useRef, useEffect, useCallback } from "react";
 import { useAppState, useAppDispatch } from "@/lib/context";
 import { generateId } from "@/lib/store";
-import { useUsuario } from "@/lib/usuario";
-import { AREA_COLORS, type Area, type Entregable } from "@/lib/types";
+import { useUsuario, useIsMentor } from "@/lib/usuario";
+import {
+  AREA_COLORS, AREAS_PERSONAL, AREAS_EMPRESA, ambitoDeArea,
+  type Area, type Entregable, type Ambito,
+} from "@/lib/types";
 import { projectSOPsForDate, type ProjectedSOP } from "@/lib/sop-projector";
 
 const HOURS = Array.from({ length: 24 }, (_, i) => i);
@@ -30,12 +33,12 @@ interface Props {
 
 export function PlanHoy({ selectedDate }: Props) {
   const { nombre: currentUser } = useUsuario();
+  const isMentor = useIsMentor();
   const state = useAppState();
   const dispatch = useAppDispatch();
   const [confirmBlock, setConfirmBlock] = useState<Block | null>(null);
   const [confirmSOP, setConfirmSOP] = useState<ProjectedSOP | null>(null);
-  const [pickHour, setPickHour] = useState<number | null>(null);
-  const [entHourMap, setEntHourMap] = useState<Record<string, number>>({});
+  const [showDrillDown, setShowDrillDown] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   const dateKey = useMemo(() => toDateKey(selectedDate), [selectedDate]);
@@ -118,7 +121,7 @@ export function PlanHoy({ selectedDate }: Props) {
           area: proj?.area ?? "operativa",
           title: paso.siguientePaso.nombre ?? paso.nombre,
           subtitle: `${proj?.nombre ?? ""} · ${ent.nombre}`,
-          hour: 9,
+          hour: -1,
           entregableId: ent.id,
           pasoId: paso.id,
         });
@@ -137,66 +140,41 @@ export function PlanHoy({ selectedDate }: Props) {
           area: proj?.area ?? "operativa",
           title: ent.nombre,
           subtitle: `${proj?.nombre ?? ""}`,
-          hour: entHourMap[ent.id] ?? 9,
+          hour: -1,
           entregableId: ent.id,
         });
       }
     }
 
     return result;
-  }, [state.pasos, state.entregables, state.resultados, state.proyectos, state.pasosActivos, dateKey, isToday, isPast, entHourMap, currentUser]);
+  }, [state.pasos, state.entregables, state.resultados, state.proyectos, state.pasosActivos, dateKey, isToday, isPast, currentUser]);
 
-  const projectedSOPs = useMemo(() => {
-    return projectSOPsForDate(state, selectedDate, currentUser);
-  }, [state, selectedDate, currentUser]);
+  const plannedBlocks = useMemo(() => allBlocks.filter((b) => b.type === "programado"), [allBlocks]);
+  const executedBlocks = useMemo(() => allBlocks.filter((b) => b.type === "active" || b.type === "done"), [allBlocks]);
 
+  const projectedSOPs = useMemo(() => projectSOPsForDate(state, selectedDate, currentUser), [state, selectedDate, currentUser]);
   const virtualSOPs = useMemo(() => {
-    return projectedSOPs.filter((sop) => {
-      return !state.entregables.some(
-        (e) => e.tipo === "sop" && e.plantillaId === sop.plantillaId && e.fechaInicio === dateKey
-      );
-    });
+    return projectedSOPs.filter((sop) => !state.entregables.some(
+      (e) => e.tipo === "sop" && e.plantillaId === sop.plantillaId && e.fechaInicio === dateKey
+    ));
   }, [projectedSOPs, state.entregables, dateKey]);
 
-  const pendientes = useMemo(() => {
-    return state.entregables.filter((e) =>
-      e.estado !== "hecho" && e.estado !== "cancelada" &&
-      (e.responsable === currentUser || !e.responsable)
-    ).map((e) => {
-      const res = state.resultados.find((r) => r.id === e.resultadoId);
-      const proj = res ? state.proyectos.find((p) => p.id === res.proyectoId) : undefined;
-      return { entregable: e, proj, res };
-    });
-  }, [state.entregables, state.resultados, state.proyectos, currentUser]);
-
-  function handleBlockClick(block: Block) {
-    if (block.type === "active" || block.type === "done") return;
-    setConfirmBlock(block);
-  }
-
-  function confirmStart() {
-    if (!confirmBlock?.entregableId) return;
+  function startBlock(block: Block) {
+    if (!block.entregableId) return;
     dispatch({
       type: "START_PASO",
       payload: {
         id: generateId(),
-        entregableId: confirmBlock.entregableId,
-        nombre: confirmBlock.title,
+        entregableId: block.entregableId,
+        nombre: block.title,
         inicioTs: new Date().toISOString(),
-        finTs: null,
-        estado: "",
+        finTs: null, estado: "",
         contexto: { urls: [], apps: [], notas: "" },
         implicados: [{ tipo: "equipo", nombre: currentUser }],
-        pausas: [],
-        siguientePaso: null,
+        pausas: [], siguientePaso: null,
       },
     });
     setConfirmBlock(null);
-  }
-
-  function handleSlotClick(hour: number) {
-    if (isPast) return;
-    setPickHour(hour);
   }
 
   function materializeSOP(sop: ProjectedSOP) {
@@ -250,39 +228,85 @@ export function PlanHoy({ selectedDate }: Props) {
     setConfirmSOP(null);
   }
 
-  function assignToPlan(ent: Entregable) {
-    if (pickHour !== null) {
-      setEntHourMap((m) => ({ ...m, [ent.id]: pickHour }));
-    }
-    dispatch({ type: "UPDATE_ENTREGABLE", id: ent.id, changes: { fechaInicio: dateKey, estado: ent.estado === "a_futuro" ? "en_proceso" : ent.estado } });
-    setPickHour(null);
-  }
+  const hasPlanned = plannedBlocks.length > 0 || virtualSOPs.length > 0;
 
   return (
-    <div className="flex-1">
-      <div ref={scrollRef} className="relative max-h-[70vh] overflow-y-auto rounded-xl border border-border bg-background">
+    <div className="flex-1 space-y-4">
+
+      {/* PLANIFICADOS PARA HOY — arriba del horario */}
+      {(isToday || !isPast) && (
+        <div className="rounded-xl border border-border bg-background p-4">
+          <div className="mb-3 flex items-center justify-between">
+            <h3 className="text-sm font-bold uppercase tracking-wider text-foreground">Planificados para hoy</h3>
+            {!isMentor && (
+              <button onClick={() => setShowDrillDown(true)}
+                className="flex items-center gap-1 rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-white hover:bg-accent/90">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></svg>
+                Añadir
+              </button>
+            )}
+          </div>
+
+          {!hasPlanned && <p className="py-3 text-center text-xs text-muted">Nada planificado. Usa el botón + para añadir.</p>}
+
+          <div className="space-y-1.5">
+            {plannedBlocks.map((block) => {
+              const hex = AREA_COLORS[block.area]?.hex ?? "#888";
+              return (
+                <div key={block.id} className="flex items-center gap-3 rounded-lg border-l-[3px] px-3 py-2.5"
+                  style={{ borderLeftColor: hex, backgroundColor: hex + "0c" }}>
+                  <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: hex }} />
+                  <div className="flex-1 min-w-0">
+                    <p className="truncate text-sm font-medium text-foreground">{block.title}</p>
+                    <p className="truncate text-xs text-muted">{block.subtitle}</p>
+                  </div>
+                  {isToday && !isMentor && (
+                    <button onClick={() => setConfirmBlock(block)}
+                      className="shrink-0 rounded-lg px-3 py-1.5 text-[11px] font-semibold text-white hover:brightness-110"
+                      style={{ backgroundColor: hex }}>
+                      Empezar
+                    </button>
+                  )}
+                </div>
+              );
+            })}
+
+            {virtualSOPs.map((sop) => {
+              const sopHex = AREA_COLORS[sop.area]?.hex ?? "#888";
+              return (
+                <button key={sop.plantillaId} type="button" onClick={() => setConfirmSOP(sop)}
+                  className="flex w-full items-center gap-3 rounded-lg border border-dashed px-3 py-2.5 text-left transition-all hover:brightness-95"
+                  style={{ borderColor: sopHex + "40", backgroundColor: sopHex + "0c" }}>
+                  <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: sopHex }} />
+                  <div className="flex-1 min-w-0">
+                    <p className="truncate text-sm font-medium text-foreground">{sop.nombre}</p>
+                    <p className="truncate text-xs text-muted">{sop.pasosTotal}p · SOP · {sop.responsable}</p>
+                  </div>
+                  <span className="shrink-0 rounded-md px-2 py-0.5 text-[10px] font-bold" style={{ backgroundColor: sopHex + "15", color: sopHex }}>SOP</span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* HORARIO — solo pasos en ejecución */}
+      <div ref={scrollRef} className="relative max-h-[60vh] overflow-y-auto rounded-xl border border-border bg-background">
+        <h3 className="sticky top-0 z-10 border-b border-border bg-background/95 px-4 py-2 text-xs font-bold uppercase tracking-wider text-muted backdrop-blur-sm">
+          Horario
+        </h3>
         {HOURS.map((hour) => {
-          const hourBlocks = allBlocks.filter((b) => b.hour === hour);
+          const hourBlocks = executedBlocks.filter((b) => b.hour === hour);
           return (
-            <div key={hour} data-hour={hour}
-              className="relative flex min-h-[52px] border-b border-border/50 last:border-b-0">
+            <div key={hour} data-hour={hour} className="relative flex min-h-[44px] border-b border-border/50 last:border-b-0">
               <div className="flex w-14 shrink-0 items-start justify-end pr-3 pt-1">
                 <span className="text-xs font-medium text-muted">{String(hour).padStart(2, "0")}:00</span>
               </div>
-              <div className="flex-1 px-2 py-1"
-                onClick={() => hourBlocks.length === 0 && handleSlotClick(hour)}
-                role={!isPast && hourBlocks.length === 0 ? "button" : undefined}
-                tabIndex={!isPast && hourBlocks.length === 0 ? 0 : undefined}
-              >
+              <div className="flex-1 px-2 py-1">
                 {hourBlocks.map((block) => {
                   const color = AREA_COLORS[block.area]?.hex ?? "#888";
-                  const isClickable = block.type === "programado" && isToday;
                   return (
-                    <button key={block.id} type="button" disabled={!isClickable}
-                      onClick={(e) => { e.stopPropagation(); handleBlockClick(block); }}
-                      className={`mb-1 w-full rounded-lg border-l-[3px] px-3 py-2 text-left transition-colors ${
-                        isClickable ? "cursor-pointer hover:brightness-95" : ""
-                      }`}
+                    <div key={block.id} className="mb-1 rounded-lg border-l-[3px] px-3 py-2"
                       style={{ borderLeftColor: color, backgroundColor: color + "0c" }}>
                       <div className="flex items-center gap-2">
                         {block.type === "active" && (
@@ -295,17 +319,14 @@ export function PlanHoy({ selectedDate }: Props) {
                           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#22c55e" strokeWidth="3" strokeLinecap="round"><polyline points="20 6 9 17 4 12" /></svg>
                         )}
                         <span className={`text-sm font-medium ${block.type === "done" ? "text-muted line-through" : "text-foreground"}`}>{block.title}</span>
-                        {block.type === "programado" && (
-                          <span className="rounded px-1.5 py-0.5 text-[10px] font-medium text-muted" style={{ backgroundColor: "var(--surface)" }}>Pendiente</span>
-                        )}
                       </div>
                       <p className="mt-0.5 text-xs text-muted">{block.subtitle}</p>
-                    </button>
+                    </div>
                   );
                 })}
-                {hourBlocks.length === 0 && !isPast && (
-                  <div className="flex h-full min-h-[36px] cursor-pointer items-center rounded-lg px-3 transition-colors hover:bg-surface/50">
-                    <span className="text-xs text-muted/40">+</span>
+                {hourBlocks.length === 0 && (
+                  <div className="flex h-full min-h-[28px] items-center px-3">
+                    <span className="text-xs text-muted/20">·</span>
                   </div>
                 )}
               </div>
@@ -314,67 +335,8 @@ export function PlanHoy({ selectedDate }: Props) {
         })}
       </div>
 
-      {virtualSOPs.length > 0 && (isToday || !isPast) && (
-        <div className="mt-4">
-          <h4 className="mb-2 flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-muted">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-              <polyline points="16 3 21 3 21 8" /><line x1="4" y1="20" x2="21" y2="3" /><polyline points="21 16 21 21 16 21" /><line x1="15" y1="15" x2="21" y2="21" /><line x1="4" y1="4" x2="9" y2="9" />
-            </svg>
-            SOPs programados para hoy
-          </h4>
-          <div className="space-y-1">
-            {virtualSOPs.map((sop) => {
-              const sopHex = AREA_COLORS[sop.area]?.hex ?? "#888";
-              return (
-                <button key={sop.plantillaId} type="button"
-                  onClick={() => setConfirmSOP(sop)}
-                  className="flex w-full items-center gap-3 rounded-xl border-2 border-dashed px-4 py-3 text-left transition-all hover:brightness-95"
-                  style={{ borderColor: sopHex + "40", backgroundColor: sopHex + "0c" }}>
-                  <span className="h-3 w-3 shrink-0 rounded-full" style={{ backgroundColor: sopHex }} />
-                  <div className="flex-1">
-                    <p className="text-sm font-medium text-foreground">{sop.nombre}</p>
-                    <p className="text-xs text-muted">{sop.pasosTotal} pasos · {sop.responsable}</p>
-                  </div>
-                  <span className="rounded-md px-2 py-0.5 text-[10px] font-bold" style={{ backgroundColor: sopHex + "15", color: sopHex }}>SOP</span>
-                </button>
-              );
-            })}
-          </div>
-        </div>
-      )}
-
-      {allBlocks.length === 0 && !pickHour && (
-        <div className="py-8 text-center">
-          <p className="text-sm text-muted">{isPast ? "No hubo actividad este día." : "Nada programado. Haz clic en un hueco para planificar."}</p>
-        </div>
-      )}
-
-      {/* Picker: select a pending entregable for a slot */}
-      {pickHour !== null && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/20 px-6 backdrop-blur-sm"
-          role="dialog" aria-modal="true" tabIndex={-1} ref={(el) => el?.focus()}
-          onClick={(e) => { if (e.target === e.currentTarget) setPickHour(null); }}
-          onKeyDown={(e) => { if (e.key === "Escape") setPickHour(null); }}>
-          <div className="w-full max-w-md rounded-2xl bg-background p-5 shadow-xl">
-            <h3 className="mb-1 text-sm font-semibold text-foreground">Planificar a las {String(pickHour).padStart(2, "0")}:00</h3>
-            <p className="mb-4 text-xs text-muted">Elige un entregable pendiente:</p>
-            <div className="max-h-60 space-y-1 overflow-y-auto">
-              {pendientes.length === 0 && <p className="py-4 text-center text-xs text-muted">No hay entregables pendientes</p>}
-              {pendientes.map(({ entregable, proj }) => (
-                <button key={entregable.id} onClick={() => assignToPlan(entregable)}
-                  className="flex w-full items-center gap-2 rounded-lg px-3 py-2.5 text-left transition-colors hover:bg-surface">
-                  <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: AREA_COLORS[proj?.area ?? "operativa"]?.hex ?? "#888" }} />
-                  <div className="flex-1 truncate">
-                    <p className="truncate text-sm font-medium text-foreground">{entregable.nombre}</p>
-                    <p className="truncate text-xs text-muted">{proj?.nombre ?? ""}</p>
-                  </div>
-                </button>
-              ))}
-            </div>
-            <button onClick={() => setPickHour(null)} className="mt-3 w-full rounded-lg border border-border py-2 text-xs font-medium text-muted hover:bg-surface">Cancelar</button>
-          </div>
-        </div>
-      )}
+      {/* Drill-down dialog */}
+      {showDrillDown && <DrillDownDialog dateKey={dateKey} onClose={() => setShowDrillDown(false)} />}
 
       {/* Confirm SOP */}
       {confirmSOP && (
@@ -405,11 +367,164 @@ export function PlanHoy({ selectedDate }: Props) {
             <p className="mt-1 text-xs text-muted">{`¿Empezar "${confirmBlock.title}"?`}</p>
             <div className="mt-4 flex gap-2">
               <button onClick={() => setConfirmBlock(null)} className="flex-1 rounded-lg border border-border py-2.5 text-xs font-medium text-muted hover:bg-surface">Cancelar</button>
-              <button onClick={confirmStart} className="flex-1 rounded-lg py-2.5 text-xs font-medium text-white" style={{ backgroundColor: "#16a34a" }}>Empezar</button>
+              <button onClick={() => startBlock(confirmBlock)} className="flex-1 rounded-lg py-2.5 text-xs font-medium text-white" style={{ backgroundColor: "#16a34a" }}>Empezar</button>
             </div>
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+/* ============================================================
+   DRILL-DOWN DIALOG: Ámbito → Área → Proyecto → Resultado → Entregable → Paso
+   ============================================================ */
+
+type DDStep = "ambito" | "area" | "proyecto" | "resultado" | "entregable" | "paso";
+
+function DrillDownDialog({ dateKey, onClose }: { dateKey: string; onClose: () => void }) {
+  const state = useAppState();
+  const dispatch = useAppDispatch();
+  const { nombre: currentUser } = useUsuario();
+
+  const [step, setStep] = useState<DDStep>("ambito");
+  const [selectedAmbito, setSelectedAmbito] = useState<Ambito | null>(null);
+  const [selectedArea, setSelectedArea] = useState<Area | null>(null);
+  const [selectedProyectoId, setSelectedProyectoId] = useState<string | null>(null);
+  const [selectedResultadoId, setSelectedResultadoId] = useState<string | null>(null);
+  const [selectedEntregableId, setSelectedEntregableId] = useState<string | null>(null);
+  const [newPasoName, setNewPasoName] = useState("");
+
+  const areas = selectedAmbito === "personal" ? AREAS_PERSONAL : AREAS_EMPRESA;
+  const proyectos = state.proyectos.filter((p) => p.area === selectedArea);
+  const resultados = state.resultados.filter((r) => r.proyectoId === selectedProyectoId);
+  const entregables = state.entregables.filter((e) => e.resultadoId === selectedResultadoId && e.estado !== "hecho" && e.estado !== "cancelada");
+
+  function selectAmbito(a: Ambito) { setSelectedAmbito(a); setStep("area"); }
+  function selectArea(a: Area) { setSelectedArea(a); setStep("proyecto"); }
+  function selectProyecto(id: string) { setSelectedProyectoId(id); setStep("resultado"); }
+  function selectResultado(id: string) { setSelectedResultadoId(id); setStep("entregable"); }
+  function selectEntregable(id: string) { setSelectedEntregableId(id); setStep("paso"); }
+
+  function goBack() {
+    if (step === "area") { setStep("ambito"); setSelectedAmbito(null); }
+    else if (step === "proyecto") { setStep("area"); setSelectedArea(null); }
+    else if (step === "resultado") { setStep("proyecto"); setSelectedProyectoId(null); }
+    else if (step === "entregable") { setStep("resultado"); setSelectedResultadoId(null); }
+    else if (step === "paso") { setStep("entregable"); setSelectedEntregableId(null); }
+  }
+
+  function confirmPaso() {
+    if (!selectedEntregableId) return;
+    const name = newPasoName.trim();
+    if (!name) return;
+
+    dispatch({ type: "UPDATE_ENTREGABLE", id: selectedEntregableId, changes: { fechaInicio: dateKey, estado: "en_proceso" } });
+    onClose();
+  }
+
+  const stepLabels: Record<DDStep, string> = {
+    ambito: "Elige ámbito",
+    area: "Elige área",
+    proyecto: "Elige proyecto",
+    resultado: "Elige resultado",
+    entregable: "Elige entregable",
+    paso: "Nombre del paso",
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/20 px-6 backdrop-blur-sm"
+      role="dialog" aria-modal="true" tabIndex={-1} ref={(el) => el?.focus()}
+      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+      onKeyDown={(e) => { if (e.key === "Escape") onClose(); }}>
+      <div className="w-full max-w-md rounded-2xl bg-background p-5 shadow-xl">
+        <div className="mb-4 flex items-center gap-3">
+          {step !== "ambito" && (
+            <button onClick={goBack} className="rounded-lg p-1 text-muted hover:bg-surface hover:text-foreground">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><polyline points="15 18 9 12 15 6" /></svg>
+            </button>
+          )}
+          <h3 className="text-sm font-semibold text-foreground">{stepLabels[step]}</h3>
+        </div>
+
+        <div className="max-h-72 overflow-y-auto">
+          {step === "ambito" && (
+            <div className="space-y-2">
+              <button onClick={() => selectAmbito("empresa")} className="flex w-full items-center gap-3 rounded-lg px-4 py-3 text-left transition-colors hover:bg-surface">
+                <span className="text-lg">🏢</span>
+                <span className="text-sm font-medium text-foreground">{state.ambitoLabels.empresa}</span>
+              </button>
+              <button onClick={() => selectAmbito("personal")} className="flex w-full items-center gap-3 rounded-lg px-4 py-3 text-left transition-colors hover:bg-surface">
+                <span className="text-lg">👤</span>
+                <span className="text-sm font-medium text-foreground">{state.ambitoLabels.personal}</span>
+              </button>
+            </div>
+          )}
+
+          {step === "area" && (
+            <div className="space-y-1">
+              {areas.map((a) => {
+                const c = AREA_COLORS[a.id];
+                return (
+                  <button key={a.id} onClick={() => selectArea(a.id)} className="flex w-full items-center gap-3 rounded-lg px-4 py-3 text-left transition-colors hover:bg-surface">
+                    <span className={`inline-flex h-7 w-7 items-center justify-center rounded-md text-xs font-bold text-white ${c?.dot ?? ""}`}>{c?.initial}</span>
+                    <span className="text-sm font-medium text-foreground">{a.label}</span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+
+          {step === "proyecto" && (
+            <div className="space-y-1">
+              {proyectos.length === 0 && <p className="py-4 text-center text-xs text-muted">Sin proyectos en esta área</p>}
+              {proyectos.map((p) => (
+                <button key={p.id} onClick={() => selectProyecto(p.id)} className="flex w-full items-center gap-3 rounded-lg px-4 py-3 text-left transition-colors hover:bg-surface">
+                  <span className="text-sm font-medium text-foreground">{p.nombre}</span>
+                </button>
+              ))}
+            </div>
+          )}
+
+          {step === "resultado" && (
+            <div className="space-y-1">
+              {resultados.length === 0 && <p className="py-4 text-center text-xs text-muted">Sin resultados</p>}
+              {resultados.map((r) => (
+                <button key={r.id} onClick={() => selectResultado(r.id)} className="flex w-full items-center gap-3 rounded-lg px-4 py-3 text-left transition-colors hover:bg-surface">
+                  <span className="text-sm font-medium text-foreground">{r.nombre}</span>
+                </button>
+              ))}
+            </div>
+          )}
+
+          {step === "entregable" && (
+            <div className="space-y-1">
+              {entregables.length === 0 && <p className="py-4 text-center text-xs text-muted">Sin entregables activos</p>}
+              {entregables.map((e) => (
+                <button key={e.id} onClick={() => selectEntregable(e.id)} className="flex w-full items-center gap-3 rounded-lg px-4 py-3 text-left transition-colors hover:bg-surface">
+                  <span className="text-sm font-medium text-foreground">{e.nombre}</span>
+                  {e.tipo !== "raw" && <span className="rounded-md bg-accent/10 px-2 py-0.5 text-[10px] font-bold text-accent">{e.tipo.toUpperCase()}</span>}
+                </button>
+              ))}
+            </div>
+          )}
+
+          {step === "paso" && (
+            <div className="space-y-3">
+              <input value={newPasoName} onChange={(e) => setNewPasoName(e.target.value)}
+                placeholder="Nombre del paso a dar hoy..."
+                onKeyDown={(e) => { if (e.key === "Enter") confirmPaso(); }}
+                autoFocus className="w-full rounded-lg border border-border bg-background px-4 py-2.5 text-sm text-foreground outline-none focus:border-accent" />
+              <button onClick={confirmPaso} disabled={!newPasoName.trim()}
+                className="w-full rounded-lg bg-accent py-2.5 text-sm font-medium text-white disabled:opacity-40 hover:bg-accent/90">
+                Planificar para hoy
+              </button>
+            </div>
+          )}
+        </div>
+
+        <button onClick={onClose} className="mt-3 w-full rounded-lg border border-border py-2 text-xs font-medium text-muted hover:bg-surface">Cancelar</button>
+      </div>
     </div>
   );
 }

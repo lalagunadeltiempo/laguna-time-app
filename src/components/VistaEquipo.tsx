@@ -40,9 +40,9 @@ export function VistaEquipo({ onBack }: Props) {
     if (!trimmed) return;
 
     if (editingId) {
-      dispatch({ type: "UPDATE_MIEMBRO", id: editingId, changes: { nombre: trimmed, rol: rol.trim() || undefined, color } });
+      dispatch({ type: "UPDATE_MIEMBRO", id: editingId, changes: { nombre: trimmed, rol: (rol.trim() || undefined) as MiembroInfo["rol"], color } });
     } else {
-      dispatch({ type: "ADD_MIEMBRO", payload: { id: generateId(), nombre: trimmed, rol: rol.trim() || undefined, color, capacidadDiaria: 1, diasLaborables: [1, 2, 3, 4, 5] } });
+      dispatch({ type: "ADD_MIEMBRO", payload: { id: generateId(), nombre: trimmed, rol: (rol.trim() || undefined) as MiembroInfo["rol"], color, capacidadDiaria: 1, diasLaborables: [1, 2, 3, 4, 5] } });
     }
     resetForm();
   }

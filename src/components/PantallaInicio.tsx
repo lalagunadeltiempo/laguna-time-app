@@ -13,7 +13,7 @@ import {
   type EsperandoItem,
 } from "@/lib/hooks";
 import { generateId, exportData, importData, restoreBackup } from "@/lib/store";
-import { useUsuario } from "@/lib/usuario";
+import { useUsuario, useIsMentor } from "@/lib/usuario";
 import { getISOWeek, formatMin } from "@/lib/utils";
 import { progLabel, fechaKey } from "@/lib/sop-scheduler";
 import { AREA_COLORS, type AppState, type Paso, type Entregable, type Resultado, type EjecucionSOP, type PlantillaProceso, type PasoPlantilla } from "@/lib/types";
@@ -31,6 +31,7 @@ export function PantallaInicio({ onOpenBuscador, onOpenDetalle }: Props) {
   const state = useAppState();
   const dispatch = useAppDispatch();
   const { nombre: currentUser } = useUsuario();
+  const isMentor = useIsMentor();
   const pasosActivos = usePasosActivos();
   const pendientes = usePendientes();
   const pasosHoy = usePasosHoy();
@@ -106,6 +107,11 @@ export function PantallaInicio({ onOpenBuscador, onOpenDetalle }: Props) {
 
   return (
     <div className="flex flex-1 flex-col px-5 py-6">
+      {isMentor && (
+        <div className="mb-4 rounded-lg border border-amber-300 bg-amber-50 px-4 py-2 text-sm text-amber-800">
+          Vista mentor — solo lectura. Puedes dejar notas en el Mapa.
+        </div>
+      )}
       {/* Header */}
       <div className="mb-6 flex items-start justify-between">
         <div>
