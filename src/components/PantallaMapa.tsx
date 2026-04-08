@@ -254,9 +254,9 @@ function AmbitoHeader({ value, onChange }: { value: string; onChange: (v: string
 function AreaSection({ areaId }: { areaId: Area }) {
   const state = useAppState();
   const dispatch = useAppDispatch();
-  const [open, setOpen] = useState(true);
-  const [openProj, setOpenProj] = useState(true);
-  const [openSOP, setOpenSOP] = useState(true);
+  const [open, setOpen] = useState(false);
+  const [openProj, setOpenProj] = useState(false);
+  const [openSOP, setOpenSOP] = useState(false);
   const c = AREA_COLORS[areaId];
   const label = areaLabel(areaId);
 
@@ -453,6 +453,7 @@ function EntregableBlock({ entregable, index, total }: { entregable: Entregable;
   const [open, setOpen] = useState(false);
   const [confirm, setConfirm] = useState(false);
   const [showDatePicker, setShowDatePicker] = useState(false);
+  const [justAssigned, setJustAssigned] = useState(false);
   const customDateRef = useRef<HTMLInputElement>(null);
 
   const pasos = state.pasos
@@ -485,12 +486,16 @@ function EntregableBlock({ entregable, index, total }: { entregable: Entregable;
     const dateStr = `${target.getFullYear()}-${String(target.getMonth() + 1).padStart(2, "0")}-${String(target.getDate()).padStart(2, "0")}`;
     dispatch({ type: "UPDATE_ENTREGABLE", id: entregable.id, changes: { fechaInicio: dateStr, estado: entregable.estado === "a_futuro" ? "en_proceso" : entregable.estado } });
     setShowDatePicker(false);
+    setJustAssigned(true);
+    setTimeout(() => setJustAssigned(false), 2500);
   }
 
   function assignCustomDate(dateStr: string) {
     if (!dateStr) return;
     dispatch({ type: "UPDATE_ENTREGABLE", id: entregable.id, changes: { fechaInicio: dateStr, estado: entregable.estado === "a_futuro" ? "en_proceso" : entregable.estado } });
     setShowDatePicker(false);
+    setJustAssigned(true);
+    setTimeout(() => setJustAssigned(false), 2500);
   }
 
   return (
@@ -506,11 +511,14 @@ function EntregableBlock({ entregable, index, total }: { entregable: Entregable;
         {programLabel && (
           <span className="rounded-md bg-accent/10 px-2 py-0.5 text-[11px] font-medium text-accent">{programLabel}</span>
         )}
+        {justAssigned && (
+          <span className="animate-pulse rounded-md bg-green-100 px-2 py-0.5 text-[11px] font-bold text-green-700">Planificado</span>
+        )}
         {pasos.length > 0 && <span className="text-xs text-muted">{pasos.length}p</span>}
 
         <button
           onClick={(e) => { e.stopPropagation(); setShowDatePicker(!showDatePicker); }}
-          className={`flex h-7 items-center gap-1 rounded-md px-2 text-xs transition-all hover:bg-accent-soft hover:text-accent ${isProgrammed ? "text-accent" : "text-muted opacity-40 sm:opacity-0 group-hover/row:opacity-100"}`}
+          className={`flex h-7 items-center gap-1 rounded-md px-2 text-xs transition-all hover:bg-accent-soft hover:text-accent ${isProgrammed ? "text-accent" : "text-muted opacity-60 hover:opacity-100"}`}
           title="Asignar a un periodo"
         >
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
@@ -679,6 +687,7 @@ function SOPBlock({ sop, index, total }: { sop: PlantillaProceso; index: number;
   const [open, setOpen] = useState(false);
   const [confirm, setConfirm] = useState(false);
   const [showDatePicker, setShowDatePicker] = useState(false);
+  const [justCreated, setJustCreated] = useState(false);
   const customDateRef = useRef<HTMLInputElement>(null);
 
   function scheduleSOPDate(period: string) {
@@ -748,21 +757,26 @@ function SOPBlock({ sop, index, total }: { sop: PlantillaProceso; index: number;
       fechaInicio: fechaInicio,
     }});
     setShowDatePicker(false);
+    setJustCreated(true);
+    setTimeout(() => setJustCreated(false), 2500);
   }
 
   return (
-    <div className="rounded-xl border border-purple-200 bg-background dark:border-purple-800/30">
+    <div className="rounded-xl border bg-background" style={{ borderColor: (AREA_COLORS[sop.area]?.hex ?? "#888") + "40" }}>
       <ToggleRow open={open} onToggle={() => setOpen(!open)}>
         <MoveArrows canUp={index > 0} canDown={index < total - 1}
           onUp={() => dispatch({ type: "REORDER_PLANTILLA", id: sop.id, direction: "up" })}
           onDown={() => dispatch({ type: "REORDER_PLANTILLA", id: sop.id, direction: "down" })} />
-        <span className="h-3 w-3 shrink-0 rounded-full bg-purple-400" />
+        <span className="h-3 w-3 shrink-0 rounded-full" style={{ backgroundColor: AREA_COLORS[sop.area]?.hex ?? "#888" }} />
         <EditableText value={sop.nombre} onChange={(v) => dispatch({ type: "UPDATE_PLANTILLA", id: sop.id, changes: { nombre: v } })}
           className="text-base font-medium text-foreground" />
-        <span className="rounded-full bg-purple-50 px-2.5 py-0.5 text-xs font-medium text-purple-600 dark:bg-purple-500/10 dark:text-purple-400">{sop.pasos.length} pasos</span>
+        <span className="rounded-full px-2.5 py-0.5 text-xs font-medium" style={{ backgroundColor: (AREA_COLORS[sop.area]?.hex ?? "#888") + "15", color: AREA_COLORS[sop.area]?.hex ?? "#888" }}>SOP · {sop.pasos.length}p</span>
+        {justCreated && (
+          <span className="animate-pulse rounded-md bg-green-100 px-2 py-0.5 text-[11px] font-bold text-green-700">Entregable creado</span>
+        )}
         <button
           onClick={(e) => { e.stopPropagation(); setShowDatePicker(!showDatePicker); }}
-          className="flex h-7 items-center gap-1 rounded-md px-2 text-xs text-muted opacity-40 transition-all hover:bg-accent-soft hover:text-accent sm:opacity-0 group-hover/row:opacity-100"
+          className="flex h-7 items-center gap-1 rounded-md px-2 text-xs text-muted opacity-60 transition-all hover:bg-accent-soft hover:text-accent hover:opacity-100"
           title="Programar SOP"
         >
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">

@@ -277,10 +277,10 @@ export function PlanHoy({ selectedDate }: Props) {
                   return (
                     <button key={block.id} type="button" disabled={!isClickable}
                       onClick={(e) => { e.stopPropagation(); handleBlockClick(block); }}
-                      className={`mb-1 w-full rounded-lg border-l-[3px] bg-surface px-3 py-2 text-left transition-colors ${
-                        isClickable ? "cursor-pointer hover:bg-surface-hover" : ""
+                      className={`mb-1 w-full rounded-lg border-l-[3px] px-3 py-2 text-left transition-colors ${
+                        isClickable ? "cursor-pointer hover:brightness-95" : ""
                       }`}
-                      style={{ borderLeftColor: color }}>
+                      style={{ borderLeftColor: color, backgroundColor: color + "0c" }}>
                       <div className="flex items-center gap-2">
                         {block.type === "active" && (
                           <span className="relative flex h-2 w-2" aria-hidden="true">
@@ -313,25 +313,29 @@ export function PlanHoy({ selectedDate }: Props) {
 
       {virtualSOPs.length > 0 && (isToday || !isPast) && (
         <div className="mt-4">
-          <h4 className="mb-2 flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-purple-500">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" className="text-purple-400">
+          <h4 className="mb-2 flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-muted">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
               <polyline points="16 3 21 3 21 8" /><line x1="4" y1="20" x2="21" y2="3" /><polyline points="21 16 21 21 16 21" /><line x1="15" y1="15" x2="21" y2="21" /><line x1="4" y1="4" x2="9" y2="9" />
             </svg>
             SOPs programados para hoy
           </h4>
           <div className="space-y-1">
-            {virtualSOPs.map((sop) => (
-              <button key={sop.plantillaId} type="button"
-                onClick={() => setConfirmSOP(sop)}
-                className="flex w-full items-center gap-3 rounded-xl border-2 border-dashed border-purple-200 bg-purple-50/50 px-4 py-3 text-left transition-all hover:border-purple-400 hover:bg-purple-50 dark:border-purple-800/30 dark:bg-purple-500/5">
-                <span className="h-3 w-3 shrink-0 rounded-full" style={{ backgroundColor: AREA_COLORS[sop.area]?.hex ?? "#888" }} />
-                <div className="flex-1">
-                  <p className="text-sm font-medium text-foreground">{sop.nombre}</p>
-                  <p className="text-xs text-muted">{sop.pasosTotal} pasos · {sop.responsable}</p>
-                </div>
-                <span className="rounded-md bg-purple-100 px-2 py-0.5 text-[10px] font-bold text-purple-600 dark:bg-purple-500/10 dark:text-purple-400">SOP</span>
-              </button>
-            ))}
+            {virtualSOPs.map((sop) => {
+              const sopHex = AREA_COLORS[sop.area]?.hex ?? "#888";
+              return (
+                <button key={sop.plantillaId} type="button"
+                  onClick={() => setConfirmSOP(sop)}
+                  className="flex w-full items-center gap-3 rounded-xl border-2 border-dashed px-4 py-3 text-left transition-all hover:brightness-95"
+                  style={{ borderColor: sopHex + "40", backgroundColor: sopHex + "0c" }}>
+                  <span className="h-3 w-3 shrink-0 rounded-full" style={{ backgroundColor: sopHex }} />
+                  <div className="flex-1">
+                    <p className="text-sm font-medium text-foreground">{sop.nombre}</p>
+                    <p className="text-xs text-muted">{sop.pasosTotal} pasos · {sop.responsable}</p>
+                  </div>
+                  <span className="rounded-md px-2 py-0.5 text-[10px] font-bold" style={{ backgroundColor: sopHex + "15", color: sopHex }}>SOP</span>
+                </button>
+              );
+            })}
           </div>
         </div>
       )}

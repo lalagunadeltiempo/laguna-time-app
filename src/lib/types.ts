@@ -196,14 +196,14 @@ export interface EjecucionSOP {
 }
 
 export const AREA_COLORS: Record<string, { border: string; bg: string; text: string; dot: string; initial: string; hex: string }> = {
-  fisico:         { border: "border-red-200",     bg: "bg-red-50",     text: "text-red-700",     dot: "bg-red-500",     initial: "F", hex: "#ef4444" },
-  emocional:      { border: "border-orange-200",  bg: "bg-orange-50",  text: "text-orange-700",  dot: "bg-orange-500",  initial: "E", hex: "#f97316" },
-  mental:         { border: "border-blue-200",    bg: "bg-blue-50",    text: "text-blue-700",    dot: "bg-blue-500",    initial: "M", hex: "#3b82f6" },
-  espiritual:     { border: "border-violet-200",  bg: "bg-violet-50",  text: "text-violet-700",  dot: "bg-violet-500",  initial: "S", hex: "#8b5cf6" },
-  financiera:     { border: "border-emerald-200", bg: "bg-emerald-50", text: "text-emerald-700", dot: "bg-emerald-500", initial: "F", hex: "#10b981" },
-  operativa:      { border: "border-cyan-200",    bg: "bg-cyan-50",    text: "text-cyan-700",    dot: "bg-cyan-500",    initial: "O", hex: "#06b6d4" },
-  comercial:      { border: "border-amber-200",   bg: "bg-amber-50",   text: "text-amber-700",   dot: "bg-amber-500",   initial: "C", hex: "#f59e0b" },
-  administrativa: { border: "border-slate-200",   bg: "bg-slate-50",   text: "text-slate-700",   dot: "bg-slate-500",   initial: "A", hex: "#64748b" },
+  fisico:         { border: "border-pink-300",    bg: "bg-pink-50",    text: "text-pink-700",    dot: "bg-pink-600",    initial: "F", hex: "#db2777" },
+  emocional:      { border: "border-orange-300",  bg: "bg-orange-50",  text: "text-orange-700",  dot: "bg-orange-600",  initial: "E", hex: "#ea580c" },
+  mental:         { border: "border-teal-300",    bg: "bg-teal-50",    text: "text-teal-700",    dot: "bg-teal-600",    initial: "M", hex: "#0d9488" },
+  espiritual:     { border: "border-violet-300",  bg: "bg-violet-50",  text: "text-violet-700",  dot: "bg-violet-600",  initial: "S", hex: "#7c3aed" },
+  financiera:     { border: "border-red-300",     bg: "bg-red-50",     text: "text-red-800",     dot: "bg-red-800",     initial: "F", hex: "#b91c1c" },
+  operativa:      { border: "border-amber-300",   bg: "bg-amber-50",   text: "text-amber-800",   dot: "bg-amber-700",   initial: "O", hex: "#b45309" },
+  comercial:      { border: "border-green-300",   bg: "bg-green-50",   text: "text-green-800",   dot: "bg-green-800",   initial: "C", hex: "#166534" },
+  administrativa: { border: "border-blue-300",    bg: "bg-blue-50",    text: "text-blue-800",    dot: "bg-blue-900",    initial: "A", hex: "#1e3a8a" },
 };
 
 export interface AmbitoLabels {

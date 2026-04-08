@@ -30,6 +30,7 @@ interface WeekBlock {
   area: Area;
   title: string;
   subtitle: string;
+  responsable: string;
   dateKey: string;
   type: "done" | "active" | "programado" | "sop";
 }
@@ -77,6 +78,7 @@ export function PlanSemana({ selectedDate }: Props) {
         area: proj?.area ?? "operativa",
         title: paso.nombre,
         subtitle: proj?.nombre ?? "",
+        responsable: ent.responsable ?? "",
         dateKey: pasoDate,
         type: paso.finTs ? "done" : state.pasosActivos.includes(paso.id) ? "active" : "programado",
       });
@@ -110,6 +112,7 @@ export function PlanSemana({ selectedDate }: Props) {
         area: proj?.area ?? "operativa",
         title: paso.siguientePaso.nombre ?? paso.nombre,
         subtitle: proj?.nombre ?? "",
+        responsable: ent.responsable ?? "",
         dateKey: fp,
         type: "programado",
       });
@@ -134,6 +137,7 @@ export function PlanSemana({ selectedDate }: Props) {
         area: proj?.area ?? "operativa",
         title: ent.nombre,
         subtitle: proj?.nombre ?? "",
+        responsable: ent.responsable ?? "",
         dateKey: ent.fechaInicio,
         type: "programado",
       });
@@ -256,38 +260,48 @@ export function PlanSemana({ selectedDate }: Props) {
               </div>
 
               <div className="flex flex-1 flex-col gap-1">
-                {dayBlocks.map((block) => (
-                  <div key={block.id} className="rounded-lg border-l-[3px] bg-surface px-2 py-1.5 transition-colors hover:bg-surface-hover"
-                    style={{ borderLeftColor: AREA_COLORS[block.area]?.hex ?? "#888" }}>
-                    <div className="flex items-center gap-1">
-                      {block.type === "active" && (
-                        <span className="relative flex h-1.5 w-1.5 shrink-0">
-                          <span className="absolute inline-flex h-full w-full animate-ping rounded-full opacity-75" style={{ backgroundColor: "#4ade80" }} />
-                          <span className="relative inline-flex h-1.5 w-1.5 rounded-full" style={{ backgroundColor: "#22c55e" }} />
-                        </span>
+                {dayBlocks.map((block) => {
+                  const hex = AREA_COLORS[block.area]?.hex ?? "#888";
+                  return (
+                    <div key={block.id} className="rounded-lg border-l-[3px] px-2 py-1.5 transition-colors hover:brightness-95"
+                      style={{ borderLeftColor: hex, backgroundColor: hex + "0c" }}>
+                      <div className="flex items-center gap-1">
+                        {block.type === "active" && (
+                          <span className="relative flex h-1.5 w-1.5 shrink-0">
+                            <span className="absolute inline-flex h-full w-full animate-ping rounded-full opacity-75" style={{ backgroundColor: "#4ade80" }} />
+                            <span className="relative inline-flex h-1.5 w-1.5 rounded-full" style={{ backgroundColor: "#22c55e" }} />
+                          </span>
+                        )}
+                        {block.type === "done" && (
+                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#22c55e" strokeWidth="3" strokeLinecap="round"><polyline points="20 6 9 17 4 12" /></svg>
+                        )}
+                        <p className={`text-xs font-medium leading-tight ${block.type === "done" ? "text-muted line-through" : "text-foreground"}`}>
+                          {block.title}
+                        </p>
+                      </div>
+                      <p className="text-[10px] text-muted">{block.subtitle}</p>
+                      {viewMode === "equipo" && block.responsable && (
+                        <p className="text-[10px] font-semibold" style={{ color: hex }}>{block.responsable}</p>
                       )}
-                      {block.type === "done" && (
-                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#22c55e" strokeWidth="3" strokeLinecap="round"><polyline points="20 6 9 17 4 12" /></svg>
-                      )}
-                      <p className={`text-xs font-medium leading-tight ${block.type === "done" ? "text-muted line-through" : "text-foreground"}`}>
-                        {block.title}
-                      </p>
                     </div>
-                    <p className="text-[10px] text-muted">{block.subtitle}</p>
-                  </div>
-                ))}
-                {(sopsByDay.get(key) ?? []).map((sop) => (
-                  <button key={`sop-${sop.plantillaId}`} type="button"
-                    onClick={() => !isPast && setConfirmSOP({ sop, dateKey: key })}
-                    disabled={isPast}
-                    className="w-full rounded-lg border border-dashed border-purple-200 bg-purple-50/50 px-2 py-1.5 text-left transition-all hover:border-purple-400 dark:border-purple-800/30">
-                    <div className="flex items-center gap-1">
-                      <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ backgroundColor: AREA_COLORS[sop.area]?.hex ?? "#888" }} />
-                      <p className="text-xs font-medium text-purple-700 dark:text-purple-400 leading-tight truncate">{sop.nombre}</p>
-                    </div>
-                    <p className="text-[10px] text-purple-400">{sop.pasosTotal}p · SOP</p>
-                  </button>
-                ))}
+                  );
+                })}
+                {(sopsByDay.get(key) ?? []).map((sop) => {
+                  const sopHex = AREA_COLORS[sop.area]?.hex ?? "#888";
+                  return (
+                    <button key={`sop-${sop.plantillaId}`} type="button"
+                      onClick={() => !isPast && setConfirmSOP({ sop, dateKey: key })}
+                      disabled={isPast}
+                      className="w-full rounded-lg border border-dashed px-2 py-1.5 text-left transition-all hover:brightness-95"
+                      style={{ borderColor: sopHex + "50", backgroundColor: sopHex + "10" }}>
+                      <div className="flex items-center gap-1">
+                        <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ backgroundColor: sopHex }} />
+                        <p className="text-xs font-medium leading-tight truncate" style={{ color: sopHex }}>{sop.nombre}</p>
+                      </div>
+                      <p className="text-[10px]" style={{ color: sopHex + "90" }}>{sop.pasosTotal}p · SOP · {sop.responsable}</p>
+                    </button>
+                  );
+                })}
                 {dayBlocks.length === 0 && (
                   <button
                     onClick={() => !isPast && setPickDay(key)}
