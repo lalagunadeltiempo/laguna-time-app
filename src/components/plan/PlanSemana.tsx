@@ -359,7 +359,7 @@ export function PlanSemana({ selectedDate }: Props) {
             <p className="mt-1 text-xs text-muted">{`¿Programar "${confirmSOP.sop.nombre}" para ${new Date(confirmSOP.dateKey + "T12:00:00").toLocaleDateString("es-ES", { weekday: "long", day: "numeric", month: "long" })}?`}</p>
             <div className="mt-4 flex gap-2">
               <button onClick={() => setConfirmSOP(null)} className="flex-1 rounded-lg border border-border py-2.5 text-xs font-medium text-muted hover:bg-surface">Cancelar</button>
-              <button onClick={() => materializeSOP(confirmSOP.sop, confirmSOP.dateKey)} className="flex-1 rounded-lg bg-purple-600 py-2.5 text-xs font-medium text-white hover:bg-purple-700">Programar</button>
+              <button onClick={() => materializeSOP(confirmSOP.sop, confirmSOP.dateKey)} className="flex-1 rounded-lg py-2.5 text-xs font-medium text-white hover:brightness-110" style={{ backgroundColor: AREA_COLORS[confirmSOP.sop.area]?.hex ?? "#6d28d9" }}>Programar</button>
             </div>
           </div>
         </div>

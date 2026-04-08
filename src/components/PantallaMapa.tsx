@@ -311,8 +311,8 @@ function AreaSection({ areaId }: { areaId: Area }) {
 
           {/* PROCESOS */}
           <div className="mb-4">
-            <button onClick={() => setOpenSOP(!openSOP)} className="mb-3 flex w-full items-center gap-2 text-sm font-bold uppercase tracking-widest text-purple-500 hover:text-purple-400">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" className="text-purple-400">
+            <button onClick={() => setOpenSOP(!openSOP)} className="mb-3 flex w-full items-center gap-2 text-sm font-bold uppercase tracking-widest text-muted hover:text-foreground">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" className="text-muted">
                 <polyline points="16 3 21 3 21 8" /><line x1="4" y1="20" x2="21" y2="3" /><polyline points="21 16 21 21 16 21" /><line x1="15" y1="15" x2="21" y2="21" /><line x1="4" y1="4" x2="9" y2="9" />
               </svg>
               Procesos
@@ -454,7 +454,9 @@ function EntregableBlock({ entregable, index, total }: { entregable: Entregable;
   const [confirm, setConfirm] = useState(false);
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [justAssigned, setJustAssigned] = useState(false);
+  const justAssignedTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
   const customDateRef = useRef<HTMLInputElement>(null);
+  useEffect(() => () => clearTimeout(justAssignedTimer.current), []);
 
   const pasos = state.pasos
     .filter((p) => p.entregableId === entregable.id)
@@ -462,6 +464,9 @@ function EntregableBlock({ entregable, index, total }: { entregable: Entregable;
 
   const tipoTag = entregable.tipo !== "raw" ? entregable.tipo.toUpperCase() : null;
   const dotColor = entregable.estado === "hecho" ? "bg-green-500" : entregable.estado === "en_proceso" ? "bg-amber-500" : "bg-border";
+  const parentRes = state.resultados.find((r) => r.id === entregable.resultadoId);
+  const parentProj = parentRes ? state.proyectos.find((p) => p.id === parentRes.proyectoId) : undefined;
+  const entAreaHex = parentProj ? (AREA_COLORS[parentProj.area]?.hex ?? "#888") : "#888";
 
   const isProgrammed = !!entregable.fechaInicio;
   const programLabel = isProgrammed ? formatFechaInicio(entregable.fechaInicio!) : null;
@@ -487,7 +492,8 @@ function EntregableBlock({ entregable, index, total }: { entregable: Entregable;
     dispatch({ type: "UPDATE_ENTREGABLE", id: entregable.id, changes: { fechaInicio: dateStr, estado: entregable.estado === "a_futuro" ? "en_proceso" : entregable.estado } });
     setShowDatePicker(false);
     setJustAssigned(true);
-    setTimeout(() => setJustAssigned(false), 2500);
+    clearTimeout(justAssignedTimer.current);
+    justAssignedTimer.current = setTimeout(() => setJustAssigned(false), 2500);
   }
 
   function assignCustomDate(dateStr: string) {
@@ -495,7 +501,8 @@ function EntregableBlock({ entregable, index, total }: { entregable: Entregable;
     dispatch({ type: "UPDATE_ENTREGABLE", id: entregable.id, changes: { fechaInicio: dateStr, estado: entregable.estado === "a_futuro" ? "en_proceso" : entregable.estado } });
     setShowDatePicker(false);
     setJustAssigned(true);
-    setTimeout(() => setJustAssigned(false), 2500);
+    clearTimeout(justAssignedTimer.current);
+    justAssignedTimer.current = setTimeout(() => setJustAssigned(false), 2500);
   }
 
   return (
@@ -507,7 +514,7 @@ function EntregableBlock({ entregable, index, total }: { entregable: Entregable;
         <span className={`h-3 w-3 shrink-0 rounded-full ${dotColor}`} />
         <EditableText value={entregable.nombre} onChange={(v) => dispatch({ type: "RENAME_ENTREGABLE", id: entregable.id, nombre: v })}
           className="text-sm text-foreground" />
-        {tipoTag && <span className="rounded-md bg-purple-100 px-2 py-0.5 text-[11px] font-bold text-purple-600">{tipoTag}</span>}
+        {tipoTag && <span className="rounded-md px-2 py-0.5 text-[11px] font-bold" style={{ backgroundColor: entAreaHex + "15", color: entAreaHex }}>{tipoTag}</span>}
         {programLabel && (
           <span className="rounded-md bg-accent/10 px-2 py-0.5 text-[11px] font-medium text-accent">{programLabel}</span>
         )}
@@ -688,7 +695,9 @@ function SOPBlock({ sop, index, total }: { sop: PlantillaProceso; index: number;
   const [confirm, setConfirm] = useState(false);
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [justCreated, setJustCreated] = useState(false);
+  const justCreatedTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
   const customDateRef = useRef<HTMLInputElement>(null);
+  useEffect(() => () => clearTimeout(justCreatedTimer.current), []);
 
   function scheduleSOPDate(period: string) {
     const now = new Date();
@@ -758,7 +767,8 @@ function SOPBlock({ sop, index, total }: { sop: PlantillaProceso; index: number;
     }});
     setShowDatePicker(false);
     setJustCreated(true);
-    setTimeout(() => setJustCreated(false), 2500);
+    clearTimeout(justCreatedTimer.current);
+    justCreatedTimer.current = setTimeout(() => setJustCreated(false), 2500);
   }
 
   return (

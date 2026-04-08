@@ -70,6 +70,7 @@ export function PlanHoy({ selectedDate }: Props) {
 
       const ent = entregables.find((e) => e.id === paso.entregableId);
       if (!ent) continue;
+      if (ent.responsable && ent.responsable !== currentUser) continue;
       entregableIdsWithPasos.add(ent.id);
       const res = ent ? resultados.find((r) => r.id === ent.resultadoId) : undefined;
       const proj = res ? proyectos.find((pr) => pr.id === res.proyectoId) : undefined;
@@ -106,6 +107,7 @@ export function PlanHoy({ selectedDate }: Props) {
 
         const ent = entregables.find((e) => e.id === paso.entregableId);
         if (!ent) continue;
+        if (ent.responsable && ent.responsable !== currentUser) continue;
         entregableIdsWithPasos.add(ent.id);
         const res = ent ? resultados.find((r) => r.id === ent.resultadoId) : undefined;
         const proj = res ? proyectos.find((pr) => pr.id === res.proyectoId) : undefined;
@@ -126,6 +128,7 @@ export function PlanHoy({ selectedDate }: Props) {
         if (ent.fechaInicio !== dateKey) continue;
         if (ent.estado === "hecho" || ent.estado === "cancelada") continue;
         if (entregableIdsWithPasos.has(ent.id)) continue;
+        if (ent.responsable && ent.responsable !== currentUser) continue;
         const res = resultados.find((r) => r.id === ent.resultadoId);
         const proj = res ? proyectos.find((pr) => pr.id === res.proyectoId) : undefined;
         result.push({
@@ -141,7 +144,7 @@ export function PlanHoy({ selectedDate }: Props) {
     }
 
     return result;
-  }, [state.pasos, state.entregables, state.resultados, state.proyectos, state.pasosActivos, dateKey, isToday, isPast, entHourMap]);
+  }, [state.pasos, state.entregables, state.resultados, state.proyectos, state.pasosActivos, dateKey, isToday, isPast, entHourMap, currentUser]);
 
   const projectedSOPs = useMemo(() => {
     return projectSOPsForDate(state, selectedDate, currentUser);
@@ -385,7 +388,7 @@ export function PlanHoy({ selectedDate }: Props) {
             <p className="mt-1 text-xs text-muted">{confirmSOP.pasosTotal} pasos</p>
             <div className="mt-4 flex gap-2">
               <button onClick={() => setConfirmSOP(null)} className="flex-1 rounded-lg border border-border py-2.5 text-xs font-medium text-muted hover:bg-surface">Cancelar</button>
-              <button onClick={() => materializeSOP(confirmSOP)} className="flex-1 rounded-lg bg-purple-600 py-2.5 text-xs font-medium text-white hover:bg-purple-700">Empezar</button>
+              <button onClick={() => materializeSOP(confirmSOP)} className="flex-1 rounded-lg py-2.5 text-xs font-medium text-white hover:brightness-110" style={{ backgroundColor: AREA_COLORS[confirmSOP.area]?.hex ?? "#6d28d9" }}>Empezar</button>
             </div>
           </div>
         </div>
