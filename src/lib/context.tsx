@@ -36,28 +36,66 @@ interface ProviderProps {
   children: ReactNode;
 }
 
-function actionToLog(action: Action, userId: string): { action: string; descripcion: string; entregableId?: string; pasoId?: string; proyectoId?: string } | null {
+function buildRuta(state: AppState, opts: { pasoId?: string; entregableId?: string; proyectoId?: string }): string {
+  let proj = "", res = "", ent = "", paso = "";
+  if (opts.pasoId) {
+    const p = state.pasos.find((x) => x.id === opts.pasoId);
+    if (p) { paso = p.nombre; opts = { ...opts, entregableId: p.entregableId }; }
+  }
+  if (opts.entregableId) {
+    const e = state.entregables.find((x) => x.id === opts.entregableId);
+    if (e) {
+      ent = e.nombre;
+      const r = state.resultados.find((x) => x.id === e.resultadoId);
+      if (r) { res = r.nombre; const pr = state.proyectos.find((x) => x.id === r.proyectoId); if (pr) proj = pr.nombre; }
+    }
+  }
+  if (opts.proyectoId && !proj) { const pr = state.proyectos.find((x) => x.id === opts.proyectoId); if (pr) proj = pr.nombre; }
+  return [proj, res, ent, paso].filter(Boolean).join(" → ");
+}
+
+function actionToLog(action: Action, userName: string, state: AppState): { action: string; descripcion: string; detalle?: string; ruta?: string; entregableId?: string; pasoId?: string; proyectoId?: string } | null {
   switch (action.type) {
-    case "START_PASO":
-      return { action: "start_paso", descripcion: `Inicio paso "${action.payload.nombre}"`, entregableId: action.payload.entregableId, pasoId: action.payload.id };
-    case "CLOSE_PASO":
-      return { action: "close_paso", descripcion: `Paso dado "${action.payload.nombre}"`, entregableId: action.payload.entregableId, pasoId: action.payload.id };
-    case "ADD_ENTREGABLE":
-      return { action: "add_entregable", descripcion: `Nuevo entregable "${action.payload.nombre}"`, entregableId: action.payload.id };
+    case "START_PASO": {
+      const ruta = buildRuta(state, { entregableId: action.payload.entregableId });
+      return { action: "start_paso", descripcion: `Inicio paso "${action.payload.nombre}"`, ruta, entregableId: action.payload.entregableId, pasoId: action.payload.id };
+    }
+    case "CLOSE_PASO": {
+      const ruta = buildRuta(state, { entregableId: action.payload.entregableId });
+      return { action: "close_paso", descripcion: `Paso dado "${action.payload.nombre}"`, ruta, entregableId: action.payload.entregableId, pasoId: action.payload.id };
+    }
+    case "ADD_ENTREGABLE": {
+      const ruta = buildRuta(state, { entregableId: action.payload.id });
+      return { action: "add_entregable", descripcion: `Nuevo entregable "${action.payload.nombre}"`, ruta, entregableId: action.payload.id };
+    }
     case "ADD_PROYECTO":
       return { action: "add_proyecto", descripcion: `Nuevo proyecto "${action.payload.nombre}"`, proyectoId: action.payload.id };
-    case "ADD_RESULTADO":
-      return { action: "add_resultado", descripcion: `Nuevo resultado "${action.payload.nombre}"` };
-    case "CONVERT_ENTREGABLE_TO_SOP":
-      return { action: "convert_to_sop", descripcion: `Entregable convertido en SOP`, entregableId: action.entregableId };
-    case "ADD_NOTA":
-      return { action: "add_nota", descripcion: `Nota añadida en ${action.nivel}`, pasoId: action.nivel === "paso" ? action.targetId : undefined, entregableId: action.nivel === "entregable" ? action.targetId : undefined };
-    case "MATERIALIZE_SOP":
-      return { action: "start_sop", descripcion: `SOP iniciado (plantilla ${action.plantillaId.slice(0, 8)}...)` };
-    case "PAUSE_PASO":
-      return { action: "pause_paso", descripcion: `Paso pausado`, pasoId: action.id };
-    case "RESUME_PASO":
-      return { action: "resume_paso", descripcion: `Paso reanudado`, pasoId: action.id };
+    case "ADD_RESULTADO": {
+      const pr = state.proyectos.find((p) => p.id === action.payload.proyectoId);
+      return { action: "add_resultado", descripcion: `Nuevo resultado "${action.payload.nombre}"`, ruta: pr?.nombre };
+    }
+    case "CONVERT_ENTREGABLE_TO_SOP": {
+      const ruta = buildRuta(state, { entregableId: action.entregableId });
+      return { action: "convert_to_sop", descripcion: `Entregable convertido en SOP`, ruta, entregableId: action.entregableId };
+    }
+    case "ADD_NOTA": {
+      const ruta = buildRuta(state, { pasoId: action.nivel === "paso" ? action.targetId : undefined, entregableId: action.nivel === "entregable" ? action.targetId : undefined, proyectoId: action.nivel === "proyecto" ? action.targetId : undefined });
+      return { action: "add_nota", descripcion: `Nota en ${action.nivel}`, detalle: action.nota.texto, ruta, pasoId: action.nivel === "paso" ? action.targetId : undefined, entregableId: action.nivel === "entregable" ? action.targetId : undefined };
+    }
+    case "MATERIALIZE_SOP": {
+      const pl = state.plantillas.find((p) => p.id === action.plantillaId);
+      return { action: "start_sop", descripcion: `SOP iniciado "${pl?.nombre ?? action.plantillaId}"` };
+    }
+    case "PAUSE_PASO": {
+      const p = state.pasos.find((x) => x.id === action.id);
+      const ruta = buildRuta(state, { pasoId: action.id });
+      return { action: "pause_paso", descripcion: `Paso pausado "${p?.nombre ?? ""}"`, ruta, pasoId: action.id };
+    }
+    case "RESUME_PASO": {
+      const p = state.pasos.find((x) => x.id === action.id);
+      const ruta = buildRuta(state, { pasoId: action.id });
+      return { action: "resume_paso", descripcion: `Paso reanudado "${p?.nombre ?? ""}"`, ruta, pasoId: action.id };
+    }
     default:
       return null;
   }
@@ -161,8 +199,8 @@ export function AppProvider({ userId, displayName, children }: ProviderProps) {
   }, []);
 
   const loggingDispatch = useCallback((action: Action) => {
+    const log = actionToLog(action, logName, state);
     dispatch(action);
-    const log = actionToLog(action, logName);
     if (log) {
       dispatch({
         type: "LOG_ACTIVITY",
@@ -174,7 +212,7 @@ export function AppProvider({ userId, displayName, children }: ProviderProps) {
         },
       });
     }
-  }, [logName]);
+  }, [logName, state]);
 
   return (
     <StateCtx.Provider value={state}>

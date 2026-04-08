@@ -440,9 +440,12 @@ function DrillDownDialog({ dateKey, onClose }: { dateKey: string; onClose: () =>
 
   const currentCreate = createLabels[step];
 
+  const backdropRef = useRef<HTMLDivElement>(null);
+  useEffect(() => { backdropRef.current?.focus(); }, []);
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/20 px-6 backdrop-blur-sm"
-      role="dialog" aria-modal="true" tabIndex={-1} ref={(el) => el?.focus()}
+      role="dialog" aria-modal="true" tabIndex={-1} ref={backdropRef}
       onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
       onKeyDown={(e) => { if (e.key === "Escape") onClose(); }}>
       <div className="w-full max-w-md rounded-2xl bg-background p-5 shadow-xl">

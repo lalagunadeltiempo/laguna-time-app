@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useEffect, useCallback, useMemo, createContext, useContext } from "react";
 import { useAppState, useAppDispatch } from "@/lib/context";
 import { generateId } from "@/lib/store";
 import { useUsuario, useIsMentor } from "@/lib/usuario";
@@ -27,6 +27,19 @@ function formatFechaInicio(f: string): string {
   return d.toLocaleDateString("es-ES", { day: "numeric", month: "short" });
 }
 
+interface VisibleFilter {
+  proyectos: Set<string>;
+  resultados: Set<string>;
+  entregables: Set<string>;
+  pasos: Set<string>;
+}
+const MapaFilterCtx = createContext<VisibleFilter | null>(null);
+function useMapaFilter() { return useContext(MapaFilterCtx); }
+
+function toDateKey(d: Date) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
 interface Props {
   onOpenDetalle?: (resultadoId: string) => void;
 }
@@ -47,26 +60,93 @@ export function PantallaMapa({ onOpenDetalle }: Props) {
   const dispatch = useAppDispatch();
   const isMentor = useIsMentor();
 
+  const [dateFilterOn, setDateFilterOn] = useState(false);
+  const [dateFrom, setDateFrom] = useState(() => toDateKey(new Date()));
+  const [dateTo, setDateTo] = useState(() => toDateKey(new Date()));
+
+  const visibleFilter = useMemo<VisibleFilter | null>(() => {
+    if (!dateFilterOn) return null;
+    const pasoSet = new Set<string>();
+    const entSet = new Set<string>();
+    const resSet = new Set<string>();
+    const projSet = new Set<string>();
+
+    for (const p of state.pasos) {
+      const day = p.inicioTs?.slice(0, 10) ?? p.finTs?.slice(0, 10);
+      if (!day) continue;
+      if (day >= dateFrom && day <= dateTo) pasoSet.add(p.id);
+    }
+    for (const p of state.pasos) {
+      if (!pasoSet.has(p.id)) continue;
+      entSet.add(p.entregableId);
+    }
+    for (const e of state.entregables) {
+      if (!entSet.has(e.id)) continue;
+      resSet.add(e.resultadoId);
+    }
+    for (const r of state.resultados) {
+      if (!resSet.has(r.id)) continue;
+      projSet.add(r.proyectoId);
+    }
+    return { proyectos: projSet, resultados: resSet, entregables: entSet, pasos: pasoSet };
+  }, [dateFilterOn, dateFrom, dateTo, state.pasos, state.entregables, state.resultados]);
+
+  const setToday = () => { const t = toDateKey(new Date()); setDateFrom(t); setDateTo(t); };
+  const setThisWeek = () => {
+    const now = new Date();
+    const dow = now.getDay() || 7;
+    const mon = new Date(now); mon.setDate(now.getDate() - dow + 1);
+    const sun = new Date(mon); sun.setDate(mon.getDate() + 6);
+    setDateFrom(toDateKey(mon)); setDateTo(toDateKey(sun));
+  };
+
   return (
-    <div className="w-full px-6 py-8 sm:px-10">
+    <MapaFilterCtx.Provider value={visibleFilter}>
+      <div className="w-full px-6 py-8 sm:px-10">
+        <div className="mb-6 flex flex-wrap items-center gap-3">
+          <button
+            onClick={() => setDateFilterOn(!dateFilterOn)}
+            className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${dateFilterOn ? "bg-accent text-white" : "border border-border bg-background text-muted hover:bg-surface"}`}
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><rect x="3" y="4" width="18" height="18" rx="2" /><line x1="16" y1="2" x2="16" y2="6" /><line x1="8" y1="2" x2="8" y2="6" /><line x1="3" y1="10" x2="21" y2="10" /></svg>
+            {dateFilterOn ? "Filtro activo" : "Filtrar por fechas"}
+          </button>
+          {dateFilterOn && (
+            <>
+              <input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} className="rounded-lg border border-border bg-background px-2 py-1 text-xs text-foreground" />
+              <span className="text-xs text-muted">—</span>
+              <input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} className="rounded-lg border border-border bg-background px-2 py-1 text-xs text-foreground" />
+              <button onClick={setToday} className="rounded-lg border border-border px-2 py-1 text-[10px] text-muted hover:bg-surface">Hoy</button>
+              <button onClick={setThisWeek} className="rounded-lg border border-border px-2 py-1 text-[10px] text-muted hover:bg-surface">Esta semana</button>
+              <button onClick={() => setDateFilterOn(false)} className="text-[10px] text-accent hover:underline">Quitar filtro</button>
+            </>
+          )}
+        </div>
 
-      <AmbitoHeader
-        value={state.ambitoLabels.empresa}
-        onChange={isMentor ? () => {} : (v) => dispatch({ type: "SET_AMBITO_LABELS", labels: { empresa: v } })}
-      />
-      {EMPRESA_ORDER.map((id) => <AreaSection key={id} areaId={id} />)}
+        {dateFilterOn && visibleFilter && visibleFilter.proyectos.size === 0 && (
+          <div className="mb-6 rounded-lg border border-border bg-surface/50 px-4 py-6 text-center">
+            <p className="text-sm text-muted">No hay actividad registrada en este rango de fechas</p>
+          </div>
+        )}
 
-      {!isMentor && (
-        <>
-          <div className="my-12 border-t border-border" />
-          <AmbitoHeader
-            value={state.ambitoLabels.personal}
-            onChange={(v) => dispatch({ type: "SET_AMBITO_LABELS", labels: { personal: v } })}
-          />
-          {PERSONAL_ORDER.map((id) => <AreaSection key={id} areaId={id} />)}
-        </>
-      )}
-    </div>
+        <AmbitoHeader
+          value={state.ambitoLabels.empresa}
+          onChange={isMentor ? () => {} : (v) => dispatch({ type: "SET_AMBITO_LABELS", labels: { empresa: v } })}
+        />
+        {EMPRESA_ORDER.map((id) => <AreaSection key={id} areaId={id} />)}
+
+        {!isMentor && (
+          <>
+            <div className="my-12 border-t border-border" />
+            <AmbitoHeader
+              value={state.ambitoLabels.personal}
+              onChange={(v) => dispatch({ type: "SET_AMBITO_LABELS", labels: { personal: v } })}
+            />
+            {PERSONAL_ORDER.map((id) => <AreaSection key={id} areaId={id} />)}
+          </>
+        )}
+      </div>
+    </MapaFilterCtx.Provider>
   );
 }
 
@@ -262,14 +342,19 @@ function AreaSection({ areaId }: { areaId: Area }) {
   const state = useAppState();
   const dispatch = useAppDispatch();
   const isMentor = useIsMentor();
-  const [open, setOpen] = useState(false);
-  const [openProj, setOpenProj] = useState(false);
+  const filter = useMapaFilter();
+  const hasFilter = !!filter;
+  const [open, setOpen] = useState(hasFilter);
+  const [openProj, setOpenProj] = useState(hasFilter);
   const [openSOP, setOpenSOP] = useState(false);
   const c = AREA_COLORS[areaId];
   const label = areaLabel(areaId);
 
-  const proyectos = state.proyectos.filter((p) => p.area === areaId);
+  const allProyectos = state.proyectos.filter((p) => p.area === areaId);
+  const proyectos = filter ? allProyectos.filter((p) => filter.proyectos.has(p.id)) : allProyectos;
   const sops = state.plantillas.filter((pl) => pl.area === areaId);
+
+  if (filter && proyectos.length === 0) return null;
 
   return (
     <section className="mb-6">
@@ -319,8 +404,8 @@ function AreaSection({ areaId }: { areaId: Area }) {
             )}
           </div>
 
-          {/* PROCESOS */}
-          <div className="mb-4">
+          {/* PROCESOS — hidden when date filter active */}
+          {!hasFilter && <div className="mb-4">
             <button onClick={() => setOpenSOP(!openSOP)} className="mb-3 flex w-full items-center gap-2 text-sm font-bold uppercase tracking-widest text-muted hover:text-foreground">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" className="text-muted">
                 <polyline points="16 3 21 3 21 8" /><line x1="4" y1="20" x2="21" y2="3" /><polyline points="21 16 21 21 16 21" /><line x1="15" y1="15" x2="21" y2="21" /><line x1="4" y1="4" x2="9" y2="9" />
@@ -345,7 +430,7 @@ function AreaSection({ areaId }: { areaId: Area }) {
                 )}
               </>
             )}
-          </div>
+          </div>}
         </div>
       )}
     </section>
@@ -360,12 +445,14 @@ function ProyectoBlock({ proyecto, index, total }: { proyecto: Proyecto; index: 
   const state = useAppState();
   const dispatch = useAppDispatch();
   const isMentor = useIsMentor();
-  const [open, setOpen] = useState(false);
+  const filter = useMapaFilter();
+  const [open, setOpen] = useState(!!filter);
   const [confirm, setConfirm] = useState(false);
   const [showNotas, setShowNotas] = useState(false);
   const isEmpresa = ambitoDeArea(proyecto.area) === "empresa";
 
-  const resultados = state.resultados.filter((r) => r.proyectoId === proyecto.id);
+  const allResultados = state.resultados.filter((r) => r.proyectoId === proyecto.id);
+  const resultados = filter ? allResultados.filter((r) => filter.resultados.has(r.id)) : allResultados;
   const notasCount = (proyecto.notas ?? []).length;
 
   return (
@@ -435,11 +522,13 @@ function ResultadoBlock({ resultado, index, total }: { resultado: Resultado; ind
   const dispatch = useAppDispatch();
   const { nombre: currentUser } = useUsuario();
   const isMentor = useIsMentor();
-  const [open, setOpen] = useState(false);
+  const filter = useMapaFilter();
+  const [open, setOpen] = useState(!!filter);
   const [confirm, setConfirm] = useState(false);
   const [showNotas, setShowNotas] = useState(false);
 
-  const entregables = state.entregables.filter((e) => e.resultadoId === resultado.id);
+  const allEntregables = state.entregables.filter((e) => e.resultadoId === resultado.id);
+  const entregables = filter ? allEntregables.filter((e) => filter.entregables.has(e.id)) : allEntregables;
   const parentProj = state.proyectos.find((p) => p.id === resultado.proyectoId);
   const isEmpresa = parentProj ? ambitoDeArea(parentProj.area) === "empresa" : false;
   const notasCount = (resultado.notas ?? []).length;
@@ -499,7 +588,8 @@ function EntregableBlock({ entregable, index, total }: { entregable: Entregable;
   const state = useAppState();
   const dispatch = useAppDispatch();
   const isMentor = useIsMentor();
-  const [open, setOpen] = useState(false);
+  const filter = useMapaFilter();
+  const [open, setOpen] = useState(!!filter);
   const [confirm, setConfirm] = useState(false);
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [justAssigned, setJustAssigned] = useState(false);
@@ -507,9 +597,10 @@ function EntregableBlock({ entregable, index, total }: { entregable: Entregable;
   const customDateRef = useRef<HTMLInputElement>(null);
   useEffect(() => () => clearTimeout(justAssignedTimer.current), []);
 
-  const pasos = state.pasos
+  const allPasos = state.pasos
     .filter((p) => p.entregableId === entregable.id)
     .sort((a, b) => { if (!a.inicioTs) return 1; if (!b.inicioTs) return -1; return a.inicioTs.localeCompare(b.inicioTs); });
+  const pasos = filter ? allPasos.filter((p) => filter.pasos.has(p.id)) : allPasos;
 
   const [showNotas, setShowNotas] = useState(false);
 

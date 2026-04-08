@@ -236,6 +236,8 @@ export interface ActivityEntry {
   pasoId?: string;
   proyectoId?: string;
   descripcion: string;
+  detalle?: string;
+  ruta?: string;
 }
 
 export interface AppState {
