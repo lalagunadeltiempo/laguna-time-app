@@ -483,17 +483,27 @@ export function reducer(state: AppState, action: Action): AppState {
         programacion: null,
         proyectoId: proj?.id ?? null,
         responsableDefault: ent.responsable,
-        pasos: completedPasos.map((p, i) => ({
-          id: `${plantillaId}-paso-${i}`,
-          orden: i + 1,
-          nombre: p.nombre,
-          descripcion: "",
-          herramientas: [],
-          tipo: "accion" as const,
-          minutosEstimados: p.inicioTs && p.finTs
-            ? Math.round((new Date(p.finTs).getTime() - new Date(p.inicioTs).getTime()) / 60000)
-            : null,
-        })),
+        pasos: completedPasos.map((p, i) => {
+          let mins: number | null = null;
+          if (p.inicioTs && p.finTs) {
+            const totalMs = new Date(p.finTs).getTime() - new Date(p.inicioTs).getTime();
+            const pausedMs = (p.pausas ?? []).reduce((acc, pause) => {
+              const s = new Date(pause.pauseTs).getTime();
+              const e = pause.resumeTs ? new Date(pause.resumeTs).getTime() : new Date(p.finTs!).getTime();
+              return acc + (e - s);
+            }, 0);
+            mins = Math.max(1, Math.round((totalMs - pausedMs) / 60000));
+          }
+          return {
+            id: `${plantillaId}-paso-${i}`,
+            orden: i + 1,
+            nombre: p.nombre,
+            descripcion: "",
+            herramientas: [],
+            tipo: "accion" as const,
+            minutosEstimados: mins,
+          };
+        }),
         herramientas: [],
         excepciones: "",
         dependeDeIds: [],

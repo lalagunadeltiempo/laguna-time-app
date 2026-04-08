@@ -2,15 +2,10 @@
 
 import { useMemo, useState } from "react";
 import { useAppState } from "@/lib/context";
-import { ambitoDeArea, type Proyecto, type Ambito } from "@/lib/types";
+import { ambitoDeArea, AREA_COLORS, type Proyecto, type Ambito } from "@/lib/types";
 import { AmbitoToggle } from "./PlanMes";
 
 const MONTHS_ES = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"];
-
-const BORDER_HEX: Record<string, string> = {
-  fisico: "#f43f5e", emocional: "#ec4899", mental: "#6366f1", espiritual: "#8b5cf6",
-  financiera: "#10b981", operativa: "#3b82f6", comercial: "#f59e0b", administrativa: "#a855f6",
-};
 
 type AmbitoFilter = "todo" | Ambito;
 
@@ -161,13 +156,13 @@ export function PlanTrimestre({ selectedDate }: Props) {
                   style={{
                     left: `${(p.startMonth / 12) * 100}%`,
                     width: `${(p.spanMonths / 12) * 100}%`,
-                    backgroundColor: BORDER_HEX[p.proyecto.area] + "20",
-                    borderColor: BORDER_HEX[p.proyecto.area],
+                    backgroundColor: (AREA_COLORS[p.proyecto.area]?.hex ?? "#888") + "20",
+                    borderColor: AREA_COLORS[p.proyecto.area]?.hex ?? "#888",
                     borderWidth: "1px",
                     borderStyle: "solid",
                   }}>
                   <div className="h-full rounded-lg opacity-30"
-                    style={{ width: `${p.percent}%`, backgroundColor: BORDER_HEX[p.proyecto.area] }} />
+                    style={{ width: `${p.percent}%`, backgroundColor: AREA_COLORS[p.proyecto.area]?.hex ?? "#888" }} />
                   <span className="absolute right-2 text-[10px] font-bold text-foreground">{p.percent}%</span>
                 </div>
               </div>

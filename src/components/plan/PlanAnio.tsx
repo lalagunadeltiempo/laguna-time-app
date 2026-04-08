@@ -93,7 +93,7 @@ export function PlanAnio({ selectedDate }: Props) {
 
         return { id: proj.id, nombre: proj.nombre, area: proj.area, total, completados, percent, status };
       }).sort((a, b) => b.percent - a.percent);
-  }, [state, filtro]);
+  }, [state, filtro, year]);
 
   const totalEntregables = areaSummaries.reduce((s, a) => s + a.total, 0);
   const totalCompletados = areaSummaries.reduce((s, a) => s + a.completados, 0);
@@ -103,10 +103,7 @@ export function PlanAnio({ selectedDate }: Props) {
   const enCursoProj = projectSummaries.filter((p) => p.status === "en_curso").length;
   const sinEmpezarProj = projectSummaries.filter((p) => p.status === "sin_empezar").length;
 
-  const BORDER_HEX: Record<string, string> = {
-    fisico: "#f43f5e", emocional: "#ec4899", mental: "#6366f1", espiritual: "#8b5cf6",
-    financiera: "#10b981", operativa: "#3b82f6", comercial: "#f59e0b", administrativa: "#a855f6",
-  };
+  const areaHex = (a: Area) => AREA_COLORS[a]?.hex ?? "#888";
 
   return (
     <div className="flex-1">
@@ -160,7 +157,7 @@ export function PlanAnio({ selectedDate }: Props) {
                 <span className="ml-auto text-sm font-bold text-foreground">{a.percent}%</span>
               </div>
               <div className="h-2 rounded-full bg-surface">
-                <div className="h-2 rounded-full transition-all" style={{ width: `${a.percent}%`, backgroundColor: BORDER_HEX[a.area] }} />
+                <div className="h-2 rounded-full transition-all" style={{ width: `${a.percent}%`, backgroundColor: areaHex(a.area) }} />
               </div>
               <div className="mt-2 flex gap-3 text-xs text-muted">
                 <span>{a.completados} hechos</span>
@@ -176,10 +173,10 @@ export function PlanAnio({ selectedDate }: Props) {
       <div className="space-y-2">
         {projectSummaries.map((p) => (
           <div key={p.id} className="flex items-center gap-3 rounded-xl border border-border bg-background px-4 py-3">
-            <span className="h-3 w-3 shrink-0 rounded-full" style={{ backgroundColor: BORDER_HEX[p.area] }} />
+            <span className="h-3 w-3 shrink-0 rounded-full" style={{ backgroundColor: areaHex(p.area) }} />
             <span className="flex-1 truncate text-sm font-medium text-foreground">{p.nombre}</span>
-            <div className="h-1.5 w-20 rounded-full bg-surface">
-              <div className="h-1.5 rounded-full" style={{ width: `${p.percent}%`, backgroundColor: BORDER_HEX[p.area] }} />
+              <div className="h-1.5 w-20 rounded-full bg-surface">
+              <div className="h-1.5 rounded-full" style={{ width: `${p.percent}%`, backgroundColor: areaHex(p.area) }} />
             </div>
             <span className="w-10 text-right text-xs font-bold text-muted">{p.percent}%</span>
             <span className="text-xs" style={{ color: p.status === "completado" ? "#22c55e" : p.status === "en_curso" ? "#f59e0b" : undefined }}>
