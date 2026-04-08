@@ -34,7 +34,12 @@ const ACTION_ICONS: Record<string, string> = {
   add_url: "🔗",
   add_nota: "📝",
   add_entregable: "+",
+  add_resultado: "+",
+  add_proyecto: "+",
   convert_to_sop: "⚙",
+  start_sop: "⚙",
+  pause_paso: "⏸",
+  resume_paso: "▶",
 };
 
 export function PantallaCuaderno() {

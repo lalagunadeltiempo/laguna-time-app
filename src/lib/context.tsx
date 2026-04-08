@@ -44,8 +44,18 @@ function actionToLog(action: Action, userId: string): { action: string; descripc
       return { action: "add_entregable", descripcion: `Nuevo entregable "${action.payload.nombre}"`, entregableId: action.payload.id };
     case "ADD_PROYECTO":
       return { action: "add_proyecto", descripcion: `Nuevo proyecto "${action.payload.nombre}"`, proyectoId: action.payload.id };
+    case "ADD_RESULTADO":
+      return { action: "add_resultado", descripcion: `Nuevo resultado "${action.payload.nombre}"` };
     case "CONVERT_ENTREGABLE_TO_SOP":
       return { action: "convert_to_sop", descripcion: `Entregable convertido en SOP`, entregableId: action.entregableId };
+    case "ADD_NOTA":
+      return { action: "add_nota", descripcion: `Nota añadida en ${action.nivel}`, pasoId: action.nivel === "paso" ? action.targetId : undefined, entregableId: action.nivel === "entregable" ? action.targetId : undefined };
+    case "MATERIALIZE_SOP":
+      return { action: "start_sop", descripcion: `SOP iniciado (plantilla ${action.plantillaId.slice(0, 8)}...)` };
+    case "PAUSE_PASO":
+      return { action: "pause_paso", descripcion: `Paso pausado`, pasoId: action.id };
+    case "RESUME_PASO":
+      return { action: "resume_paso", descripcion: `Paso reanudado`, pasoId: action.id };
     default:
       return null;
   }
@@ -114,13 +124,22 @@ export function AppProvider({ userId, children }: ProviderProps) {
     saveStateCloud(userId, state);
   }, [state, userId]);
 
-  // Flush pending cloud save on page close
+  // Flush pending cloud save on page close or tab switch
   useEffect(() => {
     function handleBeforeUnload() {
       flushPendingCloudSave();
     }
+    function handleVisibilityChange() {
+      if (document.visibilityState === "hidden") {
+        flushPendingCloudSave();
+      }
+    }
     window.addEventListener("beforeunload", handleBeforeUnload);
-    return () => window.removeEventListener("beforeunload", handleBeforeUnload);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () => {
+      window.removeEventListener("beforeunload", handleBeforeUnload);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
   }, []);
 
   const loggingDispatch = useCallback((action: Action) => {

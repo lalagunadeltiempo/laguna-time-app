@@ -243,7 +243,7 @@ export function saveStateCloud(userId: string, state: AppState): void {
   _pendingSave = { userId: WORKSPACE_ID, state };
 
   if (_saveTimer) clearTimeout(_saveTimer);
-  _saveTimer = setTimeout(async () => {
+  _saveTimer = setTimeout(async () => {  // 300ms debounce — fast enough to not lose data on accidental close
     const pending = _pendingSave;
     _pendingSave = null;
     _saveTimer = null;
@@ -260,7 +260,7 @@ export function saveStateCloud(userId: string, state: AppState): void {
     } catch (err) {
       console.error("[saveStateCloud] network error:", err);
     }
-  }, 1000);
+  }, 300);
 }
 
 export function flushPendingCloudSave(): void {

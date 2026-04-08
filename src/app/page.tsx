@@ -5,6 +5,7 @@ import { AuthGate } from "@/components/AuthGate";
 import { AppProvider, useAppState } from "@/lib/context";
 import { UsuarioContext, useUsuario } from "@/lib/usuario";
 import { getSupabase } from "@/lib/supabase";
+import { flushPendingCloudSave } from "@/lib/store";
 import type { RolUsuario } from "@/lib/types";
 import { PantallaHoy } from "@/components/PantallaHoy";
 import { PantallaPlan } from "@/components/PantallaPlan";
@@ -275,6 +276,7 @@ function UserFooter({ collapsed }: { collapsed: boolean }) {
   const { nombre } = useUsuario();
 
   async function handleLogout() {
+    flushPendingCloudSave();
     const supabase = getSupabase();
     if (supabase) await supabase.auth.signOut();
   }
