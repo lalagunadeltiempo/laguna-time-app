@@ -20,6 +20,11 @@ export function NuevoPaso({ onClose }: Props) {
   const dispatch = useAppDispatch();
   const { nombre: currentUser } = useUsuario();
 
+  const [pasoName, setPasoName] = useState("");
+  const [entregableId, setEntregableId] = useState<string | null>(null);
+  const [newEntregable, setNewEntregable] = useState("");
+
+  const [showClasificar, setShowClasificar] = useState(false);
   const [proyectoId, setProyectoId] = useState<string | null>(null);
   const [newProyecto, setNewProyecto] = useState("");
   const [showNewProyecto, setShowNewProyecto] = useState(false);
@@ -30,57 +35,7 @@ export function NuevoPaso({ onClose }: Props) {
   const [newResultado, setNewResultado] = useState("");
   const [showNewResultado, setShowNewResultado] = useState(false);
 
-  const [entregableId, setEntregableId] = useState<string | null>(null);
-  const [newEntregable, setNewEntregable] = useState("");
-  const [diasEst, setDiasEst] = useState("3");
-
-  const [asignadoA, setAsignadoA] = useState(currentUser);
-  const [showAsignar, setShowAsignar] = useState(false);
-  const esParaOtro = asignadoA !== currentUser;
-
-  const proyectos = useMemo(() => {
-    const lastActivity = new Map<string, number>();
-    for (const paso of state.pasos) {
-      if (!paso.inicioTs) continue;
-      const ent = state.entregables.find((e) => e.id === paso.entregableId);
-      if (!ent) continue;
-      const res = state.resultados.find((r) => r.id === ent.resultadoId);
-      if (!res) continue;
-      const ts = new Date(paso.inicioTs).getTime();
-      const prev = lastActivity.get(res.proyectoId) ?? 0;
-      if (ts > prev) lastActivity.set(res.proyectoId, ts);
-    }
-    return [...state.proyectos].sort((a, b) => {
-      const ta = lastActivity.get(a.id) ?? 0;
-      const tb = lastActivity.get(b.id) ?? 0;
-      if (ta !== tb) return tb - ta;
-      return a.nombre.localeCompare(b.nombre);
-    });
-  }, [state.proyectos, state.pasos, state.entregables, state.resultados]);
-
-  const resultadosDisp = useMemo(() => {
-    if (!proyectoId) return [];
-    const lastActivity = new Map<string, number>();
-    for (const paso of state.pasos) {
-      if (!paso.inicioTs) continue;
-      const ent = state.entregables.find((e) => e.id === paso.entregableId);
-      if (!ent) continue;
-      const ts = new Date(paso.inicioTs).getTime();
-      const prev = lastActivity.get(ent.resultadoId) ?? 0;
-      if (ts > prev) lastActivity.set(ent.resultadoId, ts);
-    }
-    return state.resultados
-      .filter((r) => r.proyectoId === proyectoId)
-      .sort((a, b) => {
-        const ta = lastActivity.get(a.id) ?? 0;
-        const tb = lastActivity.get(b.id) ?? 0;
-        if (ta !== tb) return tb - ta;
-        return a.nombre.localeCompare(b.nombre);
-      });
-  }, [state.resultados, state.pasos, state.entregables, proyectoId]);
-
-  const entregablesDisp = useMemo(() => {
-    if (!resultadoId) return [];
+  const entregablesActivos = useMemo(() => {
     const lastActivity = new Map<string, number>();
     for (const paso of state.pasos) {
       if (!paso.inicioTs) continue;
@@ -89,369 +44,255 @@ export function NuevoPaso({ onClose }: Props) {
       if (ts > prev) lastActivity.set(paso.entregableId, ts);
     }
     return state.entregables
-      .filter((e) => e.resultadoId === resultadoId && e.estado !== "hecho")
+      .filter((e) => e.estado !== "hecho")
       .sort((a, b) => {
         const ta = lastActivity.get(a.id) ?? 0;
         const tb = lastActivity.get(b.id) ?? 0;
         if (ta !== tb) return tb - ta;
         return a.nombre.localeCompare(b.nombre);
-      });
-  }, [state.entregables, state.pasos, resultadoId]);
+      })
+      .slice(0, 12);
+  }, [state.entregables, state.pasos]);
+
+  const proyectos = useMemo(() => {
+    return [...state.proyectos].sort((a, b) => a.nombre.localeCompare(b.nombre));
+  }, [state.proyectos]);
+
+  const resultadosDisp = useMemo(() => {
+    if (!proyectoId) return [];
+    return state.resultados.filter((r) => r.proyectoId === proyectoId);
+  }, [state.resultados, proyectoId]);
 
   const areas = newProyectoAmbito === "personal" ? AREAS_PERSONAL : AREAS_EMPRESA;
 
+  const entregableNombre = entregableId
+    ? state.entregables.find((e) => e.id === entregableId)?.nombre ?? ""
+    : newEntregable.trim();
+
+  const pasoFinal = pasoName.trim() || entregableNombre;
+  const canStart = pasoFinal && entregableNombre;
+
   function handleStart() {
+    if (!canStart) return;
     const now = new Date().toISOString();
 
-    let pId = proyectoId;
-    if (!pId && newProyecto.trim()) {
-      pId = generateId();
-      dispatch({
-        type: "ADD_PROYECTO",
-        payload: {
-          id: pId,
-          nombre: newProyecto.trim(),
-          area: newProyectoArea,
-          creado: now,
-          fechaInicio: null,
-          descripcion: null,
-        },
-      });
-    }
-    if (!pId) return;
-
-    let rId = resultadoId;
-    if (!rId && newResultado.trim()) {
-      rId = generateId();
-      dispatch({
-        type: "ADD_RESULTADO",
-        payload: { id: rId, nombre: newResultado.trim(), descripcion: null, proyectoId: pId, creado: now, semana: null, fechaLimite: null, fechaInicio: null, diasEstimados: null },
-      });
-    }
-    if (!rId) return;
-
     let eId = entregableId;
-    let eNombre = "";
-    if (eId) {
-      eNombre = state.entregables.find((e) => e.id === eId)?.nombre ?? "Paso";
-    } else if (newEntregable.trim()) {
+
+    if (!eId) {
+      let pId = proyectoId;
+      if (!pId && showNewProyecto && newProyecto.trim()) {
+        pId = generateId();
+        dispatch({ type: "ADD_PROYECTO", payload: { id: pId, nombre: newProyecto.trim(), area: newProyectoArea, creado: now, fechaInicio: null, descripcion: null } });
+      }
+      if (!pId) {
+        let defaultProj = state.proyectos.find((p) => p.nombre === "General");
+        if (!defaultProj) {
+          pId = generateId();
+          dispatch({ type: "ADD_PROYECTO", payload: { id: pId, nombre: "General", area: "administrativa", creado: now, fechaInicio: null, descripcion: null } });
+        } else {
+          pId = defaultProj.id;
+        }
+      }
+
+      let rId = resultadoId;
+      if (!rId && showNewResultado && newResultado.trim()) {
+        rId = generateId();
+        dispatch({ type: "ADD_RESULTADO", payload: { id: rId, nombre: newResultado.trim(), descripcion: null, proyectoId: pId, creado: now, semana: null, fechaLimite: null, fechaInicio: null, diasEstimados: null } });
+      }
+      if (!rId) {
+        let defaultRes = state.resultados.find((r) => r.proyectoId === pId);
+        if (!defaultRes) {
+          rId = generateId();
+          dispatch({ type: "ADD_RESULTADO", payload: { id: rId, nombre: "General", descripcion: null, proyectoId: pId, creado: now, semana: null, fechaLimite: null, fechaInicio: null, diasEstimados: null } });
+        } else {
+          rId = defaultRes.id;
+        }
+      }
+
       eId = generateId();
-      eNombre = newEntregable.trim();
       dispatch({
         type: "ADD_ENTREGABLE",
         payload: {
-          id: eId,
-          nombre: eNombre,
-          resultadoId: rId,
-          tipo: "raw",
-          plantillaId: null,
-          diasEstimados: Math.max(1, parseInt(diasEst) || 3),
-          diasHechos: 0,
-          esDiaria: false,
-          responsable: asignadoA,
-          estado: "en_proceso",
-          creado: now,
-          semana: null,
-          fechaLimite: null,
-          fechaInicio: null,
+          id: eId, nombre: entregableNombre, resultadoId: rId, tipo: "raw",
+          plantillaId: null, diasEstimados: 3, diasHechos: 0, esDiaria: false,
+          responsable: currentUser, estado: "en_proceso", creado: now,
+          semana: null, fechaLimite: null, fechaInicio: null,
         },
       });
     }
-    if (!eId) return;
 
     dispatch({
       type: "START_PASO",
       payload: {
-        id: generateId(),
-        entregableId: eId,
-        nombre: eNombre,
-        inicioTs: now,
-        finTs: null,
-        estado: "",
+        id: generateId(), entregableId: eId, nombre: pasoFinal,
+        inicioTs: now, finTs: null, estado: "",
         contexto: { urls: [], apps: [], notas: "" },
-        implicados: esParaOtro
-          ? [{ tipo: "equipo", nombre: currentUser }, { tipo: "equipo", nombre: asignadoA }]
-          : [{ tipo: "equipo", nombre: currentUser }],
-        pausas: [],
-        siguientePaso: null,
+        implicados: [{ tipo: "equipo", nombre: currentUser }],
+        pausas: [], siguientePaso: null,
       },
     });
     onClose();
   }
 
-  const proyectoResuelto = proyectoId || (showNewProyecto && newProyecto.trim());
-  const resultadoResuelto = resultadoId || (showNewResultado && newResultado.trim());
-  const entregableResuelto = entregableId || newEntregable.trim();
-  const canStart = proyectoResuelto && resultadoResuelto && entregableResuelto;
-
   return (
     <div className="rounded-2xl border-2 border-amber-200 bg-white p-5 shadow-lg">
-        <div className="mb-4 flex items-center justify-between">
-          <h2 className="text-lg font-semibold text-zinc-900">Empezar a trabajar</h2>
-          <button
-            onClick={onClose}
-            className="rounded-lg p-1.5 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-600"
-          >
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-              <path d="M18 6 6 18M6 6l12 12" />
-            </svg>
-          </button>
-        </div>
+      <div className="mb-4 flex items-center justify-between">
+        <h2 className="text-lg font-semibold text-zinc-900">Empezar a trabajar</h2>
+        <button onClick={onClose} className="rounded-lg p-1.5 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-600">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+            <path d="M18 6 6 18M6 6l12 12" />
+          </svg>
+        </button>
+      </div>
 
-        {esParaOtro && (
-          <div className="mb-3 flex items-center gap-2 rounded-lg bg-blue-50 px-3 py-2 text-sm text-blue-700">
-            Asignando a <strong>{asignadoA}</strong>
-            <button
-              onClick={() => { setAsignadoA(currentUser); setShowAsignar(false); }}
-              className="ml-auto text-blue-500 hover:underline"
-            >
-              Cancelar
-            </button>
-          </div>
-        )}
-
-        <div className="space-y-4">
-          {/* PROYECTO */}
-          <div>
-            <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-zinc-400">
-              Proyecto
-            </label>
-            {!showNewProyecto ? (
-              <div className="space-y-1.5">
-                <div className="flex flex-wrap gap-1.5">
-                  {proyectos.map((p) => (
-                    <button
-                      key={p.id}
-                      onClick={() => {
-                        setProyectoId(p.id === proyectoId ? null : p.id);
-                        setResultadoId(null);
-                        setEntregableId(null);
-                        setShowNewResultado(false);
-                      }}
-                      className={`rounded-lg border px-2.5 py-1.5 text-xs font-medium transition-all ${
-                        proyectoId === p.id
-                          ? "border-amber-400 bg-amber-50 text-amber-700"
-                          : "border-zinc-200 text-zinc-600 hover:border-zinc-300"
-                      }`}
-                    >
-                      {p.nombre}
-                    </button>
-                  ))}
-                </div>
-                <button
-                  onClick={() => { setShowNewProyecto(true); setProyectoId(null); }}
-                  className="text-xs text-amber-600 hover:underline"
-                >
-                  + Crear proyecto nuevo
-                </button>
-              </div>
-            ) : (
-              <div className="space-y-2 rounded-xl border border-zinc-100 bg-zinc-50 p-3">
-                <input
-                  type="text"
-                  value={newProyecto}
-                  onChange={(e) => setNewProyecto(e.target.value)}
-                  placeholder="Nombre del proyecto..."
-                  autoFocus
-                  className="w-full rounded-lg border border-zinc-200 bg-white p-2.5 text-sm text-zinc-900 placeholder:text-zinc-400 focus:border-amber-400 focus:outline-none"
-                />
-                <div className="flex gap-2">
-                  <select
-                    value={newProyectoAmbito}
-                    onChange={(e) => {
-                      const amb = e.target.value as Ambito;
-                      setNewProyectoAmbito(amb);
-                      const list = amb === "personal" ? AREAS_PERSONAL : AREAS_EMPRESA;
-                      setNewProyectoArea(list[0].id);
-                    }}
-                    className="rounded-lg border border-zinc-200 bg-white px-2 py-1.5 text-xs text-zinc-700"
-                  >
-                    <option value="empresa">Empresa</option>
-                    <option value="personal">Personal</option>
-                  </select>
-                  <select
-                    value={newProyectoArea}
-                    onChange={(e) => setNewProyectoArea(e.target.value as Area)}
-                    className="flex-1 rounded-lg border border-zinc-200 bg-white px-2 py-1.5 text-xs text-zinc-700"
-                  >
-                    {areas.map((a) => (
-                      <option key={a.id} value={a.id}>{a.label}</option>
-                    ))}
-                  </select>
-                </div>
-                <button
-                  onClick={() => { setShowNewProyecto(false); setNewProyecto(""); }}
-                  className="text-xs text-zinc-400 hover:text-zinc-600"
-                >
-                  Cancelar, elegir existente
-                </button>
-              </div>
-            )}
-          </div>
-
-          {/* RESULTADO */}
-          {proyectoResuelto && (
-            <div>
-              <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-zinc-400">
-                Resultado
-              </label>
-              {!showNewResultado ? (
-                <div className="space-y-1.5">
-                  {resultadosDisp.length > 0 && (
-                    <div className="flex flex-wrap gap-1.5">
-                      {resultadosDisp.map((r) => (
-                        <button
-                          key={r.id}
-                          onClick={() => {
-                            setResultadoId(r.id === resultadoId ? null : r.id);
-                            setEntregableId(null);
-                          }}
-                          className={`rounded-lg border px-2.5 py-1.5 text-xs font-medium transition-all ${
-                            resultadoId === r.id
-                              ? "border-amber-400 bg-amber-50 text-amber-700"
-                              : "border-zinc-200 text-zinc-600 hover:border-zinc-300"
-                          }`}
-                        >
-                          {r.nombre}
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                  <button
-                    onClick={() => { setShowNewResultado(true); setResultadoId(null); setEntregableId(null); }}
-                    className="text-xs text-amber-600 hover:underline"
-                  >
-                    + Crear resultado nuevo
-                  </button>
-                </div>
-              ) : (
-                <div className="space-y-2">
-                  <input
-                    type="text"
-                    value={newResultado}
-                    onChange={(e) => setNewResultado(e.target.value)}
-                    placeholder="Nombre del resultado..."
-                    autoFocus
-                    className="w-full rounded-lg border border-zinc-200 bg-zinc-50 p-2.5 text-sm text-zinc-900 placeholder:text-zinc-400 focus:border-amber-400 focus:outline-none"
-                  />
-                  {resultadosDisp.length > 0 && (
-                    <button
-                      onClick={() => { setShowNewResultado(false); setNewResultado(""); }}
-                      className="text-xs text-zinc-400 hover:text-zinc-600"
-                    >
-                      Cancelar, elegir existente
-                    </button>
-                  )}
-                </div>
-              )}
+      <div className="space-y-4">
+        {/* ENTREGABLE — lo primero */}
+        <div>
+          <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-zinc-400">
+            Entregable
+          </label>
+          {entregableId ? (
+            <div className="flex items-center gap-2 rounded-lg border border-green-300 bg-green-50 px-3 py-2">
+              <span className="flex-1 text-sm font-medium text-green-800">{entregableNombre}</span>
+              <button onClick={() => setEntregableId(null)} className="text-xs text-green-600 hover:underline">Cambiar</button>
             </div>
-          )}
-
-          {/* ENTREGABLE */}
-          {resultadoResuelto && (
-            <div>
-              <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-zinc-400">
-                ¿Qué vas a hacer?
-              </label>
-              {entregablesDisp.length > 0 && !entregableId && (
-                <div className="mb-2 flex flex-wrap gap-1.5">
-                  {entregablesDisp.map((e) => (
-                    <button
-                      key={e.id}
-                      onClick={() => { setEntregableId(e.id); setNewEntregable(""); }}
-                      className="rounded-lg border border-zinc-200 px-2.5 py-1.5 text-xs text-zinc-600 transition-all hover:border-green-400 hover:bg-green-50"
-                    >
+          ) : (
+            <>
+              <input
+                type="text"
+                value={newEntregable}
+                onChange={(e) => setNewEntregable(e.target.value)}
+                placeholder="¿En qué vas a trabajar?"
+                autoFocus
+                onKeyDown={(e) => { if (e.key === "Enter" && canStart) handleStart(); }}
+                className="w-full rounded-lg border border-zinc-200 bg-zinc-50 p-2.5 text-sm text-zinc-900 placeholder:text-zinc-400 focus:border-amber-400 focus:outline-none"
+              />
+              {entregablesActivos.length > 0 && !newEntregable.trim() && (
+                <div className="mt-2 flex flex-wrap gap-1.5">
+                  {entregablesActivos.map((e) => (
+                    <button key={e.id} onClick={() => { setEntregableId(e.id); setNewEntregable(""); }}
+                      className="rounded-lg border border-zinc-200 px-2.5 py-1.5 text-xs text-zinc-600 transition-all hover:border-green-400 hover:bg-green-50">
                       {e.nombre}
                     </button>
                   ))}
                 </div>
               )}
-              {entregableId ? (
-                <div className="flex items-center gap-2 rounded-lg border border-green-300 bg-green-50 px-3 py-2">
-                  <span className="flex-1 text-sm font-medium text-green-800">
-                    {state.entregables.find((e) => e.id === entregableId)?.nombre}
-                  </span>
-                  <button
-                    onClick={() => setEntregableId(null)}
-                    className="text-xs text-green-600 hover:underline"
-                  >
-                    Cambiar
-                  </button>
+            </>
+          )}
+        </div>
+
+        {/* NOMBRE DEL PASO */}
+        {entregableNombre && (
+          <div>
+            <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-zinc-400">
+              Nombre del paso <span className="font-normal normal-case text-zinc-300">(opcional, por defecto = entregable)</span>
+            </label>
+            <input
+              type="text"
+              value={pasoName}
+              onChange={(e) => setPasoName(e.target.value)}
+              placeholder={entregableNombre}
+              onKeyDown={(e) => { if (e.key === "Enter" && canStart) handleStart(); }}
+              className="w-full rounded-lg border border-zinc-200 bg-zinc-50 p-2.5 text-sm text-zinc-900 placeholder:text-zinc-300 focus:border-amber-400 focus:outline-none"
+            />
+          </div>
+        )}
+
+        {/* CLASIFICACION OPCIONAL */}
+        {entregableNombre && !entregableId && (
+          <div>
+            {!showClasificar ? (
+              <button onClick={() => setShowClasificar(true)}
+                className="flex items-center gap-1.5 text-xs text-zinc-400 hover:text-amber-600">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                  <polyline points="9 6 15 12 9 18" />
+                </svg>
+                Clasificar en proyecto y resultado (opcional)
+              </button>
+            ) : (
+              <div className="space-y-3 rounded-xl border border-zinc-100 bg-zinc-50 p-3">
+                <div className="flex items-center justify-between">
+                  <p className="text-xs font-semibold uppercase tracking-wider text-zinc-400">Clasificación</p>
+                  <button onClick={() => { setShowClasificar(false); setProyectoId(null); setResultadoId(null); setShowNewProyecto(false); setShowNewResultado(false); }}
+                    className="text-[10px] text-zinc-400 hover:text-zinc-600">Cerrar</button>
                 </div>
-              ) : (
-                <div className="space-y-2">
-                  <input
-                    type="text"
-                    value={newEntregable}
-                    onChange={(e) => setNewEntregable(e.target.value)}
-                    placeholder="Describe el entregable concreto..."
-                    className="w-full rounded-lg border border-zinc-200 bg-zinc-50 p-2.5 text-sm text-zinc-900 placeholder:text-zinc-400 focus:border-amber-400 focus:outline-none"
-                  />
-                  {newEntregable.trim() && (
-                    <div className="flex items-center gap-3">
-                      <label className="text-xs text-zinc-500">Días estimados:</label>
-                      <input
-                        type="number"
-                        min="1"
-                        value={diasEst}
-                        onChange={(e) => setDiasEst(e.target.value)}
-                        className="w-16 rounded-lg border border-zinc-200 p-1.5 text-center text-xs text-zinc-900 focus:border-amber-400 focus:outline-none"
-                      />
+
+                {/* Proyecto */}
+                <div>
+                  <p className="mb-1 text-[10px] font-medium text-zinc-500">Proyecto</p>
+                  {!showNewProyecto ? (
+                    <div className="space-y-1.5">
+                      <div className="flex flex-wrap gap-1">
+                        {proyectos.map((p) => (
+                          <button key={p.id}
+                            onClick={() => { setProyectoId(p.id === proyectoId ? null : p.id); setResultadoId(null); setShowNewResultado(false); }}
+                            className={`rounded-md border px-2 py-1 text-[10px] font-medium transition-all ${proyectoId === p.id ? "border-amber-400 bg-amber-50 text-amber-700" : "border-zinc-200 text-zinc-600 hover:border-zinc-300"}`}>
+                            {p.nombre}
+                          </button>
+                        ))}
+                      </div>
+                      <button onClick={() => { setShowNewProyecto(true); setProyectoId(null); }} className="text-[10px] text-amber-600 hover:underline">+ Crear proyecto</button>
+                    </div>
+                  ) : (
+                    <div className="space-y-1.5">
+                      <input type="text" value={newProyecto} onChange={(e) => setNewProyecto(e.target.value)} placeholder="Nombre del proyecto..."
+                        autoFocus className="w-full rounded-md border border-zinc-200 bg-white px-2 py-1.5 text-xs focus:border-amber-400 focus:outline-none" />
+                      <div className="flex gap-1.5">
+                        <select value={newProyectoAmbito} onChange={(e) => { const a = e.target.value as Ambito; setNewProyectoAmbito(a); setNewProyectoArea((a === "personal" ? AREAS_PERSONAL : AREAS_EMPRESA)[0].id); }}
+                          className="rounded-md border border-zinc-200 bg-white px-1.5 py-1 text-[10px]">
+                          <option value="empresa">Empresa</option><option value="personal">Personal</option>
+                        </select>
+                        <select value={newProyectoArea} onChange={(e) => setNewProyectoArea(e.target.value as Area)}
+                          className="flex-1 rounded-md border border-zinc-200 bg-white px-1.5 py-1 text-[10px]">
+                          {areas.map((a) => <option key={a.id} value={a.id}>{a.label}</option>)}
+                        </select>
+                      </div>
+                      <button onClick={() => { setShowNewProyecto(false); setNewProyecto(""); }} className="text-[10px] text-zinc-400 hover:text-zinc-600">Cancelar</button>
                     </div>
                   )}
                 </div>
-              )}
-            </div>
-          )}
 
-          {/* RESUMEN + ACCIONES */}
-          {canStart && (
-            <div className="space-y-3 border-t border-zinc-100 pt-3">
-              <div className="rounded-lg bg-zinc-50 px-3 py-2 text-xs text-zinc-500">
-                <span className="font-medium text-zinc-700">
-                  {showNewProyecto ? newProyecto : proyectos.find((p) => p.id === proyectoId)?.nombre}
-                </span>
-                {" → "}
-                <span className="font-medium text-zinc-700">
-                  {showNewResultado ? newResultado : resultadosDisp.find((r) => r.id === resultadoId)?.nombre}
-                </span>
-                {" → "}
-                <span className="font-medium text-zinc-700">
-                  {entregableId ? state.entregables.find((e) => e.id === entregableId)?.nombre : newEntregable}
-                </span>
+                {/* Resultado */}
+                {(proyectoId || (showNewProyecto && newProyecto.trim())) && (
+                  <div>
+                    <p className="mb-1 text-[10px] font-medium text-zinc-500">Resultado</p>
+                    {!showNewResultado ? (
+                      <div className="space-y-1.5">
+                        {resultadosDisp.length > 0 && (
+                          <div className="flex flex-wrap gap-1">
+                            {resultadosDisp.map((r) => (
+                              <button key={r.id}
+                                onClick={() => setResultadoId(r.id === resultadoId ? null : r.id)}
+                                className={`rounded-md border px-2 py-1 text-[10px] font-medium transition-all ${resultadoId === r.id ? "border-amber-400 bg-amber-50 text-amber-700" : "border-zinc-200 text-zinc-600 hover:border-zinc-300"}`}>
+                                {r.nombre}
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                        <button onClick={() => { setShowNewResultado(true); setResultadoId(null); }} className="text-[10px] text-amber-600 hover:underline">+ Crear resultado</button>
+                      </div>
+                    ) : (
+                      <div className="space-y-1.5">
+                        <input type="text" value={newResultado} onChange={(e) => setNewResultado(e.target.value)} placeholder="Nombre del resultado..."
+                          autoFocus className="w-full rounded-md border border-zinc-200 bg-white px-2 py-1.5 text-xs focus:border-amber-400 focus:outline-none" />
+                        <button onClick={() => { setShowNewResultado(false); setNewResultado(""); }} className="text-[10px] text-zinc-400 hover:text-zinc-600">Cancelar</button>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
+            )}
+          </div>
+        )}
 
-              {!showAsignar && !esParaOtro && (
-                <button
-                  onClick={() => setShowAsignar(true)}
-                  className="text-xs text-zinc-400 hover:text-amber-600 hover:underline"
-                >
-                  Asignar a otra persona del equipo
-                </button>
-              )}
-              {showAsignar && !esParaOtro && (
-                <div className="flex flex-wrap gap-1.5">
-                  {state.miembros.map((mb) => mb.nombre).filter((m) => m !== currentUser).map((m) => (
-                    <button
-                      key={m}
-                      onClick={() => { setAsignadoA(m); setShowAsignar(false); }}
-                      className="rounded-lg border border-zinc-200 px-2.5 py-1.5 text-xs text-zinc-600 hover:border-amber-400 hover:bg-amber-50"
-                    >
-                      {m}
-                    </button>
-                  ))}
-                </div>
-              )}
-
-              <button
-                onClick={handleStart}
-                className="w-full rounded-xl bg-green-600 py-3.5 text-base font-semibold text-white transition-colors hover:bg-green-700"
-              >
-                {esParaOtro ? `Asignar a ${asignadoA}` : "Empezar"}
-              </button>
-            </div>
-          )}
-        </div>
+        {/* BOTON EMPEZAR */}
+        {canStart && (
+          <button onClick={handleStart}
+            className="w-full rounded-xl bg-green-600 py-3.5 text-base font-semibold text-white transition-colors hover:bg-green-700">
+            Empezar
+          </button>
+        )}
+      </div>
     </div>
   );
 }
