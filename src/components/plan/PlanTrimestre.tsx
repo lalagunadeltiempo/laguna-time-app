@@ -1,8 +1,9 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { useAppState } from "@/lib/context";
-import type { Proyecto } from "@/lib/types";
+import { ambitoDeArea, type Proyecto, type Ambito } from "@/lib/types";
+import { AmbitoToggle } from "./PlanMes";
 
 const MONTHS_ES = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"];
 
@@ -10,6 +11,8 @@ const BORDER_HEX: Record<string, string> = {
   fisico: "#f43f5e", emocional: "#ec4899", mental: "#6366f1", espiritual: "#8b5cf6",
   financiera: "#10b981", operativa: "#3b82f6", comercial: "#f59e0b", administrativa: "#a855f6",
 };
+
+type AmbitoFilter = "todo" | Ambito;
 
 interface ProjectBar {
   proyecto: Proyecto;
@@ -21,11 +24,17 @@ interface ProjectBar {
   spanMonths: number;
 }
 
-export function PlanTrimestre() {
+interface Props {
+  selectedDate: Date;
+}
+
+export function PlanTrimestre({ selectedDate }: Props) {
   const state = useAppState();
-  const now = new Date();
-  const currentYear = now.getFullYear();
-  const currentQuarter = Math.ceil((now.getMonth() + 1) / 3);
+  const [filtro, setFiltro] = useState<AmbitoFilter>("todo");
+
+  const currentYear = selectedDate.getFullYear();
+  const refMonth = selectedDate.getMonth();
+  const currentQuarter = Math.ceil((refMonth + 1) / 3);
 
   const quarters = [1, 2, 3, 4].map((q) => ({
     q,
@@ -40,12 +49,28 @@ export function PlanTrimestre() {
     const items: ProjectBar[] = [];
 
     for (const proj of state.proyectos) {
+      if (filtro !== "todo" && ambitoDeArea(proj.area) !== filtro) continue;
+
       const resultados = state.resultados.filter((r) => r.proyectoId === proj.id);
       if (resultados.length === 0) continue;
 
       const entregs = state.entregables.filter((e) =>
         resultados.some((r) => r.id === e.resultadoId),
       );
+      if (entregs.length === 0) continue;
+
+      const isRelevantYear = (() => {
+        if (proj.fechaInicio) {
+          const y = new Date(proj.fechaInicio).getFullYear();
+          if (y === currentYear) return true;
+          if (y < currentYear) {
+            const hasIncomplete = entregs.some((e) => e.estado !== "hecho" && e.estado !== "cancelada");
+            return hasIncomplete;
+          }
+        }
+        return entregs.some((e) => e.estado === "en_proceso");
+      })();
+      if (!isRelevantYear && proj.fechaInicio) continue;
 
       const completados = entregs.filter((e) => e.estado === "hecho").length;
       const total = entregs.length;
@@ -55,12 +80,12 @@ export function PlanTrimestre() {
       if (percent === 0 && total > 0) rag = "amber";
       if (proj.fechaInicio) {
         const start = new Date(proj.fechaInicio);
-        const monthsElapsed = (now.getFullYear() - start.getFullYear()) * 12 + now.getMonth() - start.getMonth();
+        const monthsElapsed = (currentYear - start.getFullYear()) * 12 + refMonth - start.getMonth();
         if (monthsElapsed > 3 && percent < 25) rag = "red";
         else if (monthsElapsed > 1 && percent < 10) rag = "amber";
       }
 
-      let startMonth = now.getMonth();
+      let startMonth = refMonth;
       if (proj.fechaInicio) {
         const s = new Date(proj.fechaInicio);
         if (s.getFullYear() === currentYear) startMonth = s.getMonth();
@@ -87,29 +112,26 @@ export function PlanTrimestre() {
     }
 
     return items.sort((a, b) => a.startMonth - b.startMonth);
-  }, [state, currentYear, now]);
+  }, [state, currentYear, refMonth, filtro]);
 
   const RAG_HEX = { green: "#22c55e", amber: "#f59e0b", red: "#ef4444" };
 
   return (
     <div className="flex-1 overflow-x-auto">
-      <p className="mb-6 text-sm font-medium text-muted">{currentYear} · Trimestres</p>
+      <div className="mb-6 flex items-center justify-between">
+        <p className="text-sm font-medium text-muted">{currentYear} · Trimestres</p>
+        <AmbitoToggle value={filtro} onChange={setFiltro} />
+      </div>
 
-      {/* Month headers */}
-      <div className="mb-4 grid grid-cols-12 gap-px">
+      <div className="mb-4 grid grid-cols-6 gap-px sm:grid-cols-12">
         {allMonths.map((m) => (
-          <div
-            key={m}
-            className={`rounded-lg px-1 py-2 text-center text-xs font-medium ${
-              m === now.getMonth() ? "bg-accent text-white" : "bg-surface text-muted"
-            }`}
-          >
+          <div key={m}
+            className={`rounded-lg px-1 py-2 text-center text-xs font-medium ${m === refMonth ? "bg-accent text-white" : "bg-surface text-muted"}`}>
             {MONTHS_ES[m]}
           </div>
         ))}
       </div>
 
-      {/* Quarter dividers */}
       <div className="mb-2 grid grid-cols-4 gap-2">
         {quarters.map((q) => (
           <div key={q.q} className={`rounded-lg py-1 text-center text-[11px] font-bold ${q.isCurrent ? "bg-accent/10 text-accent" : "bg-surface text-muted"}`}>
@@ -118,7 +140,6 @@ export function PlanTrimestre() {
         ))}
       </div>
 
-      {/* Project bars */}
       {projects.length === 0 ? (
         <div className="py-12 text-center">
           <p className="text-sm text-muted">No hay proyectos con resultados.</p>
@@ -136,8 +157,7 @@ export function PlanTrimestre() {
                     <div key={m} className="h-8 border-r border-border/30 last:border-r-0" />
                   ))}
                 </div>
-                <div
-                  className="absolute top-0 flex h-8 items-center rounded-lg px-2 transition-colors"
+                <div className="absolute top-0 flex h-8 items-center rounded-lg px-2 transition-colors"
                   style={{
                     left: `${(p.startMonth / 12) * 100}%`,
                     width: `${(p.spanMonths / 12) * 100}%`,
@@ -145,23 +165,13 @@ export function PlanTrimestre() {
                     borderColor: BORDER_HEX[p.proyecto.area],
                     borderWidth: "1px",
                     borderStyle: "solid",
-                  }}
-                >
-                  <div
-                    className="h-full rounded-lg opacity-30"
-                    style={{
-                      width: `${p.percent}%`,
-                      backgroundColor: BORDER_HEX[p.proyecto.area],
-                    }}
-                  />
-                  <span className="absolute right-2 text-[10px] font-bold text-foreground">
-                    {p.percent}%
-                  </span>
+                  }}>
+                  <div className="h-full rounded-lg opacity-30"
+                    style={{ width: `${p.percent}%`, backgroundColor: BORDER_HEX[p.proyecto.area] }} />
+                  <span className="absolute right-2 text-[10px] font-bold text-foreground">{p.percent}%</span>
                 </div>
               </div>
-              <span className="w-6 text-center text-xs font-bold" style={{ color: RAG_HEX[p.rag] }}>
-                ●
-              </span>
+              <span className="w-6 text-center text-xs font-bold" style={{ color: RAG_HEX[p.rag] }}>●</span>
             </div>
           ))}
         </div>

@@ -60,7 +60,10 @@ export type Action =
   | { type: "REORDER_PROYECTO"; id: string; direction: "up" | "down" }
   | { type: "REORDER_RESULTADO"; id: string; direction: "up" | "down" }
   | { type: "REORDER_ENTREGABLE"; id: string; direction: "up" | "down" }
-  | { type: "REORDER_PLANTILLA"; id: string; direction: "up" | "down" };
+  | { type: "REORDER_PLANTILLA"; id: string; direction: "up" | "down" }
+  | { type: "UPDATE_PASO_PLANTILLA"; plantillaId: string; pasoId: string; changes: Partial<PlantillaProceso["pasos"][number]> }
+  | { type: "DELETE_PASO_PLANTILLA"; plantillaId: string; pasoId: string }
+  | { type: "ADD_PASO_PLANTILLA"; plantillaId: string; paso: PlantillaProceso["pasos"][number] };
 
 function swapSiblings<T extends { id: string }>(
   arr: T[],
@@ -111,14 +114,21 @@ export function reducer(state: AppState, action: Action): AppState {
       return { ...state, entregables: [...state.entregables, action.payload] };
 
     // --- Pasos ---
-    case "START_PASO":
+    case "START_PASO": {
+      if (!state.entregables.some((e) => e.id === action.payload.entregableId)) return state;
       return {
         ...state,
         pasos: [...state.pasos, action.payload],
+        entregables: state.entregables.map((e) =>
+          e.id === action.payload.entregableId && e.estado === "a_futuro"
+            ? { ...e, estado: "en_proceso" as const }
+            : e
+        ),
         pasosActivos: state.pasosActivos.includes(action.payload.id)
           ? state.pasosActivos
           : [...state.pasosActivos, action.payload.id],
       };
+    }
 
     case "ADD_PASO":
       return { ...state, pasos: [...state.pasos, action.payload] };
@@ -352,6 +362,28 @@ export function reducer(state: AppState, action: Action): AppState {
 
     case "UPDATE_PLANTILLA":
       return { ...state, plantillas: state.plantillas.map((p) => p.id === action.id ? { ...p, ...action.changes } : p) };
+
+    case "UPDATE_PASO_PLANTILLA":
+      return { ...state, plantillas: state.plantillas.map((pl) =>
+        pl.id === action.plantillaId
+          ? { ...pl, pasos: pl.pasos.map((p) => p.id === action.pasoId ? { ...p, ...action.changes } : p) }
+          : pl
+      )};
+
+    case "DELETE_PASO_PLANTILLA":
+      return { ...state, plantillas: state.plantillas.map((pl) =>
+        pl.id === action.plantillaId
+          ? { ...pl, pasos: pl.pasos.filter((p) => p.id !== action.pasoId) }
+          : pl
+      )};
+
+    case "ADD_PASO_PLANTILLA": {
+      return { ...state, plantillas: state.plantillas.map((pl) =>
+        pl.id === action.plantillaId
+          ? { ...pl, pasos: [...pl.pasos, action.paso] }
+          : pl
+      )};
+    }
 
     // --- Miembros ---
     case "ADD_MIEMBRO":

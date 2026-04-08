@@ -18,6 +18,16 @@ import {
   type TipoEntregable,
 } from "@/lib/types";
 
+function formatFechaInicio(f: string): string {
+  if (f.startsWith("W")) return "Semana";
+  if (f.startsWith("M")) return f.replace("M", "").replace("-", "/");
+  if (f.startsWith("Q")) return f.replace("Q", "").replace("-Q", " Q");
+  if (f.startsWith("Y")) return f.replace("Y", "");
+  const d = new Date(f + "T12:00:00");
+  if (isNaN(d.getTime())) return f;
+  return d.toLocaleDateString("es-ES", { day: "numeric", month: "short" });
+}
+
 interface Props {
   onOpenDetalle?: (resultadoId: string) => void;
 }
@@ -95,6 +105,7 @@ function EditableText({
         <textarea
           ref={ref as React.RefObject<HTMLTextAreaElement>}
           value={draft}
+          onClick={(e) => e.stopPropagation()}
           onChange={(e) => setDraft(e.target.value)}
           onBlur={save}
           onKeyDown={(e) => { if (e.key === "Escape") { setDraft(value); setEditing(false); } }}
@@ -107,6 +118,7 @@ function EditableText({
       <input
         ref={ref as React.RefObject<HTMLInputElement>}
         value={draft}
+        onClick={(e) => e.stopPropagation()}
         onChange={(e) => setDraft(e.target.value)}
         onBlur={save}
         onKeyDown={(e) => {
@@ -121,7 +133,7 @@ function EditableText({
   const Tag = tag;
   return (
     <Tag
-      onClick={() => { setDraft(value); setEditing(true); }}
+      onClick={(e: React.MouseEvent) => { e.stopPropagation(); setDraft(value); setEditing(true); }}
       className={`cursor-text rounded-lg px-3 py-1 transition-colors hover:bg-accent-soft ${className}`}
     >
       {value || <span className="italic text-muted">{placeholder}</span>}
@@ -135,7 +147,7 @@ function EditableText({
 
 function MoveArrows({ canUp, canDown, onUp, onDown }: { canUp: boolean; canDown: boolean; onUp: () => void; onDown: () => void }) {
   return (
-    <span className="inline-flex flex-col gap-0.5 opacity-0 transition-opacity group-hover/row:opacity-100">
+    <span className="inline-flex flex-col gap-0.5 opacity-40 transition-opacity group-hover/row:opacity-100 sm:opacity-0">
       <button onClick={(e) => { e.stopPropagation(); onUp(); }} disabled={!canUp}
         className="flex h-7 w-7 items-center justify-center rounded-md hover:bg-surface-hover disabled:invisible" aria-label="Subir">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round"><polyline points="18 15 12 9 6 15" /></svg>
@@ -196,7 +208,7 @@ function AddButton({ label, onAdd }: { label: string; onAdd: (name: string) => v
 function DeleteBtn({ onDelete }: { onDelete: () => void }) {
   return (
     <button onClick={(e) => { e.stopPropagation(); onDelete(); }}
-      className="ml-auto flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-muted opacity-0 transition-all hover:bg-red-50 hover:text-red-500 group-hover/row:opacity-100 dark:hover:bg-red-500/10"
+      className="ml-auto flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-muted opacity-40 transition-all hover:bg-red-50 hover:text-red-500 sm:opacity-0 group-hover/row:opacity-100 dark:hover:bg-red-500/10"
       aria-label="Eliminar">
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
         <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
@@ -430,6 +442,7 @@ function EntregableBlock({ entregable, index, total }: { entregable: Entregable;
   const [open, setOpen] = useState(false);
   const [confirm, setConfirm] = useState(false);
   const [showDatePicker, setShowDatePicker] = useState(false);
+  const customDateRef = useRef<HTMLInputElement>(null);
 
   const pasos = state.pasos
     .filter((p) => p.entregableId === entregable.id)
@@ -437,6 +450,9 @@ function EntregableBlock({ entregable, index, total }: { entregable: Entregable;
 
   const tipoTag = entregable.tipo !== "raw" ? entregable.tipo.toUpperCase() : null;
   const dotColor = entregable.estado === "hecho" ? "bg-green-500" : entregable.estado === "en_proceso" ? "bg-amber-500" : "bg-border";
+
+  const isProgrammed = !!entregable.fechaInicio;
+  const programLabel = isProgrammed ? formatFechaInicio(entregable.fechaInicio!) : null;
 
   function assignDate(period: string) {
     const now = new Date();
@@ -457,7 +473,13 @@ function EntregableBlock({ entregable, index, total }: { entregable: Entregable;
     } else {
       target = `Y${now.getFullYear()}`;
     }
-    dispatch({ type: "UPDATE_ENTREGABLE", id: entregable.id, changes: { fechaInicio: target, estado: "en_proceso" } });
+    dispatch({ type: "UPDATE_ENTREGABLE", id: entregable.id, changes: { fechaInicio: target, estado: entregable.estado === "a_futuro" ? "en_proceso" : entregable.estado } });
+    setShowDatePicker(false);
+  }
+
+  function assignCustomDate(dateStr: string) {
+    if (!dateStr) return;
+    dispatch({ type: "UPDATE_ENTREGABLE", id: entregable.id, changes: { fechaInicio: dateStr, estado: entregable.estado === "a_futuro" ? "en_proceso" : entregable.estado } });
     setShowDatePicker(false);
   }
 
@@ -471,12 +493,14 @@ function EntregableBlock({ entregable, index, total }: { entregable: Entregable;
         <EditableText value={entregable.nombre} onChange={(v) => dispatch({ type: "RENAME_ENTREGABLE", id: entregable.id, nombre: v })}
           className="text-sm text-foreground" />
         {tipoTag && <span className="rounded-md bg-purple-100 px-2 py-0.5 text-[11px] font-bold text-purple-600">{tipoTag}</span>}
+        {programLabel && (
+          <span className="rounded-md bg-accent/10 px-2 py-0.5 text-[11px] font-medium text-accent">{programLabel}</span>
+        )}
         {pasos.length > 0 && <span className="text-xs text-muted">{pasos.length}p</span>}
 
-        {/* Date assign button */}
         <button
           onClick={(e) => { e.stopPropagation(); setShowDatePicker(!showDatePicker); }}
-          className="flex h-7 items-center gap-1 rounded-md px-2 text-xs text-muted opacity-0 transition-all hover:bg-accent-soft hover:text-accent group-hover/row:opacity-100"
+          className={`flex h-7 items-center gap-1 rounded-md px-2 text-xs transition-all hover:bg-accent-soft hover:text-accent ${isProgrammed ? "text-accent" : "text-muted opacity-40 sm:opacity-0 group-hover/row:opacity-100"}`}
           title="Asignar a un periodo"
         >
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
@@ -488,7 +512,7 @@ function EntregableBlock({ entregable, index, total }: { entregable: Entregable;
       </ToggleRow>
 
       {showDatePicker && (
-        <div className="ml-12 mb-2 flex flex-wrap gap-2 px-3">
+        <div className="ml-12 mb-2 flex flex-wrap items-center gap-2 px-3">
           {[
             { id: "hoy", label: "Hoy" },
             { id: "semana", label: "Esta semana" },
@@ -501,6 +525,12 @@ function EntregableBlock({ entregable, index, total }: { entregable: Entregable;
               {p.label}
             </button>
           ))}
+          <button onClick={() => customDateRef.current?.showPicker()}
+            className="rounded-lg border border-accent/50 bg-accent-soft px-3 py-1.5 text-xs font-medium text-accent transition-colors hover:bg-accent/20">
+            Elegir fecha...
+          </button>
+          <input ref={customDateRef} type="date" onChange={(e) => assignCustomDate(e.target.value)}
+            className="sr-only" tabIndex={-1} aria-hidden="true" />
           <button onClick={() => setShowDatePicker(false)}
             className="rounded-lg px-3 py-1.5 text-xs text-muted hover:text-foreground">
             Cancelar
@@ -542,7 +572,7 @@ function PasoLine({ paso }: { paso: Paso }) {
           </span>
         )}
         <button onClick={() => setShowDetail(!showDetail)}
-          className="flex h-8 w-8 items-center justify-center rounded-lg text-muted opacity-0 hover:bg-surface-hover hover:text-foreground group-hover/row:opacity-100">
+          className="flex h-8 w-8 items-center justify-center rounded-lg text-muted opacity-40 hover:bg-surface-hover hover:text-foreground sm:opacity-0 group-hover/row:opacity-100">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
             <circle cx="12" cy="12" r="1.5" /><circle cx="19" cy="12" r="1.5" /><circle cx="5" cy="12" r="1.5" />
           </svg>
@@ -572,6 +602,66 @@ function PasoLine({ paso }: { paso: Paso }) {
 /* ============================================================
    SOP
    ============================================================ */
+
+function SOPPasoRow({ sop, paso, index }: { sop: PlantillaProceso; paso: PlantillaProceso["pasos"][number]; index: number }) {
+  const dispatch = useAppDispatch();
+  const [confirmDel, setConfirmDel] = useState(false);
+
+  function updatePaso(changes: Partial<PlantillaProceso["pasos"][number]>) {
+    dispatch({ type: "UPDATE_PASO_PLANTILLA", plantillaId: sop.id, pasoId: paso.id, changes });
+  }
+
+  function removePaso() {
+    dispatch({ type: "DELETE_PASO_PLANTILLA", plantillaId: sop.id, pasoId: paso.id });
+  }
+
+  return (
+    <div>
+      <div className="group/row flex min-h-[44px] items-center gap-2 rounded-lg px-3 py-1.5 hover:bg-surface">
+        <span className="w-6 shrink-0 text-right text-xs font-medium text-muted">{index + 1}.</span>
+        <EditableText value={paso.nombre} onChange={(v) => updatePaso({ nombre: v })} className="flex-1 text-sm text-foreground" />
+        <DurationInput value={paso.minutosEstimados} onChange={(v) => updatePaso({ minutosEstimados: v })} />
+        <DeleteBtn onDelete={() => setConfirmDel(true)} />
+      </div>
+      {confirmDel && (
+        <ConfirmDelete label={paso.nombre} onConfirm={() => { removePaso(); setConfirmDel(false); }} onCancel={() => setConfirmDel(false)} />
+      )}
+    </div>
+  );
+}
+
+function DurationInput({ value, onChange }: { value: number | null; onChange: (v: number | null) => void }) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(String(value ?? ""));
+  const ref = useRef<HTMLInputElement>(null);
+
+  useEffect(() => { if (editing) ref.current?.focus(); }, [editing]);
+
+  const save = useCallback(() => {
+    const n = parseInt(draft, 10);
+    onChange(isNaN(n) || n <= 0 ? null : n);
+    setEditing(false);
+  }, [draft, onChange]);
+
+  if (editing) {
+    return (
+      <div className="flex items-center gap-1">
+        <input ref={ref} type="number" min="1" value={draft} onChange={(e) => setDraft(e.target.value)}
+          onBlur={save} onKeyDown={(e) => { if (e.key === "Enter") save(); if (e.key === "Escape") setEditing(false); }}
+          className="w-14 rounded-md border-2 border-accent bg-background px-2 py-1 text-xs text-foreground outline-none" />
+        <span className="text-xs text-muted">min</span>
+      </div>
+    );
+  }
+
+  return (
+    <button onClick={() => { setDraft(String(value ?? "")); setEditing(true); }}
+      className="flex shrink-0 items-center gap-0.5 rounded-md px-2 py-1 text-xs text-muted opacity-40 transition-all hover:bg-surface-hover hover:text-foreground sm:opacity-0 group-hover/row:opacity-100"
+      title="Editar duración">
+      {value ? <>{value}min</> : <>+min</>}
+    </button>
+  );
+}
 
 function SOPBlock({ sop, index, total }: { sop: PlantillaProceso; index: number; total: number }) {
   const dispatch = useAppDispatch();
@@ -608,14 +698,14 @@ function SOPBlock({ sop, index, total }: { sop: PlantillaProceso; index: number;
             <EditableText value={sop.disparador} onChange={(v) => dispatch({ type: "UPDATE_PLANTILLA", id: sop.id, changes: { disparador: v } })}
               className="mb-3 block text-sm text-muted" placeholder="Disparador..." />
           )}
-          <ol className="ml-5 list-decimal space-y-2 text-sm text-foreground">
-            {sop.pasos.map((p) => (
-              <li key={p.id} className="leading-relaxed">
-                {p.nombre}
-                {p.minutosEstimados ? <span className="ml-1 text-xs text-muted">[{p.minutosEstimados}min]</span> : ""}
-              </li>
+          <div className="space-y-1">
+            {sop.pasos.map((p, i) => (
+              <SOPPasoRow key={p.id} sop={sop} paso={p} index={i} />
             ))}
-          </ol>
+          </div>
+          <AddButton label="Paso" onAdd={(nombre) => {
+            dispatch({ type: "ADD_PASO_PLANTILLA", plantillaId: sop.id, paso: { id: generateId(), orden: sop.pasos.length + 1, nombre, descripcion: "", herramientas: [], tipo: "accion" as const, minutosEstimados: null } });
+          }} />
         </div>
       )}
     </div>

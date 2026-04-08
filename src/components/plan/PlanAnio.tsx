@@ -1,8 +1,11 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { useAppState } from "@/lib/context";
-import { AREAS_PERSONAL, AREAS_EMPRESA, AREA_COLORS, type Area } from "@/lib/types";
+import { AREAS_PERSONAL, AREAS_EMPRESA, AREA_COLORS, ambitoDeArea, type Area, type Ambito } from "@/lib/types";
+import { AmbitoToggle } from "./PlanMes";
+
+type AmbitoFilter = "todo" | Ambito;
 
 interface AreaSummary {
   area: Area;
@@ -24,13 +27,23 @@ interface ProjectSummary {
   status: "completado" | "en_curso" | "sin_empezar";
 }
 
-export function PlanAnio() {
+interface Props {
+  selectedDate: Date;
+}
+
+export function PlanAnio({ selectedDate }: Props) {
   const state = useAppState();
-  const year = new Date().getFullYear();
+  const [filtro, setFiltro] = useState<AmbitoFilter>("todo");
+  const year = selectedDate.getFullYear();
+
+  const allAreas = useMemo(() => {
+    const areas = [...AREAS_EMPRESA, ...AREAS_PERSONAL];
+    if (filtro === "todo") return areas;
+    return areas.filter((a) => ambitoDeArea(a.id) === filtro);
+  }, [filtro]);
 
   const areaSummaries = useMemo(() => {
-    const areas = [...AREAS_EMPRESA, ...AREAS_PERSONAL];
-    return areas.map(({ id, label }): AreaSummary => {
+    return allAreas.map(({ id, label }): AreaSummary => {
       const projs = state.proyectos.filter((p) => p.area === id);
       const results = state.resultados.filter((r) => projs.some((p) => p.id === r.proyectoId));
       const entregs = state.entregables.filter((e) => results.some((r) => r.id === e.resultadoId));
@@ -49,23 +62,38 @@ export function PlanAnio() {
         percent: total > 0 ? Math.round((completados / total) * 100) : 0,
       };
     });
-  }, [state]);
+  }, [state, allAreas]);
 
   const projectSummaries = useMemo(() => {
-    return state.proyectos.map((proj): ProjectSummary => {
-      const results = state.resultados.filter((r) => r.proyectoId === proj.id);
-      const entregs = state.entregables.filter((e) => results.some((r) => r.id === e.resultadoId));
-      const completados = entregs.filter((e) => e.estado === "hecho").length;
-      const total = entregs.length;
-      const percent = total > 0 ? Math.round((completados / total) * 100) : 0;
+    return state.proyectos
+      .filter((p) => filtro === "todo" || ambitoDeArea(p.area) === filtro)
+      .filter((p) => {
+        if (!p.fechaInicio) return true;
+        const projYear = new Date(p.fechaInicio).getFullYear();
+        if (projYear === year) return true;
+        if (projYear < year) {
+          const ents = state.entregables.filter((e) => {
+            const r = state.resultados.find((rr) => rr.id === e.resultadoId);
+            return r?.proyectoId === p.id;
+          });
+          return ents.some((e) => e.estado !== "hecho" && e.estado !== "cancelada");
+        }
+        return false;
+      })
+      .map((proj): ProjectSummary => {
+        const results = state.resultados.filter((r) => r.proyectoId === proj.id);
+        const entregs = state.entregables.filter((e) => results.some((r) => r.id === e.resultadoId));
+        const completados = entregs.filter((e) => e.estado === "hecho").length;
+        const total = entregs.length;
+        const percent = total > 0 ? Math.round((completados / total) * 100) : 0;
 
-      let status: "completado" | "en_curso" | "sin_empezar" = "sin_empezar";
-      if (total > 0 && completados === total) status = "completado";
-      else if (entregs.some((e) => e.estado === "en_proceso")) status = "en_curso";
+        let status: "completado" | "en_curso" | "sin_empezar" = "sin_empezar";
+        if (total > 0 && completados === total) status = "completado";
+        else if (entregs.some((e) => e.estado === "en_proceso")) status = "en_curso";
 
-      return { id: proj.id, nombre: proj.nombre, area: proj.area, total, completados, percent, status };
-    }).sort((a, b) => b.percent - a.percent);
-  }, [state]);
+        return { id: proj.id, nombre: proj.nombre, area: proj.area, total, completados, percent, status };
+      }).sort((a, b) => b.percent - a.percent);
+  }, [state, filtro]);
 
   const totalEntregables = areaSummaries.reduce((s, a) => s + a.total, 0);
   const totalCompletados = areaSummaries.reduce((s, a) => s + a.completados, 0);
@@ -82,9 +110,11 @@ export function PlanAnio() {
 
   return (
     <div className="flex-1">
-      <p className="mb-6 text-sm font-medium text-muted">{year} · Resumen ejecutivo</p>
+      <div className="mb-6 flex items-center justify-between">
+        <p className="text-sm font-medium text-muted">{year} · Resumen ejecutivo</p>
+        <AmbitoToggle value={filtro} onChange={setFiltro} />
+      </div>
 
-      {/* Global progress */}
       <div className="mb-8 rounded-2xl border border-border bg-surface p-6">
         <div className="mb-4 flex items-end justify-between">
           <div>
@@ -93,7 +123,7 @@ export function PlanAnio() {
           </div>
           <div className="text-right text-xs text-muted">
             <p>{totalCompletados} de {totalEntregables} entregables</p>
-            <p>{state.proyectos.length} proyectos</p>
+            <p>{projectSummaries.length} proyectos</p>
           </div>
         </div>
         <div className="h-3 rounded-full bg-border">
@@ -101,7 +131,6 @@ export function PlanAnio() {
         </div>
       </div>
 
-      {/* Project status counts */}
       <div className="mb-8 grid grid-cols-3 gap-3">
         <div className="rounded-xl p-4 text-center" style={{ backgroundColor: "#22c55e15", border: "1px solid #22c55e40" }}>
           <p className="text-2xl font-bold" style={{ color: "#22c55e" }}>{completadosProj}</p>
@@ -117,7 +146,6 @@ export function PlanAnio() {
         </div>
       </div>
 
-      {/* By area */}
       <h3 className="mb-4 text-sm font-bold uppercase tracking-wider text-muted">Por área</h3>
       <div className="mb-8 grid gap-3 sm:grid-cols-2">
         {areaSummaries.map((a) => {
@@ -144,21 +172,14 @@ export function PlanAnio() {
         })}
       </div>
 
-      {/* All projects */}
       <h3 className="mb-4 text-sm font-bold uppercase tracking-wider text-muted">Todos los proyectos</h3>
       <div className="space-y-2">
         {projectSummaries.map((p) => (
           <div key={p.id} className="flex items-center gap-3 rounded-xl border border-border bg-background px-4 py-3">
-            <span
-              className="h-3 w-3 shrink-0 rounded-full"
-              style={{ backgroundColor: BORDER_HEX[p.area] }}
-            />
+            <span className="h-3 w-3 shrink-0 rounded-full" style={{ backgroundColor: BORDER_HEX[p.area] }} />
             <span className="flex-1 truncate text-sm font-medium text-foreground">{p.nombre}</span>
             <div className="h-1.5 w-20 rounded-full bg-surface">
-              <div
-                className="h-1.5 rounded-full"
-                style={{ width: `${p.percent}%`, backgroundColor: BORDER_HEX[p.area] }}
-              />
+              <div className="h-1.5 rounded-full" style={{ width: `${p.percent}%`, backgroundColor: BORDER_HEX[p.area] }} />
             </div>
             <span className="w-10 text-right text-xs font-bold text-muted">{p.percent}%</span>
             <span className="text-xs" style={{ color: p.status === "completado" ? "#22c55e" : p.status === "en_curso" ? "#f59e0b" : undefined }}>

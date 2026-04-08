@@ -36,6 +36,7 @@ export function useArbol(entregableId: string | undefined) {
 
 export function usePasosActivos() {
   const state = useAppState();
+  const { nombre: currentUser } = useUsuario();
 
   return useMemo(() => {
     return state.pasosActivos
@@ -43,9 +44,12 @@ export function usePasosActivos() {
       .filter((p): p is Paso => {
         if (!p) return false;
         const ent = state.entregables.find((e) => e.id === p.entregableId);
-        return !!ent;
+        if (!ent) return false;
+        const isMyTask = !ent.responsable || ent.responsable === currentUser ||
+          p.implicados.some((i) => i.nombre === currentUser);
+        return isMyTask;
       });
-  }, [state.pasosActivos, state.pasos, state.entregables]);
+  }, [state.pasosActivos, state.pasos, state.entregables, currentUser]);
 }
 
 export interface Pendiente {

@@ -1,8 +1,8 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { useAppState } from "@/lib/context";
-import type { Resultado, Proyecto } from "@/lib/types";
+import { ambitoDeArea, type Resultado, type Proyecto, type Ambito } from "@/lib/types";
 
 interface ResultadoProgress {
   resultado: Resultado;
@@ -18,25 +18,50 @@ const RAG_HEX = { green: "#22c55e", amber: "#f59e0b", red: "#ef4444" };
 const RAG_BG = { green: "#22c55e15", amber: "#f59e0b15", red: "#ef444415" };
 const RAG_BORDER = { green: "#22c55e40", amber: "#f59e0b40", red: "#ef444440" };
 
-export function PlanMes() {
-  const state = useAppState();
+type AmbitoFilter = "todo" | Ambito;
 
-  const todayStr = useMemo(() => new Date().toISOString().slice(0, 10), []);
+interface Props {
+  selectedDate: Date;
+}
+
+export function PlanMes({ selectedDate }: Props) {
+  const state = useAppState();
+  const [filtro, setFiltro] = useState<AmbitoFilter>("todo");
 
   const mesLabel = useMemo(() => {
-    return new Date().toLocaleDateString("es-ES", { month: "long", year: "numeric" });
-  }, []);
+    return selectedDate.toLocaleDateString("es-ES", { month: "long", year: "numeric" });
+  }, [selectedDate]);
 
   const resultados = useMemo(() => {
-    const nowMs = new Date(todayStr).getTime();
+    const refNorm = new Date(selectedDate);
+    refNorm.setHours(0, 0, 0, 0);
+    const refMs = refNorm.getTime();
+    const selYear = selectedDate.getFullYear();
+    const selMonth = selectedDate.getMonth();
     const items: ResultadoProgress[] = [];
 
     for (const res of state.resultados) {
       const proj = state.proyectos.find((p) => p.id === res.proyectoId);
       if (!proj) continue;
+      if (filtro !== "todo" && ambitoDeArea(proj.area) !== filtro) continue;
 
       const entregs = state.entregables.filter((e) => e.resultadoId === res.id);
       if (entregs.length === 0) continue;
+
+      const hasActivityInMonth = entregs.some((e) => {
+        if (e.fechaInicio) {
+          const d = new Date(e.fechaInicio + "T12:00:00");
+          if (!isNaN(d.getTime()) && d.getFullYear() === selYear && d.getMonth() === selMonth) return true;
+        }
+        return false;
+      });
+      const hasDeadlineInMonth = res.fechaLimite ? (() => {
+        const dl = new Date(res.fechaLimite!);
+        return dl.getFullYear() === selYear && dl.getMonth() === selMonth;
+      })() : false;
+      const hasActiveWork = entregs.some((e) => e.estado === "en_proceso");
+
+      if (!hasActivityInMonth && !hasDeadlineInMonth && !hasActiveWork) continue;
 
       const completados = entregs.filter((e) => e.estado === "hecho").length;
       const enProceso = entregs.filter((e) => e.estado === "en_proceso").length;
@@ -46,11 +71,11 @@ export function PlanMes() {
       let rag: "green" | "amber" | "red" = "green";
       if (res.fechaLimite) {
         const deadline = new Date(res.fechaLimite);
-        const daysLeft = Math.ceil((deadline.getTime() - nowMs) / 86400000);
+        const daysLeft = Math.ceil((deadline.getTime() - refMs) / 86400000);
         if (daysLeft < 0) rag = "red";
         else if (daysLeft < 7 && percent < 80) rag = "amber";
       }
-      if (enProceso === 0 && completados === 0) rag = "amber";
+      if (enProceso === 0 && completados === 0 && rag !== "red") rag = "amber";
 
       items.push({ resultado: res, proyecto: proj, totalEntregables: total, completados, enProceso, percent, rag });
     }
@@ -62,14 +87,12 @@ export function PlanMes() {
         if (ragOrder[a.rag] !== ragOrder[b.rag]) return ragOrder[a.rag] - ragOrder[b.rag];
         return b.percent - a.percent;
       });
-  }, [state, todayStr]);
+  }, [state, selectedDate, filtro]);
 
   const byProject = useMemo(() => {
     const map = new Map<string, { proyecto: Proyecto; items: ResultadoProgress[] }>();
     for (const r of resultados) {
-      if (!map.has(r.proyecto.id)) {
-        map.set(r.proyecto.id, { proyecto: r.proyecto, items: [] });
-      }
+      if (!map.has(r.proyecto.id)) map.set(r.proyecto.id, { proyecto: r.proyecto, items: [] });
       map.get(r.proyecto.id)!.items.push(r);
     }
     return Array.from(map.values());
@@ -77,7 +100,10 @@ export function PlanMes() {
 
   return (
     <div className="flex-1">
-      <p className="mb-6 text-sm font-medium capitalize text-muted">{mesLabel}</p>
+      <div className="mb-6 flex items-center justify-between">
+        <p className="text-sm font-medium capitalize text-muted">{mesLabel}</p>
+        <AmbitoToggle value={filtro} onChange={setFiltro} />
+      </div>
 
       {byProject.length === 0 ? (
         <div className="py-12 text-center">
@@ -90,11 +116,8 @@ export function PlanMes() {
               <h3 className="mb-3 text-sm font-bold text-foreground">{proyecto.nombre}</h3>
               <div className="space-y-2">
                 {items.map((r) => (
-                  <div
-                    key={r.resultado.id}
-                    className="rounded-xl p-4"
-                    style={{ backgroundColor: RAG_BG[r.rag], border: `1px solid ${RAG_BORDER[r.rag]}` }}
-                  >
+                  <div key={r.resultado.id} className="rounded-xl p-4"
+                    style={{ backgroundColor: RAG_BG[r.rag], border: `1px solid ${RAG_BORDER[r.rag]}` }}>
                     <div className="mb-2 flex items-center gap-2">
                       <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: RAG_HEX[r.rag] }} />
                       <span className="flex-1 text-sm font-medium text-foreground">{r.resultado.nombre}</span>
@@ -115,6 +138,26 @@ export function PlanMes() {
           ))}
         </div>
       )}
+    </div>
+  );
+}
+
+export function AmbitoToggle({ value, onChange }: { value: AmbitoFilter; onChange: (v: AmbitoFilter) => void }) {
+  const opts: { id: AmbitoFilter; label: string }[] = [
+    { id: "todo", label: "Todo" },
+    { id: "empresa", label: "Empresa" },
+    { id: "personal", label: "Personal" },
+  ];
+  return (
+    <div className="flex gap-1 rounded-lg bg-surface p-0.5">
+      {opts.map((o) => (
+        <button key={o.id} onClick={() => onChange(o.id)}
+          className={`rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
+            value === o.id ? "bg-background text-foreground shadow-sm" : "text-muted hover:text-foreground"
+          }`}>
+          {o.label}
+        </button>
+      ))}
     </div>
   );
 }

@@ -99,6 +99,17 @@ export function CerrarPaso({ paso, onClose }: Props) {
   function handleFinish() {
     const finalCuando = sigCuando === "otro" ? sigFechaCustom : sigCuando;
 
+    let fechaProg: string | undefined;
+    if (sigCuando === "manana") {
+      const t = new Date();
+      t.setDate(t.getDate() + 1);
+      fechaProg = `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, "0")}-${String(t.getDate()).padStart(2, "0")}`;
+    } else if (sigCuando === "otro" && sigFechaCustom) {
+      fechaProg = sigFechaCustom;
+    } else if (sigCuando === "depende" && dependeFecha) {
+      fechaProg = dependeFecha;
+    }
+
     const updated: Paso = {
       ...paso,
       nombre: nombrePaso.trim() || paso.nombre,
@@ -111,7 +122,7 @@ export function CerrarPaso({ paso, onClose }: Props) {
               tipo: "continuar",
               nombre: sigNombre.trim() || entregable?.nombre || "Continuar",
               cuando: sigCuando === "depende" ? "depende" : finalCuando,
-              fechaProgramada: sigCuando === "depende" && dependeFecha ? dependeFecha : undefined,
+              fechaProgramada: fechaProg,
               dependeDe: sigCuando === "depende" ? dependePersonas : [],
             },
     };
