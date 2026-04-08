@@ -91,7 +91,7 @@ export function usePendientes(): Pendiente[] {
 
     return state.entregables
       .filter((e) => e.estado !== "hecho" && e.estado !== "cancelada")
-      .filter((e) => e.responsable === currentUser)
+      .filter((e) => !e.responsable || e.responsable === currentUser)
       .filter((e) => !entregablesActivosIds.has(e.id))
       .map((e) => {
         const pendingPaso = pendingByEntregable.get(e.id) ?? null;

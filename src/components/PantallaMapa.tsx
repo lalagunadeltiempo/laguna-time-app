@@ -3,6 +3,7 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { useAppState, useAppDispatch } from "@/lib/context";
 import { generateId } from "@/lib/store";
+import { useUsuario } from "@/lib/usuario";
 import {
   AREAS_PERSONAL,
   AREAS_EMPRESA,
@@ -403,6 +404,7 @@ function ProyectoBlock({ proyecto, index, total }: { proyecto: Proyecto; index: 
 function ResultadoBlock({ resultado, index, total }: { resultado: Resultado; index: number; total: number }) {
   const state = useAppState();
   const dispatch = useAppDispatch();
+  const { nombre: currentUser } = useUsuario();
   const [open, setOpen] = useState(false);
   const [confirm, setConfirm] = useState(false);
 
@@ -435,7 +437,7 @@ function ResultadoBlock({ resultado, index, total }: { resultado: Resultado; ind
             ))}
           </div>
           <AddButton label="Entregable" onAdd={(nombre) =>
-            dispatch({ type: "ADD_ENTREGABLE", payload: { id: generateId(), nombre, resultadoId: resultado.id, tipo: "raw" as TipoEntregable, plantillaId: null, diasEstimados: 3, diasHechos: 0, esDiaria: false, responsable: "gabi", estado: "a_futuro", creado: new Date().toISOString(), semana: null, fechaLimite: null, fechaInicio: null } })
+            dispatch({ type: "ADD_ENTREGABLE", payload: { id: generateId(), nombre, resultadoId: resultado.id, tipo: "raw" as TipoEntregable, plantillaId: null, diasEstimados: 3, diasHechos: 0, esDiaria: false, responsable: currentUser, estado: "a_futuro", creado: new Date().toISOString(), semana: null, fechaLimite: null, fechaInicio: null } })
           } />
         </div>
       )}

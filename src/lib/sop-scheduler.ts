@@ -8,7 +8,7 @@ function tocaHoy(prog: Programacion, fecha: Date): boolean {
 
   switch (prog.tipo) {
     case "diario":
-      return true;
+      return dow >= 1 && dow <= 5;
 
     case "semanal":
       return prog.diaSemana != null ? dow === prog.diaSemana : dow === 1;

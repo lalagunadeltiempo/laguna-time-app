@@ -16,7 +16,7 @@ import { generateId, exportData, importData, restoreBackup } from "@/lib/store";
 import { useUsuario } from "@/lib/usuario";
 import { getISOWeek, formatMin } from "@/lib/utils";
 import { progLabel, fechaKey } from "@/lib/sop-scheduler";
-import type { AppState, Paso, Entregable, Resultado, EjecucionSOP, PlantillaProceso, PasoPlantilla } from "@/lib/types";
+import { AREA_COLORS, type AppState, type Paso, type Entregable, type Resultado, type EjecucionSOP, type PlantillaProceso, type PasoPlantilla } from "@/lib/types";
 import { PasoActivoCard } from "./PasoActivo";
 import { NuevoPaso } from "./NuevoPaso";
 import { VistaInbox } from "./VistaInbox";
@@ -691,11 +691,15 @@ function SOPCard({ sop }: { sop: SOPHoy }) {
   const allDone = done === total;
   const pct = total > 0 ? Math.round((done / total) * 100) : 0;
 
+  const areaHex = AREA_COLORS[sop.plantilla.area]?.hex ?? "#888";
+
   return (
-    <div className={`rounded-xl border-2 overflow-hidden transition-colors ${allDone ? "border-green-200 bg-green-50" : "border-purple-200 bg-purple-50"}`}>
+    <div className="rounded-xl border-2 overflow-hidden transition-colors"
+      style={allDone ? { borderColor: "#86efac", backgroundColor: "#f0fdf4" } : { borderColor: areaHex + "40", backgroundColor: areaHex + "08" }}>
       <button onClick={() => setExpanded((e) => !e)}
         className="flex w-full items-center gap-3 p-3 text-left">
-        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-purple-100 text-purple-600 text-sm font-bold">
+        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-sm font-bold"
+          style={{ backgroundColor: areaHex + "20", color: areaHex }}>
           {allDone ? "✓" : `${done}/${total}`}
         </div>
         <div className="flex-1 min-w-0">
@@ -706,8 +710,8 @@ function SOPCard({ sop }: { sop: SOPHoy }) {
           </p>
         </div>
         <div className="w-12 h-1.5 rounded-full bg-zinc-200 overflow-hidden shrink-0">
-          <div className={`h-full rounded-full transition-all ${allDone ? "bg-green-500" : "bg-purple-500"}`}
-            style={{ width: `${pct}%` }} />
+          <div className="h-full rounded-full transition-all"
+            style={{ width: `${pct}%`, backgroundColor: allDone ? "#22c55e" : areaHex }} />
         </div>
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"
           className={`shrink-0 text-zinc-400 transition-transform ${expanded ? "rotate-180" : ""}`}>
@@ -716,7 +720,7 @@ function SOPCard({ sop }: { sop: SOPHoy }) {
       </button>
 
       {expanded && (
-        <div className="border-t border-purple-100 bg-white p-3 space-y-1">
+        <div className="border-t bg-white p-3 space-y-1" style={{ borderColor: areaHex + "20" }}>
           {sop.pasosHoy.map((paso) => {
             const checked = completados.includes(paso.id);
             const launched = !!lanzados[paso.id];
@@ -724,7 +728,7 @@ function SOPCard({ sop }: { sop: SOPHoy }) {
             return (
               <div key={paso.id} className={`flex items-start gap-2 rounded-lg p-2 transition-colors ${checked ? "bg-green-50" : "hover:bg-zinc-50"}`}>
                 <input type="checkbox" checked={checked} onChange={() => togglePaso(paso.id)}
-                  className="mt-0.5 h-4 w-4 shrink-0 rounded border-zinc-300 text-purple-600 focus:ring-purple-500 cursor-pointer" />
+                  className="mt-0.5 h-4 w-4 shrink-0 rounded border-zinc-300 cursor-pointer accent-current" style={{ color: areaHex }} />
                 <div className="flex-1 min-w-0">
                   {isEditing ? (
                     <input
@@ -733,7 +737,7 @@ function SOPCard({ sop }: { sop: SOPHoy }) {
                       onChange={(e) => setEditValue(e.target.value)}
                       onBlur={() => commitEditName(paso.id)}
                       onKeyDown={(e) => { if (e.key === "Enter") commitEditName(paso.id); if (e.key === "Escape") setEditingId(null); }}
-                      className="w-full rounded border border-purple-200 px-1.5 py-0.5 text-xs text-zinc-700 focus:outline-none focus:ring-1 focus:ring-purple-400"
+                      className="w-full rounded border border-zinc-200 px-1.5 py-0.5 text-xs text-zinc-700 focus:outline-none focus:ring-1 focus:ring-accent"
                     />
                   ) : (
                     <span
