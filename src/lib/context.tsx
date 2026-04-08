@@ -20,6 +20,7 @@ import {
   setLoadedSuccessfully,
   didLoadSuccessfully,
   markCloudLoadOk,
+  getLocalSavedAt,
   INITIAL_STATE,
   generateId,
 } from "./store";
@@ -31,6 +32,7 @@ const DispatchCtx = createContext<Dispatch<Action>>(() => {});
 
 interface ProviderProps {
   userId: string;
+  displayName?: string;
   children: ReactNode;
 }
 
@@ -61,7 +63,8 @@ function actionToLog(action: Action, userId: string): { action: string; descripc
   }
 }
 
-export function AppProvider({ userId, children }: ProviderProps) {
+export function AppProvider({ userId, displayName, children }: ProviderProps) {
+  const logName = displayName || userId;
   const [state, dispatch] = useReducer(reducer, INITIAL_STATE);
   const initialized = useRef(false);
   const prevUserId = useRef(userId);
@@ -84,9 +87,24 @@ export function AppProvider({ userId, children }: ProviderProps) {
 
       if (cloudResult.data) {
         setLoadedSuccessfully(true);
-        dispatch({ type: "INIT", state: cloudResult.data });
-        saveStateLocal(cloudResult.data);
-        runMigrations(cloudResult.data, dispatch);
+
+        // Compare cloud vs local: use whichever is newer
+        const localState = loadStateLocal();
+        const localTs = getLocalSavedAt();
+        const cloudTs = cloudResult.updatedAt;
+        const localIsNewer = localTs && cloudTs && localTs > cloudTs;
+
+        if (localIsNewer && localState !== INITIAL_STATE) {
+          console.log("[init] Local es más reciente que cloud — usando local");
+          dispatch({ type: "INIT", state: localState });
+          runMigrations(localState, dispatch);
+          markCloudLoadOk();
+          saveStateCloud(userId, localState);
+        } else {
+          dispatch({ type: "INIT", state: cloudResult.data });
+          saveStateLocal(cloudResult.data);
+          runMigrations(cloudResult.data, dispatch);
+        }
         initDone.current = true;
         return;
       }
@@ -144,19 +162,19 @@ export function AppProvider({ userId, children }: ProviderProps) {
 
   const loggingDispatch = useCallback((action: Action) => {
     dispatch(action);
-    const log = actionToLog(action, userId);
+    const log = actionToLog(action, logName);
     if (log) {
       dispatch({
         type: "LOG_ACTIVITY",
         entry: {
           id: generateId(),
           timestamp: new Date().toISOString(),
-          userId,
+          userId: logName,
           ...log,
         },
       });
     }
-  }, [userId]);
+  }, [logName]);
 
   return (
     <StateCtx.Provider value={state}>

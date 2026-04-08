@@ -107,7 +107,7 @@ function AppShell({ userId, displayName }: { userId: string; displayName: string
   const activeVista = vista === "resultado" ? "hoy" : vista;
 
   return (
-    <AppProvider userId={userId}>
+    <AppProvider userId={userId} displayName={displayName}>
       <UsuarioWithRol userId={userId} nombre={displayName}>
       <div className="flex h-dvh overflow-hidden bg-background text-foreground">
         {/* ── Sidebar (desktop md+) ── */}

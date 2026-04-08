@@ -7,6 +7,7 @@ import { getSupabase } from "./supabase";
 const OLD_STORAGE_KEY = "laguna-del-tiempo";
 const STORAGE_KEY = "laguna-time-app";
 const BACKUP_KEY = "laguna-time-app-backup";
+const SAVED_AT_KEY = "laguna-time-app-saved-at";
 
 let _loadedSuccessfully = false;
 let _cloudLoadedOk = false;
@@ -165,11 +166,17 @@ export function saveStateLocal(state: AppState): void {
       try { localStorage.setItem(BACKUP_KEY, existing); } catch { /* best-effort */ }
     }
     localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    localStorage.setItem(SAVED_AT_KEY, new Date().toISOString());
   } catch (err) {
     if (err instanceof DOMException && err.name === "QuotaExceededError") {
       console.warn("[saveStateLocal] localStorage lleno — los datos se guardan en la nube si está disponible");
     }
   }
+}
+
+export function getLocalSavedAt(): string | null {
+  if (typeof window === "undefined") return null;
+  return localStorage.getItem(SAVED_AT_KEY);
 }
 
 /* ---- Supabase (cloud persistence) ---- */
@@ -179,27 +186,28 @@ const WORKSPACE_ID = "workspace-laguna";
 export interface CloudLoadResult {
   data: AppState | null;
   error: boolean;
+  updatedAt: string | null;
 }
 
 export async function loadStateCloud(userId: string): Promise<CloudLoadResult> {
   const supabase = getSupabase();
-  if (!supabase || userId === "local") return { data: null, error: false };
+  if (!supabase || userId === "local") return { data: null, error: false, updatedAt: null };
 
   try {
     const { data, error } = await supabase
       .from("user_data")
-      .select("state")
+      .select("state, updated_at")
       .eq("user_id", WORKSPACE_ID)
       .single();
 
     if (error || !data?.state) {
       const { data: userData, error: userError } = await supabase
         .from("user_data")
-        .select("state")
+        .select("state, updated_at")
         .eq("user_id", userId)
         .single();
       if (userError && userError.code !== "PGRST116") {
-        return { data: null, error: true };
+        return { data: null, error: true, updatedAt: null };
       }
       if (userData?.state) {
         const migrated = migrateV1(userData.state);
@@ -208,17 +216,17 @@ export async function loadStateCloud(userId: string): Promise<CloudLoadResult> {
           { onConflict: "user_id" },
         );
         _cloudLoadedOk = true;
-        return { data: migrated, error: false };
+        return { data: migrated, error: false, updatedAt: userData.updated_at ?? null };
       }
       if (error && error.code !== "PGRST116") {
-        return { data: null, error: true };
+        return { data: null, error: true, updatedAt: null };
       }
-      return { data: null, error: false };
+      return { data: null, error: false, updatedAt: null };
     }
     _cloudLoadedOk = true;
-    return { data: migrateV1(data.state), error: false };
+    return { data: migrateV1(data.state), error: false, updatedAt: data.updated_at ?? null };
   } catch {
-    return { data: null, error: true };
+    return { data: null, error: true, updatedAt: null };
   }
 }
 
