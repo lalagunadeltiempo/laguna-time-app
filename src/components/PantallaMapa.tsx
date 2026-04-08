@@ -467,7 +467,9 @@ function ProyectoBlock({ proyecto, index, total }: { proyecto: Proyecto; index: 
         }
         {isEmpresa && <ResponsableBadge nombre={proyecto.responsable} />}
         <span className="rounded-full bg-surface px-3 py-1 text-xs font-medium text-muted">{resultados.length} result.</span>
-        <NotasIcon count={notasCount} onClick={() => setShowNotas(!showNotas)} />
+        {isMentor
+          ? <CommentIcon count={notasCount} onClick={() => setShowNotas(!showNotas)} />
+          : <NotasIcon count={notasCount} onClick={() => setShowNotas(!showNotas)} />}
         {!isMentor && <DeleteBtn onDelete={() => setConfirm(true)} />}
       </ToggleRow>
 
@@ -546,7 +548,9 @@ function ResultadoBlock({ resultado, index, total }: { resultado: Resultado; ind
         }
         {isEmpresa && <ResponsableBadge nombre={resultado.responsable ?? parentProj?.responsable} />}
         <span className="rounded-full bg-surface px-2.5 py-0.5 text-xs text-muted">{entregables.length} entreg.</span>
-        <NotasIcon count={notasCount} onClick={() => setShowNotas(!showNotas)} />
+        {isMentor
+          ? <CommentIcon count={notasCount} onClick={() => setShowNotas(!showNotas)} />
+          : <NotasIcon count={notasCount} onClick={() => setShowNotas(!showNotas)} />}
         {!isMentor && (
           <button onClick={(e) => { e.stopPropagation(); setShowMove(!showMove); }}
             className="flex h-7 items-center gap-0.5 rounded-md px-1.5 text-[10px] text-muted opacity-50 hover:bg-surface hover:opacity-100 sm:opacity-0 group-hover/row:opacity-100" title="Mover a otro proyecto">
@@ -689,7 +693,9 @@ function EntregableBlock({ entregable, index, total }: { entregable: Entregable;
           <span className="animate-pulse rounded-md bg-green-100 px-2 py-0.5 text-[11px] font-bold text-green-700">Planificado</span>
         )}
         {pasos.length > 0 && <span className="text-xs text-muted">{pasos.length}p</span>}
-        <NotasIcon count={notasCount} onClick={() => setShowNotas(!showNotas)} />
+        {isMentor
+          ? <CommentIcon count={notasCount} onClick={() => setShowNotas(!showNotas)} />
+          : <NotasIcon count={notasCount} onClick={() => setShowNotas(!showNotas)} />}
 
         {!isMentor && (
           <button
@@ -807,7 +813,9 @@ function PasoLine({ paso, index, total, isEmpresa, entResponsable }: { paso: Pas
             {new Date(paso.inicioTs).toLocaleDateString("es-ES", { day: "numeric", month: "short" })}
           </span>
         )}
-        <NotasIcon count={notasCount} onClick={() => setShowNotas(!showNotas)} />
+        {isMentor
+          ? <CommentIcon count={notasCount} onClick={() => setShowNotas(!showNotas)} />
+          : <NotasIcon count={notasCount} onClick={() => setShowNotas(!showNotas)} />}
         {hasUrls && (
           <button onClick={() => setShowNotas(!showNotas)}
             className="flex h-7 items-center gap-0.5 rounded-md px-1.5 text-xs text-accent hover:bg-accent-soft" title="Ver enlaces">
@@ -856,6 +864,7 @@ function PasoLine({ paso, index, total, isEmpresa, entResponsable }: { paso: Pas
 
 function SOPPasoRow({ sop, paso, index }: { sop: PlantillaProceso; paso: PlantillaProceso["pasos"][number]; index: number }) {
   const dispatch = useAppDispatch();
+  const isMentor = useIsMentor();
   const [confirmDel, setConfirmDel] = useState(false);
 
   function updatePaso(changes: Partial<PlantillaProceso["pasos"][number]>) {
@@ -870,9 +879,12 @@ function SOPPasoRow({ sop, paso, index }: { sop: PlantillaProceso; paso: Plantil
     <div>
       <div className="group/row flex min-h-[44px] items-center gap-2 rounded-lg px-3 py-1.5 hover:bg-surface">
         <span className="w-6 shrink-0 text-right text-xs font-medium text-muted">{index + 1}.</span>
-        <EditableText value={paso.nombre} onChange={(v) => updatePaso({ nombre: v })} className="flex-1 text-sm text-foreground" />
-        <DurationInput value={paso.minutosEstimados} onChange={(v) => updatePaso({ minutosEstimados: v })} />
-        <DeleteBtn onDelete={() => setConfirmDel(true)} />
+        {isMentor
+          ? <span className="flex-1 text-sm text-foreground">{paso.nombre}</span>
+          : <EditableText value={paso.nombre} onChange={(v) => updatePaso({ nombre: v })} className="flex-1 text-sm text-foreground" />}
+        {!isMentor && <DurationInput value={paso.minutosEstimados} onChange={(v) => updatePaso({ minutosEstimados: v })} />}
+        {isMentor && paso.minutosEstimados && <span className="text-xs text-muted">{paso.minutosEstimados}min</span>}
+        {!isMentor && <DeleteBtn onDelete={() => setConfirmDel(true)} />}
       </div>
       {confirmDel && (
         <ConfirmDelete label={paso.nombre} onConfirm={() => { removePaso(); setConfirmDel(false); }} onCancel={() => setConfirmDel(false)} />
@@ -917,10 +929,12 @@ function DurationInput({ value, onChange }: { value: number | null; onChange: (v
 function SOPBlock({ sop, index, total }: { sop: PlantillaProceso; index: number; total: number }) {
   const state = useAppState();
   const dispatch = useAppDispatch();
+  const isMentor = useIsMentor();
   const [open, setOpen] = useState(false);
   const [confirm, setConfirm] = useState(false);
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [justCreated, setJustCreated] = useState(false);
+  const [showNotas, setShowNotas] = useState(false);
   const justCreatedTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
   const customDateRef = useRef<HTMLInputElement>(null);
   useEffect(() => () => clearTimeout(justCreatedTimer.current), []);
@@ -1000,26 +1014,31 @@ function SOPBlock({ sop, index, total }: { sop: PlantillaProceso; index: number;
   return (
     <div className="rounded-xl border bg-background" style={{ borderColor: (AREA_COLORS[sop.area]?.hex ?? "#888") + "40" }}>
       <ToggleRow open={open} onToggle={() => setOpen(!open)}>
-        <MoveArrows canUp={index > 0} canDown={index < total - 1}
+        {!isMentor && <MoveArrows canUp={index > 0} canDown={index < total - 1}
           onUp={() => dispatch({ type: "REORDER_PLANTILLA", id: sop.id, direction: "up" })}
-          onDown={() => dispatch({ type: "REORDER_PLANTILLA", id: sop.id, direction: "down" })} />
+          onDown={() => dispatch({ type: "REORDER_PLANTILLA", id: sop.id, direction: "down" })} />}
         <span className="h-3 w-3 shrink-0 rounded-full" style={{ backgroundColor: AREA_COLORS[sop.area]?.hex ?? "#888" }} />
-        <EditableText value={sop.nombre} onChange={(v) => dispatch({ type: "UPDATE_PLANTILLA", id: sop.id, changes: { nombre: v } })}
-          className="text-base font-medium text-foreground" />
+        {isMentor
+          ? <span className="text-base font-medium text-foreground">{sop.nombre}</span>
+          : <EditableText value={sop.nombre} onChange={(v) => dispatch({ type: "UPDATE_PLANTILLA", id: sop.id, changes: { nombre: v } })}
+            className="text-base font-medium text-foreground" />}
         <span className="rounded-full px-2.5 py-0.5 text-xs font-medium" style={{ backgroundColor: (AREA_COLORS[sop.area]?.hex ?? "#888") + "15", color: AREA_COLORS[sop.area]?.hex ?? "#888" }}>SOP · {sop.pasos.length}p</span>
         {justCreated && (
           <span className="animate-pulse rounded-md bg-green-100 px-2 py-0.5 text-[11px] font-bold text-green-700">Entregable creado</span>
         )}
-        <button
-          onClick={(e) => { e.stopPropagation(); setShowDatePicker(!showDatePicker); }}
-          className="flex h-7 items-center gap-1 rounded-md px-2 text-xs text-muted opacity-60 transition-all hover:bg-accent-soft hover:text-accent hover:opacity-100"
-          title="Programar SOP"
-        >
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-            <rect x="3" y="4" width="18" height="18" rx="2" /><line x1="16" y1="2" x2="16" y2="6" /><line x1="8" y1="2" x2="8" y2="6" /><line x1="3" y1="10" x2="21" y2="10" />
-          </svg>
-        </button>
-        <DeleteBtn onDelete={() => setConfirm(true)} />
+        {!isMentor && (
+          <button
+            onClick={(e) => { e.stopPropagation(); setShowDatePicker(!showDatePicker); }}
+            className="flex h-7 items-center gap-1 rounded-md px-2 text-xs text-muted opacity-60 transition-all hover:bg-accent-soft hover:text-accent hover:opacity-100"
+            title="Programar SOP"
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+              <rect x="3" y="4" width="18" height="18" rx="2" /><line x1="16" y1="2" x2="16" y2="6" /><line x1="8" y1="2" x2="8" y2="6" /><line x1="3" y1="10" x2="21" y2="10" />
+            </svg>
+          </button>
+        )}
+        <CommentIcon onClick={() => setShowNotas(!showNotas)} />
+        {!isMentor && <DeleteBtn onDelete={() => setConfirm(true)} />}
       </ToggleRow>
 
       {confirm && <ConfirmDelete label={sop.nombre}
@@ -1053,27 +1072,37 @@ function SOPBlock({ sop, index, total }: { sop: PlantillaProceso; index: number;
         </div>
       )}
 
+      {showNotas && (
+        <div className="mx-5 mb-3 ml-14">
+          <NotasSection notas={sop.notas ?? []} nivel="plantilla" targetId={sop.id} />
+        </div>
+      )}
+
       {open && (
         <div className="px-6 pb-6 pl-16">
           {sop.objetivo && (
-            <EditableText value={sop.objetivo} onChange={(v) => dispatch({ type: "UPDATE_PLANTILLA", id: sop.id, changes: { objetivo: v } })}
-              className="mb-2 block text-sm italic text-muted" placeholder="Objetivo..." />
+            isMentor
+              ? <p className="mb-2 text-sm italic text-muted">{sop.objetivo}</p>
+              : <EditableText value={sop.objetivo} onChange={(v) => dispatch({ type: "UPDATE_PLANTILLA", id: sop.id, changes: { objetivo: v } })}
+                  className="mb-2 block text-sm italic text-muted" placeholder="Objetivo..." />
           )}
           {sop.responsableDefault && (
             <p className="mb-2 text-sm text-muted">Responsable: <strong className="text-foreground">{sop.responsableDefault}</strong></p>
           )}
           {sop.disparador && (
-            <EditableText value={sop.disparador} onChange={(v) => dispatch({ type: "UPDATE_PLANTILLA", id: sop.id, changes: { disparador: v } })}
-              className="mb-3 block text-sm text-muted" placeholder="Disparador..." />
+            isMentor
+              ? <p className="mb-3 text-sm text-muted">{sop.disparador}</p>
+              : <EditableText value={sop.disparador} onChange={(v) => dispatch({ type: "UPDATE_PLANTILLA", id: sop.id, changes: { disparador: v } })}
+                  className="mb-3 block text-sm text-muted" placeholder="Disparador..." />
           )}
           <div className="space-y-1">
             {sop.pasos.map((p, i) => (
               <SOPPasoRow key={p.id} sop={sop} paso={p} index={i} />
             ))}
           </div>
-          <AddButton label="Paso" onAdd={(nombre) => {
+          {!isMentor && <AddButton label="Paso" onAdd={(nombre) => {
             dispatch({ type: "ADD_PASO_PLANTILLA", plantillaId: sop.id, paso: { id: generateId(), orden: sop.pasos.length + 1, nombre, descripcion: "", herramientas: [], tipo: "accion" as const, minutosEstimados: null } });
-          }} />
+          }} />}
         </div>
       )}
     </div>
@@ -1103,9 +1132,10 @@ function ResponsableBadge({ nombre }: { nombre?: string }) {
   );
 }
 
-export function NotasSection({ notas, nivel, targetId }: { notas: Nota[]; nivel: "paso" | "entregable" | "resultado" | "proyecto"; targetId: string }) {
+export function NotasSection({ notas, nivel, targetId }: { notas: Nota[]; nivel: "paso" | "entregable" | "resultado" | "proyecto" | "plantilla"; targetId: string }) {
   const dispatch = useAppDispatch();
   const { nombre: currentUser } = useUsuario();
+  const isMentor = useIsMentor();
   const [draft, setDraft] = useState("");
   const [showForm, setShowForm] = useState(false);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
@@ -1118,17 +1148,25 @@ export function NotasSection({ notas, nivel, targetId }: { notas: Nota[]; nivel:
     setShowForm(false);
   }
 
+  const isMentorNote = (n: Nota) => n.autor === "Mentor";
+  const canDelete = (n: Nota) => !isMentor || isMentorNote(n);
+
   return (
     <div className="mt-2 space-y-1.5">
       {notas.map((n) => (
-        <div key={n.id} className="flex items-start gap-2 rounded-lg bg-surface/50 px-3 py-2">
+        <div key={n.id} className={`flex items-start gap-2 rounded-lg px-3 py-2 ${isMentorNote(n) ? "bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-700/30" : "bg-surface/50"}`}>
+          {isMentorNote(n) && (
+            <svg className="mt-0.5 shrink-0 text-amber-600 dark:text-amber-400" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+            </svg>
+          )}
           <div className="flex-1 min-w-0">
             <p className="text-xs text-foreground whitespace-pre-wrap">{n.texto}</p>
             <p className="mt-0.5 text-[10px] text-muted">
               {n.autor} · {new Date(n.creadoTs).toLocaleDateString("es-ES", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}
             </p>
           </div>
-          {confirmDeleteId === n.id ? (
+          {canDelete(n) && (confirmDeleteId === n.id ? (
             <div className="flex shrink-0 items-center gap-1">
               <button onClick={() => { dispatch({ type: "DELETE_NOTA", nivel, targetId, notaId: n.id }); setConfirmDeleteId(null); }}
                 className="rounded bg-red-500 px-2 py-0.5 text-[10px] font-medium text-white hover:bg-red-600">Sí</button>
@@ -1140,20 +1178,28 @@ export function NotasSection({ notas, nivel, targetId }: { notas: Nota[]; nivel:
               className="shrink-0 text-muted opacity-40 hover:text-red-500 hover:opacity-100" title="Borrar nota">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
             </button>
-          )}
+          ))}
         </div>
       ))}
       {showForm ? (
         <div className="flex gap-2">
-          <input value={draft} onChange={(e) => setDraft(e.target.value)} placeholder="Escribe una nota..."
+          <input value={draft} onChange={(e) => setDraft(e.target.value)} placeholder={isMentor ? "Escribe un comentario..." : "Escribe una nota..."}
             onKeyDown={(e) => { if (e.key === "Enter") addNota(); if (e.key === "Escape") setShowForm(false); }}
-            autoFocus className="flex-1 rounded-lg border border-border bg-background px-3 py-1.5 text-xs text-foreground outline-none focus:border-accent" />
-          <button onClick={addNota} className="rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-white hover:bg-accent/90">Añadir</button>
+            autoFocus className={`flex-1 rounded-lg border bg-background px-3 py-1.5 text-xs text-foreground outline-none ${isMentor ? "border-amber-300 focus:border-amber-500" : "border-border focus:border-accent"}`} />
+          <button onClick={addNota} className={`rounded-lg px-3 py-1.5 text-xs font-medium text-white ${isMentor ? "bg-amber-500 hover:bg-amber-600" : "bg-accent hover:bg-accent/90"}`}>
+            {isMentor ? "Comentar" : "Añadir"}
+          </button>
         </div>
       ) : (
-        <button onClick={() => setShowForm(true)} className="flex items-center gap-1 text-[11px] text-muted hover:text-accent">
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></svg>
-          Añadir nota
+        <button onClick={() => setShowForm(true)} className={`flex items-center gap-1 text-[11px] ${isMentor ? "text-amber-600 hover:text-amber-700" : "text-muted hover:text-accent"}`}>
+          {isMentor ? (
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+            </svg>
+          ) : (
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></svg>
+          )}
+          {isMentor ? "Añadir comentario" : "Añadir nota"}
         </button>
       )}
     </div>
@@ -1169,6 +1215,20 @@ function NotasIcon({ count, onClick }: { count: number; onClick: () => void }) {
         <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" /><polyline points="14 2 14 8 20 8" /><line x1="16" y1="13" x2="8" y2="13" /><line x1="16" y1="17" x2="8" y2="17" />
       </svg>
       {count > 0 && <span className="font-medium">{count}</span>}
+    </button>
+  );
+}
+
+function CommentIcon({ count, onClick }: { count?: number; onClick: () => void }) {
+  const c = count ?? 0;
+  return (
+    <button onClick={(e) => { e.stopPropagation(); onClick(); }}
+      className={`flex h-7 items-center gap-0.5 rounded-md px-1.5 text-xs transition-all hover:bg-amber-50 dark:hover:bg-amber-500/10 ${c > 0 ? "text-amber-600 dark:text-amber-400" : "text-muted opacity-50 hover:opacity-100"}`}
+      title={`${c} comentario(s)`}>
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+      </svg>
+      {c > 0 && <span className="font-medium">{c}</span>}
     </button>
   );
 }

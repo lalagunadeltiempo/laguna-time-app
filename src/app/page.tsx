@@ -88,11 +88,15 @@ export default function Home() {
   );
 }
 
+const MENTOR_VIEWS: Vista[] = ["mapa", "cuaderno"];
+
 function AppShell({ userId, displayName }: { userId: string; displayName: string }) {
-  const [vista, setVista] = useState<Vista>("hoy");
+  const isMentorUser = userId === "mentor";
+  const [vista, setVista] = useState<Vista>(isMentorUser ? "mapa" : "hoy");
   const [collapsed, setCollapsed] = useState(false);
   const [showBuscador, setShowBuscador] = useState(false);
   const [detalleResultadoId, setDetalleResultadoId] = useState<string | null>(null);
+  const navItems = isMentorUser ? NAV_ITEMS.filter((i) => MENTOR_VIEWS.includes(i.id)) : NAV_ITEMS;
 
   function openDetalle(id: string) {
     setDetalleResultadoId(id);
@@ -147,7 +151,7 @@ function AppShell({ userId, displayName }: { userId: string; displayName: string
 
           {/* Nav links */}
           <nav className="flex flex-1 flex-col gap-0.5 px-2 pt-4">
-            {NAV_ITEMS.map((item) => {
+            {navItems.map((item) => {
               const active = activeVista === item.id;
               return (
                 <button
@@ -236,7 +240,7 @@ function AppShell({ userId, displayName }: { userId: string; displayName: string
 
         {/* ── Bottom nav (mobile only) ── */}
         <nav className="fixed inset-x-0 bottom-0 z-40 flex border-t border-border bg-background/95 backdrop-blur-sm md:hidden">
-          {NAV_ITEMS.map((item) => {
+          {navItems.map((item) => {
             const active = activeVista === item.id;
             return (
               <button
@@ -274,10 +278,15 @@ function UsuarioWithRol({ userId, nombre, children }: { userId: string; nombre: 
 }
 
 function UserFooter({ collapsed }: { collapsed: boolean }) {
-  const { nombre } = useUsuario();
+  const { nombre, userId } = useUsuario();
 
   async function handleLogout() {
     flushPendingCloudSave();
+    if (userId === "mentor") {
+      sessionStorage.removeItem("laguna-mentor-session");
+      window.location.reload();
+      return;
+    }
     const supabase = getSupabase();
     if (supabase) await supabase.auth.signOut();
   }

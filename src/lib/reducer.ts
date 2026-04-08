@@ -75,8 +75,8 @@ export type Action =
   | { type: "DELETE_PASO_PLANTILLA"; plantillaId: string; pasoId: string }
   | { type: "ADD_PASO_PLANTILLA"; plantillaId: string; paso: PlantillaProceso["pasos"][number] }
   | { type: "REORDER_PASO"; id: string; direction: "up" | "down" }
-  | { type: "ADD_NOTA"; nivel: "paso" | "entregable" | "resultado" | "proyecto"; targetId: string; nota: Nota }
-  | { type: "DELETE_NOTA"; nivel: "paso" | "entregable" | "resultado" | "proyecto"; targetId: string; notaId: string }
+  | { type: "ADD_NOTA"; nivel: "paso" | "entregable" | "resultado" | "proyecto" | "plantilla"; targetId: string; nota: Nota }
+  | { type: "DELETE_NOTA"; nivel: "paso" | "entregable" | "resultado" | "proyecto" | "plantilla"; targetId: string; notaId: string }
   | { type: "CONVERT_ENTREGABLE_TO_SOP"; entregableId: string }
   | { type: "LOG_ACTIVITY"; entry: ActivityEntry }
   | { type: "MATERIALIZE_SOP"; plantillaId: string; area: Area; responsable: string; currentUser: string; dateKey: string; ids: { resultado: string; entregable: string; paso: string; proyecto: string } };
@@ -542,6 +542,7 @@ export function reducer(state: AppState, action: Action): AppState {
       if (nivel === "entregable") return { ...state, entregables: state.entregables.map((e) => e.id === targetId ? { ...e, notas: [...(e.notas ?? []), nota] } : e) };
       if (nivel === "resultado") return { ...state, resultados: state.resultados.map((r) => r.id === targetId ? { ...r, notas: [...(r.notas ?? []), nota] } : r) };
       if (nivel === "proyecto") return { ...state, proyectos: state.proyectos.map((p) => p.id === targetId ? { ...p, notas: [...(p.notas ?? []), nota] } : p) };
+      if (nivel === "plantilla") return { ...state, plantillas: state.plantillas.map((pl) => pl.id === targetId ? { ...pl, notas: [...(pl.notas ?? []), nota] } : pl) };
       return state;
     }
     case "DELETE_NOTA": {
@@ -550,6 +551,7 @@ export function reducer(state: AppState, action: Action): AppState {
       if (nivel === "entregable") return { ...state, entregables: state.entregables.map((e) => e.id === targetId ? { ...e, notas: (e.notas ?? []).filter((n) => n.id !== notaId) } : e) };
       if (nivel === "resultado") return { ...state, resultados: state.resultados.map((r) => r.id === targetId ? { ...r, notas: (r.notas ?? []).filter((n) => n.id !== notaId) } : r) };
       if (nivel === "proyecto") return { ...state, proyectos: state.proyectos.map((p) => p.id === targetId ? { ...p, notas: (p.notas ?? []).filter((n) => n.id !== notaId) } : p) };
+      if (nivel === "plantilla") return { ...state, plantillas: state.plantillas.map((pl) => pl.id === targetId ? { ...pl, notas: (pl.notas ?? []).filter((n) => n.id !== notaId) } : pl) };
       return state;
     }
 

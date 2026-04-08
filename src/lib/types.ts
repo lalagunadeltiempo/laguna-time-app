@@ -199,6 +199,7 @@ export interface PlantillaProceso {
   excepciones: string;
   dependeDeIds: string[];
   creado: string;
+  notas?: Nota[];
 }
 
 export interface EjecucionSOP {
