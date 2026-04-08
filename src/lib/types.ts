@@ -195,20 +195,31 @@ export interface EjecucionSOP {
   pasosLanzados?: Record<string, string>;
 }
 
-export const AREA_COLORS: Record<string, { border: string; bg: string; text: string; dot: string; initial: string }> = {
-  fisico: { border: "border-rose-200", bg: "bg-rose-50", text: "text-rose-700", dot: "bg-rose-500", initial: "F" },
-  emocional: { border: "border-pink-200", bg: "bg-pink-50", text: "text-pink-700", dot: "bg-pink-500", initial: "E" },
-  mental: { border: "border-indigo-200", bg: "bg-indigo-50", text: "text-indigo-700", dot: "bg-indigo-500", initial: "M" },
-  espiritual: { border: "border-violet-200", bg: "bg-violet-50", text: "text-violet-700", dot: "bg-violet-500", initial: "S" },
-  financiera: { border: "border-emerald-200", bg: "bg-emerald-50", text: "text-emerald-700", dot: "bg-emerald-500", initial: "F" },
-  operativa: { border: "border-blue-200", bg: "bg-blue-50", text: "text-blue-700", dot: "bg-blue-500", initial: "O" },
-  comercial: { border: "border-amber-200", bg: "bg-amber-50", text: "text-amber-700", dot: "bg-amber-500", initial: "C" },
-  administrativa: { border: "border-purple-200", bg: "bg-purple-50", text: "text-purple-700", dot: "bg-purple-500", initial: "A" },
+export const AREA_COLORS: Record<string, { border: string; bg: string; text: string; dot: string; initial: string; hex: string }> = {
+  fisico:         { border: "border-red-200",     bg: "bg-red-50",     text: "text-red-700",     dot: "bg-red-500",     initial: "F", hex: "#ef4444" },
+  emocional:      { border: "border-orange-200",  bg: "bg-orange-50",  text: "text-orange-700",  dot: "bg-orange-500",  initial: "E", hex: "#f97316" },
+  mental:         { border: "border-blue-200",    bg: "bg-blue-50",    text: "text-blue-700",    dot: "bg-blue-500",    initial: "M", hex: "#3b82f6" },
+  espiritual:     { border: "border-violet-200",  bg: "bg-violet-50",  text: "text-violet-700",  dot: "bg-violet-500",  initial: "S", hex: "#8b5cf6" },
+  financiera:     { border: "border-emerald-200", bg: "bg-emerald-50", text: "text-emerald-700", dot: "bg-emerald-500", initial: "F", hex: "#10b981" },
+  operativa:      { border: "border-cyan-200",    bg: "bg-cyan-50",    text: "text-cyan-700",    dot: "bg-cyan-500",    initial: "O", hex: "#06b6d4" },
+  comercial:      { border: "border-amber-200",   bg: "bg-amber-50",   text: "text-amber-700",   dot: "bg-amber-500",   initial: "C", hex: "#f59e0b" },
+  administrativa: { border: "border-slate-200",   bg: "bg-slate-50",   text: "text-slate-700",   dot: "bg-slate-500",   initial: "A", hex: "#64748b" },
 };
 
 export interface AmbitoLabels {
   personal: string;
   empresa: string;
+}
+
+export interface ActivityEntry {
+  id: string;
+  timestamp: string;
+  userId: string;
+  action: string;
+  entregableId?: string;
+  pasoId?: string;
+  proyectoId?: string;
+  descripcion: string;
 }
 
 export interface AppState {
@@ -223,5 +234,6 @@ export interface AppState {
   ejecuciones: EjecucionSOP[];
   pasosActivos: string[];
   miembros: MiembroInfo[];
+  activityLog: ActivityEntry[];
   _migrationVersion?: number;
 }

@@ -10,6 +10,7 @@ import type {
   MiembroInfo,
   EjecucionSOP,
   AmbitoLabels,
+  ActivityEntry,
 } from "./types";
 
 export type Action =
@@ -63,7 +64,9 @@ export type Action =
   | { type: "REORDER_PLANTILLA"; id: string; direction: "up" | "down" }
   | { type: "UPDATE_PASO_PLANTILLA"; plantillaId: string; pasoId: string; changes: Partial<PlantillaProceso["pasos"][number]> }
   | { type: "DELETE_PASO_PLANTILLA"; plantillaId: string; pasoId: string }
-  | { type: "ADD_PASO_PLANTILLA"; plantillaId: string; paso: PlantillaProceso["pasos"][number] };
+  | { type: "ADD_PASO_PLANTILLA"; plantillaId: string; paso: PlantillaProceso["pasos"][number] }
+  | { type: "CONVERT_ENTREGABLE_TO_SOP"; entregableId: string }
+  | { type: "LOG_ACTIVITY"; entry: ActivityEntry };
 
 function swapSiblings<T extends { id: string }>(
   arr: T[],
@@ -457,6 +460,58 @@ export function reducer(state: AppState, action: Action): AppState {
 
     case "SET_MIGRATION_VERSION":
       return { ...state, _migrationVersion: action.version };
+
+    // --- Convertir entregable a SOP ---
+    case "CONVERT_ENTREGABLE_TO_SOP": {
+      const ent = state.entregables.find((e) => e.id === action.entregableId);
+      if (!ent) return state;
+      const completedPasos = state.pasos
+        .filter((p) => p.entregableId === action.entregableId && p.finTs)
+        .sort((a, b) => (a.inicioTs ?? "").localeCompare(b.inicioTs ?? ""));
+      if (completedPasos.length < 2) return state;
+
+      const res = state.resultados.find((r) => r.id === ent.resultadoId);
+      const proj = res ? state.proyectos.find((p) => p.id === res.proyectoId) : undefined;
+
+      const plantillaId = `sop-${Date.now()}`;
+      const newPlantilla: PlantillaProceso = {
+        id: plantillaId,
+        nombre: ent.nombre,
+        area: proj?.area ?? "operativa",
+        objetivo: "",
+        disparador: "",
+        programacion: null,
+        proyectoId: proj?.id ?? null,
+        responsableDefault: ent.responsable,
+        pasos: completedPasos.map((p, i) => ({
+          id: `${plantillaId}-paso-${i}`,
+          orden: i + 1,
+          nombre: p.nombre,
+          descripcion: "",
+          herramientas: [],
+          tipo: "accion" as const,
+          minutosEstimados: p.inicioTs && p.finTs
+            ? Math.round((new Date(p.finTs).getTime() - new Date(p.inicioTs).getTime()) / 60000)
+            : null,
+        })),
+        herramientas: [],
+        excepciones: "",
+        dependeDeIds: [],
+        creado: new Date().toISOString(),
+      };
+
+      return {
+        ...state,
+        plantillas: [...state.plantillas, newPlantilla],
+        entregables: state.entregables.map((e) =>
+          e.id === action.entregableId ? { ...e, tipo: "sop" as const, plantillaId } : e
+        ),
+      };
+    }
+
+    // --- Activity log ---
+    case "LOG_ACTIVITY":
+      return { ...state, activityLog: [...state.activityLog, action.entry] };
 
     // --- Reordenar ---
     case "REORDER_PROYECTO": {

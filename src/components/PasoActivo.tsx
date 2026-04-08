@@ -16,6 +16,15 @@ export function PasoActivoCard({ paso }: CardProps) {
   const state = useAppState();
   const dispatch = useAppDispatch();
   const { entregable, resultado, proyecto } = useArbol(paso.entregableId);
+
+  const pasosDelEntregable = state.pasos
+    .filter((p) => p.entregableId === entregable?.id)
+    .sort((a, b) => (a.inicioTs ?? "z").localeCompare(b.inicioTs ?? "z"));
+
+  const plantilla = entregable?.plantillaId
+    ? state.plantillas.find((pl) => pl.id === entregable.plantillaId)
+    : null;
+
   const [expanded, setExpanded] = useState(false);
   const [showCerrar, setShowCerrar] = useState(false);
   const [showAddExterno, setShowAddExterno] = useState(false);
@@ -177,6 +186,52 @@ export function PasoActivoCard({ paso }: CardProps) {
                 <div className="h-1.5 rounded-full bg-amber-500 transition-all" style={{ width: `${progreso}%` }} />
               </div>
               <span className="text-[10px] text-zinc-400">{entregable.diasHechos}/{entregable.diasEstimados}</span>
+            </div>
+
+            {/* Steps of this entregable */}
+            <div className="space-y-1">
+              <p className="text-[10px] font-semibold uppercase tracking-wider text-zinc-400">
+                {plantilla ? `Checklist SOP (${plantilla.nombre})` : "Pasos de este entregable"}
+              </p>
+              {plantilla ? (
+                <div className="space-y-0.5">
+                  {plantilla.pasos.map((pp, idx) => {
+                    const realPaso = pasosDelEntregable.find((rp) => rp.nombre === pp.nombre || rp.estado === pp.nombre);
+                    const isCurrent = realPaso?.id === paso.id;
+                    const isDone = realPaso?.finTs;
+                    return (
+                      <div key={pp.id} className={`flex items-center gap-2 rounded-lg px-2 py-1.5 text-xs ${isCurrent ? "bg-green-100 font-semibold text-green-800" : ""}`}>
+                        <span className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[10px] font-bold ${isDone ? "bg-green-500 text-white" : isCurrent ? "bg-green-200 text-green-800" : "bg-zinc-100 text-zinc-400"}`}>
+                          {isDone ? "✓" : idx + 1}
+                        </span>
+                        <span className={isDone && !isCurrent ? "text-zinc-400 line-through" : isCurrent ? "" : "text-zinc-600"}>
+                          {pp.nombre}
+                        </span>
+                        {pp.minutosEstimados && <span className="ml-auto text-[10px] text-zinc-300">{pp.minutosEstimados}min</span>}
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div className="space-y-0.5">
+                  {pasosDelEntregable.map((p) => {
+                    const isCurrent = p.id === paso.id;
+                    return (
+                      <div key={p.id} className={`flex items-center gap-2 rounded-lg px-2 py-1.5 text-xs ${isCurrent ? "bg-green-100 font-semibold text-green-800" : ""}`}>
+                        <span className={`h-2 w-2 shrink-0 rounded-full ${p.finTs ? "bg-green-500" : isCurrent ? "bg-amber-500" : "bg-zinc-200"}`} />
+                        <span className={p.finTs && !isCurrent ? "text-zinc-400 line-through" : isCurrent ? "" : "text-zinc-600"}>
+                          {p.nombre}
+                        </span>
+                        {p.inicioTs && !isCurrent && (
+                          <span className="ml-auto text-[10px] text-zinc-300">
+                            {new Date(p.inicioTs).toLocaleDateString("es-ES", { day: "numeric", month: "short" })}
+                          </span>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
 
             {/* Implicados */}

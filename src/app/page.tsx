@@ -9,10 +9,11 @@ import { PantallaHoy } from "@/components/PantallaHoy";
 import { PantallaPlan } from "@/components/PantallaPlan";
 import { PantallaMapa } from "@/components/PantallaMapa";
 import { PantallaURLs } from "@/components/PantallaURLs";
+import { PantallaCuaderno } from "@/components/PantallaCuaderno";
 import { ResultadoDetalle } from "@/components/ResultadoDetalle";
 import { Buscador } from "@/components/Buscador";
 
-type Vista = "hoy" | "plan" | "mapa" | "urls" | "resultado";
+type Vista = "hoy" | "plan" | "mapa" | "urls" | "cuaderno" | "resultado";
 
 const NAV_ITEMS: { id: Vista; label: string; sublabel: string; icon: React.ReactNode }[] = [
   {
@@ -59,6 +60,17 @@ const NAV_ITEMS: { id: Vista; label: string; sublabel: string; icon: React.React
       <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
         <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
         <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+      </svg>
+    ),
+  },
+  {
+    id: "cuaderno",
+    label: "Log",
+    sublabel: "Cuaderno",
+    icon: (
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
+        <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
+        <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
       </svg>
     ),
   },
@@ -206,6 +218,11 @@ function AppShell({ userId }: { userId: string }) {
             {vista === "urls" && (
               <div className="mx-auto max-w-4xl">
                 <PantallaURLs />
+              </div>
+            )}
+            {vista === "cuaderno" && (
+              <div className="mx-auto max-w-4xl">
+                <PantallaCuaderno />
               </div>
             )}
             {vista === "resultado" && detalleResultadoId && (

@@ -19,10 +19,6 @@ import {
 } from "@/lib/types";
 
 function formatFechaInicio(f: string): string {
-  if (f.startsWith("W")) return "Semana";
-  if (f.startsWith("M")) return f.replace("M", "").replace("-", "/");
-  if (f.startsWith("Q")) return f.replace("Q", "").replace("-Q", " Q");
-  if (f.startsWith("Y")) return f.replace("Y", "");
   const d = new Date(f + "T12:00:00");
   if (isNaN(d.getTime())) return f;
   return d.toLocaleDateString("es-ES", { day: "numeric", month: "short" });
@@ -255,15 +251,12 @@ function AmbitoHeader({ value, onChange }: { value: string; onChange: (v: string
    AREA SECTION
    ============================================================ */
 
-const BORDER_COLORS: Record<string, string> = {
-  fisico: "#f43f5e", emocional: "#ec4899", mental: "#6366f1", espiritual: "#8b5cf6",
-  financiera: "#10b981", operativa: "#3b82f6", comercial: "#f59e0b", administrativa: "#a855f6",
-};
-
 function AreaSection({ areaId }: { areaId: Area }) {
   const state = useAppState();
   const dispatch = useAppDispatch();
   const [open, setOpen] = useState(true);
+  const [openProj, setOpenProj] = useState(true);
+  const [openSOP, setOpenSOP] = useState(true);
   const c = AREA_COLORS[areaId];
   const label = areaLabel(areaId);
 
@@ -283,46 +276,64 @@ function AreaSection({ areaId }: { areaId: Area }) {
       </button>
 
       {open && (
-        <div className="ml-6 border-l-[3px] pl-6 sm:ml-8 sm:pl-8" style={{ borderColor: BORDER_COLORS[areaId] }}>
+        <div className="ml-6 border-l-[3px] pl-6 sm:ml-8 sm:pl-8" style={{ borderColor: AREA_COLORS[areaId]?.hex ?? "#888" }}>
 
           {/* PROYECTOS */}
           <div className="mb-8">
-            <h3 className="mb-3 flex items-center gap-2 text-sm font-bold uppercase tracking-widest text-muted">
+            <button onClick={() => setOpenProj(!openProj)} className="mb-3 flex w-full items-center gap-2 text-sm font-bold uppercase tracking-widest text-muted hover:text-foreground">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" className="text-muted">
                 <rect x="3" y="3" width="7" height="7" /><rect x="14" y="3" width="7" height="7" /><rect x="3" y="14" width="7" height="7" /><rect x="14" y="14" width="7" height="7" />
               </svg>
               Proyectos
-            </h3>
-            {proyectos.length > 0 ? (
-              <div className="space-y-2">
-                {proyectos.map((proj, i) => (
-                  <ProyectoBlock key={proj.id} proyecto={proj} index={i} total={proyectos.length} />
-                ))}
-              </div>
-            ) : (
-              <p className="py-3 text-base italic text-muted">Sin proyectos</p>
+              <span className="text-xs font-normal">({proyectos.length})</span>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"
+                className={`ml-auto transition-transform ${openProj ? "rotate-90" : ""}`}>
+                <polyline points="9 6 15 12 9 18" />
+              </svg>
+            </button>
+            {openProj && (
+              <>
+                {proyectos.length > 0 ? (
+                  <div className="space-y-2">
+                    {proyectos.map((proj, i) => (
+                      <ProyectoBlock key={proj.id} proyecto={proj} index={i} total={proyectos.length} />
+                    ))}
+                  </div>
+                ) : (
+                  <p className="py-3 text-base italic text-muted">Sin proyectos</p>
+                )}
+                <AddButton label="Proyecto" onAdd={(nombre) =>
+                  dispatch({ type: "ADD_PROYECTO", payload: { id: generateId(), nombre, descripcion: null, area: areaId, creado: new Date().toISOString(), fechaInicio: null } })
+                } />
+              </>
             )}
-            <AddButton label="Proyecto" onAdd={(nombre) =>
-              dispatch({ type: "ADD_PROYECTO", payload: { id: generateId(), nombre, descripcion: null, area: areaId, creado: new Date().toISOString(), fechaInicio: null } })
-            } />
           </div>
 
           {/* PROCESOS */}
           <div className="mb-4">
-            <h3 className="mb-3 flex items-center gap-2 text-sm font-bold uppercase tracking-widest text-purple-500">
+            <button onClick={() => setOpenSOP(!openSOP)} className="mb-3 flex w-full items-center gap-2 text-sm font-bold uppercase tracking-widest text-purple-500 hover:text-purple-400">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" className="text-purple-400">
                 <polyline points="16 3 21 3 21 8" /><line x1="4" y1="20" x2="21" y2="3" /><polyline points="21 16 21 21 16 21" /><line x1="15" y1="15" x2="21" y2="21" /><line x1="4" y1="4" x2="9" y2="9" />
               </svg>
               Procesos
-            </h3>
-            {sops.length > 0 ? (
-              <div className="space-y-2">
-                {sops.map((sop, i) => (
-                  <SOPBlock key={sop.id} sop={sop} index={i} total={sops.length} />
-                ))}
-              </div>
-            ) : (
-              <p className="py-3 text-base italic text-muted">Sin procesos</p>
+              <span className="text-xs font-normal">({sops.length})</span>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"
+                className={`ml-auto transition-transform ${openSOP ? "rotate-90" : ""}`}>
+                <polyline points="9 6 15 12 9 18" />
+              </svg>
+            </button>
+            {openSOP && (
+              <>
+                {sops.length > 0 ? (
+                  <div className="space-y-2">
+                    {sops.map((sop, i) => (
+                      <SOPBlock key={sop.id} sop={sop} index={i} total={sops.length} />
+                    ))}
+                  </div>
+                ) : (
+                  <p className="py-3 text-base italic text-muted">Sin procesos</p>
+                )}
+              </>
             )}
           </div>
         </div>
@@ -456,24 +467,23 @@ function EntregableBlock({ entregable, index, total }: { entregable: Entregable;
 
   function assignDate(period: string) {
     const now = new Date();
-    const localDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
-    let target: string;
+    let target: Date;
     if (period === "hoy") {
-      target = localDate;
+      target = now;
     } else if (period === "semana") {
       const day = now.getDay() || 7;
-      const monday = new Date(now);
-      monday.setDate(now.getDate() - day + 1);
-      target = `W${monday.getFullYear()}-${String(monday.getMonth() + 1).padStart(2, "0")}-${String(monday.getDate()).padStart(2, "0")}`;
+      target = new Date(now);
+      target.setDate(now.getDate() - day + 1);
     } else if (period === "mes") {
-      target = `M${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+      target = new Date(now.getFullYear(), now.getMonth(), 1);
     } else if (period === "trimestre") {
-      const q = Math.ceil((now.getMonth() + 1) / 3);
-      target = `Q${now.getFullYear()}-Q${q}`;
+      const qMonth = Math.floor(now.getMonth() / 3) * 3;
+      target = new Date(now.getFullYear(), qMonth, 1);
     } else {
-      target = `Y${now.getFullYear()}`;
+      target = new Date(now.getFullYear(), 0, 1);
     }
-    dispatch({ type: "UPDATE_ENTREGABLE", id: entregable.id, changes: { fechaInicio: target, estado: entregable.estado === "a_futuro" ? "en_proceso" : entregable.estado } });
+    const dateStr = `${target.getFullYear()}-${String(target.getMonth() + 1).padStart(2, "0")}-${String(target.getDate()).padStart(2, "0")}`;
+    dispatch({ type: "UPDATE_ENTREGABLE", id: entregable.id, changes: { fechaInicio: dateStr, estado: entregable.estado === "a_futuro" ? "en_proceso" : entregable.estado } });
     setShowDatePicker(false);
   }
 
@@ -664,9 +674,81 @@ function DurationInput({ value, onChange }: { value: number | null; onChange: (v
 }
 
 function SOPBlock({ sop, index, total }: { sop: PlantillaProceso; index: number; total: number }) {
+  const state = useAppState();
   const dispatch = useAppDispatch();
   const [open, setOpen] = useState(false);
   const [confirm, setConfirm] = useState(false);
+  const [showDatePicker, setShowDatePicker] = useState(false);
+  const customDateRef = useRef<HTMLInputElement>(null);
+
+  function scheduleSOPDate(period: string) {
+    const now = new Date();
+    let target: Date;
+    if (period === "hoy") {
+      target = now;
+    } else if (period === "semana") {
+      const day = now.getDay() || 7;
+      target = new Date(now);
+      target.setDate(now.getDate() - day + 1);
+    } else if (period === "mes") {
+      target = new Date(now.getFullYear(), now.getMonth(), 1);
+    } else if (period === "trimestre") {
+      const qMonth = Math.floor(now.getMonth() / 3) * 3;
+      target = new Date(now.getFullYear(), qMonth, 1);
+    } else if (period === "anio") {
+      target = new Date(now.getFullYear(), 0, 1);
+    } else {
+      createSOPEntregable(period);
+      return;
+    }
+    const dateStr = `${target.getFullYear()}-${String(target.getMonth() + 1).padStart(2, "0")}-${String(target.getDate()).padStart(2, "0")}`;
+    createSOPEntregable(dateStr);
+  }
+
+  function createSOPEntregable(fechaInicio: string) {
+    let resultadoId: string | null = null;
+    if (sop.proyectoId) {
+      const existingRes = state.resultados.find((r) => r.proyectoId === sop.proyectoId);
+      if (existingRes) {
+        resultadoId = existingRes.id;
+      } else {
+        const newResId = generateId();
+        dispatch({ type: "ADD_RESULTADO", payload: { id: newResId, nombre: "Procesos", descripcion: null, proyectoId: sop.proyectoId!, creado: new Date().toISOString(), semana: null, fechaLimite: null, fechaInicio: null, diasEstimados: null } });
+        resultadoId = newResId;
+      }
+    } else {
+      const firstProj = state.proyectos.find((p) => p.area === sop.area);
+      if (firstProj) {
+        const existingRes = state.resultados.find((r) => r.proyectoId === firstProj.id);
+        if (existingRes) {
+          resultadoId = existingRes.id;
+        } else {
+          const newResId = generateId();
+          dispatch({ type: "ADD_RESULTADO", payload: { id: newResId, nombre: "Procesos", descripcion: null, proyectoId: firstProj.id, creado: new Date().toISOString(), semana: null, fechaLimite: null, fechaInicio: null, diasEstimados: null } });
+          resultadoId = newResId;
+        }
+      }
+    }
+    if (!resultadoId) return;
+
+    dispatch({ type: "ADD_ENTREGABLE", payload: {
+      id: generateId(),
+      nombre: sop.nombre,
+      resultadoId,
+      tipo: "sop" as const,
+      plantillaId: sop.id,
+      diasEstimados: sop.pasos.length,
+      diasHechos: 0,
+      esDiaria: false,
+      responsable: sop.responsableDefault,
+      estado: "en_proceso" as const,
+      creado: new Date().toISOString(),
+      semana: null,
+      fechaLimite: null,
+      fechaInicio: fechaInicio,
+    }});
+    setShowDatePicker(false);
+  }
 
   return (
     <div className="rounded-xl border border-purple-200 bg-background dark:border-purple-800/30">
@@ -678,12 +760,48 @@ function SOPBlock({ sop, index, total }: { sop: PlantillaProceso; index: number;
         <EditableText value={sop.nombre} onChange={(v) => dispatch({ type: "UPDATE_PLANTILLA", id: sop.id, changes: { nombre: v } })}
           className="text-base font-medium text-foreground" />
         <span className="rounded-full bg-purple-50 px-2.5 py-0.5 text-xs font-medium text-purple-600 dark:bg-purple-500/10 dark:text-purple-400">{sop.pasos.length} pasos</span>
+        <button
+          onClick={(e) => { e.stopPropagation(); setShowDatePicker(!showDatePicker); }}
+          className="flex h-7 items-center gap-1 rounded-md px-2 text-xs text-muted opacity-40 transition-all hover:bg-accent-soft hover:text-accent sm:opacity-0 group-hover/row:opacity-100"
+          title="Programar SOP"
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+            <rect x="3" y="4" width="18" height="18" rx="2" /><line x1="16" y1="2" x2="16" y2="6" /><line x1="8" y1="2" x2="8" y2="6" /><line x1="3" y1="10" x2="21" y2="10" />
+          </svg>
+        </button>
         <DeleteBtn onDelete={() => setConfirm(true)} />
       </ToggleRow>
 
       {confirm && <ConfirmDelete label={sop.nombre}
         onConfirm={() => { dispatch({ type: "DELETE_PLANTILLA", id: sop.id }); setConfirm(false); }}
         onCancel={() => setConfirm(false)} />}
+
+      {showDatePicker && (
+        <div className="ml-12 mb-2 flex flex-wrap items-center gap-2 px-3">
+          {[
+            { id: "hoy", label: "Hoy" },
+            { id: "semana", label: "Esta semana" },
+            { id: "mes", label: "Este mes" },
+            { id: "trimestre", label: "Este trimestre" },
+            { id: "anio", label: "Este año" },
+          ].map((p) => (
+            <button key={p.id} onClick={() => scheduleSOPDate(p.id)}
+              className="rounded-lg border border-border bg-background px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:border-accent hover:bg-accent-soft">
+              {p.label}
+            </button>
+          ))}
+          <button onClick={() => customDateRef.current?.showPicker()}
+            className="rounded-lg border border-accent/50 bg-accent-soft px-3 py-1.5 text-xs font-medium text-accent transition-colors hover:bg-accent/20">
+            Elegir fecha...
+          </button>
+          <input ref={customDateRef} type="date" onChange={(e) => e.target.value && scheduleSOPDate(e.target.value)}
+            className="sr-only" tabIndex={-1} aria-hidden="true" />
+          <button onClick={() => setShowDatePicker(false)}
+            className="rounded-lg px-3 py-1.5 text-xs text-muted hover:text-foreground">
+            Cancelar
+          </button>
+        </div>
+      )}
 
       {open && (
         <div className="px-6 pb-6 pl-16">

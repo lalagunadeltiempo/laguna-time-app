@@ -6,6 +6,7 @@ import {
   useReducer,
   useEffect,
   useRef,
+  useCallback,
   type ReactNode,
   type Dispatch,
 } from "react";
@@ -19,6 +20,7 @@ import {
   setLoadedSuccessfully,
   didLoadSuccessfully,
   INITIAL_STATE,
+  generateId,
 } from "./store";
 import { reducer, type Action } from "./reducer";
 import { runMigrations } from "./migrations";
@@ -29,6 +31,23 @@ const DispatchCtx = createContext<Dispatch<Action>>(() => {});
 interface ProviderProps {
   userId: string;
   children: ReactNode;
+}
+
+function actionToLog(action: Action, userId: string): { action: string; descripcion: string; entregableId?: string; pasoId?: string; proyectoId?: string } | null {
+  switch (action.type) {
+    case "START_PASO":
+      return { action: "start_paso", descripcion: `Inicio paso "${action.payload.nombre}"`, entregableId: action.payload.entregableId, pasoId: action.payload.id };
+    case "CLOSE_PASO":
+      return { action: "close_paso", descripcion: `Paso dado "${action.payload.nombre}"`, entregableId: action.payload.entregableId, pasoId: action.payload.id };
+    case "ADD_ENTREGABLE":
+      return { action: "add_entregable", descripcion: `Nuevo entregable "${action.payload.nombre}"`, entregableId: action.payload.id };
+    case "ADD_PROYECTO":
+      return { action: "add_proyecto", descripcion: `Nuevo proyecto "${action.payload.nombre}"`, proyectoId: action.payload.id };
+    case "CONVERT_ENTREGABLE_TO_SOP":
+      return { action: "convert_to_sop", descripcion: `Entregable convertido en SOP`, entregableId: action.entregableId };
+    default:
+      return null;
+  }
 }
 
 export function AppProvider({ userId, children }: ProviderProps) {
@@ -89,9 +108,25 @@ export function AppProvider({ userId, children }: ProviderProps) {
     return () => window.removeEventListener("beforeunload", handleBeforeUnload);
   }, []);
 
+  const loggingDispatch = useCallback((action: Action) => {
+    dispatch(action);
+    const log = actionToLog(action, userId);
+    if (log) {
+      dispatch({
+        type: "LOG_ACTIVITY",
+        entry: {
+          id: generateId(),
+          timestamp: new Date().toISOString(),
+          userId,
+          ...log,
+        },
+      });
+    }
+  }, [userId]);
+
   return (
     <StateCtx.Provider value={state}>
-      <DispatchCtx.Provider value={dispatch}>{children}</DispatchCtx.Provider>
+      <DispatchCtx.Provider value={loggingDispatch}>{children}</DispatchCtx.Provider>
     </StateCtx.Provider>
   );
 }

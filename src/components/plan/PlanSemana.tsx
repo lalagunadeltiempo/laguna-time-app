@@ -3,14 +3,11 @@
 import { useMemo, useState, useEffect } from "react";
 import { useAppState, useAppDispatch } from "@/lib/context";
 import { useUsuario } from "@/lib/usuario";
-import type { Area, Entregable } from "@/lib/types";
+import { AREA_COLORS, type Area, type Entregable } from "@/lib/types";
+import { projectSOPsForDate, type ProjectedSOP } from "@/lib/sop-projector";
+import { generateId } from "@/lib/store";
 
 const DAYS = ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"];
-
-const BORDER_HEX: Record<string, string> = {
-  fisico: "#f43f5e", emocional: "#ec4899", mental: "#6366f1", espiritual: "#8b5cf6",
-  financiera: "#10b981", operativa: "#3b82f6", comercial: "#f59e0b", administrativa: "#a855f6",
-};
 
 function toDateKey(d: Date) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
@@ -47,6 +44,7 @@ export function PlanSemana({ selectedDate }: Props) {
   const dispatch = useAppDispatch();
   const [viewMode, setViewMode] = useState<"yo" | "equipo">("yo");
   const [pickDay, setPickDay] = useState<string | null>(null);
+  const [confirmSOP, setConfirmSOP] = useState<{ sop: ProjectedSOP; dateKey: string } | null>(null);
 
   const [todayKey, setTodayKey] = useState(() => toDateKey(new Date()));
   useEffect(() => {
@@ -154,6 +152,19 @@ export function PlanSemana({ selectedDate }: Props) {
     return map;
   }, [blocks, weekDates]);
 
+  const sopsByDay = useMemo(() => {
+    const map = new Map<string, ProjectedSOP[]>();
+    for (const date of weekDates) {
+      const key = toDateKey(date);
+      const projected = projectSOPsForDate(state, date, viewMode === "yo" ? currentUser : undefined);
+      const filtered = projected.filter((sop) =>
+        !state.entregables.some((e) => e.tipo === "sop" && e.plantillaId === sop.plantillaId && e.fechaInicio === key)
+      );
+      if (filtered.length > 0) map.set(key, filtered);
+    }
+    return map;
+  }, [state, weekDates, viewMode, currentUser]);
+
   const pendientes = useMemo(() => {
     return state.entregables.filter((e) =>
       e.estado !== "hecho" && e.estado !== "cancelada" &&
@@ -172,6 +183,44 @@ export function PlanSemana({ selectedDate }: Props) {
   }
 
   const totalHoursAvailable = 8;
+
+  function materializeSOP(sop: ProjectedSOP, targetDate: string) {
+    const plantilla = state.plantillas.find((pl) => pl.id === sop.plantillaId);
+    if (!plantilla) return;
+
+    let resultadoId: string | null = null;
+    if (plantilla.proyectoId) {
+      const existingRes = state.resultados.find((r) => r.proyectoId === plantilla.proyectoId);
+      resultadoId = existingRes?.id ?? null;
+      if (!resultadoId) {
+        const newResId = generateId();
+        dispatch({ type: "ADD_RESULTADO", payload: { id: newResId, nombre: "Procesos", descripcion: null, proyectoId: plantilla.proyectoId, creado: new Date().toISOString(), semana: null, fechaLimite: null, fechaInicio: null, diasEstimados: null } });
+        resultadoId = newResId;
+      }
+    } else {
+      const firstProj = state.proyectos.find((p) => p.area === sop.area);
+      if (firstProj) {
+        const existingRes = state.resultados.find((r) => r.proyectoId === firstProj.id);
+        resultadoId = existingRes?.id ?? null;
+        if (!resultadoId) {
+          const newResId = generateId();
+          dispatch({ type: "ADD_RESULTADO", payload: { id: newResId, nombre: "Procesos", descripcion: null, proyectoId: firstProj.id, creado: new Date().toISOString(), semana: null, fechaLimite: null, fechaInicio: null, diasEstimados: null } });
+          resultadoId = newResId;
+        }
+      }
+    }
+    if (!resultadoId) { setConfirmSOP(null); return; }
+
+    dispatch({ type: "ADD_ENTREGABLE", payload: {
+      id: generateId(), nombre: sop.nombre, resultadoId,
+      tipo: "sop" as const, plantillaId: sop.plantillaId,
+      diasEstimados: sop.pasosTotal, diasHechos: 0,
+      esDiaria: false, responsable: sop.responsable,
+      estado: "en_proceso" as const, creado: new Date().toISOString(),
+      semana: null, fechaLimite: null, fechaInicio: targetDate,
+    }});
+    setConfirmSOP(null);
+  }
 
   return (
     <div className="flex-1">
@@ -209,7 +258,7 @@ export function PlanSemana({ selectedDate }: Props) {
               <div className="flex flex-1 flex-col gap-1">
                 {dayBlocks.map((block) => (
                   <div key={block.id} className="rounded-lg border-l-[3px] bg-surface px-2 py-1.5 transition-colors hover:bg-surface-hover"
-                    style={{ borderLeftColor: BORDER_HEX[block.area] ?? "#f59e0b" }}>
+                    style={{ borderLeftColor: AREA_COLORS[block.area]?.hex ?? "#888" }}>
                     <div className="flex items-center gap-1">
                       {block.type === "active" && (
                         <span className="relative flex h-1.5 w-1.5 shrink-0">
@@ -226,6 +275,18 @@ export function PlanSemana({ selectedDate }: Props) {
                     </div>
                     <p className="text-[10px] text-muted">{block.subtitle}</p>
                   </div>
+                ))}
+                {(sopsByDay.get(key) ?? []).map((sop) => (
+                  <button key={`sop-${sop.plantillaId}`} type="button"
+                    onClick={() => !isPast && setConfirmSOP({ sop, dateKey: key })}
+                    disabled={isPast}
+                    className="w-full rounded-lg border border-dashed border-purple-200 bg-purple-50/50 px-2 py-1.5 text-left transition-all hover:border-purple-400 dark:border-purple-800/30">
+                    <div className="flex items-center gap-1">
+                      <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ backgroundColor: AREA_COLORS[sop.area]?.hex ?? "#888" }} />
+                      <p className="text-xs font-medium text-purple-700 dark:text-purple-400 leading-tight truncate">{sop.nombre}</p>
+                    </div>
+                    <p className="text-[10px] text-purple-400">{sop.pasosTotal}p · SOP</p>
+                  </button>
                 ))}
                 {dayBlocks.length === 0 && (
                   <button
@@ -261,7 +322,7 @@ export function PlanSemana({ selectedDate }: Props) {
               {pendientes.map(({ entregable, proj }) => (
                 <button key={entregable.id} onClick={() => assignToPlan(entregable)}
                   className="flex w-full items-center gap-2 rounded-lg px-3 py-2.5 text-left transition-colors hover:bg-surface">
-                  <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: BORDER_HEX[proj?.area ?? "operativa"] }} />
+                  <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: AREA_COLORS[proj?.area ?? "operativa"]?.hex ?? "#888" }} />
                   <div className="flex-1 truncate">
                     <p className="truncate text-sm font-medium text-foreground">{entregable.nombre}</p>
                     <p className="truncate text-xs text-muted">{proj?.nombre ?? ""}</p>
@@ -270,6 +331,22 @@ export function PlanSemana({ selectedDate }: Props) {
               ))}
             </div>
             <button onClick={() => setPickDay(null)} className="mt-3 w-full rounded-lg border border-border py-2 text-xs font-medium text-muted hover:bg-surface">Cancelar</button>
+          </div>
+        </div>
+      )}
+
+      {confirmSOP && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/20 px-6 backdrop-blur-sm"
+          role="dialog" aria-modal="true" tabIndex={-1} ref={(el) => el?.focus()}
+          onClick={(e) => { if (e.target === e.currentTarget) setConfirmSOP(null); }}
+          onKeyDown={(e) => { if (e.key === "Escape") setConfirmSOP(null); }}>
+          <div className="w-full max-w-sm rounded-2xl bg-background p-5 shadow-xl">
+            <h3 className="text-sm font-semibold text-foreground">Programar SOP</h3>
+            <p className="mt-1 text-xs text-muted">{`¿Programar "${confirmSOP.sop.nombre}" para ${new Date(confirmSOP.dateKey + "T12:00:00").toLocaleDateString("es-ES", { weekday: "long", day: "numeric", month: "long" })}?`}</p>
+            <div className="mt-4 flex gap-2">
+              <button onClick={() => setConfirmSOP(null)} className="flex-1 rounded-lg border border-border py-2.5 text-xs font-medium text-muted hover:bg-surface">Cancelar</button>
+              <button onClick={() => materializeSOP(confirmSOP.sop, confirmSOP.dateKey)} className="flex-1 rounded-lg bg-purple-600 py-2.5 text-xs font-medium text-white hover:bg-purple-700">Programar</button>
+            </div>
           </div>
         </div>
       )}

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useAppState, useAppDispatch } from "@/lib/context";
 import type { Paso, DependeDe } from "@/lib/types";
 import { generateId } from "@/lib/store";
@@ -49,6 +49,22 @@ export function CerrarPaso({ paso, onClose }: Props) {
 
   const entregable = state.entregables.find((e) => e.id === paso.entregableId);
 
+  const plantilla = entregable?.plantillaId
+    ? state.plantillas.find((pl) => pl.id === entregable.plantillaId)
+    : null;
+
+  const pasosDelEntregable = state.pasos
+    .filter((p) => p.entregableId === entregable?.id && p.finTs)
+    .sort((a, b) => (a.inicioTs ?? "").localeCompare(b.inicioTs ?? ""));
+
+  const nextSOPStep = plantilla
+    ? plantilla.pasos.find((pp) => !pasosDelEntregable.some((rp) => rp.nombre === pp.nombre || rp.estado === pp.nombre))
+    : null;
+
+  const allSOPStepsDone = plantilla
+    ? plantilla.pasos.every((pp) => pasosDelEntregable.some((rp) => rp.nombre === pp.nombre || rp.estado === pp.nombre))
+    : false;
+
   const defaultNombre =
     paso.nombre !== entregable?.nombre
       ? paso.nombre
@@ -67,6 +83,15 @@ export function CerrarPaso({ paso, onClose }: Props) {
   const [newContacto, setNewContacto] = useState({ nombre: "", email: "", telefono: "" });
 
   const contactosExternos = useMemo(() => state.contactos ?? [], [state.contactos]);
+
+  useEffect(() => {
+    if (allSOPStepsDone && entregable?.tipo === "sop") {
+      setSigTipo("fin");
+    }
+    if (nextSOPStep && entregable?.tipo === "sop" && !sigNombre) {
+      setSigNombre(nextSOPStep.nombre);
+    }
+  }, [allSOPStepsDone, nextSOPStep, entregable?.tipo, sigNombre]);
 
   const cuandoActual = sigCuando === "otro" ? sigFechaCustom : sigCuando;
   const cuandoLabel = resolveCuandoLabel(cuandoActual);
@@ -188,6 +213,51 @@ export function CerrarPaso({ paso, onClose }: Props) {
             {sigTipo === "continuar" && (
               <div className="space-y-3 rounded-xl border border-zinc-100 bg-zinc-50 p-3">
                 <p className="text-xs font-medium text-zinc-500">Siguiente paso:</p>
+                {entregable?.tipo === "sop" && plantilla && (
+                  <div className="space-y-1 mb-2">
+                    <p className="text-[10px] font-semibold uppercase tracking-wider text-purple-500">Siguiente paso del SOP:</p>
+                    <div className="space-y-1 max-h-40 overflow-y-auto">
+                      {plantilla.pasos.map((pp, idx) => {
+                        const done = pasosDelEntregable.some((rp) => rp.nombre === pp.nombre || rp.estado === pp.nombre);
+                        const isNext = nextSOPStep?.id === pp.id;
+                        return (
+                          <button key={pp.id} type="button"
+                            disabled={done}
+                            onClick={() => setSigNombre(pp.nombre)}
+                            className={`flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-xs transition-all ${
+                              sigNombre === pp.nombre ? "border-2 border-purple-400 bg-purple-50" :
+                              done ? "opacity-40 line-through" :
+                              isNext ? "border border-purple-200 bg-purple-50/50" :
+                              "border border-zinc-100 hover:border-purple-200"
+                            }`}>
+                            <span className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[10px] font-bold ${
+                              done ? "bg-green-500 text-white" : sigNombre === pp.nombre ? "bg-purple-500 text-white" : "bg-zinc-100 text-zinc-400"
+                            }`}>
+                              {done ? "✓" : idx + 1}
+                            </span>
+                            {pp.nombre}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+                {entregable?.tipo !== "sop" && pasosDelEntregable.length > 0 && (
+                  <div className="mb-2">
+                    <p className="text-[10px] font-semibold uppercase tracking-wider text-zinc-400 mb-1">Pasos anteriores:</p>
+                    <div className="space-y-0.5 max-h-28 overflow-y-auto">
+                      {pasosDelEntregable.map((p) => (
+                        <div key={p.id} className="flex items-center gap-2 rounded px-2 py-1 text-xs text-zinc-500">
+                          <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-green-400" />
+                          <span className="truncate">{p.nombre}</span>
+                          <span className="ml-auto shrink-0 text-[10px] text-zinc-300">
+                            {p.inicioTs ? new Date(p.inicioTs).toLocaleDateString("es-ES", { day: "numeric", month: "short" }) : ""}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
                 <input type="text" value={sigNombre} onChange={(e) => setSigNombre(e.target.value)}
                   placeholder={`Ej: Continuar con ${entregable?.nombre ?? "el entregable"}...`}
                   className="w-full rounded-lg border border-zinc-200 bg-white p-2.5 text-sm text-zinc-900 placeholder:text-zinc-400 focus:border-amber-400 focus:outline-none focus:ring-2 focus:ring-amber-400/20" />
@@ -324,6 +394,17 @@ export function CerrarPaso({ paso, onClose }: Props) {
               className="w-full rounded-xl bg-green-600 py-3 text-base font-semibold text-white transition-colors hover:bg-green-700 disabled:opacity-40 disabled:cursor-not-allowed">
               {sigTipo === "fin" ? "Paso dado y entregable terminado" : "Paso dado"}
             </button>
+            {sigTipo === "fin" && entregable && entregable.tipo !== "sop" && pasosDelEntregable.length >= 2 && (
+              <button
+                type="button"
+                onClick={() => {
+                  handleFinish();
+                  dispatch({ type: "CONVERT_ENTREGABLE_TO_SOP", entregableId: entregable.id });
+                }}
+                className="w-full rounded-xl border-2 border-purple-400 bg-purple-50 py-3 text-base font-semibold text-purple-700 transition-colors hover:bg-purple-100">
+                Paso dado + Convertir en SOP
+              </button>
+            )}
             {sigTipo === "continuar" && sigCuando === "depende" && dependePersonas.length === 0 && (
               <p className="text-center text-xs text-red-500">Selecciona al menos una persona</p>
             )}
