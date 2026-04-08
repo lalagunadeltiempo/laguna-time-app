@@ -958,7 +958,7 @@ function ResponsableBadge({ nombre }: { nombre?: string }) {
   );
 }
 
-function NotasSection({ notas, nivel, targetId }: { notas: Nota[]; nivel: "paso" | "entregable" | "resultado" | "proyecto"; targetId: string }) {
+export function NotasSection({ notas, nivel, targetId }: { notas: Nota[]; nivel: "paso" | "entregable" | "resultado" | "proyecto"; targetId: string }) {
   const dispatch = useAppDispatch();
   const { nombre: currentUser } = useUsuario();
   const [draft, setDraft] = useState("");

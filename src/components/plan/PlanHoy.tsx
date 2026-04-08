@@ -178,53 +178,20 @@ export function PlanHoy({ selectedDate }: Props) {
   }
 
   function materializeSOP(sop: ProjectedSOP) {
-    const plantilla = state.plantillas.find((pl) => pl.id === sop.plantillaId);
-    if (!plantilla) return;
-
-    let resultadoId: string | null = null;
-    if (plantilla.proyectoId) {
-      const existingRes = state.resultados.find((r) => r.proyectoId === plantilla.proyectoId);
-      resultadoId = existingRes?.id ?? null;
-      if (!resultadoId) {
-        const newResId = generateId();
-        dispatch({ type: "ADD_RESULTADO", payload: { id: newResId, nombre: "Procesos", descripcion: null, proyectoId: plantilla.proyectoId, creado: new Date().toISOString(), semana: null, fechaLimite: null, fechaInicio: null, diasEstimados: null } });
-        resultadoId = newResId;
-      }
-    } else {
-      const firstProj = state.proyectos.find((p) => p.area === sop.area);
-      if (firstProj) {
-        const existingRes = state.resultados.find((r) => r.proyectoId === firstProj.id);
-        resultadoId = existingRes?.id ?? null;
-        if (!resultadoId) {
-          const newResId = generateId();
-          dispatch({ type: "ADD_RESULTADO", payload: { id: newResId, nombre: "Procesos", descripcion: null, proyectoId: firstProj.id, creado: new Date().toISOString(), semana: null, fechaLimite: null, fechaInicio: null, diasEstimados: null } });
-          resultadoId = newResId;
-        }
-      }
-    }
-    if (!resultadoId) { setConfirmSOP(null); return; }
-
-    const entId = generateId();
-    dispatch({ type: "ADD_ENTREGABLE", payload: {
-      id: entId, nombre: sop.nombre, resultadoId,
-      tipo: "sop" as const, plantillaId: sop.plantillaId,
-      diasEstimados: sop.pasosTotal, diasHechos: 0,
-      esDiaria: false, responsable: sop.responsable,
-      estado: "en_proceso" as const, creado: new Date().toISOString(),
-      semana: null, fechaLimite: null, fechaInicio: dateKey,
-    }});
-
-    const firstStep = plantilla.pasos[0];
-    if (firstStep) {
-      dispatch({ type: "START_PASO", payload: {
-        id: generateId(), entregableId: entId,
-        nombre: firstStep.nombre,
-        inicioTs: new Date().toISOString(), finTs: null, estado: "",
-        contexto: { urls: [], apps: [], notas: "" },
-        implicados: [{ tipo: "equipo", nombre: currentUser }],
-        pausas: [], siguientePaso: null,
-      }});
-    }
+    dispatch({
+      type: "MATERIALIZE_SOP",
+      plantillaId: sop.plantillaId,
+      area: sop.area,
+      responsable: sop.responsable,
+      currentUser,
+      dateKey,
+      ids: {
+        resultado: generateId(),
+        entregable: generateId(),
+        paso: generateId(),
+        proyecto: generateId(),
+      },
+    });
     setConfirmSOP(null);
   }
 
@@ -394,19 +361,23 @@ function DrillDownDialog({ dateKey, onClose }: { dateKey: string; onClose: () =>
   const [selectedResultadoId, setSelectedResultadoId] = useState<string | null>(null);
   const [selectedEntregableId, setSelectedEntregableId] = useState<string | null>(null);
   const [newPasoName, setNewPasoName] = useState("");
+  const [showCreateInput, setShowCreateInput] = useState(false);
+  const [createName, setCreateName] = useState("");
 
   const areas = selectedAmbito === "personal" ? AREAS_PERSONAL : AREAS_EMPRESA;
   const proyectos = state.proyectos.filter((p) => p.area === selectedArea);
   const resultados = state.resultados.filter((r) => r.proyectoId === selectedProyectoId);
   const entregables = state.entregables.filter((e) => e.resultadoId === selectedResultadoId && e.estado !== "hecho" && e.estado !== "cancelada");
 
-  function selectAmbito(a: Ambito) { setSelectedAmbito(a); setStep("area"); }
-  function selectArea(a: Area) { setSelectedArea(a); setStep("proyecto"); }
-  function selectProyecto(id: string) { setSelectedProyectoId(id); setStep("resultado"); }
-  function selectResultado(id: string) { setSelectedResultadoId(id); setStep("entregable"); }
-  function selectEntregable(id: string) { setSelectedEntregableId(id); setStep("paso"); }
+  function selectAmbito(a: Ambito) { setSelectedAmbito(a); setStep("area"); resetCreate(); }
+  function selectArea(a: Area) { setSelectedArea(a); setStep("proyecto"); resetCreate(); }
+  function selectProyecto(id: string) { setSelectedProyectoId(id); setStep("resultado"); resetCreate(); }
+  function selectResultado(id: string) { setSelectedResultadoId(id); setStep("entregable"); resetCreate(); }
+  function selectEntregable(id: string) { setSelectedEntregableId(id); setStep("paso"); resetCreate(); }
+  function resetCreate() { setShowCreateInput(false); setCreateName(""); }
 
   function goBack() {
+    resetCreate();
     if (step === "area") { setStep("ambito"); setSelectedAmbito(null); }
     else if (step === "proyecto") { setStep("area"); setSelectedArea(null); }
     else if (step === "resultado") { setStep("proyecto"); setSelectedProyectoId(null); }
@@ -414,11 +385,40 @@ function DrillDownDialog({ dateKey, onClose }: { dateKey: string; onClose: () =>
     else if (step === "paso") { setStep("entregable"); setSelectedEntregableId(null); }
   }
 
+  function createProyecto() {
+    const name = createName.trim();
+    if (!name || !selectedArea) return;
+    const id = generateId();
+    dispatch({ type: "ADD_PROYECTO", payload: { id, nombre: name, descripcion: null, area: selectedArea, creado: new Date().toISOString(), fechaInicio: null } });
+    setSelectedProyectoId(id);
+    setStep("resultado");
+    resetCreate();
+  }
+
+  function createResultado() {
+    const name = createName.trim();
+    if (!name || !selectedProyectoId) return;
+    const id = generateId();
+    dispatch({ type: "ADD_RESULTADO", payload: { id, nombre: name, descripcion: null, proyectoId: selectedProyectoId, creado: new Date().toISOString(), semana: null, fechaLimite: null, fechaInicio: null, diasEstimados: null } });
+    setSelectedResultadoId(id);
+    setStep("entregable");
+    resetCreate();
+  }
+
+  function createEntregable() {
+    const name = createName.trim();
+    if (!name || !selectedResultadoId) return;
+    const id = generateId();
+    dispatch({ type: "ADD_ENTREGABLE", payload: { id, nombre: name, resultadoId: selectedResultadoId, tipo: "raw", plantillaId: null, diasEstimados: 3, diasHechos: 0, esDiaria: false, responsable: currentUser, estado: "a_futuro", creado: new Date().toISOString(), semana: null, fechaLimite: null, fechaInicio: null } });
+    setSelectedEntregableId(id);
+    setStep("paso");
+    resetCreate();
+  }
+
   function confirmPaso() {
     if (!selectedEntregableId) return;
     const name = newPasoName.trim();
     if (!name) return;
-
     dispatch({ type: "UPDATE_ENTREGABLE", id: selectedEntregableId, changes: { fechaInicio: dateKey, estado: "en_proceso" } });
     onClose();
   }
@@ -431,6 +431,14 @@ function DrillDownDialog({ dateKey, onClose }: { dateKey: string; onClose: () =>
     entregable: "Elige entregable",
     paso: "Nombre del paso",
   };
+
+  const createLabels: Partial<Record<DDStep, { placeholder: string; action: () => void }>> = {
+    proyecto: { placeholder: "Nombre del nuevo proyecto...", action: createProyecto },
+    resultado: { placeholder: "Nombre del nuevo resultado...", action: createResultado },
+    entregable: { placeholder: "Nombre del nuevo entregable...", action: createEntregable },
+  };
+
+  const currentCreate = createLabels[step];
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/20 px-6 backdrop-blur-sm"
@@ -477,7 +485,6 @@ function DrillDownDialog({ dateKey, onClose }: { dateKey: string; onClose: () =>
 
           {step === "proyecto" && (
             <div className="space-y-1">
-              {proyectos.length === 0 && <p className="py-4 text-center text-xs text-muted">Sin proyectos en esta área</p>}
               {proyectos.map((p) => (
                 <button key={p.id} onClick={() => selectProyecto(p.id)} className="flex w-full items-center gap-3 rounded-lg px-4 py-3 text-left transition-colors hover:bg-surface">
                   <span className="text-sm font-medium text-foreground">{p.nombre}</span>
@@ -488,7 +495,6 @@ function DrillDownDialog({ dateKey, onClose }: { dateKey: string; onClose: () =>
 
           {step === "resultado" && (
             <div className="space-y-1">
-              {resultados.length === 0 && <p className="py-4 text-center text-xs text-muted">Sin resultados</p>}
               {resultados.map((r) => (
                 <button key={r.id} onClick={() => selectResultado(r.id)} className="flex w-full items-center gap-3 rounded-lg px-4 py-3 text-left transition-colors hover:bg-surface">
                   <span className="text-sm font-medium text-foreground">{r.nombre}</span>
@@ -499,7 +505,6 @@ function DrillDownDialog({ dateKey, onClose }: { dateKey: string; onClose: () =>
 
           {step === "entregable" && (
             <div className="space-y-1">
-              {entregables.length === 0 && <p className="py-4 text-center text-xs text-muted">Sin entregables activos</p>}
               {entregables.map((e) => (
                 <button key={e.id} onClick={() => selectEntregable(e.id)} className="flex w-full items-center gap-3 rounded-lg px-4 py-3 text-left transition-colors hover:bg-surface">
                   <span className="text-sm font-medium text-foreground">{e.nombre}</span>
@@ -522,6 +527,30 @@ function DrillDownDialog({ dateKey, onClose }: { dateKey: string; onClose: () =>
             </div>
           )}
         </div>
+
+        {/* Inline creation for proyecto/resultado/entregable levels */}
+        {currentCreate && (
+          <div className="mt-3 border-t border-border pt-3">
+            {!showCreateInput ? (
+              <button onClick={() => setShowCreateInput(true)}
+                className="flex w-full items-center gap-2 rounded-lg px-4 py-2.5 text-left text-sm text-accent transition-colors hover:bg-accent/5">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></svg>
+                Crear nuevo
+              </button>
+            ) : (
+              <div className="flex gap-2">
+                <input value={createName} onChange={(e) => setCreateName(e.target.value)}
+                  placeholder={currentCreate.placeholder}
+                  onKeyDown={(e) => { if (e.key === "Enter") currentCreate.action(); if (e.key === "Escape") resetCreate(); }}
+                  autoFocus className="flex-1 rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground outline-none focus:border-accent" />
+                <button onClick={currentCreate.action} disabled={!createName.trim()}
+                  className="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white disabled:opacity-40 hover:bg-accent/90">
+                  Crear
+                </button>
+              </div>
+            )}
+          </div>
+        )}
 
         <button onClick={onClose} className="mt-3 w-full rounded-lg border border-border py-2 text-xs font-medium text-muted hover:bg-surface">Cancelar</button>
       </div>

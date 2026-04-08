@@ -1,5 +1,6 @@
 import type {
   AppState,
+  Area,
   Paso,
   Entregable,
   Resultado,
@@ -70,7 +71,8 @@ export type Action =
   | { type: "ADD_NOTA"; nivel: "paso" | "entregable" | "resultado" | "proyecto"; targetId: string; nota: Nota }
   | { type: "DELETE_NOTA"; nivel: "paso" | "entregable" | "resultado" | "proyecto"; targetId: string; notaId: string }
   | { type: "CONVERT_ENTREGABLE_TO_SOP"; entregableId: string }
-  | { type: "LOG_ACTIVITY"; entry: ActivityEntry };
+  | { type: "LOG_ACTIVITY"; entry: ActivityEntry }
+  | { type: "MATERIALIZE_SOP"; plantillaId: string; area: Area; responsable: string; currentUser: string; dateKey: string; ids: { resultado: string; entregable: string; paso: string; proyecto: string } };
 
 function swapSiblings<T extends { id: string }>(
   arr: T[],
@@ -575,6 +577,79 @@ export function reducer(state: AppState, action: Action): AppState {
       if (!pl) return state;
       const siblings = state.plantillas.filter((x) => x.area === pl.area).map((x) => x.id);
       return { ...state, plantillas: swapSiblings(state.plantillas, action.id, action.direction, siblings) };
+    }
+
+    // --- Materializar SOP atómicamente ---
+    case "MATERIALIZE_SOP": {
+      const { plantillaId, area, responsable, currentUser, dateKey, ids } = action;
+      const plantilla = state.plantillas.find((pl) => pl.id === plantillaId);
+      if (!plantilla || plantilla.pasos.length === 0) return state;
+
+      let newState = { ...state };
+      let resultadoId: string | null = null;
+
+      if (plantilla.proyectoId) {
+        const existingRes = newState.resultados.find((r) => r.proyectoId === plantilla.proyectoId);
+        resultadoId = existingRes?.id ?? null;
+        if (!resultadoId) {
+          resultadoId = ids.resultado;
+          newState = {
+            ...newState,
+            resultados: [...newState.resultados, {
+              id: resultadoId, nombre: "Procesos", descripcion: null,
+              proyectoId: plantilla.proyectoId, creado: new Date().toISOString(),
+              semana: null, fechaLimite: null, fechaInicio: null, diasEstimados: null,
+            }],
+          };
+        }
+      } else {
+        let proj = newState.proyectos.find((p) => p.area === area);
+        if (!proj) {
+          const newProj: Proyecto = {
+            id: ids.proyecto, nombre: `Procesos ${area}`,
+            descripcion: null, area, creado: new Date().toISOString(), fechaInicio: null,
+          };
+          newState = { ...newState, proyectos: [...newState.proyectos, newProj] };
+          proj = newProj;
+        }
+        const existingRes = newState.resultados.find((r) => r.proyectoId === proj!.id);
+        resultadoId = existingRes?.id ?? null;
+        if (!resultadoId) {
+          resultadoId = ids.resultado;
+          newState = {
+            ...newState,
+            resultados: [...newState.resultados, {
+              id: resultadoId, nombre: "Procesos", descripcion: null,
+              proyectoId: proj.id, creado: new Date().toISOString(),
+              semana: null, fechaLimite: null, fechaInicio: null, diasEstimados: null,
+            }],
+          };
+        }
+      }
+
+      const entregable: Entregable = {
+        id: ids.entregable, nombre: plantilla.nombre, resultadoId,
+        tipo: "sop", plantillaId, diasEstimados: plantilla.pasos.length, diasHechos: 0,
+        esDiaria: false, responsable, estado: "en_proceso",
+        creado: new Date().toISOString(), semana: null, fechaLimite: null, fechaInicio: dateKey,
+      };
+      newState = { ...newState, entregables: [...newState.entregables, entregable] };
+
+      const firstStep = plantilla.pasos[0];
+      const paso: Paso = {
+        id: ids.paso, entregableId: ids.entregable, nombre: firstStep.nombre,
+        inicioTs: new Date().toISOString(), finTs: null, estado: "",
+        contexto: { urls: [], apps: [], notas: "" },
+        implicados: [{ tipo: "equipo", nombre: currentUser }],
+        pausas: [], siguientePaso: null,
+      };
+      newState = {
+        ...newState,
+        pasos: [...newState.pasos, paso],
+        pasosActivos: [...newState.pasosActivos, paso.id],
+      };
+
+      return newState;
     }
 
     default:

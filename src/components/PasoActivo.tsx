@@ -7,6 +7,7 @@ import { generateId } from "@/lib/store";
 import type { Contexto, Implicado, UrlRef, Paso } from "@/lib/types";
 import { Timer } from "./Timer";
 import { CerrarPaso } from "./CerrarPaso";
+import { NotasSection } from "./PantallaMapa";
 
 interface CardProps {
   paso: Paso;
@@ -372,8 +373,14 @@ export function PasoActivoCard({ paso }: CardProps) {
               </div>
               <textarea value={paso.contexto.notas}
                 onChange={(e) => updateContexto({ ...paso.contexto, notas: e.target.value })}
-                placeholder="Notas..." rows={2}
+                placeholder="Notas rápidas..." rows={2}
                 className="w-full resize-none rounded border border-zinc-200 bg-white p-2 text-xs text-zinc-900 placeholder:text-zinc-400 focus:border-amber-400 focus:outline-none" />
+            </div>
+
+            {/* Notas estructuradas */}
+            <div className="space-y-1.5">
+              <p className="text-[10px] font-semibold uppercase tracking-wider text-zinc-400">Notas</p>
+              <NotasSection notas={paso.notas ?? []} nivel="paso" targetId={paso.id} />
             </div>
 
             {/* Close */}
