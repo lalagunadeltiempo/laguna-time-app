@@ -105,7 +105,7 @@ export function PlanHoy({ selectedDate }: Props) {
           finDate.setDate(finDate.getDate() + 1);
           fp = toDateKey(finDate);
         }
-        if (fp !== dateKey) continue;
+        if (fp > dateKey) continue;
         if (result.some((b) => b.id === `next-${paso.id}`)) continue;
 
         const ent = entregables.find((e) => e.id === paso.entregableId);
@@ -128,7 +128,7 @@ export function PlanHoy({ selectedDate }: Props) {
       }
 
       for (const ent of entregables) {
-        if (ent.fechaInicio !== dateKey) continue;
+        if (!ent.fechaInicio || ent.fechaInicio > dateKey) continue;
         if (ent.estado === "hecho" || ent.estado === "cancelada") continue;
         if (entregableIdsWithPasos.has(ent.id)) continue;
         if (ent.responsable && ent.responsable !== currentUser) continue;
