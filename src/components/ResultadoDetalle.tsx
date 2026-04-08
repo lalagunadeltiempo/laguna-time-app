@@ -2,6 +2,7 @@
 
 import { useState, useMemo, useRef, useEffect } from "react";
 import { useAppState, useAppDispatch } from "@/lib/context";
+import { useIsMentor } from "@/lib/usuario";
 import { formatMin, minutosPaso } from "@/lib/utils";
 import { ModalConfirm } from "./ModalConfirm";
 import type { Paso } from "@/lib/types";
@@ -21,6 +22,7 @@ const ESTADO_DOT: Record<string, string> = {
 export function ResultadoDetalle({ resultadoId, onBack }: Props) {
   const state = useAppState();
   const dispatch = useAppDispatch();
+  const isMentor = useIsMentor();
   const [deleteTarget, setDeleteTarget] = useState<{ id: string; nombre: string } | null>(null);
 
   const data = useMemo(() => {
@@ -47,6 +49,7 @@ export function ResultadoDetalle({ resultadoId, onBack }: Props) {
     return { resultado, proyecto, entregables, totalMin, totalDias, doneDias, primerPaso };
   }, [state, resultadoId]);
 
+  if (isMentor) return <div className="p-8 text-center text-muted">Vista no disponible para mentor.</div>;
   if (!data) return <div className="p-6"><button onClick={onBack} className="text-sm text-zinc-500">← Volver</button><p className="mt-4 text-zinc-400">Resultado no encontrado</p></div>;
 
   const { resultado, proyecto, entregables, totalMin, totalDias, doneDias, primerPaso } = data;

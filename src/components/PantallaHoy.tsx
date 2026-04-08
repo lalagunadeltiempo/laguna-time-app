@@ -4,13 +4,14 @@ import { useState, useMemo } from "react";
 import { useAppState, useAppDispatch } from "@/lib/context";
 import { usePasosActivos } from "@/lib/hooks";
 import { generateId } from "@/lib/store";
-import { useUsuario } from "@/lib/usuario";
+import { useUsuario, useIsMentor } from "@/lib/usuario";
 import type { InboxItem } from "@/lib/types";
 import { PasoActivoCard } from "./PasoActivo";
 import { NuevoPaso } from "./NuevoPaso";
 import { VistaInbox } from "./VistaInbox";
 
 export function PantallaHoy() {
+  const isMentor = useIsMentor();
   const { nombre: currentUser } = useUsuario();
   const state = useAppState();
   const dispatch = useAppDispatch();
@@ -19,6 +20,8 @@ export function PantallaHoy() {
   const [showInbox, setShowInbox] = useState(false);
   const [showEndOfDay, setShowEndOfDay] = useState(false);
   const [quickCapture, setQuickCapture] = useState("");
+
+  if (isMentor) return <div className="p-8 text-center text-muted">Vista no disponible para mentor.</div>;
 
   const pendingInbox = useMemo(() => state.inbox.filter((i) => !i.procesado).length, [state.inbox]);
   const isEmpty = pasosActivos.length === 0;

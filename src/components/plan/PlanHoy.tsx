@@ -178,6 +178,7 @@ export function PlanHoy({ selectedDate }: Props) {
   }
 
   function materializeSOP(sop: ProjectedSOP) {
+    if (isMentor) return;
     dispatch({
       type: "MATERIALIZE_SOP",
       plantillaId: sop.plantillaId,
@@ -238,7 +239,7 @@ export function PlanHoy({ selectedDate }: Props) {
               );
             })}
 
-            {virtualSOPs.map((sop) => {
+            {!isMentor && virtualSOPs.map((sop) => {
               const sopHex = AREA_COLORS[sop.area]?.hex ?? "#888";
               return (
                 <button key={sop.plantillaId} type="button" onClick={() => setConfirmSOP(sop)}

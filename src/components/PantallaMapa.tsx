@@ -129,10 +129,10 @@ export function PantallaMapa({ onOpenDetalle }: Props) {
           </div>
         )}
 
-        <AmbitoHeader
-          value={state.ambitoLabels.empresa}
-          onChange={isMentor ? () => {} : (v) => dispatch({ type: "SET_AMBITO_LABELS", labels: { empresa: v } })}
-        />
+        {isMentor
+          ? <h1 className="mb-8 text-3xl font-bold tracking-tight text-foreground">{state.ambitoLabels.empresa}</h1>
+          : <AmbitoHeader value={state.ambitoLabels.empresa} onChange={(v) => dispatch({ type: "SET_AMBITO_LABELS", labels: { empresa: v } })} />
+        }
         {EMPRESA_ORDER.map((id) => <AreaSection key={id} areaId={id} />)}
 
         {!isMentor && (
