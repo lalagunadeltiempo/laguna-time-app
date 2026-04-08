@@ -54,7 +54,24 @@ function buildRuta(state: AppState, opts: { pasoId?: string; entregableId?: stri
   return [proj, res, ent, paso].filter(Boolean).join(" → ");
 }
 
-function actionToLog(action: Action, userName: string, state: AppState): { action: string; descripcion: string; detalle?: string; ruta?: string; entregableId?: string; pasoId?: string; proyectoId?: string } | null {
+function targetName(state: AppState, nivel: string, targetId: string): string {
+  if (nivel === "paso") { const p = state.pasos.find((x) => x.id === targetId); return p ? `"${p.nombre}"` : ""; }
+  if (nivel === "entregable") { const e = state.entregables.find((x) => x.id === targetId); return e ? `"${e.nombre}"` : ""; }
+  if (nivel === "resultado") { const r = state.resultados.find((x) => x.id === targetId); return r ? `"${r.nombre}"` : ""; }
+  if (nivel === "proyecto") { const p = state.proyectos.find((x) => x.id === targetId); return p ? `"${p.nombre}"` : ""; }
+  return "";
+}
+
+function collectPasoNotas(state: AppState, pasoId: string): string {
+  const p = state.pasos.find((x) => x.id === pasoId);
+  if (!p) return "";
+  const parts: string[] = [];
+  if (p.contexto.notas) parts.push(p.contexto.notas);
+  for (const n of p.notas ?? []) parts.push(`[${n.autor}] ${n.texto}`);
+  return parts.join("\n");
+}
+
+function actionToLog(action: Action, _userName: string, state: AppState): { action: string; descripcion: string; detalle?: string; ruta?: string; entregableId?: string; pasoId?: string; proyectoId?: string } | null {
   switch (action.type) {
     case "START_PASO": {
       const ruta = buildRuta(state, { entregableId: action.payload.entregableId });
@@ -62,7 +79,8 @@ function actionToLog(action: Action, userName: string, state: AppState): { actio
     }
     case "CLOSE_PASO": {
       const ruta = buildRuta(state, { entregableId: action.payload.entregableId });
-      return { action: "close_paso", descripcion: `Paso dado "${action.payload.nombre}"`, ruta, entregableId: action.payload.entregableId, pasoId: action.payload.id };
+      const detalle = collectPasoNotas(state, action.payload.id);
+      return { action: "close_paso", descripcion: `Paso dado "${action.payload.nombre}"`, detalle: detalle || undefined, ruta, entregableId: action.payload.entregableId, pasoId: action.payload.id };
     }
     case "ADD_ENTREGABLE": {
       const ruta = buildRuta(state, { entregableId: action.payload.id });
@@ -79,12 +97,14 @@ function actionToLog(action: Action, userName: string, state: AppState): { actio
       return { action: "convert_to_sop", descripcion: `Entregable convertido en SOP`, ruta, entregableId: action.entregableId };
     }
     case "ADD_NOTA": {
+      const name = targetName(state, action.nivel, action.targetId);
       const ruta = buildRuta(state, { pasoId: action.nivel === "paso" ? action.targetId : undefined, entregableId: action.nivel === "entregable" ? action.targetId : undefined, proyectoId: action.nivel === "proyecto" ? action.targetId : undefined });
-      return { action: "add_nota", descripcion: `Nota en ${action.nivel}`, detalle: action.nota.texto, ruta, pasoId: action.nivel === "paso" ? action.targetId : undefined, entregableId: action.nivel === "entregable" ? action.targetId : undefined };
+      return { action: "add_nota", descripcion: `Nota en ${action.nivel} ${name}`, detalle: action.nota.texto, ruta, pasoId: action.nivel === "paso" ? action.targetId : undefined, entregableId: action.nivel === "entregable" ? action.targetId : undefined };
     }
     case "MATERIALIZE_SOP": {
       const pl = state.plantillas.find((p) => p.id === action.plantillaId);
-      return { action: "start_sop", descripcion: `SOP iniciado "${pl?.nombre ?? action.plantillaId}"` };
+      const areaLabel = pl?.area ? pl.area.charAt(0).toUpperCase() + pl.area.slice(1) : "";
+      return { action: "start_sop", descripcion: `SOP iniciado "${pl?.nombre ?? action.plantillaId}"`, ruta: areaLabel };
     }
     case "PAUSE_PASO": {
       const p = state.pasos.find((x) => x.id === action.id);

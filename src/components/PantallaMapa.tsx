@@ -739,10 +739,13 @@ function EntregableBlock({ entregable, index, total }: { entregable: Entregable;
 function PasoLine({ paso, index, total, isEmpresa, entResponsable }: { paso: Paso; index: number; total: number; isEmpresa: boolean; entResponsable?: string }) {
   const dispatch = useAppDispatch();
   const isMentor = useIsMentor();
-  const [showDetail, setShowDetail] = useState(false);
   const [showNotas, setShowNotas] = useState(false);
+  const [confirmDel, setConfirmDel] = useState(false);
   const done = !!paso.finTs;
-  const notasCount = (paso.notas ?? []).length;
+  const allNotas = paso.notas ?? [];
+  const hasContextoNotas = !!paso.contexto.notas;
+  const notasCount = allNotas.length + (hasContextoNotas ? 1 : 0);
+  const hasUrls = paso.contexto.urls.length > 0;
 
   return (
     <div className="mb-1">
@@ -762,34 +765,42 @@ function PasoLine({ paso, index, total, isEmpresa, entResponsable }: { paso: Pas
           </span>
         )}
         <NotasIcon count={notasCount} onClick={() => setShowNotas(!showNotas)} />
-        <button onClick={() => setShowDetail(!showDetail)}
-          className="flex h-8 w-8 items-center justify-center rounded-lg text-muted opacity-40 hover:bg-surface-hover hover:text-foreground sm:opacity-0 group-hover/row:opacity-100">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-            <circle cx="12" cy="12" r="1.5" /><circle cx="19" cy="12" r="1.5" /><circle cx="5" cy="12" r="1.5" />
-          </svg>
-        </button>
-        {!isMentor && <DeleteBtn onDelete={() => dispatch({ type: "DELETE_PASO", id: paso.id })} />}
+        {hasUrls && (
+          <button onClick={() => setShowNotas(!showNotas)}
+            className="flex h-7 items-center gap-0.5 rounded-md px-1.5 text-xs text-accent hover:bg-accent-soft" title="Ver enlaces">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+              <path d="M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71" /><path d="M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71" />
+            </svg>
+          </button>
+        )}
+        {!isMentor && <DeleteBtn onDelete={() => setConfirmDel(true)} />}
       </div>
 
-      {showNotas && (
-        <div className="ml-12 mt-1 mb-2">
-          <NotasSection notas={paso.notas ?? []} nivel="paso" targetId={paso.id} />
-        </div>
+      {confirmDel && (
+        <ConfirmDelete label={paso.nombre}
+          onConfirm={() => { dispatch({ type: "DELETE_PASO", id: paso.id }); setConfirmDel(false); }}
+          onCancel={() => setConfirmDel(false)} />
       )}
 
-      {showDetail && (
-        <div className="ml-12 mt-1 rounded-xl bg-surface p-4 text-sm text-muted">
-          {paso.contexto.notas && <p className="mb-2">{paso.contexto.notas}</p>}
-          {paso.contexto.urls.length > 0 && (
-            <div className="space-y-1">
+      {showNotas && (
+        <div className="ml-12 mt-1 mb-2 space-y-2">
+          {hasContextoNotas && (
+            <div className="rounded-lg bg-surface/50 px-3 py-2">
+              <p className="text-xs text-foreground whitespace-pre-wrap">{paso.contexto.notas}</p>
+              <p className="mt-0.5 text-[10px] text-muted italic">Nota de contexto</p>
+            </div>
+          )}
+          <NotasSection notas={allNotas} nivel="paso" targetId={paso.id} />
+          {hasUrls && (
+            <div className="space-y-1 rounded-lg bg-surface/30 px-3 py-2">
+              <p className="text-[10px] font-medium uppercase tracking-wider text-muted">Enlaces</p>
               {paso.contexto.urls.map((u, i) => (
-                <a key={i} href={u.url} target="_blank" rel="noopener noreferrer" className="block truncate text-accent underline hover:text-accent/80">
+                <a key={i} href={u.url} target="_blank" rel="noopener noreferrer" className="block truncate text-xs text-accent underline hover:text-accent/80">
                   {u.nombre || u.url}
                 </a>
               ))}
             </div>
           )}
-          {!paso.contexto.notas && paso.contexto.urls.length === 0 && <p className="italic">Sin notas ni enlaces</p>}
         </div>
       )}
     </div>
@@ -1054,6 +1065,7 @@ export function NotasSection({ notas, nivel, targetId }: { notas: Nota[]; nivel:
   const { nombre: currentUser } = useUsuario();
   const [draft, setDraft] = useState("");
   const [showForm, setShowForm] = useState(false);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
 
   function addNota() {
     const t = draft.trim();
@@ -1073,10 +1085,19 @@ export function NotasSection({ notas, nivel, targetId }: { notas: Nota[]; nivel:
               {n.autor} · {new Date(n.creadoTs).toLocaleDateString("es-ES", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}
             </p>
           </div>
-          <button onClick={() => dispatch({ type: "DELETE_NOTA", nivel, targetId, notaId: n.id })}
-            className="shrink-0 text-muted opacity-40 hover:text-red-500 hover:opacity-100" title="Borrar nota">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
-          </button>
+          {confirmDeleteId === n.id ? (
+            <div className="flex shrink-0 items-center gap-1">
+              <button onClick={() => { dispatch({ type: "DELETE_NOTA", nivel, targetId, notaId: n.id }); setConfirmDeleteId(null); }}
+                className="rounded bg-red-500 px-2 py-0.5 text-[10px] font-medium text-white hover:bg-red-600">Sí</button>
+              <button onClick={() => setConfirmDeleteId(null)}
+                className="rounded border border-border px-2 py-0.5 text-[10px] text-muted hover:bg-surface">No</button>
+            </div>
+          ) : (
+            <button onClick={() => setConfirmDeleteId(n.id)}
+              className="shrink-0 text-muted opacity-40 hover:text-red-500 hover:opacity-100" title="Borrar nota">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
+            </button>
+          )}
         </div>
       ))}
       {showForm ? (

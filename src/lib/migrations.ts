@@ -3,7 +3,7 @@ import type { AppState } from "./types";
 import { buildSeedSOPs } from "./seed-sops";
 import { buildPersonalSeedData } from "./seed-personal";
 
-export const CURRENT_MIGRATION = 10;
+export const CURRENT_MIGRATION = 11;
 
 type Dispatch = (action: Action) => void;
 
@@ -13,6 +13,10 @@ export function runMigrations(state: AppState, dispatch: Dispatch): void {
   if (version < 10) {
     migrationSeedPersonal(state, dispatch);
     syncMissingSOPs(state, dispatch);
+  }
+
+  if (version < 11) {
+    migrateContextoNotasToPasoNotas(state, dispatch);
   }
 
   if (version < CURRENT_MIGRATION) {
@@ -32,5 +36,26 @@ function syncMissingSOPs(state: AppState, dispatch: Dispatch): void {
   const missing = buildSeedSOPs().filter((s) => !existingNames.has(s.nombre));
   if (missing.length > 0) {
     dispatch({ type: "IMPORT_PLANTILLAS", plantillas: missing });
+  }
+}
+
+function migrateContextoNotasToPasoNotas(state: AppState, dispatch: Dispatch): void {
+  for (const paso of state.pasos) {
+    if (paso.contexto.notas && paso.contexto.notas.trim()) {
+      const alreadyMigrated = (paso.notas ?? []).some((n) => n.texto === paso.contexto.notas);
+      if (!alreadyMigrated) {
+        dispatch({
+          type: "ADD_NOTA",
+          nivel: "paso",
+          targetId: paso.id,
+          nota: {
+            id: `migrated-${paso.id}`,
+            texto: paso.contexto.notas,
+            autor: "Sistema",
+            creadoTs: paso.inicioTs ?? new Date().toISOString(),
+          },
+        });
+      }
+    }
   }
 }

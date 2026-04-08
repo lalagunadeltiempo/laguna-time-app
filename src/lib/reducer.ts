@@ -14,6 +14,12 @@ import type {
   AmbitoLabels,
   ActivityEntry,
 } from "./types";
+import { AREAS_EMPRESA, AREAS_PERSONAL } from "./types";
+
+function areaLabelFor(area: Area): string {
+  const all = [...AREAS_EMPRESA, ...AREAS_PERSONAL];
+  return all.find((a) => a.id === area)?.label ?? area.charAt(0).toUpperCase() + area.slice(1);
+}
 
 export type Action =
   | { type: "INIT"; state: AppState }
@@ -588,6 +594,8 @@ export function reducer(state: AppState, action: Action): AppState {
       let newState = { ...state };
       let resultadoId: string | null = null;
 
+      const sopLabel = areaLabelFor(area);
+
       if (plantilla.proyectoId) {
         const existingRes = newState.resultados.find((r) => r.proyectoId === plantilla.proyectoId);
         resultadoId = existingRes?.id ?? null;
@@ -596,7 +604,7 @@ export function reducer(state: AppState, action: Action): AppState {
           newState = {
             ...newState,
             resultados: [...newState.resultados, {
-              id: resultadoId, nombre: "Procesos", descripcion: null,
+              id: resultadoId, nombre: `Procesos ${sopLabel}`, descripcion: null,
               proyectoId: plantilla.proyectoId, creado: new Date().toISOString(),
               semana: null, fechaLimite: null, fechaInicio: null, diasEstimados: null,
             }],
@@ -606,7 +614,7 @@ export function reducer(state: AppState, action: Action): AppState {
         let proj = newState.proyectos.find((p) => p.area === area);
         if (!proj) {
           const newProj: Proyecto = {
-            id: ids.proyecto, nombre: `Procesos ${area}`,
+            id: ids.proyecto, nombre: `Procesos ${sopLabel}`,
             descripcion: null, area, creado: new Date().toISOString(), fechaInicio: null,
           };
           newState = { ...newState, proyectos: [...newState.proyectos, newProj] };
@@ -619,7 +627,7 @@ export function reducer(state: AppState, action: Action): AppState {
           newState = {
             ...newState,
             resultados: [...newState.resultados, {
-              id: resultadoId, nombre: "Procesos", descripcion: null,
+              id: resultadoId, nombre: `Procesos ${sopLabel}`, descripcion: null,
               proyectoId: proj.id, creado: new Date().toISOString(),
               semana: null, fechaLimite: null, fechaInicio: null, diasEstimados: null,
             }],

@@ -184,54 +184,37 @@ function DaySection({ dateKey, entries, isToday }: { dateKey: string; entries: A
 }
 
 function EntryRow({ entry }: { entry: ActivityEntry }) {
-  const [expanded, setExpanded] = useState(false);
   const color = ACTION_COLORS[entry.action] ?? "#888";
   const label = ACTION_LABELS[entry.action] ?? entry.action;
-  const hasDetail = !!(entry.detalle || entry.ruta);
 
   return (
-    <div className="px-4 py-2.5">
-      <button
-        type="button"
-        onClick={() => hasDetail && setExpanded(!expanded)}
-        className={`flex w-full items-start gap-3 text-left ${hasDetail ? "cursor-pointer" : "cursor-default"}`}
-      >
+    <div className="px-4 py-3">
+      <div className="flex items-start gap-3">
         <span
-          className="mt-1 flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[10px] font-bold text-white"
+          className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[10px] font-bold text-white"
           style={{ backgroundColor: color }}
         >
           {entry.action === "close_paso" ? "✓" : entry.action === "add_nota" ? "N" : entry.action.includes("start") ? "▶" : entry.action.includes("pause") ? "⏸" : entry.action.includes("add") ? "+" : "•"}
         </span>
         <div className="flex-1 min-w-0">
-          <p className="text-sm text-foreground">{entry.descripcion}</p>
+          <p className="text-sm font-medium text-foreground">{entry.descripcion}</p>
           <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] text-muted">
             <span>{formatTime(entry.timestamp)}</span>
             <span className="font-medium" style={{ color }}>{label}</span>
             <span>{entry.userId}</span>
           </div>
-        </div>
-        {hasDetail && (
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"
-            className={`mt-1.5 shrink-0 text-muted/40 transition-transform ${expanded ? "rotate-90" : ""}`}>
-            <polyline points="9 18 15 12 9 6" />
-          </svg>
-        )}
-      </button>
-
-      {expanded && hasDetail && (
-        <div className="ml-9 mt-2 space-y-1.5 rounded-lg bg-surface/50 px-3 py-2">
           {entry.ruta && (
-            <p className="text-[11px] text-muted">
-              <span className="font-medium text-foreground/60">Ruta:</span> {entry.ruta}
+            <p className="mt-1 text-[11px] text-muted/70">
+              {entry.ruta}
             </p>
           )}
           {entry.detalle && (
-            <div className="rounded-md border border-border bg-background px-3 py-2">
-              <p className="whitespace-pre-wrap text-xs text-foreground">{entry.detalle}</p>
+            <div className="mt-1.5 rounded-md border border-border/60 bg-surface/30 px-3 py-2">
+              <p className="whitespace-pre-wrap text-xs text-foreground/80">{entry.detalle}</p>
             </div>
           )}
         </div>
-      )}
+      </div>
     </div>
   );
 }

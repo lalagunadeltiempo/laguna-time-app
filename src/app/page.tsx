@@ -263,8 +263,9 @@ function AppShell({ userId, displayName }: { userId: string; displayName: string
 
 function UsuarioWithRol({ userId, nombre, children }: { userId: string; nombre: string; children: ReactNode }) {
   const state = useAppState();
-  const member = state.miembros.find((m) => m.nombre === nombre || m.id === userId);
-  const rol: RolUsuario = (member?.rol as RolUsuario) ?? "miembro";
+  const isMentorLogin = userId === "mentor";
+  const member = isMentorLogin ? undefined : state.miembros.find((m) => m.nombre === nombre || m.id === userId);
+  const rol: RolUsuario = isMentorLogin ? "mentor" : (member?.rol as RolUsuario) ?? "miembro";
   return (
     <UsuarioContext.Provider value={{ userId, nombre, rol }}>
       {children}
