@@ -455,9 +455,6 @@ function ProyectoBlock({ proyecto, index, total }: { proyecto: Proyecto; index: 
   return (
     <div className="rounded-xl border border-border bg-background">
       <ToggleRow open={open} onToggle={() => setOpen(!open)}>
-        {!isMentor && <MoveArrows canUp={index > 0} canDown={index < total - 1}
-          onUp={() => dispatch({ type: "REORDER_PROYECTO", id: proyecto.id, direction: "up" })}
-          onDown={() => dispatch({ type: "REORDER_PROYECTO", id: proyecto.id, direction: "down" })} />}
         {isMentor
           ? <span className="text-lg font-semibold text-foreground">{proyecto.nombre}</span>
           : <EditableText value={proyecto.nombre} onChange={(v) => dispatch({ type: "RENAME_PROYECTO", id: proyecto.id, nombre: v })} className="text-lg font-semibold text-foreground" />
@@ -467,6 +464,9 @@ function ProyectoBlock({ proyecto, index, total }: { proyecto: Proyecto; index: 
         {isMentor
           ? <CommentIcon count={notasCount} onClick={() => setShowNotas(!showNotas)} />
           : <NotasIcon count={notasCount} onClick={() => setShowNotas(!showNotas)} />}
+        {!isMentor && <MoveArrows canUp={index > 0} canDown={index < total - 1}
+          onUp={() => dispatch({ type: "REORDER_PROYECTO", id: proyecto.id, direction: "up" })}
+          onDown={() => dispatch({ type: "REORDER_PROYECTO", id: proyecto.id, direction: "down" })} />}
         {!isMentor && <DeleteBtn onDelete={() => setConfirm(true)} />}
       </ToggleRow>
 
@@ -536,9 +536,6 @@ function ResultadoBlock({ resultado, index, total }: { resultado: Resultado; ind
   return (
     <div className="rounded-xl border border-border/50 bg-surface/30">
       <ToggleRow open={open} onToggle={() => setOpen(!open)}>
-        {!isMentor && <MoveArrows canUp={index > 0} canDown={index < total - 1}
-          onUp={() => dispatch({ type: "REORDER_RESULTADO", id: resultado.id, direction: "up" })}
-          onDown={() => dispatch({ type: "REORDER_RESULTADO", id: resultado.id, direction: "down" })} />}
         {isMentor
           ? <span className="text-base font-medium text-foreground">{resultado.nombre}</span>
           : <EditableText value={resultado.nombre} onChange={(v) => dispatch({ type: "RENAME_RESULTADO", id: resultado.id, nombre: v })} className="text-base font-medium text-foreground" />
@@ -554,6 +551,9 @@ function ResultadoBlock({ resultado, index, total }: { resultado: Resultado; ind
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M5 12h14M12 5l7 7-7 7" /></svg>
           </button>
         )}
+        {!isMentor && <MoveArrows canUp={index > 0} canDown={index < total - 1}
+          onUp={() => dispatch({ type: "REORDER_RESULTADO", id: resultado.id, direction: "up" })}
+          onDown={() => dispatch({ type: "REORDER_RESULTADO", id: resultado.id, direction: "down" })} />}
         {!isMentor && <DeleteBtn onDelete={() => setConfirm(true)} />}
       </ToggleRow>
 
@@ -673,9 +673,6 @@ function EntregableBlock({ entregable, index, total }: { entregable: Entregable;
   return (
     <div>
       <ToggleRow open={open} onToggle={() => setOpen(!open)}>
-        {!isMentor && <MoveArrows canUp={index > 0} canDown={index < total - 1}
-          onUp={() => dispatch({ type: "REORDER_ENTREGABLE", id: entregable.id, direction: "up" })}
-          onDown={() => dispatch({ type: "REORDER_ENTREGABLE", id: entregable.id, direction: "down" })} />}
         <span className={`h-3 w-3 shrink-0 rounded-full ${dotColor}`} />
         {isMentor
           ? <span className="text-sm text-foreground">{entregable.nombre}</span>
@@ -712,6 +709,9 @@ function EntregableBlock({ entregable, index, total }: { entregable: Entregable;
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M5 12h14M12 5l7 7-7 7" /></svg>
           </button>
         )}
+        {!isMentor && <MoveArrows canUp={index > 0} canDown={index < total - 1}
+          onUp={() => dispatch({ type: "REORDER_ENTREGABLE", id: entregable.id, direction: "up" })}
+          onDown={() => dispatch({ type: "REORDER_ENTREGABLE", id: entregable.id, direction: "down" })} />}
         {!isMentor && <DeleteBtn onDelete={() => setConfirm(true)} />}
       </ToggleRow>
 
@@ -796,9 +796,6 @@ function PasoLine({ paso, index, total, isEmpresa, entResponsable }: { paso: Pas
   return (
     <div className="mb-1">
       <div className="group/row flex min-h-[44px] items-center gap-2 rounded-lg px-3 py-2 hover:bg-surface">
-        {!isMentor && <MoveArrows canUp={index > 0} canDown={index < total - 1}
-          onUp={() => dispatch({ type: "REORDER_PASO", id: paso.id, direction: "up" })}
-          onDown={() => dispatch({ type: "REORDER_PASO", id: paso.id, direction: "down" })} />}
         <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${done ? "bg-green-500" : "bg-border"}`} />
         {isMentor
           ? <span className={`text-sm ${done ? "text-muted line-through" : "text-foreground"}`}>{paso.nombre}</span>
@@ -821,6 +818,9 @@ function PasoLine({ paso, index, total, isEmpresa, entResponsable }: { paso: Pas
             </svg>
           </button>
         )}
+        {!isMentor && <MoveArrows canUp={index > 0} canDown={index < total - 1}
+          onUp={() => dispatch({ type: "REORDER_PASO", id: paso.id, direction: "up" })}
+          onDown={() => dispatch({ type: "REORDER_PASO", id: paso.id, direction: "down" })} />}
         {!isMentor && <DeleteBtn onDelete={() => setConfirmDel(true)} />}
       </div>
 
@@ -1011,9 +1011,6 @@ function SOPBlock({ sop, index, total }: { sop: PlantillaProceso; index: number;
   return (
     <div className="rounded-xl border bg-background" style={{ borderColor: (AREA_COLORS[sop.area]?.hex ?? "#888") + "40" }}>
       <ToggleRow open={open} onToggle={() => setOpen(!open)}>
-        {!isMentor && <MoveArrows canUp={index > 0} canDown={index < total - 1}
-          onUp={() => dispatch({ type: "REORDER_PLANTILLA", id: sop.id, direction: "up" })}
-          onDown={() => dispatch({ type: "REORDER_PLANTILLA", id: sop.id, direction: "down" })} />}
         <span className="h-3 w-3 shrink-0 rounded-full" style={{ backgroundColor: AREA_COLORS[sop.area]?.hex ?? "#888" }} />
         {isMentor
           ? <span className="text-base font-medium text-foreground">{sop.nombre}</span>
@@ -1035,6 +1032,9 @@ function SOPBlock({ sop, index, total }: { sop: PlantillaProceso; index: number;
           </button>
         )}
         <CommentIcon onClick={() => setShowNotas(!showNotas)} />
+        {!isMentor && <MoveArrows canUp={index > 0} canDown={index < total - 1}
+          onUp={() => dispatch({ type: "REORDER_PLANTILLA", id: sop.id, direction: "up" })}
+          onDown={() => dispatch({ type: "REORDER_PLANTILLA", id: sop.id, direction: "down" })} />}
         {!isMentor && <DeleteBtn onDelete={() => setConfirm(true)} />}
       </ToggleRow>
 
