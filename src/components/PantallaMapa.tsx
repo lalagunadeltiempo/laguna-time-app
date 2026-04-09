@@ -305,6 +305,7 @@ function DeleteBtn({ onDelete }: { onDelete: () => void }) {
    ============================================================ */
 
 function ToggleRow({ open, onToggle, children }: { open: boolean; onToggle: () => void; children: React.ReactNode }) {
+  void open;
   return (
     <div
       onClick={onToggle}
@@ -313,10 +314,6 @@ function ToggleRow({ open, onToggle, children }: { open: boolean; onToggle: () =
       tabIndex={0}
       onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") onToggle(); }}
     >
-      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"
-        className={`shrink-0 text-muted transition-transform ${open ? "rotate-90" : ""}`}>
-        <polyline points="9 6 15 12 9 18" />
-      </svg>
       {children}
     </div>
   );
