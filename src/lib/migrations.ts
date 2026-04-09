@@ -2,8 +2,9 @@ import type { Action } from "./reducer";
 import type { AppState } from "./types";
 import { buildSeedSOPs } from "./seed-sops";
 import { buildPersonalSeedData } from "./seed-personal";
+import { buildEmpresaSeedProyectos } from "./seed-proyectos-empresa";
 
-export const CURRENT_MIGRATION = 11;
+export const CURRENT_MIGRATION = 12;
 
 type Dispatch = (action: Action) => void;
 
@@ -17,6 +18,10 @@ export function runMigrations(state: AppState, dispatch: Dispatch): void {
 
   if (version < 11) {
     migrateContextoNotasToPasoNotas(state, dispatch);
+  }
+
+  if (version < 12) {
+    seedEmpresaProyectos(state, dispatch);
   }
 
   if (version < CURRENT_MIGRATION) {
@@ -36,6 +41,14 @@ function syncMissingSOPs(state: AppState, dispatch: Dispatch): void {
   const missing = buildSeedSOPs().filter((s) => !existingNames.has(s.nombre));
   if (missing.length > 0) {
     dispatch({ type: "IMPORT_PLANTILLAS", plantillas: missing });
+  }
+}
+
+function seedEmpresaProyectos(state: AppState, dispatch: Dispatch): void {
+  const existingNames = new Set(state.proyectos.map((p) => p.nombre));
+  const nuevos = buildEmpresaSeedProyectos().filter((p) => !existingNames.has(p.nombre));
+  if (nuevos.length > 0) {
+    dispatch({ type: "IMPORT_DATA", proyectos: nuevos, resultados: [], entregables: [] });
   }
 }
 
