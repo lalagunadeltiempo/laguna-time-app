@@ -264,14 +264,14 @@ export function PantallaMapa({ onOpenDetalle }: Props) {
 
 function MoveArrows({ canUp, canDown, onUp, onDown }: { canUp: boolean; canDown: boolean; onUp: () => void; onDown: () => void }) {
   return (
-    <span className="inline-flex flex-col gap-0.5 opacity-40 transition-opacity group-hover/row:opacity-100 sm:opacity-0">
+    <span className="inline-flex items-center gap-0.5">
       <button onClick={(e) => { e.stopPropagation(); onUp(); }} disabled={!canUp}
-        className="flex h-7 w-7 items-center justify-center rounded-md hover:bg-surface-hover disabled:invisible" aria-label="Subir">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round"><polyline points="18 15 12 9 6 15" /></svg>
+        className="flex h-6 w-6 items-center justify-center rounded text-muted transition-colors hover:bg-surface-hover hover:text-foreground disabled:opacity-20" aria-label="Subir">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><polyline points="18 15 12 9 6 15" /></svg>
       </button>
       <button onClick={(e) => { e.stopPropagation(); onDown(); }} disabled={!canDown}
-        className="flex h-7 w-7 items-center justify-center rounded-md hover:bg-surface-hover disabled:invisible" aria-label="Bajar">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round"><polyline points="6 9 12 15 18 9" /></svg>
+        className="flex h-6 w-6 items-center justify-center rounded text-muted transition-colors hover:bg-surface-hover hover:text-foreground disabled:opacity-20" aria-label="Bajar">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><polyline points="6 9 12 15 18 9" /></svg>
       </button>
     </span>
   );
@@ -510,6 +510,7 @@ function ProyectoBlock({ proyecto, index, total }: { proyecto: Proyecto; index: 
   const [confirm, setConfirm] = useState(false);
   const [showNotas, setShowNotas] = useState(false);
   const [showDatePicker, setShowDatePicker] = useState(false);
+  const [showMoveArea, setShowMoveArea] = useState(false);
   const isEmpresa = ambitoDeArea(proyecto.area) === "empresa";
 
   const allResultados = state.resultados.filter((r) => r.proyectoId === proyecto.id);
@@ -546,11 +547,35 @@ function ProyectoBlock({ proyecto, index, total }: { proyecto: Proyecto; index: 
             </svg>
           </button>
         )}
+        {!isMentor && (
+          <button onClick={(e) => { e.stopPropagation(); setShowMoveArea(!showMoveArea); }}
+            className="flex h-6 items-center gap-0.5 rounded px-1.5 text-[10px] text-muted transition-colors hover:bg-surface hover:text-foreground" title="Mover a otra área">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M5 12h14M12 5l7 7-7 7" /></svg>
+          </button>
+        )}
         {!isMentor && <MoveArrows canUp={index > 0} canDown={index < total - 1}
           onUp={() => dispatch({ type: "REORDER_PROYECTO", id: proyecto.id, direction: "up" })}
           onDown={() => dispatch({ type: "REORDER_PROYECTO", id: proyecto.id, direction: "down" })} />}
         {!isMentor && <DeleteBtn onDelete={() => setConfirm(true)} />}
       </ToggleRow>
+
+      {showMoveArea && (
+        <div className="mx-5 mb-3 ml-14 rounded-lg border border-border bg-surface/50 p-3">
+          <p className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-muted">Mover a área:</p>
+          <div className="flex flex-wrap gap-1.5">
+            {[...AREAS_EMPRESA, ...AREAS_PERSONAL].filter((a) => a.id !== proyecto.area).map((a) => {
+              const hex = AREA_COLORS[a.id]?.hex ?? "#888";
+              return (
+                <button key={a.id} onClick={() => { dispatch({ type: "UPDATE_PROYECTO", id: proyecto.id, changes: { area: a.id } }); setShowMoveArea(false); }}
+                  className="rounded-md border px-2.5 py-1 text-[11px] font-medium transition-colors hover:brightness-95"
+                  style={{ borderColor: hex + "40", backgroundColor: hex + "12", color: hex }}>
+                  {a.label}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {showDatePicker && (
         <PlanPicker onSelect={handlePlanSelect} onCancel={() => setShowDatePicker(false)} showDayLevel={false} />
@@ -653,7 +678,7 @@ function ResultadoBlock({ resultado, index, total }: { resultado: Resultado; ind
         )}
         {!isMentor && (
           <button onClick={(e) => { e.stopPropagation(); setShowMove(!showMove); }}
-            className="flex h-7 items-center gap-0.5 rounded-md px-1.5 text-[10px] text-muted opacity-50 hover:bg-surface hover:opacity-100 sm:opacity-0 group-hover/row:opacity-100" title="Mover a otro proyecto">
+            className="flex h-6 items-center gap-0.5 rounded px-1.5 text-[10px] text-muted transition-colors hover:bg-surface hover:text-foreground" title="Mover a otro proyecto">
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M5 12h14M12 5l7 7-7 7" /></svg>
           </button>
         )}
@@ -790,7 +815,7 @@ function EntregableBlock({ entregable, index, total }: { entregable: Entregable;
 
         {!isMentor && (
           <button onClick={(e) => { e.stopPropagation(); setShowMove(!showMove); }}
-            className="flex h-7 items-center gap-0.5 rounded-md px-1.5 text-[10px] text-muted opacity-50 hover:bg-surface hover:opacity-100 sm:opacity-0 group-hover/row:opacity-100" title="Mover a otro resultado">
+            className="flex h-6 items-center gap-0.5 rounded px-1.5 text-[10px] text-muted transition-colors hover:bg-surface hover:text-foreground" title="Mover a otro resultado">
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M5 12h14M12 5l7 7-7 7" /></svg>
           </button>
         )}

@@ -240,7 +240,7 @@ export function markCloudLoadOk(): void {
 }
 
 export function saveStateCloud(userId: string, state: AppState): void {
-  if (userId === "local" || userId === "mentor") return;
+  if (userId === "local") return;
   if (!_cloudLoadedOk) return;
   const supabase = getSupabase();
   if (!supabase) return;
