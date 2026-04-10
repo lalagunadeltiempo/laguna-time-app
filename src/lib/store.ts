@@ -253,15 +253,31 @@ export function saveStateCloud(userId: string, state: AppState): void {
   _pendingSave = { userId: WORKSPACE_ID, state };
 
   if (_saveTimer) clearTimeout(_saveTimer);
-  _saveTimer = setTimeout(async () => {  // 300ms debounce — fast enough to not lose data on accidental close
+  _saveTimer = setTimeout(async () => {
     const pending = _pendingSave;
     _pendingSave = null;
     _saveTimer = null;
     if (!pending) return;
 
+    let stateToSave = pending.state;
+
+    // Merge mentor reviews/notes from cloud to prevent overwrites
+    if (pending.userId === WORKSPACE_ID) {
+      try {
+        const { data: cloudRow } = await supabase
+          .from("user_data")
+          .select("state")
+          .eq("user_id", WORKSPACE_ID)
+          .single();
+        if (cloudRow?.state) {
+          stateToSave = mergeCloudReviews(stateToSave, cloudRow.state as AppState);
+        }
+      } catch { /* proceed without merge */ }
+    }
+
     try {
       const { error } = await supabase.from("user_data").upsert(
-        { user_id: WORKSPACE_ID, state: pending.state, updated_at: new Date().toISOString() },
+        { user_id: WORKSPACE_ID, state: stateToSave, updated_at: new Date().toISOString() },
         { onConflict: "user_id" },
       );
       if (error) {
@@ -272,6 +288,36 @@ export function saveStateCloud(userId: string, state: AppState): void {
     }
   }, 300);
 }
+
+/* eslint-disable @typescript-eslint/no-explicit-any */
+function mergeCloudReviews(local: AppState, cloud: AppState): AppState {
+  const merged = { ...local };
+
+  function mergeReviewField<T extends { id: string; review?: any; notas?: any[] }>(
+    localArr: T[], cloudArr: T[]
+  ): T[] {
+    return localArr.map((item) => {
+      const cloudItem = cloudArr.find((c) => c.id === item.id);
+      if (!cloudItem) return item;
+      const updates: Partial<T> = {};
+      if (cloudItem.review && !item.review) updates.review = cloudItem.review;
+      if (cloudItem.review && item.review && cloudItem.review.fecha > item.review.fecha) updates.review = cloudItem.review;
+      if (cloudItem.notas?.length) {
+        const localIds = new Set((item.notas ?? []).map((n: any) => n.id));
+        const missing = cloudItem.notas.filter((n: any) => !localIds.has(n.id));
+        if (missing.length) updates.notas = [...(item.notas ?? []), ...missing] as any;
+      }
+      return Object.keys(updates).length ? { ...item, ...updates } : item;
+    });
+  }
+
+  merged.proyectos = mergeReviewField(local.proyectos, cloud.proyectos ?? []);
+  merged.resultados = mergeReviewField(local.resultados, cloud.resultados ?? []);
+  merged.entregables = mergeReviewField(local.entregables, cloud.entregables ?? []);
+  merged.plantillas = mergeReviewField(local.plantillas, cloud.plantillas ?? []);
+  return merged;
+}
+/* eslint-enable @typescript-eslint/no-explicit-any */
 
 export function flushPendingCloudSave(): void {
   if (!_pendingSave) return;

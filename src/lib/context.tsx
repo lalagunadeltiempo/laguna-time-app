@@ -182,6 +182,7 @@ export function AppProvider({ userId, displayName, children }: ProviderProps) {
         const isMentorUser = userId === "mentor";
 
         if (isMentorUser) {
+          markCloudLoadOk();
           dispatch({ type: "INIT", state: cloudResult.data });
           runMigrations(cloudResult.data, dispatch);
           initDone.current = true;
