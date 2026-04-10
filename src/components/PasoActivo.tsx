@@ -28,8 +28,20 @@ export function PasoActivoCard({ paso }: CardProps) {
     ? state.plantillas.find((pl) => pl.id === entregable.plantillaId)
     : null;
 
+  const sopHasDiff = (() => {
+    if (!plantilla || entregable?.tipo !== "sop") return false;
+    const completed = pasosDelEntregable.filter((p) => p.finTs);
+    if (completed.length === 0) return false;
+    const completedNames = completed.map((p) => p.nombre.toLowerCase());
+    const templateNames = plantilla.pasos.map((pp) => pp.nombre.toLowerCase());
+    const relevantTemplate = templateNames.slice(0, completedNames.length);
+    if (completedNames.length > templateNames.length) return true;
+    return completedNames.some((n, i) => n !== relevantTemplate[i]);
+  })();
+
   const [expanded, setExpanded] = useState(false);
   const [showCerrar, setShowCerrar] = useState(false);
+  const [showSyncConfirm, setShowSyncConfirm] = useState(false);
   const [showAddExterno, setShowAddExterno] = useState(false);
   const [externoNombre, setExternoNombre] = useState("");
   const [newContactoEmail, setNewContactoEmail] = useState("");
@@ -239,106 +251,88 @@ export function PasoActivoCard({ paso }: CardProps) {
               <span className="text-[10px] text-zinc-400 dark:text-zinc-500">{entregable.diasHechos}/{entregable.diasEstimados}</span>
             </div>
 
-            {/* Steps of this entregable */}
+            {/* Steps of this entregable — always real pasos */}
             <div className="space-y-1">
-              <p className="text-[10px] font-semibold uppercase tracking-wider text-zinc-400 dark:text-zinc-500">
-                {plantilla ? `Checklist SOP (${plantilla.nombre})` : "Pasos de este entregable"}
-              </p>
-              {plantilla ? (
-                <div className="space-y-0.5">
-                  {plantilla.pasos.map((pp, idx) => {
-                    const realPaso = pasosDelEntregable.find((rp) => rp.nombre === pp.nombre || rp.estado === pp.nombre);
-                    const isCurrent = realPaso?.id === paso.id;
-                    const isDone = realPaso?.finTs;
-                    return (
-                      <div key={pp.id} className={`flex items-center gap-2 rounded-lg px-2 py-1.5 text-xs ${isCurrent ? "font-semibold" : ""}`}
-                        style={isCurrent ? { backgroundColor: `${borderColor}20`, color: borderColor } : undefined}>
-                        <span className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[10px] font-bold`}
-                          style={isDone ? { backgroundColor: borderColor, color: "white" } : isCurrent ? { backgroundColor: `${borderColor}30`, color: borderColor } : { backgroundColor: "#f4f4f5", color: "#a1a1aa" }}>
-                          {isDone ? "✓" : idx + 1}
+              <div className="flex items-center gap-2">
+                <p className="text-[10px] font-semibold uppercase tracking-wider text-zinc-400 dark:text-zinc-500">
+                  Pasos de este entregable
+                </p>
+                {plantilla && entregable.tipo === "sop" && (
+                  <span className="rounded-full px-2 py-0.5 text-[9px] font-medium bg-purple-100 dark:bg-purple-500/20 text-purple-600 dark:text-purple-400">
+                    SOP: {plantilla.nombre}
+                  </span>
+                )}
+              </div>
+              <div className="space-y-0.5">
+                {pasosDelEntregable.map((p) => {
+                  const isCurrent = p.id === paso.id;
+                  const isEditable = !isCurrent;
+                  return (
+                    <div key={p.id} className={`flex items-center gap-2 rounded-lg px-2 py-1.5 text-xs ${isCurrent ? "font-semibold" : ""}`}
+                      style={isCurrent ? { backgroundColor: `${borderColor}20`, color: borderColor } : undefined}>
+                      <span className="h-2 w-2 shrink-0 rounded-full"
+                        style={{ backgroundColor: p.finTs ? borderColor : isCurrent ? "#f59e0b" : "#e4e4e7" }} />
+                      {isEditable ? (
+                        <EditableText
+                          value={p.nombre}
+                          onChange={(v) => dispatch({ type: "RENAME_PASO", id: p.id, nombre: v })}
+                          className={`text-xs ${p.finTs ? "text-zinc-400 dark:text-zinc-500 line-through" : "text-zinc-600 dark:text-zinc-400"}`}
+                        />
+                      ) : (
+                        <span>{p.nombre}</span>
+                      )}
+                      {p.inicioTs && !isCurrent && (
+                        <span className="ml-auto text-[10px] text-zinc-300 dark:text-zinc-600">
+                          {new Date(p.inicioTs).toLocaleDateString("es-ES", { day: "numeric", month: "short" })}
                         </span>
-                        <span className={isDone && !isCurrent ? "text-zinc-400 line-through" : isCurrent ? "" : "text-zinc-600 dark:text-zinc-400"}>
-                          {pp.nombre}
-                        </span>
-                        {pp.minutosEstimados && <span className="ml-auto text-[10px] text-zinc-300 dark:text-zinc-600">{pp.minutosEstimados}min</span>}
-                      </div>
-                    );
-                  })}
-                </div>
-              ) : (
-                <div className="space-y-0.5">
-                  {pasosDelEntregable.map((p) => {
-                    const isCurrent = p.id === paso.id;
-                    const isEditable = !!p.finTs && !isCurrent;
-                    return (
-                      <div key={p.id} className={`flex items-center gap-2 rounded-lg px-2 py-1.5 text-xs ${isCurrent ? "font-semibold" : ""}`}
-                        style={isCurrent ? { backgroundColor: `${borderColor}20`, color: borderColor } : undefined}>
-                        <span className="h-2 w-2 shrink-0 rounded-full"
-                          style={{ backgroundColor: p.finTs ? borderColor : isCurrent ? "#f59e0b" : "#e4e4e7" }} />
-                        {isEditable ? (
-                          <EditableText
-                            value={p.nombre}
-                            onChange={(v) => dispatch({ type: "RENAME_PASO", id: p.id, nombre: v })}
-                            className="text-zinc-400 dark:text-zinc-500 line-through text-xs"
-                          />
-                        ) : (
-                          <span className={isCurrent ? "" : "text-zinc-600 dark:text-zinc-400"}>
-                            {p.nombre}
-                          </span>
-                        )}
-                        {p.inicioTs && !isCurrent && (
-                          <span className="ml-auto text-[10px] text-zinc-300 dark:text-zinc-600">
-                            {new Date(p.inicioTs).toLocaleDateString("es-ES", { day: "numeric", month: "short" })}
-                          </span>
-                        )}
-                      </div>
-                    );
-                  })}
-                  {showAddPaso ? (
-                    <div className="flex items-center gap-1 px-2 py-1">
-                      <input
-                        ref={addPasoRef}
-                        type="text"
-                        value={newPasoName}
-                        onChange={(e) => setNewPasoName(e.target.value)}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter" && newPasoName.trim()) {
-                            dispatch({ type: "ADD_PASO", payload: { id: generateId(), entregableId: entregable.id, nombre: newPasoName.trim(), inicioTs: null, finTs: null, estado: "", contexto: { urls: [], apps: [], notas: "" }, implicados: [], pausas: [], siguientePaso: null } });
-                            setNewPasoName("");
-                            addPasoRef.current?.focus();
-                          }
-                          if (e.key === "Escape") { setShowAddPaso(false); setNewPasoName(""); }
-                        }}
-                        autoFocus
-                        placeholder="Nombre del paso..."
-                        className="flex-1 rounded border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 px-1.5 py-1 text-[10px] focus:outline-none text-zinc-800 dark:text-zinc-200"
-                        style={{ borderColor: `${borderColor}60` }}
-                      />
-                      <button
-                        type="button"
-                        onClick={() => {
-                          if (newPasoName.trim()) {
-                            dispatch({ type: "ADD_PASO", payload: { id: generateId(), entregableId: entregable.id, nombre: newPasoName.trim(), inicioTs: null, finTs: null, estado: "", contexto: { urls: [], apps: [], notas: "" }, implicados: [], pausas: [], siguientePaso: null } });
-                            setNewPasoName("");
-                            addPasoRef.current?.focus();
-                          }
-                        }}
-                        className="rounded px-2 py-1 text-[10px] font-medium text-white"
-                        style={{ backgroundColor: borderColor }}
-                      >+</button>
-                      <button type="button" onClick={() => { setShowAddPaso(false); setNewPasoName(""); }}
-                        className="text-[10px] text-zinc-400 hover:text-zinc-600">✕</button>
+                      )}
                     </div>
-                  ) : (
-                    <button type="button" onClick={() => setShowAddPaso(true)}
-                      className="flex items-center gap-1 px-2 py-1 text-[10px] text-zinc-400 hover:text-zinc-600"
-                      style={{ color: `${borderColor}99` }}>
-                      <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></svg>
-                      Añadir paso
-                    </button>
-                  )}
-                </div>
-              )}
+                  );
+                })}
+                {showAddPaso ? (
+                  <div className="flex items-center gap-1 px-2 py-1">
+                    <input
+                      ref={addPasoRef}
+                      type="text"
+                      value={newPasoName}
+                      onChange={(e) => setNewPasoName(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" && newPasoName.trim()) {
+                          dispatch({ type: "ADD_PASO", payload: { id: generateId(), entregableId: entregable.id, nombre: newPasoName.trim(), inicioTs: null, finTs: null, estado: "", contexto: { urls: [], apps: [], notas: "" }, implicados: [], pausas: [], siguientePaso: null } });
+                          setNewPasoName("");
+                          addPasoRef.current?.focus();
+                        }
+                        if (e.key === "Escape") { setShowAddPaso(false); setNewPasoName(""); }
+                      }}
+                      autoFocus
+                      placeholder="Nombre del paso..."
+                      className="flex-1 rounded border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 px-1.5 py-1 text-[10px] focus:outline-none text-zinc-800 dark:text-zinc-200"
+                      style={{ borderColor: `${borderColor}60` }}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (newPasoName.trim()) {
+                          dispatch({ type: "ADD_PASO", payload: { id: generateId(), entregableId: entregable.id, nombre: newPasoName.trim(), inicioTs: null, finTs: null, estado: "", contexto: { urls: [], apps: [], notas: "" }, implicados: [], pausas: [], siguientePaso: null } });
+                          setNewPasoName("");
+                          addPasoRef.current?.focus();
+                        }
+                      }}
+                      className="rounded px-2 py-1 text-[10px] font-medium text-white"
+                      style={{ backgroundColor: borderColor }}
+                    >+</button>
+                    <button type="button" onClick={() => { setShowAddPaso(false); setNewPasoName(""); }}
+                      className="text-[10px] text-zinc-400 hover:text-zinc-600">✕</button>
+                  </div>
+                ) : (
+                  <button type="button" onClick={() => setShowAddPaso(true)}
+                    className="flex items-center gap-1 px-2 py-1 text-[10px] text-zinc-400 hover:text-zinc-600"
+                    style={{ color: `${borderColor}99` }}>
+                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></svg>
+                    Añadir paso
+                  </button>
+                )}
+              </div>
             </div>
 
             {/* Implicados — collapsible */}
@@ -482,6 +476,29 @@ export function PasoActivoCard({ paso }: CardProps) {
               <p className="text-[10px] font-semibold uppercase tracking-wider text-zinc-400 dark:text-zinc-500">Notas</p>
               <NotasSection notas={paso.notas ?? []} nivel="paso" targetId={paso.id} />
             </div>
+
+            {/* Sync SOP button */}
+            {sopHasDiff && (
+              <div className="rounded-lg border border-purple-200 dark:border-purple-700/30 bg-purple-50 dark:bg-purple-500/10 p-2.5">
+                {!showSyncConfirm ? (
+                  <button type="button" onClick={() => setShowSyncConfirm(true)}
+                    className="flex w-full items-center justify-center gap-1.5 text-xs font-medium text-purple-600 dark:text-purple-400 hover:text-purple-700">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0118.8-4.3M22 12.5a10 10 0 01-18.8 4.3" /></svg>
+                    Actualizar SOP con estas mejoras
+                  </button>
+                ) : (
+                  <div className="space-y-2">
+                    <p className="text-[10px] text-purple-700 dark:text-purple-300 text-center">Esto actualizará la plantilla &ldquo;{plantilla?.nombre}&rdquo; para futuras ejecuciones.</p>
+                    <div className="flex items-center justify-center gap-2">
+                      <button type="button" onClick={() => { dispatch({ type: "SYNC_ENTREGABLE_TO_PLANTILLA", entregableId: entregable.id }); setShowSyncConfirm(false); }}
+                        className="rounded bg-purple-500 px-3 py-1 text-xs font-medium text-white hover:bg-purple-600">Sí, actualizar SOP</button>
+                      <button type="button" onClick={() => setShowSyncConfirm(false)}
+                        className="rounded border border-zinc-200 dark:border-zinc-700 px-3 py-1 text-xs text-zinc-600 dark:text-zinc-400">Cancelar</button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* Action buttons */}
             <div className="space-y-2">

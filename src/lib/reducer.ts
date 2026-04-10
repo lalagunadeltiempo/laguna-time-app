@@ -9,6 +9,7 @@ import type {
   InboxItem,
   ContactoExterno,
   PlantillaProceso,
+  PasoPlantilla,
   MiembroInfo,
   EjecucionSOP,
   AmbitoLabels,
@@ -81,6 +82,7 @@ export type Action =
   | { type: "DELETE_NOTA"; nivel: "paso" | "entregable" | "resultado" | "proyecto" | "plantilla"; targetId: string; notaId: string }
   | { type: "UPDATE_NOTA"; nivel: "paso" | "entregable" | "resultado" | "proyecto" | "plantilla"; targetId: string; notaId: string; texto: string }
   | { type: "CONVERT_ENTREGABLE_TO_SOP"; entregableId: string }
+  | { type: "SYNC_ENTREGABLE_TO_PLANTILLA"; entregableId: string }
   | { type: "LOG_ACTIVITY"; entry: ActivityEntry }
   | { type: "MATERIALIZE_SOP"; plantillaId: string; area: Area; responsable: string; currentUser: string; dateKey: string; ids: { resultado: string; entregable: string; paso: string; proyecto: string } }
   | { type: "ADD_OBJETIVO"; payload: Objetivo }
@@ -552,6 +554,49 @@ export function reducer(state: AppState, action: Action): AppState {
         plantillas: [...state.plantillas, newPlantilla],
         entregables: state.entregables.map((e) =>
           e.id === action.entregableId ? { ...e, tipo: "sop" as const, plantillaId } : e
+        ),
+      };
+    }
+
+    case "SYNC_ENTREGABLE_TO_PLANTILLA": {
+      const syncEnt = state.entregables.find((e) => e.id === action.entregableId);
+      if (!syncEnt?.plantillaId) return state;
+      const syncPlantilla = state.plantillas.find((pl) => pl.id === syncEnt.plantillaId);
+      if (!syncPlantilla) return state;
+
+      const realPasos = state.pasos
+        .filter((p) => p.entregableId === action.entregableId && p.finTs)
+        .sort((a, b) => (a.inicioTs ?? "").localeCompare(b.inicioTs ?? ""));
+
+      if (realPasos.length === 0) return state;
+
+      const updatedPasos: PasoPlantilla[] = realPasos.map((p, i) => {
+        let mins: number | null = null;
+        if (p.inicioTs && p.finTs) {
+          const totalMs = new Date(p.finTs).getTime() - new Date(p.inicioTs).getTime();
+          const pausedMs = (p.pausas ?? []).reduce((acc, pause) => {
+            const s = new Date(pause.pauseTs).getTime();
+            const e = pause.resumeTs ? new Date(pause.resumeTs).getTime() : new Date(p.finTs!).getTime();
+            return acc + (e - s);
+          }, 0);
+          mins = Math.max(1, Math.round((totalMs - pausedMs) / 60000));
+        }
+        const existingPP = syncPlantilla.pasos.find((pp) => pp.nombre.toLowerCase() === p.nombre.toLowerCase() || pp.nombre.toLowerCase() === (p.estado || "").toLowerCase());
+        return {
+          id: existingPP?.id ?? `${syncPlantilla.id}-paso-${Date.now()}-${i}`,
+          orden: i + 1,
+          nombre: p.nombre,
+          descripcion: existingPP?.descripcion ?? "",
+          herramientas: existingPP?.herramientas ?? [],
+          tipo: existingPP?.tipo ?? ("accion" as const),
+          minutosEstimados: mins ?? existingPP?.minutosEstimados ?? null,
+        };
+      });
+
+      return {
+        ...state,
+        plantillas: state.plantillas.map((pl) =>
+          pl.id === syncEnt.plantillaId ? { ...pl, pasos: updatedPasos } : pl
         ),
       };
     }

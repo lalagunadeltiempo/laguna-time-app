@@ -129,6 +129,11 @@ function actionToLog(action: Action, _userName: string, state: AppState): { acti
       const ruta = buildRuta(state, { pasoId: action.id });
       return { action: "rename_paso", descripcion: `Paso renombrado a "${action.nombre}"`, ruta, pasoId: action.id };
     }
+    case "SYNC_ENTREGABLE_TO_PLANTILLA": {
+      const syncEnt = state.entregables.find((e) => e.id === action.entregableId);
+      const syncPl = syncEnt?.plantillaId ? state.plantillas.find((pl) => pl.id === syncEnt.plantillaId) : null;
+      return { action: "sync_sop", descripcion: `SOP "${syncPl?.nombre ?? "?"}" actualizado con mejoras del entregable`, entregableId: action.entregableId };
+    }
     default:
       return null;
   }
