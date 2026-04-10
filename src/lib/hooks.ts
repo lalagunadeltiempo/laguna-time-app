@@ -87,7 +87,7 @@ export function usePendientes(): Pendiente[] {
       }
     }
 
-    const order: Record<string, number> = { en_proceso: 0, a_futuro: 1, en_espera: 2 };
+    const order: Record<string, number> = { en_proceso: 0, planificado: 1, a_futuro: 2, en_espera: 3 };
 
     return state.entregables
       .filter((e) => e.estado !== "hecho" && e.estado !== "cancelada")

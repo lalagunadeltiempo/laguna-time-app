@@ -25,6 +25,7 @@ export const INITIAL_STATE: AppState = {
   pasosActivos: [],
   miembros: EQUIPO_DEFAULT,
   activityLog: [],
+  objetivos: [],
 };
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -123,6 +124,7 @@ function migrateV1(raw: any): AppState {
       ? raw.miembros.map((m: any) => ({ ...m, capacidadDiaria: m.capacidadDiaria ?? 1, diasLaborables: m.diasLaborables ?? [1, 2, 3, 4, 5] }))
       : EQUIPO_DEFAULT,
     activityLog: raw.activityLog ?? [],
+    objetivos: raw.objetivos ?? [],
   } as AppState;
 }
 /* eslint-enable @typescript-eslint/no-explicit-any */

@@ -52,6 +52,10 @@ export interface Nota {
   creadoTs: string;
 }
 
+export type PlanNivel = "dia" | "semana" | "mes" | "trimestre" | null;
+
+export type EstadoEntregable = "a_futuro" | "planificado" | "en_proceso" | "en_espera" | "hecho" | "cancelada";
+
 export interface Proyecto {
   id: string;
   nombre: string;
@@ -59,6 +63,8 @@ export interface Proyecto {
   area: Area;
   creado: string;
   fechaInicio: string | null;
+  fechaLimite?: string | null;
+  planNivel?: PlanNivel;
   responsable?: string;
   notas?: Nota[];
 }
@@ -73,6 +79,7 @@ export interface Resultado {
   fechaLimite: string | null;
   fechaInicio: string | null;
   diasEstimados: number | null;
+  planNivel?: PlanNivel;
   responsable?: string;
   notas?: Nota[];
 }
@@ -89,11 +96,12 @@ export interface Entregable {
   diasHechos: number;
   esDiaria: boolean;
   responsable: MiembroEquipo;
-  estado: "a_futuro" | "en_proceso" | "en_espera" | "hecho" | "cancelada";
+  estado: EstadoEntregable;
   creado: string;
   semana: string | null;
   fechaLimite: string | null;
   fechaInicio: string | null;
+  planNivel?: PlanNivel;
   notas?: Nota[];
 }
 
@@ -241,6 +249,16 @@ export interface ActivityEntry {
   ruta?: string;
 }
 
+export interface Objetivo {
+  id: string;
+  texto: string;
+  nivel: "trimestre" | "anio";
+  periodo: string;
+  area?: Area;
+  completado: boolean;
+  creado: string;
+}
+
 export interface AppState {
   ambitoLabels: AmbitoLabels;
   proyectos: Proyecto[];
@@ -254,5 +272,6 @@ export interface AppState {
   pasosActivos: string[];
   miembros: MiembroInfo[];
   activityLog: ActivityEntry[];
+  objetivos: Objetivo[];
   _migrationVersion?: number;
 }

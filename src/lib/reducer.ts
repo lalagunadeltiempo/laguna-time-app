@@ -13,6 +13,7 @@ import type {
   EjecucionSOP,
   AmbitoLabels,
   ActivityEntry,
+  Objetivo,
 } from "./types";
 import { AREAS_EMPRESA, AREAS_PERSONAL } from "./types";
 
@@ -33,10 +34,11 @@ export type Action =
   | { type: "UPDATE_PASO_CONTEXTO"; id: string; contexto: Paso["contexto"] }
   | { type: "UPDATE_PASO_IMPLICADOS"; id: string; implicados: Paso["implicados"] }
   | { type: "CLOSE_PASO"; payload: Paso }
+  | { type: "DISCARD_PASO"; id: string }
   | { type: "RENAME_PASO"; id: string; nombre: string }
   | { type: "DELETE_PASO"; id: string }
   | { type: "RENAME_ENTREGABLE"; id: string; nombre: string }
-  | { type: "UPDATE_ENTREGABLE"; id: string; changes: Partial<Pick<Entregable, "nombre" | "responsable" | "tipo" | "plantillaId" | "diasEstimados" | "estado" | "fechaLimite" | "fechaInicio">> }
+  | { type: "UPDATE_ENTREGABLE"; id: string; changes: Partial<Pick<Entregable, "nombre" | "responsable" | "tipo" | "plantillaId" | "diasEstimados" | "estado" | "fechaLimite" | "fechaInicio" | "planNivel">> }
   | { type: "DELETE_ENTREGABLE"; id: string }
   | { type: "PROMOTE_PASO_TO_ENTREGABLE"; pasoId: string; nuevoEntregableId: string }
   | { type: "PROMOTE_ENTREGABLE_TO_RESULTADO"; entregableId: string; nuevoResultadoId: string }
@@ -45,10 +47,10 @@ export type Action =
   | { type: "PROMOTE_RESULTADO"; resultadoId: string; area: Proyecto["area"]; nuevoProyectoId: string }
   | { type: "DELETE_RESULTADO"; id: string }
   | { type: "RENAME_RESULTADO"; id: string; nombre: string }
-  | { type: "UPDATE_RESULTADO"; id: string; changes: Partial<Pick<Resultado, "nombre" | "descripcion" | "semana" | "fechaLimite" | "fechaInicio" | "diasEstimados">> }
+  | { type: "UPDATE_RESULTADO"; id: string; changes: Partial<Pick<Resultado, "nombre" | "descripcion" | "semana" | "fechaLimite" | "fechaInicio" | "diasEstimados" | "planNivel">> }
   | { type: "DELETE_PROYECTO"; id: string }
   | { type: "RENAME_PROYECTO"; id: string; nombre: string }
-  | { type: "UPDATE_PROYECTO"; id: string; changes: Partial<Pick<Proyecto, "nombre" | "descripcion" | "area" | "fechaInicio">> }
+  | { type: "UPDATE_PROYECTO"; id: string; changes: Partial<Pick<Proyecto, "nombre" | "descripcion" | "area" | "fechaInicio" | "fechaLimite" | "planNivel">> }
   | { type: "IMPORT_DATA"; proyectos: Proyecto[]; resultados: Resultado[]; entregables: Entregable[] }
   | { type: "ADD_INBOX"; payload: InboxItem }
   | { type: "PROCESS_INBOX"; id: string }
@@ -77,9 +79,13 @@ export type Action =
   | { type: "REORDER_PASO"; id: string; direction: "up" | "down" }
   | { type: "ADD_NOTA"; nivel: "paso" | "entregable" | "resultado" | "proyecto" | "plantilla"; targetId: string; nota: Nota }
   | { type: "DELETE_NOTA"; nivel: "paso" | "entregable" | "resultado" | "proyecto" | "plantilla"; targetId: string; notaId: string }
+  | { type: "UPDATE_NOTA"; nivel: "paso" | "entregable" | "resultado" | "proyecto" | "plantilla"; targetId: string; notaId: string; texto: string }
   | { type: "CONVERT_ENTREGABLE_TO_SOP"; entregableId: string }
   | { type: "LOG_ACTIVITY"; entry: ActivityEntry }
-  | { type: "MATERIALIZE_SOP"; plantillaId: string; area: Area; responsable: string; currentUser: string; dateKey: string; ids: { resultado: string; entregable: string; paso: string; proyecto: string } };
+  | { type: "MATERIALIZE_SOP"; plantillaId: string; area: Area; responsable: string; currentUser: string; dateKey: string; ids: { resultado: string; entregable: string; paso: string; proyecto: string } }
+  | { type: "ADD_OBJETIVO"; payload: Objetivo }
+  | { type: "UPDATE_OBJETIVO"; id: string; changes: Partial<Pick<Objetivo, "texto" | "completado" | "area">> }
+  | { type: "DELETE_OBJETIVO"; id: string };
 
 function swapSiblings<T extends { id: string }>(
   arr: T[],
@@ -136,7 +142,7 @@ export function reducer(state: AppState, action: Action): AppState {
         ...state,
         pasos: [...state.pasos, action.payload],
         entregables: state.entregables.map((e) =>
-          e.id === action.payload.entregableId && e.estado === "a_futuro"
+          e.id === action.payload.entregableId && (e.estado === "a_futuro" || e.estado === "planificado")
             ? { ...e, estado: "en_proceso" as const }
             : e
         ),
@@ -222,6 +228,21 @@ export function reducer(state: AppState, action: Action): AppState {
           return { ...ej, pasosLanzados: Object.fromEntries(entries) };
         }),
       };
+
+    case "DISCARD_PASO": {
+      if (!state.pasos.find((p) => p.id === action.id)) return state;
+      return {
+        ...state,
+        pasos: state.pasos.map((p) => p.id === action.id ? { ...p, finTs: new Date().toISOString(), estado: "descartado", siguientePaso: { tipo: "fin" as const } } : p),
+        pasosActivos: state.pasosActivos.filter((id) => id !== action.id),
+        ejecuciones: state.ejecuciones.map((ej) => {
+          if (!ej.pasosLanzados) return ej;
+          const entries = Object.entries(ej.pasosLanzados).filter(([, v]) => v !== action.id);
+          if (entries.length === Object.keys(ej.pasosLanzados).length) return ej;
+          return { ...ej, pasosLanzados: Object.fromEntries(entries) };
+        }),
+      };
+    }
 
     // --- Entregables ---
     case "RENAME_ENTREGABLE":
@@ -555,6 +576,17 @@ export function reducer(state: AppState, action: Action): AppState {
       return state;
     }
 
+    case "UPDATE_NOTA": {
+      const { nivel: nv, targetId: tid, notaId: nid, texto } = action;
+      const mapNota = (notas: Nota[]) => notas.map((n) => n.id === nid ? { ...n, texto } : n);
+      if (nv === "paso") return { ...state, pasos: state.pasos.map((p) => p.id === tid ? { ...p, notas: mapNota(p.notas ?? []) } : p) };
+      if (nv === "entregable") return { ...state, entregables: state.entregables.map((e) => e.id === tid ? { ...e, notas: mapNota(e.notas ?? []) } : e) };
+      if (nv === "resultado") return { ...state, resultados: state.resultados.map((r) => r.id === tid ? { ...r, notas: mapNota(r.notas ?? []) } : r) };
+      if (nv === "proyecto") return { ...state, proyectos: state.proyectos.map((p) => p.id === tid ? { ...p, notas: mapNota(p.notas ?? []) } : p) };
+      if (nv === "plantilla") return { ...state, plantillas: state.plantillas.map((pl) => pl.id === tid ? { ...pl, notas: mapNota(pl.notas ?? []) } : pl) };
+      return state;
+    }
+
     // --- Activity log ---
     case "LOG_ACTIVITY":
       return { ...state, activityLog: [...state.activityLog, action.entry] };
@@ -665,6 +697,15 @@ export function reducer(state: AppState, action: Action): AppState {
 
       return newState;
     }
+
+    case "ADD_OBJETIVO":
+      return { ...state, objetivos: [...(state.objetivos ?? []), action.payload] };
+
+    case "UPDATE_OBJETIVO":
+      return { ...state, objetivos: (state.objetivos ?? []).map((o) => o.id === action.id ? { ...o, ...action.changes } : o) };
+
+    case "DELETE_OBJETIVO":
+      return { ...state, objetivos: (state.objetivos ?? []).filter((o) => o.id !== action.id) };
 
     default:
       return state;

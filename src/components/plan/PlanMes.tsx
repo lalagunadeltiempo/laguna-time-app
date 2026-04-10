@@ -77,6 +77,7 @@ function computeRAG(ent: Entregable, nowMs: number): RAG {
     if (daysLeft <= 7) return "amber";
   }
   if (ent.estado === "en_proceso") return "green";
+  if (ent.estado === "planificado") return "green";
   if (ent.estado === "a_futuro") return "amber";
   return "green";
 }
@@ -126,7 +127,7 @@ export function PlanMes({ selectedDate }: Props) {
         const dl = new Date(ent.fechaLimite + "T12:00:00");
         if (!isNaN(dl.getTime()) && dl.getTime() >= monthStart && dl.getTime() <= monthEnd) inMonth = true;
       }
-      if (!inMonth && ent.estado === "en_proceso") inMonth = true;
+      if (!inMonth && (ent.estado === "en_proceso" || ent.estado === "planificado") && !ent.fechaInicio) inMonth = true;
 
       if (!inMonth) continue;
 
@@ -138,6 +139,11 @@ export function PlanMes({ selectedDate }: Props) {
 
     for (const card of relevant) {
       if (!card.entregable.fechaInicio) {
+        noWeek.push(card);
+        continue;
+      }
+      const nivel = card.entregable.planNivel;
+      if (nivel === "mes" || nivel === "trimestre") {
         noWeek.push(card);
         continue;
       }
@@ -158,7 +164,13 @@ export function PlanMes({ selectedDate }: Props) {
   }, [state, selectedDate, filtro, weeks, nowMs]);
 
   function assignToWeek(entId: string, monday: string) {
-    dispatch({ type: "UPDATE_ENTREGABLE", id: entId, changes: { fechaInicio: monday, estado: "en_proceso" } });
+    const today = toDateKey(new Date());
+    const ent = state.entregables.find((e) => e.id === entId);
+    if (!ent) return;
+    const isCurrentWeek = monday <= today;
+    const newEstado = (ent.estado === "hecho" || ent.estado === "cancelada" || ent.estado === "en_espera")
+      ? ent.estado : isCurrentWeek ? "en_proceso" : "planificado";
+    dispatch({ type: "UPDATE_ENTREGABLE", id: entId, changes: { fechaInicio: monday, planNivel: "semana", estado: newEstado } });
   }
 
   const totalCount = Array.from(weekEntregables.values()).reduce((s, arr) => s + arr.length, 0) + unassigned.length;

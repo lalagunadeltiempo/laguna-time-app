@@ -4,6 +4,9 @@ import { useState, useRef, useEffect, useCallback, useMemo, createContext, useCo
 import { useAppState, useAppDispatch } from "@/lib/context";
 import { generateId } from "@/lib/store";
 import { useUsuario, useIsMentor } from "@/lib/usuario";
+import { NotasSection } from "./shared/NotasSection";
+import { EditableText } from "./shared/EditableText";
+export { NotasSection, EditableText };
 import {
   AREAS_PERSONAL,
   AREAS_EMPRESA,
@@ -16,15 +19,117 @@ import {
   type Resultado,
   type Entregable,
   type Paso,
-  type Nota,
   type PlantillaProceso,
   type TipoEntregable,
+  type PlanNivel,
+  type EstadoEntregable,
 } from "@/lib/types";
 
 function formatFechaInicio(f: string): string {
   const d = new Date(f + "T12:00:00");
   if (isNaN(d.getTime())) return f;
   return d.toLocaleDateString("es-ES", { day: "numeric", month: "short" });
+}
+
+const MESES_CORTOS = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"];
+
+function computeEstadoOnPlan(planNivel: PlanNivel, fechaInicio: string, currentEstado: EstadoEntregable): EstadoEntregable {
+  if (currentEstado === "hecho" || currentEstado === "cancelada" || currentEstado === "en_espera") return currentEstado;
+  if (planNivel === "trimestre") return "planificado";
+  const now = new Date();
+  const target = new Date(fechaInicio + "T12:00:00");
+  if (planNivel === "mes") {
+    const isCurrent = target.getFullYear() === now.getFullYear() && target.getMonth() === now.getMonth();
+    return isCurrent ? "en_proceso" : "planificado";
+  }
+  if (planNivel === "semana") {
+    const dow = now.getDay() || 7;
+    const monday = new Date(now); monday.setDate(now.getDate() - dow + 1); monday.setHours(0, 0, 0, 0);
+    const sunday = new Date(monday); sunday.setDate(monday.getDate() + 6); sunday.setHours(23, 59, 59);
+    return target >= monday && target <= sunday ? "en_proceso" : "planificado";
+  }
+  // dia
+  const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+  return fechaInicio <= todayStr ? "en_proceso" : "planificado";
+}
+
+function PlanPicker({ onSelect, onCancel, showDayLevel = true }: {
+  onSelect: (fechaInicio: string, planNivel: PlanNivel) => void;
+  onCancel: () => void;
+  showDayLevel?: boolean;
+}) {
+  const now = new Date();
+  const currentYear = now.getFullYear();
+  const currentMonth = now.getMonth();
+  const currentQ = Math.floor(currentMonth / 3);
+  const customDateRef = useRef<HTMLInputElement>(null);
+
+  function pad(n: number) { return String(n).padStart(2, "0"); }
+
+  function selectMonth(m: number) {
+    onSelect(`${currentYear}-${pad(m + 1)}-01`, "mes");
+  }
+  function selectQuarter(q: number) {
+    const firstMonth = q * 3;
+    onSelect(`${currentYear}-${pad(firstMonth + 1)}-01`, "trimestre");
+  }
+  function selectToday() {
+    onSelect(`${currentYear}-${pad(currentMonth + 1)}-${pad(now.getDate())}`, "dia");
+  }
+  function selectThisWeek() {
+    const dow = now.getDay() || 7;
+    const mon = new Date(now); mon.setDate(now.getDate() - dow + 1);
+    onSelect(`${mon.getFullYear()}-${pad(mon.getMonth() + 1)}-${pad(mon.getDate())}`, "semana");
+  }
+  function selectExactDate(dateStr: string) {
+    if (dateStr) onSelect(dateStr, "dia");
+  }
+
+  return (
+    <div className="ml-12 mb-2 space-y-2 px-3">
+      {showDayLevel && (
+        <div className="flex flex-wrap gap-2">
+          <button onClick={selectToday}
+            className="rounded-lg border border-accent bg-accent/10 px-3 py-1.5 text-xs font-medium text-accent hover:bg-accent/20">Hoy</button>
+          <button onClick={selectThisWeek}
+            className="rounded-lg border border-border bg-background px-3 py-1.5 text-xs font-medium text-foreground hover:border-accent hover:bg-accent-soft">Esta semana</button>
+        </div>
+      )}
+      <div>
+        <p className="mb-1 text-[10px] font-bold uppercase tracking-wider text-muted">Mes</p>
+        <div className="grid grid-cols-6 gap-1">
+          {MESES_CORTOS.map((label, i) => (
+            <button key={i} onClick={() => selectMonth(i)}
+              className={`rounded-md border px-1.5 py-1 text-[11px] font-medium transition-colors ${
+                i === currentMonth ? "border-accent bg-accent/10 text-accent" : "border-border text-foreground hover:border-accent hover:bg-accent-soft"
+              }`}>{label}</button>
+          ))}
+        </div>
+      </div>
+      <div>
+        <p className="mb-1 text-[10px] font-bold uppercase tracking-wider text-muted">Trimestre</p>
+        <div className="flex gap-1">
+          {[0, 1, 2, 3].map((q) => (
+            <button key={q} onClick={() => selectQuarter(q)}
+              className={`rounded-md border px-3 py-1 text-[11px] font-medium transition-colors ${
+                q === currentQ ? "border-accent bg-accent/10 text-accent" : "border-border text-foreground hover:border-accent hover:bg-accent-soft"
+              }`}>Q{q + 1}</button>
+          ))}
+        </div>
+      </div>
+      <div className="flex gap-2">
+        {showDayLevel && (
+          <>
+            <button onClick={() => customDateRef.current?.showPicker()}
+              className="rounded-lg border border-accent/50 bg-accent-soft px-3 py-1.5 text-xs font-medium text-accent hover:bg-accent/20">Fecha exacta...</button>
+            <input ref={customDateRef} type="date" onChange={(e) => selectExactDate(e.target.value)}
+              className="sr-only" tabIndex={-1} aria-hidden="true" />
+          </>
+        )}
+        <button onClick={onCancel} className="rounded-lg px-3 py-1.5 text-xs text-muted hover:text-foreground">Cancelar</button>
+      </div>
+    </div>
+  );
 }
 
 interface VisibleFilter {
@@ -123,9 +228,9 @@ export function PantallaMapa({ onOpenDetalle }: Props) {
           )}
         </div>
 
-        {dateFilterOn && visibleFilter && visibleFilter.proyectos.size === 0 && (
+        {dateFilterOn && visibleFilter && visibleFilter.pasos.size === 0 && (
           <div className="mb-6 rounded-lg border border-border bg-surface/50 px-4 py-6 text-center">
-            <p className="text-sm text-muted">No hay actividad registrada en este rango de fechas</p>
+            <p className="text-sm text-muted">No hay actividad registrada en este rango de fechas (los items sin actividad aparecen atenuados)</p>
           </div>
         )}
 
@@ -150,79 +255,6 @@ export function PantallaMapa({ onOpenDetalle }: Props) {
   );
 }
 
-/* ============================================================
-   EDITABLE TEXT
-   ============================================================ */
-
-function EditableText({
-  value,
-  onChange,
-  className = "",
-  placeholder = "Sin nombre",
-  multiline = false,
-  tag = "span",
-}: {
-  value: string;
-  onChange: (v: string) => void;
-  className?: string;
-  placeholder?: string;
-  multiline?: boolean;
-  tag?: "span" | "h1" | "h2" | "h3" | "p";
-}) {
-  const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState(value);
-  const ref = useRef<HTMLInputElement | HTMLTextAreaElement>(null);
-
-  useEffect(() => { if (editing) ref.current?.focus(); }, [editing]);
-
-  const save = useCallback(() => {
-    const t = draft.trim();
-    if (t && t !== value) onChange(t);
-    setEditing(false);
-  }, [draft, value, onChange]);
-
-  if (editing) {
-    const shared = `w-full rounded-lg border-2 border-accent bg-background px-3 py-2 outline-none ${className}`;
-    if (multiline) {
-      return (
-        <textarea
-          ref={ref as React.RefObject<HTMLTextAreaElement>}
-          value={draft}
-          onClick={(e) => e.stopPropagation()}
-          onChange={(e) => setDraft(e.target.value)}
-          onBlur={save}
-          onKeyDown={(e) => { if (e.key === "Escape") { setDraft(value); setEditing(false); } }}
-          rows={3}
-          className={shared}
-        />
-      );
-    }
-    return (
-      <input
-        ref={ref as React.RefObject<HTMLInputElement>}
-        value={draft}
-        onClick={(e) => e.stopPropagation()}
-        onChange={(e) => setDraft(e.target.value)}
-        onBlur={save}
-        onKeyDown={(e) => {
-          if (e.key === "Enter") save();
-          if (e.key === "Escape") { setDraft(value); setEditing(false); }
-        }}
-        className={shared}
-      />
-    );
-  }
-
-  const Tag = tag;
-  return (
-    <Tag
-      onClick={(e: React.MouseEvent) => { e.stopPropagation(); setDraft(value); setEditing(true); }}
-      className={`cursor-text rounded-lg px-3 py-1 transition-colors hover:bg-accent-soft ${className}`}
-    >
-      {value || <span className="italic text-muted">{placeholder}</span>}
-    </Tag>
-  );
-}
 
 /* ============================================================
    REORDER ARROWS
@@ -341,17 +373,16 @@ function AreaSection({ areaId }: { areaId: Area }) {
   const isMentor = useIsMentor();
   const filter = useMapaFilter();
   const hasFilter = !!filter;
-  const [open, setOpen] = useState(hasFilter);
-  const [openProj, setOpenProj] = useState(hasFilter);
-  const [openSOP, setOpenSOP] = useState(false);
   const c = AREA_COLORS[areaId];
   const label = areaLabel(areaId);
 
   const allProyectos = state.proyectos.filter((p) => p.area === areaId);
-  const proyectos = filter ? allProyectos.filter((p) => filter.proyectos.has(p.id)) : allProyectos;
+  const filteredCount = filter ? allProyectos.filter((p) => filter.proyectos.has(p.id)).length : allProyectos.length;
+  const hasMatchingProjects = !filter || filteredCount > 0;
+  const [open, setOpen] = useState(hasFilter && hasMatchingProjects);
+  const [openProj, setOpenProj] = useState(hasFilter && hasMatchingProjects);
+  const [openSOP, setOpenSOP] = useState(false);
   const sops = state.plantillas.filter((pl) => pl.area === areaId);
-
-  if (filter && proyectos.length === 0) return null;
 
   return (
     <section className="mb-6">
@@ -375,7 +406,7 @@ function AreaSection({ areaId }: { areaId: Area }) {
                 <rect x="3" y="3" width="7" height="7" /><rect x="14" y="3" width="7" height="7" /><rect x="3" y="14" width="7" height="7" /><rect x="14" y="14" width="7" height="7" />
               </svg>
               Proyectos
-              <span className="text-xs font-normal">({proyectos.length})</span>
+              <span className="text-xs font-normal">({filteredCount})</span>
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"
                 className={`ml-auto transition-transform ${openProj ? "rotate-90" : ""}`}>
                 <polyline points="9 6 15 12 9 18" />
@@ -383,10 +414,10 @@ function AreaSection({ areaId }: { areaId: Area }) {
             </button>
             {openProj && (
               <>
-                {proyectos.length > 0 ? (
+                {allProyectos.length > 0 ? (
                   <div className="space-y-2">
-                    {proyectos.map((proj, i) => (
-                      <ProyectoBlock key={proj.id} proyecto={proj} index={i} total={proyectos.length} />
+                    {allProyectos.map((proj, i) => (
+                      <ProyectoBlock key={proj.id} proyecto={proj} index={i} total={allProyectos.length} />
                     ))}
                   </div>
                 ) : (
@@ -443,32 +474,55 @@ function ProyectoBlock({ proyecto, index, total }: { proyecto: Proyecto; index: 
   const dispatch = useAppDispatch();
   const isMentor = useIsMentor();
   const filter = useMapaFilter();
-  const [open, setOpen] = useState(!!filter);
+  const inFilter = !filter || filter.proyectos.has(proyecto.id);
+  const [open, setOpen] = useState(filter ? inFilter : false);
   const [confirm, setConfirm] = useState(false);
   const [showNotas, setShowNotas] = useState(false);
+  const [showDatePicker, setShowDatePicker] = useState(false);
   const isEmpresa = ambitoDeArea(proyecto.area) === "empresa";
 
   const allResultados = state.resultados.filter((r) => r.proyectoId === proyecto.id);
-  const resultados = filter ? allResultados.filter((r) => filter.resultados.has(r.id)) : allResultados;
   const notasCount = (proyecto.notas ?? []).length;
+  const isProgrammed = !!proyecto.fechaInicio;
+
+  function handlePlanSelect(fechaInicio: string, planNivel: PlanNivel) {
+    dispatch({ type: "UPDATE_PROYECTO", id: proyecto.id, changes: { fechaInicio, planNivel } });
+    setShowDatePicker(false);
+  }
 
   return (
-    <div className="rounded-xl border border-border bg-background">
+    <div className={`rounded-xl border border-border bg-background${filter && !inFilter ? " opacity-40" : ""}`}>
       <ToggleRow open={open} onToggle={() => setOpen(!open)}>
         {isMentor
           ? <span className="text-lg font-semibold text-foreground">{proyecto.nombre}</span>
           : <EditableText value={proyecto.nombre} onChange={(v) => dispatch({ type: "RENAME_PROYECTO", id: proyecto.id, nombre: v })} className="text-lg font-semibold text-foreground" />
         }
         {isEmpresa && <ResponsableBadge nombre={proyecto.responsable} />}
-        <span className="rounded-full bg-surface px-3 py-1 text-xs font-medium text-muted">{resultados.length} result.</span>
+        <span className="rounded-full bg-surface px-3 py-1 text-xs font-medium text-muted">{allResultados.length} result.</span>
+        {isProgrammed && (
+          <span className="rounded-md bg-accent/10 px-2 py-0.5 text-[11px] font-medium text-accent">{formatFechaInicio(proyecto.fechaInicio!)}</span>
+        )}
         {isMentor
           ? <CommentIcon count={notasCount} onClick={() => setShowNotas(!showNotas)} />
           : <NotasIcon count={notasCount} onClick={() => setShowNotas(!showNotas)} />}
+        {!isMentor && (
+          <button onClick={(e) => { e.stopPropagation(); setShowDatePicker(!showDatePicker); }}
+            className={`flex h-7 items-center gap-1 rounded-md px-2 text-xs transition-all hover:bg-accent-soft hover:text-accent ${isProgrammed ? "text-accent" : "text-muted opacity-60 hover:opacity-100"}`}
+            title="Planificar proyecto">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+              <rect x="3" y="4" width="18" height="18" rx="2" /><line x1="16" y1="2" x2="16" y2="6" /><line x1="8" y1="2" x2="8" y2="6" /><line x1="3" y1="10" x2="21" y2="10" />
+            </svg>
+          </button>
+        )}
         {!isMentor && <MoveArrows canUp={index > 0} canDown={index < total - 1}
           onUp={() => dispatch({ type: "REORDER_PROYECTO", id: proyecto.id, direction: "up" })}
           onDown={() => dispatch({ type: "REORDER_PROYECTO", id: proyecto.id, direction: "down" })} />}
         {!isMentor && <DeleteBtn onDelete={() => setConfirm(true)} />}
       </ToggleRow>
+
+      {showDatePicker && (
+        <PlanPicker onSelect={handlePlanSelect} onCancel={() => setShowDatePicker(false)} showDayLevel={false} />
+      )}
 
       {confirm && <ConfirmDelete label={proyecto.nombre}
         onConfirm={() => { dispatch({ type: "DELETE_PROYECTO", id: proyecto.id }); setConfirm(false); }}
@@ -496,8 +550,8 @@ function ProyectoBlock({ proyecto, index, total }: { proyecto: Proyecto; index: 
           )}
 
           <div className="space-y-2">
-            {resultados.map((res, i) => (
-              <ResultadoBlock key={res.id} resultado={res} index={i} total={resultados.length} />
+            {allResultados.map((res, i) => (
+              <ResultadoBlock key={res.id} resultado={res} index={i} total={allResultados.length} />
             ))}
           </div>
 
@@ -522,29 +576,48 @@ function ResultadoBlock({ resultado, index, total }: { resultado: Resultado; ind
   const { nombre: currentUser } = useUsuario();
   const isMentor = useIsMentor();
   const filter = useMapaFilter();
-  const [open, setOpen] = useState(!!filter);
+  const inFilter = !filter || filter.resultados.has(resultado.id);
+  const [open, setOpen] = useState(filter ? inFilter : false);
   const [confirm, setConfirm] = useState(false);
   const [showNotas, setShowNotas] = useState(false);
   const [showMove, setShowMove] = useState(false);
+  const [showDatePicker, setShowDatePicker] = useState(false);
 
   const allEntregables = state.entregables.filter((e) => e.resultadoId === resultado.id);
-  const entregables = filter ? allEntregables.filter((e) => filter.entregables.has(e.id)) : allEntregables;
   const parentProj = state.proyectos.find((p) => p.id === resultado.proyectoId);
   const isEmpresa = parentProj ? ambitoDeArea(parentProj.area) === "empresa" : false;
   const notasCount = (resultado.notas ?? []).length;
+  const isProgrammed = !!resultado.fechaInicio;
+
+  function handlePlanSelect(fechaInicio: string, planNivel: PlanNivel) {
+    dispatch({ type: "UPDATE_RESULTADO", id: resultado.id, changes: { fechaInicio, planNivel } });
+    setShowDatePicker(false);
+  }
 
   return (
-    <div className="rounded-xl border border-border/50 bg-surface/30">
+    <div className={`rounded-xl border border-border/50 bg-surface/30${filter && !inFilter ? " opacity-40" : ""}`}>
       <ToggleRow open={open} onToggle={() => setOpen(!open)}>
         {isMentor
           ? <span className="text-base font-medium text-foreground">{resultado.nombre}</span>
           : <EditableText value={resultado.nombre} onChange={(v) => dispatch({ type: "RENAME_RESULTADO", id: resultado.id, nombre: v })} className="text-base font-medium text-foreground" />
         }
         {isEmpresa && <ResponsableBadge nombre={resultado.responsable ?? parentProj?.responsable} />}
-        <span className="rounded-full bg-surface px-2.5 py-0.5 text-xs text-muted">{entregables.length} entreg.</span>
+        <span className="rounded-full bg-surface px-2.5 py-0.5 text-xs text-muted">{allEntregables.length} entreg.</span>
+        {isProgrammed && (
+          <span className="rounded-md bg-accent/10 px-2 py-0.5 text-[11px] font-medium text-accent">{formatFechaInicio(resultado.fechaInicio!)}</span>
+        )}
         {isMentor
           ? <CommentIcon count={notasCount} onClick={() => setShowNotas(!showNotas)} />
           : <NotasIcon count={notasCount} onClick={() => setShowNotas(!showNotas)} />}
+        {!isMentor && (
+          <button onClick={(e) => { e.stopPropagation(); setShowDatePicker(!showDatePicker); }}
+            className={`flex h-7 items-center gap-1 rounded-md px-2 text-xs transition-all hover:bg-accent-soft hover:text-accent ${isProgrammed ? "text-accent" : "text-muted opacity-60 hover:opacity-100"}`}
+            title="Planificar resultado">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+              <rect x="3" y="4" width="18" height="18" rx="2" /><line x1="16" y1="2" x2="16" y2="6" /><line x1="8" y1="2" x2="8" y2="6" /><line x1="3" y1="10" x2="21" y2="10" />
+            </svg>
+          </button>
+        )}
         {!isMentor && (
           <button onClick={(e) => { e.stopPropagation(); setShowMove(!showMove); }}
             className="flex h-7 items-center gap-0.5 rounded-md px-1.5 text-[10px] text-muted opacity-50 hover:bg-surface hover:opacity-100 sm:opacity-0 group-hover/row:opacity-100" title="Mover a otro proyecto">
@@ -556,6 +629,10 @@ function ResultadoBlock({ resultado, index, total }: { resultado: Resultado; ind
           onDown={() => dispatch({ type: "REORDER_RESULTADO", id: resultado.id, direction: "down" })} />}
         {!isMentor && <DeleteBtn onDelete={() => setConfirm(true)} />}
       </ToggleRow>
+
+      {showDatePicker && (
+        <PlanPicker onSelect={handlePlanSelect} onCancel={() => setShowDatePicker(false)} showDayLevel={false} />
+      )}
 
       {showMove && (
         <div className="mx-5 mb-3 ml-14 rounded-lg border border-border bg-surface/50 p-3">
@@ -585,8 +662,8 @@ function ResultadoBlock({ resultado, index, total }: { resultado: Resultado; ind
             <p className="mb-3 text-sm italic text-muted">{resultado.descripcion}</p>
           )}
           <div className="space-y-1">
-            {entregables.map((ent, i) => (
-              <EntregableBlock key={ent.id} entregable={ent} index={i} total={entregables.length} />
+            {allEntregables.map((ent, i) => (
+              <EntregableBlock key={ent.id} entregable={ent} index={i} total={allEntregables.length} />
             ))}
           </div>
           {!isMentor && (
@@ -609,24 +686,23 @@ function EntregableBlock({ entregable, index, total }: { entregable: Entregable;
   const dispatch = useAppDispatch();
   const isMentor = useIsMentor();
   const filter = useMapaFilter();
-  const [open, setOpen] = useState(!!filter);
+  const inFilter = !filter || filter.entregables.has(entregable.id);
+  const [open, setOpen] = useState(filter ? inFilter : false);
   const [confirm, setConfirm] = useState(false);
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [justAssigned, setJustAssigned] = useState(false);
   const [showMove, setShowMove] = useState(false);
   const justAssignedTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
-  const customDateRef = useRef<HTMLInputElement>(null);
   useEffect(() => () => clearTimeout(justAssignedTimer.current), []);
 
   const allPasos = state.pasos
     .filter((p) => p.entregableId === entregable.id)
     .sort((a, b) => { if (!a.inicioTs) return 1; if (!b.inicioTs) return -1; return a.inicioTs.localeCompare(b.inicioTs); });
-  const pasos = filter ? allPasos.filter((p) => filter.pasos.has(p.id)) : allPasos;
 
   const [showNotas, setShowNotas] = useState(false);
 
   const tipoTag = entregable.tipo !== "raw" ? entregable.tipo.toUpperCase() : null;
-  const dotColor = entregable.estado === "hecho" ? "bg-green-500" : entregable.estado === "en_proceso" ? "bg-amber-500" : "bg-border";
+  const dotColor = entregable.estado === "hecho" ? "bg-green-500" : entregable.estado === "en_proceso" ? "bg-amber-500" : entregable.estado === "planificado" ? "bg-blue-400" : "bg-border";
   const parentRes = state.resultados.find((r) => r.id === entregable.resultadoId);
   const parentProj = parentRes ? state.proyectos.find((p) => p.id === parentRes.proyectoId) : undefined;
   const entAreaHex = parentProj ? (AREA_COLORS[parentProj.area]?.hex ?? "#888") : "#888";
@@ -636,34 +712,9 @@ function EntregableBlock({ entregable, index, total }: { entregable: Entregable;
   const isProgrammed = !!entregable.fechaInicio;
   const programLabel = isProgrammed ? formatFechaInicio(entregable.fechaInicio!) : null;
 
-  function assignDate(period: string) {
-    const now = new Date();
-    let target: Date;
-    if (period === "hoy") {
-      target = now;
-    } else if (period === "semana") {
-      const day = now.getDay() || 7;
-      target = new Date(now);
-      target.setDate(now.getDate() - day + 1);
-    } else if (period === "mes") {
-      target = new Date(now.getFullYear(), now.getMonth(), 1);
-    } else if (period === "trimestre") {
-      const qMonth = Math.floor(now.getMonth() / 3) * 3;
-      target = new Date(now.getFullYear(), qMonth, 1);
-    } else {
-      target = new Date(now.getFullYear(), 0, 1);
-    }
-    const dateStr = `${target.getFullYear()}-${String(target.getMonth() + 1).padStart(2, "0")}-${String(target.getDate()).padStart(2, "0")}`;
-    dispatch({ type: "UPDATE_ENTREGABLE", id: entregable.id, changes: { fechaInicio: dateStr, estado: entregable.estado === "a_futuro" ? "en_proceso" : entregable.estado } });
-    setShowDatePicker(false);
-    setJustAssigned(true);
-    clearTimeout(justAssignedTimer.current);
-    justAssignedTimer.current = setTimeout(() => setJustAssigned(false), 2500);
-  }
-
-  function assignCustomDate(dateStr: string) {
-    if (!dateStr) return;
-    dispatch({ type: "UPDATE_ENTREGABLE", id: entregable.id, changes: { fechaInicio: dateStr, estado: entregable.estado === "a_futuro" ? "en_proceso" : entregable.estado } });
+  function handlePlanSelect(fechaInicio: string, planNivel: PlanNivel) {
+    const newEstado = computeEstadoOnPlan(planNivel, fechaInicio, entregable.estado);
+    dispatch({ type: "UPDATE_ENTREGABLE", id: entregable.id, changes: { fechaInicio, planNivel, estado: newEstado } });
     setShowDatePicker(false);
     setJustAssigned(true);
     clearTimeout(justAssignedTimer.current);
@@ -671,7 +722,7 @@ function EntregableBlock({ entregable, index, total }: { entregable: Entregable;
   }
 
   return (
-    <div>
+    <div className={filter && !inFilter ? "opacity-40" : undefined}>
       <ToggleRow open={open} onToggle={() => setOpen(!open)}>
         <span className={`h-3 w-3 shrink-0 rounded-full ${dotColor}`} />
         {isMentor
@@ -686,7 +737,7 @@ function EntregableBlock({ entregable, index, total }: { entregable: Entregable;
         {justAssigned && (
           <span className="animate-pulse rounded-md bg-green-100 px-2 py-0.5 text-[11px] font-bold text-green-700">Planificado</span>
         )}
-        {pasos.length > 0 && <span className="text-xs text-muted">{pasos.length}p</span>}
+        {allPasos.length > 0 && <span className="text-xs text-muted">{allPasos.length}p</span>}
         {isMentor
           ? <CommentIcon count={notasCount} onClick={() => setShowNotas(!showNotas)} />
           : <NotasIcon count={notasCount} onClick={() => setShowNotas(!showNotas)} />}
@@ -733,30 +784,7 @@ function EntregableBlock({ entregable, index, total }: { entregable: Entregable;
       )}
 
       {showDatePicker && (
-        <div className="ml-12 mb-2 flex flex-wrap items-center gap-2 px-3">
-          {[
-            { id: "hoy", label: "Hoy" },
-            { id: "semana", label: "Esta semana" },
-            { id: "mes", label: "Este mes" },
-            { id: "trimestre", label: "Este trimestre" },
-            { id: "anio", label: "Este año" },
-          ].map((p) => (
-            <button key={p.id} onClick={() => assignDate(p.id)}
-              className="rounded-lg border border-border bg-background px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:border-accent hover:bg-accent-soft">
-              {p.label}
-            </button>
-          ))}
-          <button onClick={() => customDateRef.current?.showPicker()}
-            className="rounded-lg border border-accent/50 bg-accent-soft px-3 py-1.5 text-xs font-medium text-accent transition-colors hover:bg-accent/20">
-            Elegir fecha...
-          </button>
-          <input ref={customDateRef} type="date" onChange={(e) => assignCustomDate(e.target.value)}
-            className="sr-only" tabIndex={-1} aria-hidden="true" />
-          <button onClick={() => setShowDatePicker(false)}
-            className="rounded-lg px-3 py-1.5 text-xs text-muted hover:text-foreground">
-            Cancelar
-          </button>
-        </div>
+        <PlanPicker onSelect={handlePlanSelect} onCancel={() => setShowDatePicker(false)} />
       )}
 
       {confirm && <ConfirmDelete label={entregable.nombre}
@@ -769,9 +797,26 @@ function EntregableBlock({ entregable, index, total }: { entregable: Entregable;
         </div>
       )}
 
-      {open && pasos.length > 0 && (
+      {open && (
         <div className="pb-2 pl-16">
-          {pasos.map((paso, i) => <PasoLine key={paso.id} paso={paso} index={i} total={pasos.length} isEmpresa={isEmpresa} entResponsable={entregable.responsable} />)}
+          {allPasos.map((paso, i) => <PasoLine key={paso.id} paso={paso} index={i} total={allPasos.length} isEmpresa={isEmpresa} entResponsable={entregable.responsable} />)}
+          {!isMentor && (
+            <AddButton label="Paso" onAdd={(nombre) =>
+              dispatch({ type: "ADD_PASO", payload: {
+                id: generateId(),
+                nombre,
+                entregableId: entregable.id,
+                estado: "pendiente",
+                inicioTs: null,
+                finTs: null,
+                contexto: { notas: "", urls: [], apps: [] },
+                implicados: [],
+                pausas: [],
+                notas: [],
+                siguientePaso: null,
+              }})
+            } />
+          )}
         </div>
       )}
     </div>
@@ -785,6 +830,8 @@ function EntregableBlock({ entregable, index, total }: { entregable: Entregable;
 function PasoLine({ paso, index, total, isEmpresa, entResponsable }: { paso: Paso; index: number; total: number; isEmpresa: boolean; entResponsable?: string }) {
   const dispatch = useAppDispatch();
   const isMentor = useIsMentor();
+  const filter = useMapaFilter();
+  const inFilter = !filter || filter.pasos.has(paso.id);
   const [showNotas, setShowNotas] = useState(false);
   const [confirmDel, setConfirmDel] = useState(false);
   const done = !!paso.finTs;
@@ -794,7 +841,7 @@ function PasoLine({ paso, index, total, isEmpresa, entResponsable }: { paso: Pas
   const hasUrls = paso.contexto.urls.length > 0;
 
   return (
-    <div className="mb-1">
+    <div className={`mb-1${filter && !inFilter ? " opacity-40" : ""}`}>
       <div className="group/row flex min-h-[44px] items-center gap-2 rounded-lg px-3 py-2 hover:bg-surface">
         <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${done ? "bg-green-500" : "bg-border"}`} />
         {isMentor
@@ -933,31 +980,10 @@ function SOPBlock({ sop, index, total }: { sop: PlantillaProceso; index: number;
   const [justCreated, setJustCreated] = useState(false);
   const [showNotas, setShowNotas] = useState(false);
   const justCreatedTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
-  const customDateRef = useRef<HTMLInputElement>(null);
   useEffect(() => () => clearTimeout(justCreatedTimer.current), []);
 
-  function scheduleSOPDate(period: string) {
-    const now = new Date();
-    let target: Date;
-    if (period === "hoy") {
-      target = now;
-    } else if (period === "semana") {
-      const day = now.getDay() || 7;
-      target = new Date(now);
-      target.setDate(now.getDate() - day + 1);
-    } else if (period === "mes") {
-      target = new Date(now.getFullYear(), now.getMonth(), 1);
-    } else if (period === "trimestre") {
-      const qMonth = Math.floor(now.getMonth() / 3) * 3;
-      target = new Date(now.getFullYear(), qMonth, 1);
-    } else if (period === "anio") {
-      target = new Date(now.getFullYear(), 0, 1);
-    } else {
-      createSOPEntregable(period);
-      return;
-    }
-    const dateStr = `${target.getFullYear()}-${String(target.getMonth() + 1).padStart(2, "0")}-${String(target.getDate()).padStart(2, "0")}`;
-    createSOPEntregable(dateStr);
+  function handleSOPPlanSelect(fechaInicio: string, _: PlanNivel) {
+    createSOPEntregable(fechaInicio);
   }
 
   function createSOPEntregable(fechaInicio: string) {
@@ -1043,30 +1069,7 @@ function SOPBlock({ sop, index, total }: { sop: PlantillaProceso; index: number;
         onCancel={() => setConfirm(false)} />}
 
       {showDatePicker && (
-        <div className="ml-12 mb-2 flex flex-wrap items-center gap-2 px-3">
-          {[
-            { id: "hoy", label: "Hoy" },
-            { id: "semana", label: "Esta semana" },
-            { id: "mes", label: "Este mes" },
-            { id: "trimestre", label: "Este trimestre" },
-            { id: "anio", label: "Este año" },
-          ].map((p) => (
-            <button key={p.id} onClick={() => scheduleSOPDate(p.id)}
-              className="rounded-lg border border-border bg-background px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:border-accent hover:bg-accent-soft">
-              {p.label}
-            </button>
-          ))}
-          <button onClick={() => customDateRef.current?.showPicker()}
-            className="rounded-lg border border-accent/50 bg-accent-soft px-3 py-1.5 text-xs font-medium text-accent transition-colors hover:bg-accent/20">
-            Elegir fecha...
-          </button>
-          <input ref={customDateRef} type="date" onChange={(e) => e.target.value && scheduleSOPDate(e.target.value)}
-            className="sr-only" tabIndex={-1} aria-hidden="true" />
-          <button onClick={() => setShowDatePicker(false)}
-            className="rounded-lg px-3 py-1.5 text-xs text-muted hover:text-foreground">
-            Cancelar
-          </button>
-        </div>
+        <PlanPicker onSelect={handleSOPPlanSelect} onCancel={() => setShowDatePicker(false)} />
       )}
 
       {showNotas && (
@@ -1129,79 +1132,6 @@ function ResponsableBadge({ nombre }: { nombre?: string }) {
   );
 }
 
-export function NotasSection({ notas, nivel, targetId }: { notas: Nota[]; nivel: "paso" | "entregable" | "resultado" | "proyecto" | "plantilla"; targetId: string }) {
-  const dispatch = useAppDispatch();
-  const { nombre: currentUser } = useUsuario();
-  const isMentor = useIsMentor();
-  const [draft, setDraft] = useState("");
-  const [showForm, setShowForm] = useState(false);
-  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
-
-  function addNota() {
-    const t = draft.trim();
-    if (!t) return;
-    dispatch({ type: "ADD_NOTA", nivel, targetId, nota: { id: generateId(), texto: t, autor: currentUser, creadoTs: new Date().toISOString() } });
-    setDraft("");
-    setShowForm(false);
-  }
-
-  const isMentorNote = (n: Nota) => n.autor === "Mentor";
-  const canDelete = (n: Nota) => !isMentor || isMentorNote(n);
-
-  return (
-    <div className="mt-2 space-y-1.5">
-      {notas.map((n) => (
-        <div key={n.id} className={`flex items-start gap-2 rounded-lg px-3 py-2 ${isMentorNote(n) ? "bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-700/30" : "bg-surface/50"}`}>
-          {isMentorNote(n) && (
-            <svg className="mt-0.5 shrink-0 text-amber-600 dark:text-amber-400" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
-            </svg>
-          )}
-          <div className="flex-1 min-w-0">
-            <p className="text-xs text-foreground whitespace-pre-wrap">{n.texto}</p>
-            <p className="mt-0.5 text-[10px] text-muted">
-              {n.autor} · {new Date(n.creadoTs).toLocaleDateString("es-ES", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}
-            </p>
-          </div>
-          {canDelete(n) && (confirmDeleteId === n.id ? (
-            <div className="flex shrink-0 items-center gap-1">
-              <button onClick={() => { dispatch({ type: "DELETE_NOTA", nivel, targetId, notaId: n.id }); setConfirmDeleteId(null); }}
-                className="rounded bg-red-500 px-2 py-0.5 text-[10px] font-medium text-white hover:bg-red-600">Sí</button>
-              <button onClick={() => setConfirmDeleteId(null)}
-                className="rounded border border-border px-2 py-0.5 text-[10px] text-muted hover:bg-surface">No</button>
-            </div>
-          ) : (
-            <button onClick={() => setConfirmDeleteId(n.id)}
-              className="shrink-0 text-muted opacity-40 hover:text-red-500 hover:opacity-100" title="Borrar nota">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
-            </button>
-          ))}
-        </div>
-      ))}
-      {showForm ? (
-        <div className="flex gap-2">
-          <input value={draft} onChange={(e) => setDraft(e.target.value)} placeholder={isMentor ? "Escribe un comentario..." : "Escribe una nota..."}
-            onKeyDown={(e) => { if (e.key === "Enter") addNota(); if (e.key === "Escape") setShowForm(false); }}
-            autoFocus className={`flex-1 rounded-lg border bg-background px-3 py-1.5 text-xs text-foreground outline-none ${isMentor ? "border-amber-300 focus:border-amber-500" : "border-border focus:border-accent"}`} />
-          <button onClick={addNota} className={`rounded-lg px-3 py-1.5 text-xs font-medium text-white ${isMentor ? "bg-amber-500 hover:bg-amber-600" : "bg-accent hover:bg-accent/90"}`}>
-            {isMentor ? "Comentar" : "Añadir"}
-          </button>
-        </div>
-      ) : (
-        <button onClick={() => setShowForm(true)} className={`flex items-center gap-1 text-[11px] ${isMentor ? "text-amber-600 hover:text-amber-700" : "text-muted hover:text-accent"}`}>
-          {isMentor ? (
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
-            </svg>
-          ) : (
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></svg>
-          )}
-          {isMentor ? "Añadir comentario" : "Añadir nota"}
-        </button>
-      )}
-    </div>
-  );
-}
 
 function NotasIcon({ count, onClick }: { count: number; onClick: () => void }) {
   return (

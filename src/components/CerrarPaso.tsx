@@ -49,7 +49,11 @@ export function CerrarPaso({ paso, onClose }: Props) {
 
   const entregable = state.entregables.find((e) => e.id === paso.entregableId);
 
-  const plantilla = entregable?.plantillaId
+  useEffect(() => { if (!entregable) onClose(); }, [entregable, onClose]);
+
+  if (!entregable) return null;
+
+  const plantilla = entregable.plantillaId
     ? state.plantillas.find((pl) => pl.id === entregable.plantillaId)
     : null;
 

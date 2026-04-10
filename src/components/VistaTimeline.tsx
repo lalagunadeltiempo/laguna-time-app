@@ -25,7 +25,7 @@ interface Row {
 }
 
 const ESTADO_COLOR: Record<string, string> = {
-  a_futuro: "bg-blue-200", en_proceso: "bg-amber-400", en_espera: "bg-zinc-300", hecho: "bg-green-400", cancelada: "bg-red-200",
+  a_futuro: "bg-blue-200", planificado: "bg-blue-400", en_proceso: "bg-amber-400", en_espera: "bg-zinc-300", hecho: "bg-green-400", cancelada: "bg-red-200",
 };
 
 function addWorkingDays(start: Date, days: number): Date {
@@ -86,6 +86,7 @@ export function VistaTimeline({ onBack, onOpenDetalle }: Props) {
       let est = "a_futuro";
       if (done === entregables.length && entregables.length > 0) est = "hecho";
       else if (entregables.some((e) => e.estado === "en_proceso")) est = "en_proceso";
+      else if (entregables.some((e) => e.estado === "planificado")) est = "planificado";
       else if (entregables.some((e) => e.estado === "en_espera")) est = "en_espera";
       estadoByRes.set(res.id, est);
     }

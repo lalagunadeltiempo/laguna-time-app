@@ -126,6 +126,7 @@ export function PlanSemana({ selectedDate }: Props) {
 
     for (const ent of state.entregables) {
       if (!ent.fechaInicio || !weekKeys.has(ent.fechaInicio)) continue;
+      if (ent.planNivel === "mes" || ent.planNivel === "trimestre") continue;
       if (ent.estado === "hecho" || ent.estado === "cancelada") continue;
       if (entIdsWithPasos.has(ent.id)) continue;
       if (viewMode === "yo" && ent.responsable && ent.responsable !== currentUser) continue;
@@ -183,7 +184,8 @@ export function PlanSemana({ selectedDate }: Props) {
 
   function assignToPlan(ent: Entregable) {
     if (!pickDay) return;
-    dispatch({ type: "UPDATE_ENTREGABLE", id: ent.id, changes: { fechaInicio: pickDay, estado: ent.estado === "a_futuro" ? "en_proceso" : ent.estado } });
+    const newEstado = (ent.estado === "a_futuro" || ent.estado === "planificado") ? "en_proceso" : ent.estado;
+    dispatch({ type: "UPDATE_ENTREGABLE", id: ent.id, changes: { fechaInicio: pickDay, planNivel: "dia", estado: newEstado } });
     setPickDay(null);
   }
 

@@ -129,6 +129,7 @@ export function PlanHoy({ selectedDate }: Props) {
 
       for (const ent of entregables) {
         if (!ent.fechaInicio || ent.fechaInicio > dateKey) continue;
+        if (ent.planNivel === "mes" || ent.planNivel === "trimestre") continue;
         if (ent.estado === "hecho" || ent.estado === "cancelada") continue;
         if (entregableIdsWithPasos.has(ent.id)) continue;
         if (ent.responsable && ent.responsable !== currentUser) continue;
@@ -420,7 +421,7 @@ function DrillDownDialog({ dateKey, onClose }: { dateKey: string; onClose: () =>
     if (!selectedEntregableId) return;
     const name = newPasoName.trim();
     if (!name) return;
-    dispatch({ type: "UPDATE_ENTREGABLE", id: selectedEntregableId, changes: { fechaInicio: dateKey, estado: "en_proceso" } });
+    dispatch({ type: "UPDATE_ENTREGABLE", id: selectedEntregableId, changes: { fechaInicio: dateKey, planNivel: "dia", estado: "en_proceso" } });
     onClose();
   }
 
