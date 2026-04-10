@@ -179,6 +179,15 @@ export function AppProvider({ userId, displayName, children }: ProviderProps) {
       if (cloudResult.data) {
         setLoadedSuccessfully(true);
 
+        const isMentorUser = userId === "mentor";
+
+        if (isMentorUser) {
+          dispatch({ type: "INIT", state: cloudResult.data });
+          runMigrations(cloudResult.data, dispatch);
+          initDone.current = true;
+          return;
+        }
+
         // Compare cloud vs local: use whichever is newer
         const localState = loadStateLocal();
         const localTs = getLocalSavedAt();
