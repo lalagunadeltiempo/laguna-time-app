@@ -112,6 +112,11 @@ export function PlanHoy({ selectedDate }: Props) {
         if (fp > dateKey) continue;
         if (result.some((b) => b.id === `next-${paso.id}`)) continue;
 
+        const newerPasoExists = pasos.some((p) =>
+          p.entregableId === paso.entregableId && p.inicioTs && paso.finTs && p.inicioTs >= paso.finTs
+        );
+        if (newerPasoExists) continue;
+
         const ent = entregables.find((e) => e.id === paso.entregableId);
         if (!ent) continue;
         if (ent.responsable && ent.responsable !== currentUser) continue;
