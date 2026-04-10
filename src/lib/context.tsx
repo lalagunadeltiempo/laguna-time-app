@@ -213,6 +213,10 @@ export function AppProvider({ userId, displayName, children }: ProviderProps) {
         console.warn("[init] Cloud load failed — loading local only, cloud saves blocked");
         const localState = loadStateLocal();
         dispatch({ type: "INIT", state: localState });
+        if (userId === "mentor") {
+          runMigrations(localState, dispatch);
+          markCloudLoadOk();
+        }
         initDone.current = true;
         return;
       }
@@ -223,7 +227,7 @@ export function AppProvider({ userId, displayName, children }: ProviderProps) {
       if (didLoadSuccessfully()) {
         runMigrations(localState, dispatch);
 
-        if (userId !== "local" && localState !== INITIAL_STATE) {
+        if (userId !== "local" && userId !== "mentor" && localState !== INITIAL_STATE) {
           markCloudLoadOk();
           saveStateCloud(userId, localState);
           console.log("[init] Datos locales migrados a la nube");
@@ -238,7 +242,7 @@ export function AppProvider({ userId, displayName, children }: ProviderProps) {
   useEffect(() => {
     if (state === INITIAL_STATE) return;
     if (!initDone.current) return;
-    saveStateLocal(state);
+    if (userId !== "mentor") saveStateLocal(state);
     saveStateCloud(userId, state);
   }, [state, userId]);
 
