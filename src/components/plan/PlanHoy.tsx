@@ -10,6 +10,10 @@ import {
 } from "@/lib/types";
 import { projectSOPsForDate, type ProjectedSOP } from "@/lib/sop-projector";
 
+function pad2(n: number) { return String(n).padStart(2, "0"); }
+function addDays(d: Date, n: number) { const r = new Date(d); r.setDate(r.getDate() + n); return r; }
+function dateToKey(d: Date) { return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`; }
+
 const HOURS = Array.from({ length: 24 }, (_, i) => i);
 
 function toDateKey(d: Date) {
@@ -222,21 +226,20 @@ export function PlanHoy({ selectedDate }: Props) {
             {plannedBlocks.map((block) => {
               const hex = AREA_COLORS[block.area]?.hex ?? "#888";
               return (
-                <div key={block.id} className="flex items-center gap-3 rounded-lg border-l-[3px] px-3 py-2.5"
-                  style={{ borderLeftColor: hex, backgroundColor: hex + "0c" }}>
-                  <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: hex }} />
-                  <div className="flex-1 min-w-0">
-                    <p className="truncate text-sm font-medium text-foreground">{block.title}</p>
-                    <p className="truncate text-xs text-muted">{block.subtitle}</p>
-                  </div>
-                  {isToday && !isMentor && (
-                    <button onClick={() => setConfirmBlock(block)}
-                      className="shrink-0 rounded-lg px-3 py-1.5 text-[11px] font-semibold text-white hover:brightness-110"
-                      style={{ backgroundColor: hex }}>
-                      Empezar
-                    </button>
-                  )}
-                </div>
+                <PlannedBlockRow key={block.id} block={block} hex={hex} isToday={isToday} isMentor={isMentor}
+                  onStart={() => setConfirmBlock(block)}
+                  onReschedule={(newDate) => {
+                    if (block.id.startsWith("next-") && block.pasoId) {
+                      dispatch({ type: "RESCHEDULE_NEXT_PASO", pasoId: block.pasoId, newDate });
+                    } else if (block.id.startsWith("ent-") && block.entregableId) {
+                      if (!newDate) {
+                        dispatch({ type: "UPDATE_ENTREGABLE", id: block.entregableId, changes: { fechaInicio: null, estado: "a_futuro" as const } });
+                      } else {
+                        dispatch({ type: "UPDATE_ENTREGABLE", id: block.entregableId, changes: { fechaInicio: newDate } });
+                      }
+                    }
+                  }}
+                />
               );
             })}
 
@@ -339,6 +342,79 @@ export function PlanHoy({ selectedDate }: Props) {
               <button onClick={() => startBlock(confirmBlock)} className="flex-1 rounded-lg py-2.5 text-xs font-medium text-white" style={{ backgroundColor: "#16a34a" }}>Empezar</button>
             </div>
           </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ============================================================
+   PLANNED BLOCK ROW with reschedule/delete
+   ============================================================ */
+
+function PlannedBlockRow({ block, hex, isToday, isMentor, onStart, onReschedule }: {
+  block: Block; hex: string; isToday: boolean; isMentor: boolean;
+  onStart: () => void; onReschedule: (newDate: string | null) => void;
+}) {
+  const [showMenu, setShowMenu] = useState(false);
+  const [showDatePicker, setShowDatePicker] = useState(false);
+  const [customDate, setCustomDate] = useState("");
+  const [confirmDelete, setConfirmDelete] = useState(false);
+
+  return (
+    <div className="flex items-center gap-2 rounded-lg border-l-[3px] px-3 py-2.5"
+      style={{ borderLeftColor: hex, backgroundColor: hex + "0c" }}>
+      <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: hex }} />
+      <div className="flex-1 min-w-0">
+        <p className="truncate text-sm font-medium text-foreground">{block.title}</p>
+        <p className="truncate text-xs text-muted">{block.subtitle}</p>
+        {/* Inline actions */}
+        {showMenu && !isMentor && (
+          <div className="mt-2 flex flex-wrap gap-1.5">
+            <button type="button" onClick={() => { onReschedule(dateToKey(addDays(new Date(), 1))); setShowMenu(false); }}
+              className="rounded-md border border-border bg-background px-2 py-1 text-[10px] font-medium text-foreground hover:bg-surface">Mañana</button>
+            <button type="button" onClick={() => { onReschedule(dateToKey(addDays(new Date(), 7))); setShowMenu(false); }}
+              className="rounded-md border border-border bg-background px-2 py-1 text-[10px] font-medium text-foreground hover:bg-surface">+1 semana</button>
+            <button type="button" onClick={() => setShowDatePicker(true)}
+              className="rounded-md border border-border bg-background px-2 py-1 text-[10px] font-medium text-foreground hover:bg-surface">Otra fecha</button>
+            {!confirmDelete ? (
+              <button type="button" onClick={() => setConfirmDelete(true)}
+                className="rounded-md border border-red-200 bg-red-50 px-2 py-1 text-[10px] font-medium text-red-600 hover:bg-red-100 dark:border-red-700/30 dark:bg-red-500/10">Eliminar</button>
+            ) : (
+              <>
+                <span className="text-[10px] text-red-500 py-1">¿Seguro?</span>
+                <button type="button" onClick={() => { onReschedule(null); setShowMenu(false); }}
+                  className="rounded-md bg-red-500 px-2 py-1 text-[10px] font-medium text-white hover:bg-red-600">Sí</button>
+                <button type="button" onClick={() => setConfirmDelete(false)}
+                  className="rounded-md border border-border px-2 py-1 text-[10px] text-muted">No</button>
+              </>
+            )}
+            {showDatePicker && (
+              <div className="flex items-center gap-1">
+                <input type="date" value={customDate} onChange={(e) => setCustomDate(e.target.value)}
+                  className="rounded-md border border-border bg-background px-2 py-1 text-[10px] text-foreground outline-none focus:border-accent" />
+                <button type="button" disabled={!customDate} onClick={() => { onReschedule(customDate); setShowMenu(false); }}
+                  className="rounded-md bg-accent px-2 py-1 text-[10px] font-medium text-white disabled:opacity-40">OK</button>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+      {!isMentor && (
+        <div className="flex shrink-0 items-center gap-1">
+          <button type="button" onClick={() => setShowMenu((s) => !s)} title="Opciones"
+            className="rounded-lg p-1.5 text-muted hover:bg-surface hover:text-foreground transition-colors">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+              <circle cx="12" cy="5" r="1" /><circle cx="12" cy="12" r="1" /><circle cx="12" cy="19" r="1" />
+            </svg>
+          </button>
+          {isToday && (
+            <button type="button" onClick={onStart}
+              className="rounded-lg px-3 py-1.5 text-[11px] font-semibold text-white hover:brightness-110"
+              style={{ backgroundColor: hex }}>
+              Empezar
+            </button>
+          )}
         </div>
       )}
     </div>

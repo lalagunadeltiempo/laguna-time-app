@@ -36,6 +36,7 @@ export type Action =
   | { type: "UPDATE_PASO_IMPLICADOS"; id: string; implicados: Paso["implicados"] }
   | { type: "CLOSE_PASO"; payload: Paso }
   | { type: "DISCARD_PASO"; id: string }
+  | { type: "RESCHEDULE_NEXT_PASO"; pasoId: string; newDate: string | null }
   | { type: "RENAME_PASO"; id: string; nombre: string }
   | { type: "DELETE_PASO"; id: string }
   | { type: "RENAME_ENTREGABLE"; id: string; nombre: string }
@@ -230,6 +231,18 @@ export function reducer(state: AppState, action: Action): AppState {
           return { ...ej, pasosLanzados: Object.fromEntries(entries) };
         }),
       };
+
+    case "RESCHEDULE_NEXT_PASO": {
+      const { pasoId, newDate } = action;
+      return {
+        ...state,
+        pasos: state.pasos.map((p) => {
+          if (p.id !== pasoId || !p.siguientePaso || p.siguientePaso.tipo !== "continuar") return p;
+          if (!newDate) return { ...p, siguientePaso: { tipo: "fin" as const } };
+          return { ...p, siguientePaso: { ...p.siguientePaso, fechaProgramada: newDate, cuando: "otro" } };
+        }),
+      };
+    }
 
     case "DISCARD_PASO": {
       if (!state.pasos.find((p) => p.id === action.id)) return state;

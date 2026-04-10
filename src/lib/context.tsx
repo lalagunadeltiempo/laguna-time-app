@@ -121,6 +121,14 @@ function actionToLog(action: Action, _userName: string, state: AppState): { acti
       const ruta = buildRuta(state, { pasoId: action.id });
       return { action: "discard_paso", descripcion: `Paso descartado "${p?.nombre ?? ""}"`, ruta, pasoId: action.id };
     }
+    case "RESCHEDULE_NEXT_PASO": {
+      const p = state.pasos.find((x) => x.id === action.pasoId);
+      const ruta = buildRuta(state, { pasoId: action.pasoId });
+      const desc = action.newDate
+        ? `Siguiente paso reprogramado a ${action.newDate} ("${p?.siguientePaso?.nombre ?? p?.nombre ?? ""}")`
+        : `Siguiente paso eliminado de planificación ("${p?.siguientePaso?.nombre ?? p?.nombre ?? ""}")`;
+      return { action: "reschedule_next_paso", descripcion: desc, ruta, pasoId: action.pasoId };
+    }
     case "UPDATE_NOTA": {
       const name = targetName(state, action.nivel, action.targetId);
       return { action: "update_nota", descripcion: `Nota editada en ${action.nivel} ${name}` };
