@@ -15,14 +15,24 @@ const TIPO_LABELS: Record<string, { label: string; color: string }> = {
   inbox: { label: "Inbox", color: "bg-orange-100 text-orange-700" },
 };
 
+const NAVIGABLE_TYPES = new Set(["paso", "entregable", "resultado", "proyecto", "url", "nota"]);
+
 interface Props {
   onClose: () => void;
+  onNavigate?: (tipo: string, id: string) => void;
 }
 
-export function Buscador({ onClose }: Props) {
+export function Buscador({ onClose, onNavigate }: Props) {
   const state = useAppState();
   const [query, setQuery] = useState("");
   const results = useMemo(() => buscar(state, query), [state, query]);
+
+  function handleClick(r: SearchResult) {
+    if (!onNavigate) return;
+    if (!NAVIGABLE_TYPES.has(r.tipo)) return;
+    const navTipo = (r.tipo === "url" || r.tipo === "nota") ? "paso" : r.tipo;
+    onNavigate(navTipo, r.id);
+  }
 
   return (
     <div className="flex flex-1 flex-col px-5 py-6">
@@ -50,9 +60,34 @@ export function Buscador({ onClose }: Props) {
           {query.trim() && results.length === 0 && (
             <p className="px-4 py-8 text-center text-sm text-zinc-400">Sin resultados para &ldquo;{query}&rdquo;</p>
           )}
-          {results.map((r, i) => (
-            <ResultItem key={`${r.tipo}-${r.id}-${i}`} result={r} />
-          ))}
+          {results.map((r, i) => {
+            const canNav = NAVIGABLE_TYPES.has(r.tipo) && !!onNavigate;
+            return (
+              <button key={`${r.tipo}-${r.id}-${i}`} type="button" disabled={!canNav}
+                onClick={() => handleClick(r)}
+                className={`flex w-full items-start gap-3 border-b border-zinc-50 px-4 py-3 text-left last:border-0 transition-colors ${
+                  canNav ? "hover:bg-accent/5 cursor-pointer" : "hover:bg-zinc-50"
+                }`}>
+                <span className={`mt-0.5 shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium ${TIPO_LABELS[r.tipo]?.color ?? "bg-zinc-100 text-zinc-600"}`}>
+                  {TIPO_LABELS[r.tipo]?.label ?? r.tipo}
+                </span>
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm text-zinc-800">{r.titulo}</p>
+                  {r.subtitulo && <p className="truncate text-xs text-zinc-400">{r.subtitulo}</p>}
+                </div>
+                {r.fecha && (
+                  <span className="shrink-0 text-[10px] text-zinc-400">
+                    {new Date(r.fecha).toLocaleDateString("es-ES", { day: "numeric", month: "short" })}
+                  </span>
+                )}
+                {canNav && (
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" className="mt-1 shrink-0 text-zinc-300">
+                    <polyline points="9 18 15 12 9 6" />
+                  </svg>
+                )}
+              </button>
+            );
+          })}
         </div>
 
         {!query.trim() && (
@@ -61,29 +96,6 @@ export function Buscador({ onClose }: Props) {
           </p>
         )}
       </div>
-    </div>
-  );
-}
-
-function ResultItem({ result }: { result: SearchResult }) {
-  const meta = TIPO_LABELS[result.tipo] ?? { label: result.tipo, color: "bg-zinc-100 text-zinc-600" };
-
-  return (
-    <div className="flex items-start gap-3 border-b border-zinc-50 px-4 py-3 last:border-0 hover:bg-zinc-50">
-      <span className={`mt-0.5 shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium ${meta.color}`}>
-        {meta.label}
-      </span>
-      <div className="min-w-0 flex-1">
-        <p className="truncate text-sm text-zinc-800">{result.titulo}</p>
-        {result.subtitulo && (
-          <p className="truncate text-xs text-zinc-400">{result.subtitulo}</p>
-        )}
-      </div>
-      {result.fecha && (
-        <span className="shrink-0 text-[10px] text-zinc-400">
-          {new Date(result.fecha).toLocaleDateString("es-ES", { day: "numeric", month: "short" })}
-        </span>
-      )}
     </div>
   );
 }

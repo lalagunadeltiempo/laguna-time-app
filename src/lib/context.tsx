@@ -227,7 +227,9 @@ export function AppProvider({ userId, displayName, children }: ProviderProps) {
       if (didLoadSuccessfully()) {
         runMigrations(localState, dispatch);
 
-        if (userId !== "local" && userId !== "mentor" && localState !== INITIAL_STATE) {
+        if (userId === "mentor") {
+          markCloudLoadOk();
+        } else if (userId !== "local" && localState !== INITIAL_STATE) {
           markCloudLoadOk();
           saveStateCloud(userId, localState);
           console.log("[init] Datos locales migrados a la nube");

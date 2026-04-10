@@ -149,6 +149,45 @@ function toDateKey(d: Date) {
 
 interface Props {
   onOpenDetalle?: (resultadoId: string) => void;
+  highlightId?: string | null;
+  onClearHighlight?: () => void;
+}
+
+/* ---- highlight helpers ---- */
+interface HighlightInfo {
+  targetId: string;
+  ancestors: Set<string>;
+}
+const HighlightCtx = createContext<HighlightInfo | null>(null);
+function useHighlight() { return useContext(HighlightCtx); }
+
+function buildHighlightAncestors(state: { pasos: Paso[]; entregables: Entregable[]; resultados: Resultado[]; proyectos: Proyecto[] }, targetId: string): Set<string> {
+  const a = new Set<string>();
+
+  const paso = state.pasos.find(p => p.id === targetId);
+  if (paso) {
+    a.add(paso.entregableId);
+    const ent = state.entregables.find(e => e.id === paso.entregableId);
+    if (ent) { a.add(ent.resultadoId); const res = state.resultados.find(r => r.id === ent.resultadoId); if (res) { a.add(res.proyectoId); const proj = state.proyectos.find(p => p.id === res.proyectoId); if (proj) a.add(proj.area); } }
+    return a;
+  }
+  const ent = state.entregables.find(e => e.id === targetId);
+  if (ent) {
+    a.add(ent.resultadoId);
+    const res = state.resultados.find(r => r.id === ent.resultadoId);
+    if (res) { a.add(res.proyectoId); const proj = state.proyectos.find(p => p.id === res.proyectoId); if (proj) a.add(proj.area); }
+    return a;
+  }
+  const res = state.resultados.find(r => r.id === targetId);
+  if (res) {
+    a.add(res.proyectoId);
+    const proj = state.proyectos.find(p => p.id === res.proyectoId);
+    if (proj) a.add(proj.area);
+    return a;
+  }
+  const proj = state.proyectos.find(p => p.id === targetId);
+  if (proj) { a.add(proj.area); return a; }
+  return a;
 }
 
 const EMPRESA_ORDER: AreaEmpresa[] = ["financiera", "operativa", "comercial", "administrativa"];
@@ -162,10 +201,21 @@ function areaLabel(id: Area): string {
    MAIN
    ============================================================ */
 
-export function PantallaMapa({ onOpenDetalle }: Props) {
+export function PantallaMapa({ onOpenDetalle, highlightId, onClearHighlight }: Props) {
   const state = useAppState();
   const dispatch = useAppDispatch();
   const isMentor = useIsMentor();
+
+  const highlightInfo = useMemo<HighlightInfo | null>(() => {
+    if (!highlightId) return null;
+    return { targetId: highlightId, ancestors: buildHighlightAncestors(state, highlightId) };
+  }, [highlightId, state]);
+
+  useEffect(() => {
+    if (!highlightId) return;
+    const timer = setTimeout(() => onClearHighlight?.(), 4000);
+    return () => clearTimeout(timer);
+  }, [highlightId, onClearHighlight]);
 
   const [dateFilterOn, setDateFilterOn] = useState(false);
   const [dateFrom, setDateFrom] = useState(() => toDateKey(new Date()));
@@ -208,6 +258,7 @@ export function PantallaMapa({ onOpenDetalle }: Props) {
   };
 
   return (
+    <HighlightCtx.Provider value={highlightInfo}>
     <MapaFilterCtx.Provider value={visibleFilter}>
       <div className="w-full px-6 py-8 sm:px-10">
         <div className="mb-6 flex flex-wrap items-center gap-3">
@@ -254,6 +305,7 @@ export function PantallaMapa({ onOpenDetalle }: Props) {
         )}
       </div>
     </MapaFilterCtx.Provider>
+    </HighlightCtx.Provider>
   );
 }
 
@@ -403,6 +455,7 @@ function AreaSection({ areaId }: { areaId: Area }) {
   const dispatch = useAppDispatch();
   const isMentor = useIsMentor();
   const filter = useMapaFilter();
+  const highlight = useHighlight();
   const hasFilter = !!filter;
   const c = AREA_COLORS[areaId];
   const label = areaLabel(areaId);
@@ -413,6 +466,10 @@ function AreaSection({ areaId }: { areaId: Area }) {
   const [open, setOpen] = useState(hasFilter && hasMatchingProjects);
   const [openProj, setOpenProj] = useState(hasFilter && hasMatchingProjects);
   const [openSOP, setOpenSOP] = useState(false);
+
+  useEffect(() => {
+    if (highlight?.ancestors.has(areaId)) { setOpen(true); setOpenProj(true); }
+  }, [highlight, areaId]);
   const sops = state.plantillas.filter((pl) => pl.area === areaId);
 
   return (
@@ -505,6 +562,9 @@ function ProyectoBlock({ proyecto, index, total }: { proyecto: Proyecto; index: 
   const dispatch = useAppDispatch();
   const isMentor = useIsMentor();
   const filter = useMapaFilter();
+  const highlight = useHighlight();
+  const isAncestor = !!highlight?.ancestors.has(proyecto.id);
+  const isTarget = highlight?.targetId === proyecto.id;
   const inFilter = !filter || filter.proyectos.has(proyecto.id);
   const [open, setOpen] = useState(filter ? inFilter : false);
   const [confirm, setConfirm] = useState(false);
@@ -512,6 +572,14 @@ function ProyectoBlock({ proyecto, index, total }: { proyecto: Proyecto; index: 
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [showMoveArea, setShowMoveArea] = useState(false);
   const isEmpresa = ambitoDeArea(proyecto.area) === "empresa";
+  const hlRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => { if (isAncestor || isTarget) setOpen(true); }, [isAncestor, isTarget]);
+  useEffect(() => {
+    if (isTarget && hlRef.current) {
+      hlRef.current.scrollIntoView({ behavior: "smooth", block: "center" });
+    }
+  }, [isTarget]);
 
   const allResultados = state.resultados.filter((r) => r.proyectoId === proyecto.id);
   const notasCount = (proyecto.notas ?? []).length;
@@ -523,7 +591,7 @@ function ProyectoBlock({ proyecto, index, total }: { proyecto: Proyecto; index: 
   }
 
   return (
-    <div className={`rounded-xl border border-border bg-background${filter && !inFilter ? " opacity-40" : ""}`}>
+    <div ref={hlRef} className={`rounded-xl border border-border bg-background transition-all duration-700${filter && !inFilter ? " opacity-40" : ""}${isTarget ? " ring-2 ring-accent ring-offset-2 animate-pulse" : ""}`}>
       <ToggleRow open={open} onToggle={() => setOpen(!open)}>
         {isMentor
           ? <span className="text-lg font-semibold text-foreground">{proyecto.nombre}</span>
@@ -633,12 +701,21 @@ function ResultadoBlock({ resultado, index, total }: { resultado: Resultado; ind
   const { nombre: currentUser } = useUsuario();
   const isMentor = useIsMentor();
   const filter = useMapaFilter();
+  const highlight = useHighlight();
+  const isAncestor = !!highlight?.ancestors.has(resultado.id);
+  const isTarget = highlight?.targetId === resultado.id;
   const inFilter = !filter || filter.resultados.has(resultado.id);
   const [open, setOpen] = useState(filter ? inFilter : false);
   const [confirm, setConfirm] = useState(false);
   const [showNotas, setShowNotas] = useState(false);
   const [showMove, setShowMove] = useState(false);
   const [showDatePicker, setShowDatePicker] = useState(false);
+  const hlRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => { if (isAncestor || isTarget) setOpen(true); }, [isAncestor, isTarget]);
+  useEffect(() => {
+    if (isTarget && hlRef.current) hlRef.current.scrollIntoView({ behavior: "smooth", block: "center" });
+  }, [isTarget]);
 
   const allEntregables = state.entregables.filter((e) => e.resultadoId === resultado.id);
   const parentProj = state.proyectos.find((p) => p.id === resultado.proyectoId);
@@ -652,7 +729,7 @@ function ResultadoBlock({ resultado, index, total }: { resultado: Resultado; ind
   }
 
   return (
-    <div className={`rounded-xl border border-border/50 bg-surface/30${filter && !inFilter ? " opacity-40" : ""}`}>
+    <div ref={hlRef} className={`rounded-xl border border-border/50 bg-surface/30 transition-all duration-700${filter && !inFilter ? " opacity-40" : ""}${isTarget ? " ring-2 ring-accent ring-offset-2 animate-pulse" : ""}`}>
       <ToggleRow open={open} onToggle={() => setOpen(!open)}>
         {isMentor
           ? <span className="text-base font-medium text-foreground">{resultado.nombre}</span>
@@ -744,6 +821,9 @@ function EntregableBlock({ entregable, index, total }: { entregable: Entregable;
   const dispatch = useAppDispatch();
   const isMentor = useIsMentor();
   const filter = useMapaFilter();
+  const highlight = useHighlight();
+  const isAncestor = !!highlight?.ancestors.has(entregable.id);
+  const isTarget = highlight?.targetId === entregable.id;
   const inFilter = !filter || filter.entregables.has(entregable.id);
   const [open, setOpen] = useState(filter ? inFilter : false);
   const [confirm, setConfirm] = useState(false);
@@ -751,7 +831,13 @@ function EntregableBlock({ entregable, index, total }: { entregable: Entregable;
   const [justAssigned, setJustAssigned] = useState(false);
   const [showMove, setShowMove] = useState(false);
   const justAssignedTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const hlRef = useRef<HTMLDivElement>(null);
   useEffect(() => () => clearTimeout(justAssignedTimer.current), []);
+
+  useEffect(() => { if (isAncestor || isTarget) setOpen(true); }, [isAncestor, isTarget]);
+  useEffect(() => {
+    if (isTarget && hlRef.current) hlRef.current.scrollIntoView({ behavior: "smooth", block: "center" });
+  }, [isTarget]);
 
   const allPasos = state.pasos
     .filter((p) => p.entregableId === entregable.id)
@@ -780,7 +866,7 @@ function EntregableBlock({ entregable, index, total }: { entregable: Entregable;
   }
 
   return (
-    <div className={filter && !inFilter ? "opacity-40" : undefined}>
+    <div ref={hlRef} className={`transition-all duration-700${filter && !inFilter ? " opacity-40" : ""}${isTarget ? " rounded-lg ring-2 ring-accent ring-offset-2 animate-pulse" : ""}`}>
       <ToggleRow open={open} onToggle={() => setOpen(!open)}>
         <span className={`h-3 w-3 shrink-0 rounded-full ${dotColor}`} />
         {isMentor
@@ -890,6 +976,8 @@ function PasoLine({ paso, index, total, isEmpresa, entResponsable }: { paso: Pas
   const dispatch = useAppDispatch();
   const isMentor = useIsMentor();
   const filter = useMapaFilter();
+  const highlight = useHighlight();
+  const isTarget = highlight?.targetId === paso.id;
   const inFilter = !filter || filter.pasos.has(paso.id);
   const [showNotas, setShowNotas] = useState(false);
   const [confirmDel, setConfirmDel] = useState(false);
@@ -898,9 +986,14 @@ function PasoLine({ paso, index, total, isEmpresa, entResponsable }: { paso: Pas
   const hasContextoNotas = !!paso.contexto.notas;
   const notasCount = allNotas.length + (hasContextoNotas ? 1 : 0);
   const hasUrls = paso.contexto.urls.length > 0;
+  const hlRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (isTarget && hlRef.current) hlRef.current.scrollIntoView({ behavior: "smooth", block: "center" });
+  }, [isTarget]);
 
   return (
-    <div className={`mb-1${filter && !inFilter ? " opacity-40" : ""}`}>
+    <div ref={hlRef} className={`mb-1 transition-all duration-700${filter && !inFilter ? " opacity-40" : ""}${isTarget ? " rounded-lg ring-2 ring-accent ring-offset-2 animate-pulse" : ""}`}>
       <div className="group/row flex min-h-[44px] items-center gap-2 rounded-lg px-3 py-2 hover:bg-surface">
         <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${done ? "bg-green-500" : "bg-border"}`} />
         {isMentor

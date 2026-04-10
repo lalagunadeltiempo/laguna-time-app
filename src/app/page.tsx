@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type ReactNode } from "react";
+import { useState, useCallback, type ReactNode } from "react";
 import { AuthGate } from "@/components/AuthGate";
 import { AppProvider, useAppState } from "@/lib/context";
 import { UsuarioContext, useUsuario } from "@/lib/usuario";
@@ -96,6 +96,8 @@ function AppShell({ userId, displayName }: { userId: string; displayName: string
   const [collapsed, setCollapsed] = useState(false);
   const [showBuscador, setShowBuscador] = useState(false);
   const [detalleResultadoId, setDetalleResultadoId] = useState<string | null>(null);
+  const [highlightId, setHighlightId] = useState<string | null>(null);
+  const clearHighlight = useCallback(() => setHighlightId(null), []);
   const navItems = isMentorUser ? NAV_ITEMS.filter((i) => MENTOR_VIEWS.includes(i.id)) : NAV_ITEMS;
 
   function openDetalle(id: string) {
@@ -220,7 +222,7 @@ function AppShell({ userId, displayName }: { userId: string; displayName: string
               <PantallaPlan />
             )}
             {vista === "mapa" && (
-              <PantallaMapa onOpenDetalle={openDetalle} />
+              <PantallaMapa onOpenDetalle={openDetalle} highlightId={highlightId} onClearHighlight={clearHighlight} />
             )}
             {vista === "urls" && (
               <div className="mx-auto max-w-4xl">
@@ -260,7 +262,11 @@ function AppShell({ userId, displayName }: { userId: string; displayName: string
         </nav>
 
         {/* ── Global overlays ── */}
-        {showBuscador && <Buscador onClose={() => setShowBuscador(false)} />}
+        {showBuscador && <Buscador onClose={() => setShowBuscador(false)} onNavigate={(_tipo, id) => {
+          setShowBuscador(false);
+          setVista("mapa");
+          setHighlightId(id);
+        }} />}
       </div>
       </UsuarioWithRol>
     </AppProvider>

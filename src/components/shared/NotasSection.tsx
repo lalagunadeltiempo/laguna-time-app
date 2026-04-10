@@ -58,12 +58,15 @@ export function NotasSection({ notas, nivel, targetId }: Props) {
           )}
           <div className="flex-1 min-w-0">
             {editingId === n.id ? (
-              <div className="flex gap-1">
-                <input value={editDraft} onChange={(e) => setEditDraft(e.target.value)}
-                  onKeyDown={(e) => { if (e.key === "Enter") saveEdit(); if (e.key === "Escape") { setEditingId(null); setEditDraft(""); } }}
-                  autoFocus className="flex-1 rounded border border-accent bg-background px-2 py-1 text-xs text-foreground outline-none" />
-                <button onClick={saveEdit} className="rounded bg-accent px-2 py-1 text-[10px] font-medium text-white">OK</button>
-                <button onClick={() => setEditingId(null)} className="text-[10px] text-muted">✕</button>
+              <div className="flex flex-col gap-1.5">
+                <textarea value={editDraft} onChange={(e) => setEditDraft(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Escape") { setEditingId(null); setEditDraft(""); } }}
+                  rows={Math.max(2, editDraft.split("\n").length)}
+                  autoFocus className="w-full resize-y rounded-lg border border-accent bg-background px-3 py-2 text-xs leading-relaxed text-foreground outline-none" />
+                <div className="flex gap-1.5">
+                  <button onClick={saveEdit} className="rounded-lg bg-accent px-3 py-1 text-[10px] font-medium text-white">Guardar</button>
+                  <button onClick={() => setEditingId(null)} className="text-[10px] text-muted hover:text-foreground">Cancelar</button>
+                </div>
               </div>
             ) : (
               <>
@@ -94,13 +97,17 @@ export function NotasSection({ notas, nivel, targetId }: Props) {
         </div>
       ))}
       {showForm ? (
-        <div className="flex gap-2">
-          <input value={draft} onChange={(e) => setDraft(e.target.value)} placeholder={isMentor ? "Escribe un comentario..." : "Escribe una nota..."}
-            onKeyDown={(e) => { if (e.key === "Enter") addNota(); if (e.key === "Escape") { setDraft(""); setShowForm(false); } }}
-            autoFocus className={`flex-1 rounded-lg border bg-background px-3 py-1.5 text-xs text-foreground outline-none ${isMentor ? "border-amber-300 focus:border-amber-500" : "border-border focus:border-accent"}`} />
-          <button onClick={addNota} className={`rounded-lg px-3 py-1.5 text-xs font-medium text-white ${isMentor ? "bg-amber-500 hover:bg-amber-600" : "bg-accent hover:bg-accent/90"}`}>
-            {isMentor ? "Comentar" : "Añadir"}
-          </button>
+        <div className="flex flex-col gap-2">
+          <textarea value={draft} onChange={(e) => setDraft(e.target.value)} placeholder={isMentor ? "Escribe un comentario..." : "Escribe una nota..."}
+            onKeyDown={(e) => { if (e.key === "Escape") { setDraft(""); setShowForm(false); } }}
+            rows={Math.max(3, draft.split("\n").length)}
+            autoFocus className={`w-full resize-y rounded-lg border bg-background px-3 py-2 text-xs leading-relaxed text-foreground outline-none ${isMentor ? "border-amber-300 focus:border-amber-500" : "border-border focus:border-accent"}`} />
+          <div className="flex gap-2">
+            <button onClick={addNota} className={`rounded-lg px-3 py-1.5 text-xs font-medium text-white ${isMentor ? "bg-amber-500 hover:bg-amber-600" : "bg-accent hover:bg-accent/90"}`}>
+              {isMentor ? "Comentar" : "Añadir"}
+            </button>
+            <button onClick={() => { setDraft(""); setShowForm(false); }} className="text-xs text-muted hover:text-foreground">Cancelar</button>
+          </div>
         </div>
       ) : (
         <button onClick={() => setShowForm(true)} className={`flex items-center gap-1 text-[11px] ${isMentor ? "text-amber-600 hover:text-amber-700" : "text-muted hover:text-accent"}`}>
