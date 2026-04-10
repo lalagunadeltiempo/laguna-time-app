@@ -24,6 +24,7 @@ import {
   type TipoEntregable,
   type PlanNivel,
   type EstadoEntregable,
+  type Programacion,
 } from "@/lib/types";
 
 function formatFechaInicio(f: string): string {
@@ -336,6 +337,35 @@ function DeleteBtn({ onDelete }: { onDelete: () => void }) {
 /* ============================================================
    TOGGLE ROW
    ============================================================ */
+
+const DAY_NAMES = ["Dom", "Lun", "Mar", "Mié", "Jue", "Vie", "Sáb"];
+
+function ScheduleBadge({ programacion }: { programacion: Programacion | null }) {
+  if (!programacion) return null;
+  let label: string;
+  switch (programacion.tipo) {
+    case "diario": label = "Diario"; break;
+    case "semanal": label = `Semanal${programacion.diaSemana != null ? ` · ${DAY_NAMES[programacion.diaSemana]}` : ""}`; break;
+    case "mensual": label = "Mensual"; break;
+    case "trimestral": label = "Trimestral"; break;
+    case "demanda": label = "A demanda"; break;
+    default: return null;
+  }
+  const isAuto = programacion.tipo !== "demanda";
+  return (
+    <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold ${
+      isAuto ? "bg-green-50 text-green-700 dark:bg-green-500/10 dark:text-green-400" : "bg-gray-100 text-gray-500 dark:bg-gray-700/20 dark:text-gray-400"
+    }`}>
+      <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+        {isAuto
+          ? <><path d="M12 2v4" /><path d="M12 18v4" /><path d="M4.93 4.93l2.83 2.83" /><path d="M16.24 16.24l2.83 2.83" /><path d="M2 12h4" /><path d="M18 12h4" /><path d="M4.93 19.07l2.83-2.83" /><path d="M16.24 7.76l2.83-2.83" /></>
+          : <><circle cx="12" cy="12" r="10" /><polyline points="12 6 12 12 16 14" /></>
+        }
+      </svg>
+      {label}
+    </span>
+  );
+}
 
 function ToggleRow({ open, onToggle, children }: { open: boolean; onToggle: () => void; children: React.ReactNode }) {
   void open;
@@ -1048,6 +1078,7 @@ function SOPBlock({ sop, index, total }: { sop: PlantillaProceso; index: number;
             className="text-base font-medium text-foreground" />}
         <ReviewBadge review={sop.review} nivel="plantilla" targetId={sop.id} />
         <span className="rounded-full px-2.5 py-0.5 text-xs font-medium" style={{ backgroundColor: (AREA_COLORS[sop.area]?.hex ?? "#888") + "15", color: AREA_COLORS[sop.area]?.hex ?? "#888" }}>SOP · {sop.pasos.length}p</span>
+        <ScheduleBadge programacion={sop.programacion} />
         {justCreated && (
           <span className="animate-pulse rounded-md bg-green-100 px-2 py-0.5 text-[11px] font-bold text-green-700">Entregable creado</span>
         )}
