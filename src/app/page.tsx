@@ -88,7 +88,7 @@ export default function Home() {
   );
 }
 
-const MENTOR_VIEWS: Vista[] = ["mapa", "cuaderno"];
+const MENTOR_VIEWS: Vista[] = ["mapa", "urls", "cuaderno"];
 
 function AppShell({ userId, displayName }: { userId: string; displayName: string }) {
   const isMentorUser = userId === "mentor";
