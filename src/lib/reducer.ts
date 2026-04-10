@@ -15,6 +15,7 @@ import type {
   AmbitoLabels,
   ActivityEntry,
   Objetivo,
+  ReviewMark,
 } from "./types";
 import { AREAS_EMPRESA, AREAS_PERSONAL } from "./types";
 
@@ -88,7 +89,8 @@ export type Action =
   | { type: "MATERIALIZE_SOP"; plantillaId: string; area: Area; responsable: string; currentUser: string; dateKey: string; ids: { resultado: string; entregable: string; paso: string; proyecto: string } }
   | { type: "ADD_OBJETIVO"; payload: Objetivo }
   | { type: "UPDATE_OBJETIVO"; id: string; changes: Partial<Pick<Objetivo, "texto" | "completado" | "area">> }
-  | { type: "DELETE_OBJETIVO"; id: string };
+  | { type: "DELETE_OBJETIVO"; id: string }
+  | { type: "SET_REVIEW"; nivel: "proyecto" | "resultado" | "entregable" | "plantilla"; targetId: string; review: ReviewMark };
 
 function swapSiblings<T extends { id: string }>(
   arr: T[],
@@ -764,6 +766,22 @@ export function reducer(state: AppState, action: Action): AppState {
 
     case "DELETE_OBJETIVO":
       return { ...state, objetivos: (state.objetivos ?? []).filter((o) => o.id !== action.id) };
+
+    case "SET_REVIEW": {
+      const { nivel, targetId, review } = action;
+      switch (nivel) {
+        case "proyecto":
+          return { ...state, proyectos: state.proyectos.map((p) => p.id === targetId ? { ...p, review } : p) };
+        case "resultado":
+          return { ...state, resultados: state.resultados.map((r) => r.id === targetId ? { ...r, review } : r) };
+        case "entregable":
+          return { ...state, entregables: state.entregables.map((e) => e.id === targetId ? { ...e, review } : e) };
+        case "plantilla":
+          return { ...state, plantillas: state.plantillas.map((t) => t.id === targetId ? { ...t, review } : t) };
+        default:
+          return state;
+      }
+    }
 
     default:
       return state;

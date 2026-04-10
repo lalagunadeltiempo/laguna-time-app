@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useMemo, useCallback, useRef } from "react";
-import { useIsMentor } from "@/lib/usuario";
 import { PlanHoy } from "./plan/PlanHoy";
 import { PlanSemana } from "./plan/PlanSemana";
 import { PlanMes } from "./plan/PlanMes";
@@ -82,12 +81,9 @@ function isCurrentPeriod(d: Date, tab: Tab): boolean {
 }
 
 export function PantallaPlan() {
-  const isMentor = useIsMentor();
   const [tab, setTab] = useState<Tab>("hoy");
   const [selectedDate, setSelectedDate] = useState(() => new Date());
   const dateRef = useRef<HTMLInputElement>(null);
-
-  if (isMentor) return <div className="p-8 text-center text-muted">Vista no disponible para mentor.</div>;
 
   const isCurrent = useMemo(() => isCurrentPeriod(selectedDate, tab), [selectedDate, tab]);
   const label = useMemo(() => navLabel(selectedDate, tab), [selectedDate, tab]);

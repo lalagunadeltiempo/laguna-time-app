@@ -59,6 +59,7 @@ function targetName(state: AppState, nivel: string, targetId: string): string {
   if (nivel === "entregable") { const e = state.entregables.find((x) => x.id === targetId); return e ? `"${e.nombre}"` : ""; }
   if (nivel === "resultado") { const r = state.resultados.find((x) => x.id === targetId); return r ? `"${r.nombre}"` : ""; }
   if (nivel === "proyecto") { const p = state.proyectos.find((x) => x.id === targetId); return p ? `"${p.nombre}"` : ""; }
+  if (nivel === "plantilla") { const t = state.plantillas.find((x) => x.id === targetId); return t ? `"${t.nombre}"` : ""; }
   return "";
 }
 
@@ -141,6 +142,12 @@ function actionToLog(action: Action, _userName: string, state: AppState): { acti
       const syncEnt = state.entregables.find((e) => e.id === action.entregableId);
       const syncPl = syncEnt?.plantillaId ? state.plantillas.find((pl) => pl.id === syncEnt.plantillaId) : null;
       return { action: "sync_sop", descripcion: `SOP "${syncPl?.nombre ?? "?"}" actualizado con mejoras del entregable`, entregableId: action.entregableId };
+    }
+    case "SET_REVIEW": {
+      const statusLabels: Record<string, string> = { pendiente: "pendiente", revisado: "revisado", sugerencia: "con sugerencias", aprobado: "aprobado" };
+      const label = statusLabels[action.review.status] ?? action.review.status;
+      const name = targetName(state, action.nivel, action.targetId);
+      return { action: "set_review", descripcion: `${action.nivel} "${name}" marcado como ${label} por ${action.review.autor}` };
     }
     default:
       return null;

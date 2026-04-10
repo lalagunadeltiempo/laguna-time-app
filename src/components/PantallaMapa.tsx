@@ -6,6 +6,7 @@ import { generateId } from "@/lib/store";
 import { useUsuario, useIsMentor } from "@/lib/usuario";
 import { NotasSection } from "./shared/NotasSection";
 import { EditableText } from "./shared/EditableText";
+import { ReviewBadge } from "./shared/ReviewBadge";
 export { NotasSection, EditableText };
 import {
   AREAS_PERSONAL,
@@ -497,6 +498,7 @@ function ProyectoBlock({ proyecto, index, total }: { proyecto: Proyecto; index: 
           ? <span className="text-lg font-semibold text-foreground">{proyecto.nombre}</span>
           : <EditableText value={proyecto.nombre} onChange={(v) => dispatch({ type: "RENAME_PROYECTO", id: proyecto.id, nombre: v })} className="text-lg font-semibold text-foreground" />
         }
+        <ReviewBadge review={proyecto.review} nivel="proyecto" targetId={proyecto.id} />
         {isEmpresa && <ResponsableBadge nombre={proyecto.responsable} />}
         <span className="rounded-full bg-surface px-3 py-1 text-xs font-medium text-muted">{allResultados.length} result.</span>
         {isProgrammed && (
@@ -601,6 +603,7 @@ function ResultadoBlock({ resultado, index, total }: { resultado: Resultado; ind
           ? <span className="text-base font-medium text-foreground">{resultado.nombre}</span>
           : <EditableText value={resultado.nombre} onChange={(v) => dispatch({ type: "RENAME_RESULTADO", id: resultado.id, nombre: v })} className="text-base font-medium text-foreground" />
         }
+        <ReviewBadge review={resultado.review} nivel="resultado" targetId={resultado.id} />
         {isEmpresa && <ResponsableBadge nombre={resultado.responsable ?? parentProj?.responsable} />}
         <span className="rounded-full bg-surface px-2.5 py-0.5 text-xs text-muted">{allEntregables.length} entreg.</span>
         {isProgrammed && (
@@ -729,6 +732,7 @@ function EntregableBlock({ entregable, index, total }: { entregable: Entregable;
           ? <span className="text-sm text-foreground">{entregable.nombre}</span>
           : <EditableText value={entregable.nombre} onChange={(v) => dispatch({ type: "RENAME_ENTREGABLE", id: entregable.id, nombre: v })} className="text-sm text-foreground" />
         }
+        <ReviewBadge review={entregable.review} nivel="entregable" targetId={entregable.id} />
         {tipoTag && <span className="rounded-md px-2 py-0.5 text-[11px] font-bold" style={{ backgroundColor: entAreaHex + "15", color: entAreaHex }}>{tipoTag}</span>}
         {isEmpresa && <ResponsableBadge nombre={entregable.responsable} />}
         {programLabel && (
@@ -1042,6 +1046,7 @@ function SOPBlock({ sop, index, total }: { sop: PlantillaProceso; index: number;
           ? <span className="text-base font-medium text-foreground">{sop.nombre}</span>
           : <EditableText value={sop.nombre} onChange={(v) => dispatch({ type: "UPDATE_PLANTILLA", id: sop.id, changes: { nombre: v } })}
             className="text-base font-medium text-foreground" />}
+        <ReviewBadge review={sop.review} nivel="plantilla" targetId={sop.id} />
         <span className="rounded-full px-2.5 py-0.5 text-xs font-medium" style={{ backgroundColor: (AREA_COLORS[sop.area]?.hex ?? "#888") + "15", color: AREA_COLORS[sop.area]?.hex ?? "#888" }}>SOP · {sop.pasos.length}p</span>
         {justCreated && (
           <span className="animate-pulse rounded-md bg-green-100 px-2 py-0.5 text-[11px] font-bold text-green-700">Entregable creado</span>

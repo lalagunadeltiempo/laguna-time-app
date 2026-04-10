@@ -56,6 +56,14 @@ export type PlanNivel = "dia" | "semana" | "mes" | "trimestre" | null;
 
 export type EstadoEntregable = "a_futuro" | "planificado" | "en_proceso" | "en_espera" | "hecho" | "cancelada";
 
+export type ReviewStatus = "pendiente" | "revisado" | "sugerencia" | "aprobado";
+
+export interface ReviewMark {
+  status: ReviewStatus;
+  autor: string;
+  fecha: string;
+}
+
 export interface Proyecto {
   id: string;
   nombre: string;
@@ -67,6 +75,7 @@ export interface Proyecto {
   planNivel?: PlanNivel;
   responsable?: string;
   notas?: Nota[];
+  review?: ReviewMark;
 }
 
 export interface Resultado {
@@ -82,6 +91,7 @@ export interface Resultado {
   planNivel?: PlanNivel;
   responsable?: string;
   notas?: Nota[];
+  review?: ReviewMark;
 }
 
 export type TipoEntregable = "raw" | "sop" | "a-sop";
@@ -103,6 +113,7 @@ export interface Entregable {
   fechaInicio: string | null;
   planNivel?: PlanNivel;
   notas?: Nota[];
+  review?: ReviewMark;
 }
 
 export interface UrlRef {
@@ -208,6 +219,7 @@ export interface PlantillaProceso {
   dependeDeIds: string[];
   creado: string;
   notas?: Nota[];
+  review?: ReviewMark;
 }
 
 export interface EjecucionSOP {
