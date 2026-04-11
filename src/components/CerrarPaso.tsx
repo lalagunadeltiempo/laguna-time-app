@@ -53,30 +53,28 @@ export function CerrarPaso({ paso, onClose }: Props) {
     ? state.plantillas.find((pl) => pl.id === entregable.plantillaId)
     : null;
 
-  const pasosDelEntregable = state.pasos
+  const pasosHechos = state.pasos
     .filter((p) => p.entregableId === entregable?.id && p.finTs)
     .sort((a, b) => (a.inicioTs ?? "").localeCompare(b.inicioTs ?? ""));
 
-  const pasosIncluyendoActual = [...pasosDelEntregable, paso];
-  const totalPasosReales = pasosIncluyendoActual.length;
+  const pasosPendientes = state.pasos
+    .filter((p) => p.entregableId === entregable?.id && !p.inicioTs && !p.finTs && p.id !== paso.id);
 
-  const realNamesKey = pasosIncluyendoActual.map((rp) => `${rp.nombre}|${rp.estado ?? ""}`).join(";;");
+  const allDoneNames = useMemo(() => {
+    const s = new Set<string>();
+    for (const p of pasosHechos) s.add(p.nombre.toLowerCase());
+    s.add(paso.nombre.toLowerCase());
+    for (const p of pasosPendientes) s.add(p.nombre.toLowerCase());
+    return s;
+  }, [pasosHechos, paso.nombre, pasosPendientes]);
 
-  const sopSugerencias = useMemo(() => {
+  const sopPendientes = useMemo(() => {
     if (!plantilla) return [];
-    const names = new Set(realNamesKey.split(";;").map((s) => s.split("|")[0].toLowerCase()));
-    const estados = new Set(realNamesKey.split(";;").map((s) => s.split("|")[1]?.toLowerCase()).filter(Boolean));
-    return plantilla.pasos.map((pp) => ({
-      ...pp,
-      done: names.has(pp.nombre.toLowerCase()) || estados.has(pp.nombre.toLowerCase()),
-    }));
-  }, [plantilla, realNamesKey]);
+    return plantilla.pasos.filter((pp) => !allDoneNames.has(pp.nombre.toLowerCase()));
+  }, [plantilla, allDoneNames]);
 
-  const nextSOPSugerencia = sopSugerencias.find((s) => !s.done) ?? null;
-
-  const allSOPStepsDone = plantilla
-    ? totalPasosReales >= plantilla.pasos.length && !nextSOPSugerencia
-    : false;
+  const firstSuggestion = pasosPendientes[0]?.nombre ?? sopPendientes[0]?.nombre ?? "";
+  const allStepsDone = pasosPendientes.length === 0 && sopPendientes.length === 0;
 
   const defaultNombre =
     paso.nombre !== entregable?.nombre
@@ -98,16 +96,12 @@ export function CerrarPaso({ paso, onClose }: Props) {
   const contactosExternos = useMemo(() => state.contactos ?? [], [state.contactos]);
 
   useEffect(() => {
-    if (allSOPStepsDone && entregable?.tipo === "sop") {
-      setSigTipo("fin");
-    }
-  }, [allSOPStepsDone, entregable?.tipo]);
+    if (allStepsDone) setSigTipo("fin");
+  }, [allStepsDone]);
 
   useEffect(() => {
-    if (nextSOPSugerencia && entregable?.tipo === "sop") {
-      setSigNombre((prev) => prev || nextSOPSugerencia.nombre);
-    }
-  }, [nextSOPSugerencia, entregable?.tipo]);
+    if (firstSuggestion) setSigNombre((prev) => prev || firstSuggestion);
+  }, [firstSuggestion]);
 
   const cuandoActual = sigCuando === "otro" ? sigFechaCustom : sigCuando;
   const cuandoLabel = resolveCuandoLabel(cuandoActual);
@@ -228,53 +222,58 @@ export function CerrarPaso({ paso, onClose }: Props) {
 
             {sigTipo === "continuar" && (
               <div className="space-y-3 rounded-xl border border-zinc-100 bg-zinc-50 p-3">
-                <p className="text-xs font-medium text-zinc-500">Siguiente paso:</p>
-                {/* Pasos anteriores (reales) */}
-                {pasosDelEntregable.length > 0 && (
-                  <div className="mb-2">
-                    <p className="text-[10px] font-semibold uppercase tracking-wider text-zinc-400 mb-1">Pasos completados:</p>
-                    <div className="space-y-0.5 max-h-28 overflow-y-auto">
-                      {pasosDelEntregable.map((p) => (
-                        <div key={p.id} className="flex items-center gap-2 rounded px-2 py-1 text-xs text-zinc-500">
-                          <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-green-400" />
-                          <span className="truncate">{p.nombre}</span>
-                          <span className="ml-auto shrink-0 text-[10px] text-zinc-300">
-                            {p.inicioTs ? new Date(p.inicioTs).toLocaleDateString("es-ES", { day: "numeric", month: "short" }) : ""}
-                          </span>
-                        </div>
-                      ))}
+                <p className="text-[10px] font-semibold uppercase tracking-wider text-zinc-400 mb-1">Progreso del entregable</p>
+                <div className="max-h-52 space-y-0.5 overflow-y-auto rounded-lg border border-zinc-100 bg-white p-1.5">
+                  {/* Done steps */}
+                  {pasosHechos.map((p) => (
+                    <div key={p.id} className="flex items-center gap-2 rounded px-2 py-1 text-xs text-zinc-400">
+                      <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-green-500 text-[8px] text-white">✓</span>
+                      <span className="truncate line-through">{p.nombre}</span>
+                      <span className="ml-auto shrink-0 text-[10px] text-zinc-300">
+                        {p.inicioTs ? new Date(p.inicioTs).toLocaleDateString("es-ES", { day: "numeric", month: "short" }) : ""}
+                      </span>
                     </div>
+                  ))}
+                  {/* Current step */}
+                  <div className="flex items-center gap-2 rounded bg-green-50 px-2 py-1 text-xs font-medium text-green-700">
+                    <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-green-500 text-[8px] text-white">✓</span>
+                    <span className="truncate">{nombrePaso || paso.nombre}</span>
+                    <span className="ml-auto shrink-0 text-[10px]">ahora</span>
                   </div>
-                )}
-                {/* SOP suggestions */}
-                {entregable?.tipo === "sop" && sopSugerencias.length > 0 && (
-                  <div className="space-y-1 mb-2">
-                    <p className="text-[10px] font-semibold uppercase tracking-wider text-purple-500">Sugerencias del SOP:</p>
-                    <div className="space-y-1 max-h-40 overflow-y-auto">
-                      {sopSugerencias.map((sp, idx) => {
-                        const isNext = nextSOPSugerencia?.id === sp.id;
-                        return (
-                          <button key={sp.id} type="button"
-                            disabled={sp.done}
-                            onClick={() => setSigNombre(sp.nombre)}
-                            className={`flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-xs transition-all ${
-                              sigNombre === sp.nombre ? "border-2 border-purple-400 bg-purple-50" :
-                              sp.done ? "opacity-40 line-through" :
-                              isNext ? "border border-purple-200 bg-purple-50/50" :
-                              "border border-zinc-100 hover:border-purple-200"
-                            }`}>
-                            <span className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[10px] font-bold ${
-                              sp.done ? "bg-green-500 text-white" : sigNombre === sp.nombre ? "bg-purple-500 text-white" : "bg-zinc-100 text-zinc-400"
-                            }`}>
-                              {sp.done ? "✓" : idx + 1}
-                            </span>
-                            {sp.nombre}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
-                )}
+                  {/* Separator if there are pending items */}
+                  {(pasosPendientes.length > 0 || sopPendientes.length > 0) && (
+                    <div className="my-1 border-t border-dashed border-zinc-200" />
+                  )}
+                  {/* Pending real steps (user-created) */}
+                  {pasosPendientes.map((p) => (
+                    <button key={p.id} type="button" onClick={() => setSigNombre(p.nombre)}
+                      className={`flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-xs transition-all ${
+                        sigNombre === p.nombre ? "bg-amber-50 ring-1 ring-amber-400" : "hover:bg-amber-50/50"
+                      }`}>
+                      <span className={`flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-[8px] font-bold ${
+                        sigNombre === p.nombre ? "bg-amber-500 text-white" : "bg-amber-100 text-amber-600"
+                      }`}>→</span>
+                      <span className="truncate text-zinc-700">{p.nombre}</span>
+                    </button>
+                  ))}
+                  {/* Pending SOP steps (not yet in real steps) */}
+                  {sopPendientes.map((sp) => (
+                    <button key={sp.id} type="button" onClick={() => setSigNombre(sp.nombre)}
+                      className={`flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-xs transition-all ${
+                        sigNombre === sp.nombre ? "bg-purple-50 ring-1 ring-purple-400" : "hover:bg-purple-50/50"
+                      }`}>
+                      <span className={`flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-[8px] font-bold ${
+                        sigNombre === sp.nombre ? "bg-purple-500 text-white" : "bg-purple-100 text-purple-500"
+                      }`}>→</span>
+                      <span className="truncate text-zinc-500">{sp.nombre}</span>
+                      <span className="ml-auto shrink-0 text-[9px] text-purple-400">SOP</span>
+                    </button>
+                  ))}
+                  {pasosPendientes.length === 0 && sopPendientes.length === 0 && (
+                    <p className="px-2 py-1 text-[10px] italic text-green-600">Todos los pasos completados</p>
+                  )}
+                </div>
+                <p className="mt-2 text-xs font-medium text-zinc-500">Siguiente paso:</p>
                 <input type="text" value={sigNombre} onChange={(e) => setSigNombre(e.target.value)}
                   placeholder={`Ej: Continuar con ${entregable?.nombre ?? "el entregable"}...`}
                   className="w-full rounded-lg border border-zinc-200 bg-white p-2.5 text-sm text-zinc-900 placeholder:text-zinc-400 focus:border-amber-400 focus:outline-none focus:ring-2 focus:ring-amber-400/20" />
@@ -411,7 +410,7 @@ export function CerrarPaso({ paso, onClose }: Props) {
               className="w-full rounded-xl bg-green-600 py-3 text-base font-semibold text-white transition-colors hover:bg-green-700 disabled:opacity-40 disabled:cursor-not-allowed">
               {sigTipo === "fin" ? "Paso dado y entregable terminado" : "Paso dado"}
             </button>
-            {sigTipo === "fin" && entregable && entregable.tipo !== "sop" && pasosDelEntregable.length >= 1 && (
+            {sigTipo === "fin" && entregable && entregable.tipo !== "sop" && pasosHechos.length >= 1 && (
               <button
                 type="button"
                 onClick={() => {
