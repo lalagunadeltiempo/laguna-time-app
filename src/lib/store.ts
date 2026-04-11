@@ -226,7 +226,9 @@ export async function loadStateCloud(userId: string): Promise<CloudLoadResult> {
       return { data: null, error: false, updatedAt: null };
     }
     _cloudLoadedOk = true;
-    return { data: migrateV1(data.state), error: false, updatedAt: data.updated_at ?? null };
+    const migrated = migrateV1(data.state);
+    _lastCloudSnapshot = migrated;
+    return { data: migrated, error: false, updatedAt: data.updated_at ?? null };
   } catch {
     return { data: null, error: true, updatedAt: null };
   }
@@ -234,6 +236,7 @@ export async function loadStateCloud(userId: string): Promise<CloudLoadResult> {
 
 let _saveTimer: ReturnType<typeof setTimeout> | null = null;
 let _pendingSave: { userId: string; state: AppState } | null = null;
+let _lastCloudSnapshot: AppState | null = null;
 
 export function markCloudLoadOk(): void {
   _cloudLoadedOk = true;
@@ -270,7 +273,8 @@ export function saveStateCloud(userId: string, state: AppState): void {
           .eq("user_id", WORKSPACE_ID)
           .single();
         if (cloudRow?.state) {
-          stateToSave = mergeCloudReviews(stateToSave, cloudRow.state as AppState);
+          _lastCloudSnapshot = cloudRow.state as AppState;
+          stateToSave = mergeCloudReviews(stateToSave, _lastCloudSnapshot);
         }
       } catch { /* proceed without merge */ }
     }
@@ -331,10 +335,11 @@ export function flushPendingCloudSave(): void {
   const supabase = getSupabase();
   if (!supabase || userId === "local") return;
 
-  // sendBeacon for reliability on page close — falls back to fire-and-forget fetch
+  const merged = _lastCloudSnapshot ? mergeCloudReviews(state, _lastCloudSnapshot) : state;
+
   const payload = JSON.stringify({
     user_id: userId,
-    state,
+    state: merged,
     updated_at: new Date().toISOString(),
   });
 
