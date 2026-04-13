@@ -36,8 +36,7 @@ interface ResNode {
 interface ProjNode {
   proyecto: Proyecto;
   resultados: ResNode[];
-  allEntCount: number;
-  activeEntCount: number;
+  entCount: number;
   done: number;
   total: number;
   percent: number;
@@ -76,7 +75,7 @@ export function PlanTrimestre({ selectedDate }: Props) {
   const qMonths = quarterMonths(currentQ);
   const qPeriodo = periodoQ(currentQ, year);
 
-  function buildProjNode(p: Proyecto): ProjNode {
+  function buildFullProjNode(p: Proyecto): ProjNode {
     const hex = AREA_COLORS[p.area]?.hex ?? "#888";
     const projResults = state.resultados.filter((r) => r.proyectoId === p.id);
     const resNodes: ResNode[] = projResults.map((r) => {
@@ -92,81 +91,56 @@ export function PlanTrimestre({ selectedDate }: Props) {
     });
     const done = allEnts.filter((e) => e.estado === "hecho").length;
     const total = allEnts.length;
-    const activeEntCount = allEnts.filter((e) => e.estado !== "hecho" && e.estado !== "cancelada").length;
+    const entCount = resNodes.reduce((s, rn) => s + rn.entregables.length, 0);
 
-    return {
-      proyecto: p, resultados: resNodes, allEntCount: activeEntCount, activeEntCount,
-      done, total, percent: total ? Math.round((done / total) * 100) : 0, hex,
-    };
+    return { proyecto: p, resultados: resNodes, entCount, done, total, percent: total ? Math.round((done / total) * 100) : 0, hex };
   }
 
-  const { monthData, operations, backlogProjects } = useMemo(() => {
-    const monthEnt = new Map<number, EntWithContext[]>();
-    const monthProj = new Map<number, ProjNode[]>();
-    for (const m of qMonths) { monthEnt.set(m, []); monthProj.set(m, []); }
+  function sliceProjNodeForMonth(node: ProjNode, month: number): ProjNode | null {
+    const slicedRes: ResNode[] = node.resultados.map((rn) => ({
+      resultado: rn.resultado,
+      entregables: rn.entregables.filter((ec) => entMonth(ec.ent.fechaInicio) === month),
+    })).filter((rn) => rn.entregables.length > 0);
+    if (slicedRes.length === 0) return null;
+    const entCount = slicedRes.reduce((s, rn) => s + rn.entregables.length, 0);
+    return { ...node, resultados: slicedRes, entCount };
+  }
 
+  function sliceProjNodeBacklog(node: ProjNode): ProjNode | null {
+    const slicedRes: ResNode[] = node.resultados.map((rn) => ({
+      resultado: rn.resultado,
+      entregables: rn.entregables.filter((ec) => !entInQuarter(ec.ent.fechaInicio, qMonths, year)),
+    })).filter((rn) => rn.entregables.length > 0);
+    if (slicedRes.length === 0) return null;
+    const entCount = slicedRes.reduce((s, rn) => s + rn.entregables.length, 0);
+    return { ...node, resultados: slicedRes, entCount };
+  }
+
+  const { monthProjects, operations, backlogProjects } = useMemo(() => {
+    const mProj = new Map<number, ProjNode[]>();
+    for (const m of qMonths) mProj.set(m, []);
     const ops: ProjNode[] = [];
     const backlog: ProjNode[] = [];
-    const projSeen = new Set<string>();
 
     for (const p of state.proyectos) {
       if (filtro !== "todo" && ambitoDeArea(p.area) !== filtro) continue;
-      const node = buildProjNode(p);
+      const fullNode = buildFullProjNode(p);
+      if (fullNode.entCount === 0) continue;
 
       if (p.tipo === "operacion") {
-        if (node.total > 0) ops.push(node);
-        for (const rn of node.resultados) {
-          for (const ec of rn.entregables) {
-            if (!entInQuarter(ec.ent.fechaInicio, qMonths, year) && ec.ent.fechaInicio) continue;
-            if (entInQuarter(ec.ent.fechaInicio, qMonths, year)) {
-              const m = entMonth(ec.ent.fechaInicio);
-              monthEnt.get(m)?.push(ec);
-            }
-          }
-        }
-        continue;
+        ops.push(fullNode);
       }
 
-      const hasEntInQ = node.resultados.some((rn) =>
-        rn.entregables.some((ec) => entInQuarter(ec.ent.fechaInicio, qMonths, year))
-      );
-      const projInQ = entInQuarter(p.fechaInicio, qMonths, year);
-
-      if (projInQ || hasEntInQ) {
-        projSeen.add(p.id);
-        if (projInQ) {
-          const m = entMonth(p.fechaInicio);
-          monthProj.get(m)?.push(node);
-        }
-        for (const rn of node.resultados) {
-          for (const ec of rn.entregables) {
-            if (entInQuarter(ec.ent.fechaInicio, qMonths, year)) {
-              const m = entMonth(ec.ent.fechaInicio);
-              monthEnt.get(m)?.push(ec);
-            }
-          }
-        }
+      for (const m of qMonths) {
+        const slice = sliceProjNodeForMonth(fullNode, m);
+        if (slice) mProj.get(m)!.push(slice);
       }
 
-      if (node.activeEntCount > 0) {
-        const hasUnplanned = node.resultados.some((rn) =>
-          rn.entregables.some((ec) => !entInQuarter(ec.ent.fechaInicio, qMonths, year))
-        );
-        if (hasUnplanned || !projSeen.has(p.id)) {
-          backlog.push(node);
-          projSeen.add(p.id);
-        }
-      }
+      const backlogSlice = sliceProjNodeBacklog(fullNode);
+      if (backlogSlice) backlog.push(backlogSlice);
     }
 
-    const md = new Map<number, { entregables: EntWithContext[]; projects: ProjNode[]; count: number }>();
-    for (const m of qMonths) {
-      const ents = monthEnt.get(m) ?? [];
-      const projs = monthProj.get(m) ?? [];
-      md.set(m, { entregables: ents, projects: projs, count: ents.length + projs.reduce((s, pn) => s + pn.activeEntCount, 0) });
-    }
-
-    return { monthData: md, operations: ops, backlogProjects: backlog };
+    return { monthProjects: mProj, operations: ops, backlogProjects: backlog };
   }, [state, filtro, qMonths, year]);
 
   const objetivos = useMemo(() => {
@@ -241,20 +215,14 @@ export function PlanTrimestre({ selectedDate }: Props) {
         )}
       </section>
 
-      {/* Operaciones */}
+      {/* Operaciones (expandibles) */}
       {operations.length > 0 && (
         <section>
           <h3 className="mb-2 text-xs font-bold uppercase tracking-wider text-muted">Operaciones</h3>
-          <div className="flex flex-wrap gap-2">
+          <div className="space-y-2">
             {operations.map((pn) => (
-              <div key={pn.proyecto.id} className="flex items-center gap-2 rounded-lg border-2 bg-background px-3 py-2" style={{ borderColor: pn.hex + "50" }}>
-                <span className="h-3 w-3 shrink-0 rounded-full" style={{ backgroundColor: pn.hex }} />
-                <span className="text-sm font-medium text-foreground">{pn.proyecto.nombre}</span>
-                <div className="h-2 w-16 overflow-hidden rounded-full bg-surface">
-                  <div className="h-full rounded-full transition-all" style={{ width: `${pn.percent}%`, backgroundColor: pn.hex }} />
-                </div>
-                <span className="text-[10px] font-bold text-muted">{pn.done}/{pn.total}</span>
-              </div>
+              <ExpandableProjectCard key={pn.proyecto.id} node={pn} qMonths={qMonths}
+                onAssign={assignToMonth} onUnassign={unassignEnt} isMentor={isMentor} />
             ))}
           </div>
         </section>
@@ -265,10 +233,10 @@ export function PlanTrimestre({ selectedDate }: Props) {
         <h3 className="mb-2 text-xs font-bold uppercase tracking-wider text-muted">Roadmap</h3>
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
           {qMonths.map((m) => {
-            const data = monthData.get(m)!;
+            const projects = monthProjects.get(m) ?? [];
+            const count = projects.reduce((s, pn) => s + pn.entCount, 0);
             return (
-              <MonthColumn key={m} month={m} year={year} entregables={data.entregables}
-                projects={data.projects} count={data.count}
+              <MonthColumn key={m} month={m} year={year} projects={projects} count={count}
                 qMonths={qMonths} onAssign={assignToMonth} onUnassign={unassignEnt} isMentor={isMentor} />
             );
           })}
@@ -279,14 +247,20 @@ export function PlanTrimestre({ selectedDate }: Props) {
       <section>
         <h3 className="mb-2 text-xs font-bold uppercase tracking-wider text-muted">
           Backlog
-          {backlogProjects.length > 0 && <span className="ml-2 text-[10px] font-normal text-muted">({backlogProjects.reduce((s, pn) => s + pn.activeEntCount, 0)} entregables sin planificar)</span>}
+          {backlogProjects.length > 0 && (
+            <span className="ml-2 text-[10px] font-normal text-muted">
+              ({backlogProjects.reduce((s, pn) => s + pn.entCount, 0)} entregables sin planificar)
+            </span>
+          )}
         </h3>
         {backlogProjects.length === 0 ? (
           <p className="py-4 text-center text-sm text-muted">Todo el trabajo está planificado</p>
         ) : (
           <div className="space-y-2">
             {backlogProjects.map((pn) => (
-              <BacklogProjectCard key={pn.proyecto.id} node={pn} qMonths={qMonths} onAssign={assignToMonth} isMentor={isMentor} />
+              <ExpandableProjectCard key={pn.proyecto.id} node={pn} qMonths={qMonths}
+                onAssign={assignToMonth} onUnassign={unassignEnt} isMentor={isMentor}
+                backlogStyle />
             ))}
           </div>
         )}
@@ -299,15 +273,12 @@ export function PlanTrimestre({ selectedDate }: Props) {
    SUB-COMPONENTS
    ================================================================ */
 
-function MonthColumn({ month, year, entregables, projects, count, qMonths, onAssign, onUnassign, isMentor }: {
-  month: number; year: number; entregables: EntWithContext[]; projects: ProjNode[];
-  count: number; qMonths: number[];
+function MonthColumn({ month, year, projects, count, qMonths, onAssign, onUnassign, isMentor }: {
+  month: number; year: number; projects: ProjNode[]; count: number; qMonths: number[];
   onAssign: (id: string, month: number) => void; onUnassign: (id: string) => void; isMentor: boolean;
 }) {
   const now = new Date();
   const isCurrent = now.getFullYear() === year && now.getMonth() === month;
-  const empty = entregables.length === 0 && projects.length === 0;
-  const otherMonths = qMonths.filter((m) => m !== month);
   const overloaded = count > 6;
 
   return (
@@ -316,17 +287,13 @@ function MonthColumn({ month, year, entregables, projects, count, qMonths, onAss
         <h4 className={`text-center text-xs font-bold uppercase ${isCurrent ? "text-accent" : "text-muted"}`}>{MONTHS_ES[month]}</h4>
         <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${overloaded ? "bg-amber-100 text-amber-700" : "bg-surface text-muted"}`}>{count}</span>
       </div>
-      {empty ? (
+      {projects.length === 0 ? (
         <p className="py-4 text-center text-xs text-muted">—</p>
       ) : (
         <div className="space-y-1.5">
           {projects.map((pn) => (
             <ExpandableProjectCard key={pn.proyecto.id} node={pn} qMonths={qMonths}
-              onAssign={onAssign} onUnassign={onUnassign} isMentor={isMentor} inMonth />
-          ))}
-          {entregables.map((ec) => (
-            <MonthEntregableCard key={ec.ent.id} ec={ec} otherMonths={otherMonths}
-              onAssign={onAssign} onUnassign={onUnassign} isMentor={isMentor} />
+              onAssign={onAssign} onUnassign={onUnassign} isMentor={isMentor} inMonth={month} />
           ))}
         </div>
       )}
@@ -334,57 +301,19 @@ function MonthColumn({ month, year, entregables, projects, count, qMonths, onAss
   );
 }
 
-function MonthEntregableCard({ ec, otherMonths, onAssign, onUnassign, isMentor }: {
-  ec: EntWithContext; otherMonths: number[];
-  onAssign: (id: string, month: number) => void; onUnassign: (id: string) => void; isMentor: boolean;
-}) {
-  const [showActions, setShowActions] = useState(false);
-  const estadoBadge = ec.ent.estado === "en_proceso" ? "bg-amber-100 text-amber-700"
-    : ec.ent.estado === "planificado" ? "bg-blue-100 text-blue-700" : "bg-gray-100 text-gray-500";
-
-  return (
-    <div className="rounded-lg border border-border/60 bg-background p-2">
-      <div className="flex items-start gap-1.5">
-        <span className="mt-1 h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: ec.hex }} />
-        <div className="flex-1 min-w-0">
-          <p className="truncate text-xs font-medium text-foreground">{ec.ent.nombre}</p>
-          <p className="truncate text-[10px] text-muted">{ec.projName}</p>
-        </div>
-        <span className={`shrink-0 rounded px-1.5 py-0.5 text-[9px] font-bold ${estadoBadge}`}>{ec.ent.estado.replace("_", " ")}</span>
-        {!isMentor && (
-          <button onClick={() => setShowActions(!showActions)}
-            className="shrink-0 rounded p-0.5 text-muted hover:bg-surface hover:text-foreground" title="Reasignar">
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><circle cx="12" cy="12" r="1" /><circle cx="12" cy="5" r="1" /><circle cx="12" cy="19" r="1" /></svg>
-          </button>
-        )}
-      </div>
-      {showActions && !isMentor && (
-        <div className="mt-1.5 flex gap-1">
-          {otherMonths.map((m) => (
-            <button key={m} onClick={() => { onAssign(ec.ent.id, m); setShowActions(false); }}
-              className="flex-1 rounded border border-border px-1 py-0.5 text-[10px] font-medium text-muted hover:border-accent hover:bg-accent-soft hover:text-accent">
-              {MONTHS_ES[m]}
-            </button>
-          ))}
-          <button onClick={() => { onUnassign(ec.ent.id); setShowActions(false); }}
-            className="rounded border border-red-200 px-1.5 py-0.5 text-[10px] font-medium text-red-400 hover:border-red-400 hover:bg-red-50 hover:text-red-600">
-            ✕
-          </button>
-        </div>
-      )}
-    </div>
-  );
-}
-
-function ExpandableProjectCard({ node, qMonths, onAssign, onUnassign, isMentor, inMonth }: {
+function ExpandableProjectCard({ node, qMonths, onAssign, onUnassign, isMentor, inMonth, backlogStyle }: {
   node: ProjNode; qMonths: number[];
   onAssign: (id: string, month: number) => void; onUnassign: (id: string) => void;
-  isMentor: boolean; inMonth?: boolean;
+  isMentor: boolean; inMonth?: number; backlogStyle?: boolean;
 }) {
   const [open, setOpen] = useState(false);
+  const isOp = node.proyecto.tipo === "operacion";
 
   return (
-    <div className="rounded-lg border-2 bg-background" style={{ borderColor: node.hex + "50" }}>
+    <div className={backlogStyle
+      ? "rounded-xl border border-dashed border-border bg-surface/20"
+      : "rounded-lg border-2 bg-background"
+    } style={backlogStyle ? undefined : { borderColor: node.hex + "50" }}>
       <button onClick={() => setOpen(!open)} className="flex w-full items-center gap-1.5 p-2 text-left">
         <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round"
           className={`shrink-0 text-muted transition-transform ${open ? "rotate-90" : ""}`}>
@@ -392,6 +321,8 @@ function ExpandableProjectCard({ node, qMonths, onAssign, onUnassign, isMentor, 
         </svg>
         <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: node.hex }} />
         <span className="flex-1 truncate text-xs font-semibold text-foreground">{node.proyecto.nombre}</span>
+        {isOp && <span className="shrink-0 rounded bg-indigo-100 px-1.5 py-0.5 text-[9px] font-bold text-indigo-600">OP</span>}
+        {backlogStyle && <span className="shrink-0 rounded-full bg-surface px-2 py-0.5 text-[10px] font-bold text-muted">{node.entCount} pend.</span>}
         <div className="flex items-center gap-1.5">
           <div className="h-1.5 w-12 overflow-hidden rounded-full bg-surface">
             <div className="h-full rounded-full transition-all" style={{ width: `${node.percent}%`, backgroundColor: node.hex }} />
@@ -409,7 +340,9 @@ function ExpandableProjectCard({ node, qMonths, onAssign, onUnassign, isMentor, 
               <p className="mb-0.5 text-[10px] font-semibold uppercase tracking-wider text-muted">{rn.resultado.nombre}</p>
               <div className="space-y-1 pl-2">
                 {rn.entregables.map((ec) => (
-                  <EntregableRow key={ec.ent.id} ec={ec} qMonths={qMonths} onAssign={onAssign} onUnassign={onUnassign} isMentor={isMentor} inMonth={inMonth} />
+                  <EntregableRow key={ec.ent.id} ec={ec} qMonths={qMonths}
+                    onAssign={onAssign} onUnassign={onUnassign} isMentor={isMentor}
+                    currentMonth={inMonth} />
                 ))}
               </div>
             </div>
@@ -420,25 +353,33 @@ function ExpandableProjectCard({ node, qMonths, onAssign, onUnassign, isMentor, 
   );
 }
 
-function EntregableRow({ ec, qMonths, onAssign, onUnassign, isMentor, inMonth }: {
+function EntregableRow({ ec, qMonths, onAssign, onUnassign, isMentor, currentMonth }: {
   ec: EntWithContext; qMonths: number[];
   onAssign: (id: string, month: number) => void; onUnassign: (id: string) => void;
-  isMentor: boolean; inMonth?: boolean;
+  isMentor: boolean; currentMonth?: number;
 }) {
+  const [showActions, setShowActions] = useState(false);
   const estadoBadge = ec.ent.estado === "en_proceso" ? "bg-amber-100 text-amber-700"
     : ec.ent.estado === "planificado" ? "bg-blue-100 text-blue-700" : "bg-gray-100 text-gray-500";
   const assignedMonth = entMonth(ec.ent.fechaInicio);
   const isInQ = qMonths.includes(assignedMonth);
+  const otherMonths = qMonths.filter((m) => m !== assignedMonth);
 
   return (
-    <div className="flex items-center gap-1.5 rounded bg-surface/50 px-1.5 py-1">
+    <div className="flex flex-wrap items-center gap-1.5 rounded bg-surface/50 px-1.5 py-1">
       <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ backgroundColor: ec.hex }} />
       <span className="flex-1 truncate text-[11px] text-foreground">{ec.ent.nombre}</span>
       <span className={`shrink-0 rounded px-1 py-0.5 text-[8px] font-bold ${estadoBadge}`}>{ec.ent.estado.replace("_", " ")}</span>
-      {isInQ && (
+      {isInQ && currentMonth == null && (
         <span className="shrink-0 rounded bg-accent/10 px-1 py-0.5 text-[8px] font-bold text-accent">{MONTHS_ES[assignedMonth]}</span>
       )}
-      {!isMentor && !inMonth && (
+      {!isMentor && currentMonth != null && (
+        <button onClick={() => setShowActions(!showActions)}
+          className="shrink-0 rounded p-0.5 text-muted hover:bg-surface hover:text-foreground" title="Reasignar">
+          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><circle cx="12" cy="12" r="1" /><circle cx="12" cy="5" r="1" /><circle cx="12" cy="19" r="1" /></svg>
+        </button>
+      )}
+      {!isMentor && currentMonth == null && (
         <div className="flex shrink-0 gap-0.5">
           {qMonths.map((m) => (
             <button key={m} onClick={() => onAssign(ec.ent.id, m)}
@@ -450,76 +391,18 @@ function EntregableRow({ ec, qMonths, onAssign, onUnassign, isMentor, inMonth }:
           ))}
         </div>
       )}
-    </div>
-  );
-}
-
-function BacklogProjectCard({ node, qMonths, onAssign, isMentor }: {
-  node: ProjNode; qMonths: number[];
-  onAssign: (id: string, month: number) => void; isMentor: boolean;
-}) {
-  const [open, setOpen] = useState(false);
-  const unplannedCount = node.resultados.reduce((s, rn) =>
-    s + rn.entregables.filter((ec) => !entInQuarter(ec.ent.fechaInicio, qMonths, new Date().getFullYear())).length, 0);
-
-  return (
-    <div className="rounded-xl border border-dashed border-border bg-surface/20">
-      <button onClick={() => setOpen(!open)} className="flex w-full items-center gap-2 px-3 py-2 text-left">
-        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round"
-          className={`shrink-0 text-muted transition-transform ${open ? "rotate-90" : ""}`}>
-          <polyline points="9 18 15 12 9 6" />
-        </svg>
-        <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: node.hex }} />
-        <span className="flex-1 truncate text-sm font-medium text-foreground">{node.proyecto.nombre}</span>
-        {node.proyecto.tipo === "operacion" && (
-          <span className="shrink-0 rounded bg-indigo-100 px-1.5 py-0.5 text-[9px] font-bold text-indigo-600">OP</span>
-        )}
-        <span className="shrink-0 rounded-full bg-surface px-2 py-0.5 text-[10px] font-bold text-muted">{unplannedCount} pend.</span>
-        <div className="flex items-center gap-1.5">
-          <div className="h-1.5 w-12 overflow-hidden rounded-full bg-surface">
-            <div className="h-full rounded-full transition-all" style={{ width: `${node.percent}%`, backgroundColor: node.hex }} />
-          </div>
-          <span className="text-[9px] font-bold text-muted">{node.done}/{node.total}</span>
-        </div>
-      </button>
-      {open && (
-        <div className="space-y-1 px-3 pb-3">
-          {node.resultados.map((rn) => {
-            const unplanned = rn.entregables.filter((ec) => !entInQuarter(ec.ent.fechaInicio, qMonths, new Date().getFullYear()));
-            if (unplanned.length === 0) return null;
-            return (
-              <div key={rn.resultado.id}>
-                <p className="mb-0.5 text-[10px] font-semibold uppercase tracking-wider text-muted">{rn.resultado.nombre}</p>
-                <div className="space-y-1 pl-2">
-                  {unplanned.map((ec) => (
-                    <BacklogEntRow key={ec.ent.id} ec={ec} qMonths={qMonths} onAssign={onAssign} isMentor={isMentor} />
-                  ))}
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function BacklogEntRow({ ec, qMonths, onAssign, isMentor }: {
-  ec: EntWithContext; qMonths: number[];
-  onAssign: (id: string, month: number) => void; isMentor: boolean;
-}) {
-  return (
-    <div className="flex items-center gap-1.5 rounded bg-white/50 px-1.5 py-1 dark:bg-surface/30">
-      <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ backgroundColor: ec.hex }} />
-      <span className="flex-1 truncate text-[11px] text-foreground">{ec.ent.nombre}</span>
-      {!isMentor && (
-        <div className="flex shrink-0 gap-0.5">
-          {qMonths.map((m) => (
-            <button key={m} onClick={() => onAssign(ec.ent.id, m)}
-              className="rounded border border-border px-1.5 py-0.5 text-[9px] font-medium text-muted hover:border-accent hover:bg-accent-soft hover:text-accent">
+      {showActions && currentMonth != null && (
+        <div className="flex w-full gap-1 pt-0.5">
+          {otherMonths.map((m) => (
+            <button key={m} onClick={() => { onAssign(ec.ent.id, m); setShowActions(false); }}
+              className="flex-1 rounded border border-border px-1 py-0.5 text-[10px] font-medium text-muted hover:border-accent hover:bg-accent-soft hover:text-accent">
               {MONTHS_ES[m]}
             </button>
           ))}
+          <button onClick={() => { onUnassign(ec.ent.id); setShowActions(false); }}
+            className="rounded border border-red-200 px-1.5 py-0.5 text-[10px] font-medium text-red-400 hover:border-red-400 hover:bg-red-50 hover:text-red-600">
+            ✕
+          </button>
         </div>
       )}
     </div>
