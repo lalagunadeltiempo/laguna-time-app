@@ -20,6 +20,7 @@ import { AmbitoToggle } from "./PlanMes";
 const MONTHS_ES = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"];
 
 type AmbitoFilter = "todo" | Ambito;
+type ProjWithStats = Proyecto & { done: number; total: number; percent: number };
 
 function pad(n: number) { return String(n).padStart(2, "0"); }
 
@@ -81,13 +82,12 @@ export function PlanTrimestre({ selectedDate }: Props) {
     return { byMonth, unassigned };
   }, [entregables, qMonths]);
 
-  type ProjStats = Proyecto & { done: number; total: number; percent: number };
 
   const { operations, projectsByMonth, projectsUnassigned } = useMemo(() => {
-    const ops: ProjStats[] = [];
-    const projByMonth = new Map<number, ProjStats[]>();
+    const ops: ProjWithStats[] = [];
+    const projByMonth = new Map<number, ProjWithStats[]>();
     for (const m of qMonths) projByMonth.set(m, []);
-    const projUnassigned: ProjStats[] = [];
+    const projUnassigned: ProjWithStats[] = [];
 
     for (const p of state.proyectos) {
       if (filtro !== "todo" && ambitoDeArea(p.area) !== filtro) continue;
@@ -97,7 +97,7 @@ export function PlanTrimestre({ selectedDate }: Props) {
       });
       const done = allEntregs.filter((e) => e.estado === "hecho").length;
       const total = allEntregs.length;
-      const ps: ProjStats = { ...p, done, total, percent: total ? Math.round((done / total) * 100) : 0 };
+      const ps: ProjWithStats = { ...p, done, total, percent: total ? Math.round((done / total) * 100) : 0 };
 
       if (p.tipo === "operacion") {
         const hasActive = allEntregs.some((e) => e.estado === "en_proceso" || e.estado === "planificado");
@@ -244,8 +244,6 @@ export function PlanTrimestre({ selectedDate }: Props) {
 }
 
 /* ---------- sub-components ---------- */
-
-type ProjWithStats = Proyecto & { done: number; total: number; percent: number };
 
 function MonthColumn({ month, year, items, projects, onAssign, isMentor }: {
   month: number; year: number; items: Entregable[]; projects: ProjWithStats[]; onAssign: (id: string, month: number) => void; isMentor: boolean;

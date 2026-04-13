@@ -822,7 +822,7 @@ function ResultadoBlock({ resultado, index, total }: { resultado: Resultado; ind
           </button>
         )}
         {!isMentor && (
-          <button onClick={(e) => { e.stopPropagation(); setShowMove(!showMove); }}
+          <button onClick={(e) => { e.stopPropagation(); setShowMove(!showMove); setMoveStep(1); setMoveAreaId(null); }}
             className="flex h-6 items-center gap-0.5 rounded px-1.5 text-[10px] text-muted transition-colors hover:bg-surface hover:text-foreground" title="Mover a otro proyecto">
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M5 12h14M12 5l7 7-7 7" /></svg>
           </button>
@@ -995,7 +995,7 @@ function EntregableBlock({ entregable, index, total }: { entregable: Entregable;
         )}
 
         {!isMentor && (
-          <button onClick={(e) => { e.stopPropagation(); setShowMove(!showMove); }}
+          <button onClick={(e) => { e.stopPropagation(); setShowMove(!showMove); setMoveStep(1); setMoveAreaId(null); setMoveProyectoId(null); }}
             className="flex h-6 items-center gap-0.5 rounded px-1.5 text-[10px] text-muted transition-colors hover:bg-surface hover:text-foreground" title="Mover a otro resultado">
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M5 12h14M12 5l7 7-7 7" /></svg>
           </button>
