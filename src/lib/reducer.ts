@@ -53,7 +53,7 @@ export type Action =
   | { type: "UPDATE_RESULTADO"; id: string; changes: Partial<Pick<Resultado, "nombre" | "descripcion" | "semana" | "fechaLimite" | "fechaInicio" | "diasEstimados" | "planNivel">> }
   | { type: "DELETE_PROYECTO"; id: string }
   | { type: "RENAME_PROYECTO"; id: string; nombre: string }
-  | { type: "UPDATE_PROYECTO"; id: string; changes: Partial<Pick<Proyecto, "nombre" | "descripcion" | "area" | "fechaInicio" | "fechaLimite" | "planNivel">> }
+  | { type: "UPDATE_PROYECTO"; id: string; changes: Partial<Pick<Proyecto, "nombre" | "descripcion" | "area" | "fechaInicio" | "fechaLimite" | "planNivel" | "tipo">> }
   | { type: "IMPORT_DATA"; proyectos: Proyecto[]; resultados: Resultado[]; entregables: Entregable[] }
   | { type: "ADD_INBOX"; payload: InboxItem }
   | { type: "PROCESS_INBOX"; id: string }

@@ -512,7 +512,7 @@ function AreaSection({ areaId }: { areaId: Area }) {
               <>
                 {allProyectos.length > 0 ? (
                   <div className="space-y-2">
-                    {allProyectos.map((proj, i) => (
+                    {[...allProyectos].sort((a, b) => (a.tipo === "operacion" ? 0 : 1) - (b.tipo === "operacion" ? 0 : 1)).map((proj, i) => (
                       <ProyectoBlock key={proj.id} proyecto={proj} index={i} total={allProyectos.length} />
                     ))}
                   </div>
@@ -593,6 +593,7 @@ function ProyectoBlock({ proyecto, index, total }: { proyecto: Proyecto; index: 
   const resIds = new Set(allResultados.map((r) => r.id));
   const projEntregables = state.entregables.filter((e) => resIds.has(e.resultadoId));
   const hasActiveWork = projEntregables.some((e) => e.estado === "en_proceso" || state.pasos.some((p) => p.entregableId === e.id && p.inicioTs && !p.finTs));
+  const isOperacion = proyecto.tipo === "operacion";
   const notasCount = (proyecto.notas ?? []).length;
   const isProgrammed = !!proyecto.fechaInicio;
 
@@ -611,16 +612,22 @@ function ProyectoBlock({ proyecto, index, total }: { proyecto: Proyecto; index: 
         <ReviewBadge review={proyecto.review} nivel="proyecto" targetId={proyecto.id} />
         {isEmpresa && <ResponsableBadge nombre={proyecto.responsable} />}
         <span className="rounded-full bg-surface px-3 py-1 text-xs font-medium text-muted">{allResultados.length} result.</span>
-        {hasActiveWork && (
-          <span className="rounded-md bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-700">En curso</span>
-        )}
-        {isProgrammed && !hasActiveWork && (
-          <span className="rounded-md bg-accent/10 px-2 py-0.5 text-[11px] font-medium text-accent">{formatFechaInicio(proyecto.fechaInicio!, proyecto.planNivel)}</span>
+        {isOperacion ? (
+          <span className="rounded-md bg-indigo-100 px-2 py-0.5 text-[11px] font-semibold text-indigo-700">Operación</span>
+        ) : (
+          <>
+            {hasActiveWork && (
+              <span className="rounded-md bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-700">En curso</span>
+            )}
+            {isProgrammed && !hasActiveWork && (
+              <span className="rounded-md bg-accent/10 px-2 py-0.5 text-[11px] font-medium text-accent">{formatFechaInicio(proyecto.fechaInicio!, proyecto.planNivel)}</span>
+            )}
+          </>
         )}
         {isMentor
           ? <CommentIcon count={notasCount} onClick={() => setShowNotas(!showNotas)} />
           : <NotasIcon count={notasCount} onClick={() => setShowNotas(!showNotas)} />}
-        {!isMentor && (
+        {!isMentor && !isOperacion && (
           <button onClick={(e) => { e.stopPropagation(); setShowDatePicker(!showDatePicker); }}
             className={`flex h-7 items-center gap-1 rounded-md px-2 text-xs transition-all hover:bg-accent-soft hover:text-accent ${isProgrammed ? "text-accent" : "text-muted opacity-60 hover:opacity-100"}`}
             title="Planificar proyecto">
@@ -675,6 +682,24 @@ function ProyectoBlock({ proyecto, index, total }: { proyecto: Proyecto; index: 
 
       {open && (
         <div className="px-5 pb-5 pl-14">
+          {!isMentor && (
+            <div className="mb-3 flex items-center gap-1.5">
+              <span className="mr-1 text-[10px] font-semibold uppercase tracking-wider text-muted">Tipo:</span>
+              {(["operacion", "proyecto"] as const).map((t) => {
+                const active = (proyecto.tipo ?? "proyecto") === t;
+                return (
+                  <button key={t} onClick={() => dispatch({ type: "UPDATE_PROYECTO", id: proyecto.id, changes: { tipo: t } })}
+                    className={`rounded-full px-2.5 py-0.5 text-[11px] font-medium transition-all ${
+                      active
+                        ? t === "operacion" ? "bg-indigo-100 text-indigo-700" : "bg-zinc-200 text-zinc-700"
+                        : "bg-surface text-muted hover:bg-surface-hover"
+                    }`}>
+                    {t === "operacion" ? "Operación" : "Proyecto"}
+                  </button>
+                );
+              })}
+            </div>
+          )}
           {!isMentor ? (
             <EditableText value={proyecto.descripcion ?? ""} onChange={(v) => dispatch({ type: "UPDATE_PROYECTO", id: proyecto.id, changes: { descripcion: v || null } })}
               className="mb-4 text-sm italic text-muted" placeholder="Descripción del proyecto..." multiline />
@@ -682,7 +707,7 @@ function ProyectoBlock({ proyecto, index, total }: { proyecto: Proyecto; index: 
             <p className="mb-4 text-sm italic text-muted">{proyecto.descripcion}</p>
           ) : null}
 
-          {proyecto.fechaInicio && (
+          {!isOperacion && proyecto.fechaInicio && (
             <p className="mb-3 text-xs text-muted">
               Inicio: {new Date(proyecto.fechaInicio).toLocaleDateString("es-ES", { day: "numeric", month: "long", year: "numeric" })}
             </p>

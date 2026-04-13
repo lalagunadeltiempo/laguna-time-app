@@ -64,6 +64,8 @@ export interface ReviewMark {
   fecha: string;
 }
 
+export type TipoProyecto = "proyecto" | "operacion";
+
 export interface Proyecto {
   id: string;
   nombre: string;
@@ -73,6 +75,7 @@ export interface Proyecto {
   fechaInicio: string | null;
   fechaLimite?: string | null;
   planNivel?: PlanNivel;
+  tipo?: TipoProyecto;
   responsable?: string;
   notas?: Nota[];
   review?: ReviewMark;
