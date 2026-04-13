@@ -28,6 +28,15 @@ function tocaHoy(prog: Programacion, fecha: Date): boolean {
       return dom >= 1 && dom <= 7 && dow === 1;
     }
 
+    case "anual": {
+      const targetMonth = (prog.mesAnual ?? 0) + 1;
+      if (month !== targetMonth) return false;
+      if (prog.semanaMes === "primera") return dom >= 1 && dom <= 7 && dow === 1;
+      if (prog.semanaMes === "ultima") return dom > lastDay - 7 && dow === 1;
+      if (prog.diaMes === -1) return dom === lastDay;
+      return prog.diaMes != null ? dom === prog.diaMes : dom === 1;
+    }
+
     case "demanda":
       return false;
   }
@@ -140,6 +149,10 @@ export function progLabel(p: Programacion): string {
       return p.diaMes ? `Mensual · día ${p.diaMes}` : "Mensual";
     }
     case "trimestral": return `Trimestral${p.semanaMes === "primera" ? " · primera semana" : ""}`;
+    case "anual": {
+      const meses = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"];
+      return `Anual · ${meses[p.mesAnual ?? 0]}`;
+    }
     case "demanda": return "Bajo demanda";
   }
 }

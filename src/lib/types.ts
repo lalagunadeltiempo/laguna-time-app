@@ -186,11 +186,12 @@ export interface InboxItem {
 /* ---- SOP (Procedimiento Operativo Estándar = Fábrica de Entregable) ---- */
 
 export interface Programacion {
-  tipo: "diario" | "semanal" | "mensual" | "trimestral" | "demanda";
+  tipo: "diario" | "semanal" | "mensual" | "trimestral" | "anual" | "demanda";
   diaSemana?: number;
   diaMes?: number;
   semanaMes?: "primera" | "ultima" | null;
   mesesTrimestre?: number[];
+  mesAnual?: number;
 }
 
 export interface PasoPlantilla {

@@ -7,6 +7,7 @@ import { useUsuario, useIsMentor } from "@/lib/usuario";
 import { NotasSection } from "./shared/NotasSection";
 import { EditableText } from "./shared/EditableText";
 import { ReviewBadge } from "./shared/ReviewBadge";
+import ProgramacionPicker from "./shared/ProgramacionPicker";
 export { NotasSection, EditableText };
 import {
   AREAS_PERSONAL,
@@ -400,22 +401,33 @@ function DeleteBtn({ onDelete }: { onDelete: () => void }) {
 
 const DAY_NAMES = ["Dom", "Lun", "Mar", "Mié", "Jue", "Vie", "Sáb"];
 
-function ScheduleBadge({ programacion }: { programacion: Programacion | null }) {
+const MONTH_NAMES_SHORT = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"];
+
+function ScheduleBadge({ programacion, onClick }: { programacion: Programacion | null; onClick?: () => void }) {
   if (!programacion) return null;
   let label: string;
   switch (programacion.tipo) {
     case "diario": label = "Diario"; break;
     case "semanal": label = `Semanal${programacion.diaSemana != null ? ` · ${DAY_NAMES[programacion.diaSemana]}` : ""}`; break;
-    case "mensual": label = "Mensual"; break;
+    case "mensual": {
+      if (programacion.semanaMes === "primera") label = "Mensual · 1ª sem";
+      else if (programacion.semanaMes === "ultima") label = "Mensual · últ. sem";
+      else if (programacion.diaMes === -1) label = "Mensual · último día";
+      else label = programacion.diaMes ? `Mensual · día ${programacion.diaMes}` : "Mensual";
+      break;
+    }
     case "trimestral": label = "Trimestral"; break;
+    case "anual": label = `Anual · ${MONTH_NAMES_SHORT[programacion.mesAnual ?? 0]}`; break;
     case "demanda": label = "A demanda"; break;
     default: return null;
   }
   const isAuto = programacion.tipo !== "demanda";
+  const Tag = onClick ? "button" : "span";
   return (
-    <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold ${
-      isAuto ? "bg-green-50 text-green-700 dark:bg-green-500/10 dark:text-green-400" : "bg-gray-100 text-gray-500 dark:bg-gray-700/20 dark:text-gray-400"
-    }`}>
+    <Tag onClick={onClick ? (e: React.MouseEvent) => { e.stopPropagation(); onClick(); } : undefined}
+      className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold ${
+        isAuto ? "bg-green-50 text-green-700 dark:bg-green-500/10 dark:text-green-400" : "bg-gray-100 text-gray-500 dark:bg-gray-700/20 dark:text-gray-400"
+      }${onClick ? " cursor-pointer hover:ring-1 hover:ring-green-300" : ""}`}>
       <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
         {isAuto
           ? <><path d="M12 2v4" /><path d="M12 18v4" /><path d="M4.93 4.93l2.83 2.83" /><path d="M16.24 16.24l2.83 2.83" /><path d="M2 12h4" /><path d="M18 12h4" /><path d="M4.93 19.07l2.83-2.83" /><path d="M16.24 7.76l2.83-2.83" /></>
@@ -423,7 +435,7 @@ function ScheduleBadge({ programacion }: { programacion: Programacion | null }) 
         }
       </svg>
       {label}
-    </span>
+    </Tag>
   );
 }
 
@@ -512,7 +524,14 @@ function AreaSection({ areaId }: { areaId: Area }) {
               <>
                 {allProyectos.length > 0 ? (
                   <div className="space-y-2">
-                    {[...allProyectos].sort((a, b) => (a.tipo === "operacion" ? 0 : 1) - (b.tipo === "operacion" ? 0 : 1)).map((proj, i) => (
+                    {[...allProyectos].sort((a, b) => {
+                      const aOp = a.tipo === "operacion" ? 0 : 1;
+                      const bOp = b.tipo === "operacion" ? 0 : 1;
+                      if (aOp !== bOp) return aOp - bOp;
+                      const aF = a.fechaInicio ?? "9999";
+                      const bF = b.fechaInicio ?? "9999";
+                      return aF.localeCompare(bF);
+                    }).map((proj, i) => (
                       <ProyectoBlock key={proj.id} proyecto={proj} index={i} total={allProyectos.length} />
                     ))}
                   </div>
@@ -648,6 +667,10 @@ function ProyectoBlock({ proyecto, index, total }: { proyecto: Proyecto; index: 
         {!isMentor && <DeleteBtn onDelete={() => setConfirm(true)} />}
       </ToggleRow>
 
+      {proyecto.descripcion && !open && (
+        <p className="truncate px-5 pl-14 -mt-1 pb-1.5 text-xs italic text-muted">{proyecto.descripcion}</p>
+      )}
+
       {showMoveArea && (
         <div className="mx-5 mb-3 ml-14 rounded-lg border border-border bg-surface/50 p-3">
           <p className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-muted">Mover a área:</p>
@@ -702,7 +725,7 @@ function ProyectoBlock({ proyecto, index, total }: { proyecto: Proyecto; index: 
           )}
           {!isMentor ? (
             <EditableText value={proyecto.descripcion ?? ""} onChange={(v) => dispatch({ type: "UPDATE_PROYECTO", id: proyecto.id, changes: { descripcion: v || null } })}
-              className="mb-4 text-sm italic text-muted" placeholder="Descripción del proyecto..." multiline />
+              className="mb-4 text-sm italic text-muted" placeholder="Objetivo del proyecto..." multiline />
           ) : proyecto.descripcion ? (
             <p className="mb-4 text-sm italic text-muted">{proyecto.descripcion}</p>
           ) : null}
@@ -748,6 +771,8 @@ function ResultadoBlock({ resultado, index, total }: { resultado: Resultado; ind
   const [confirm, setConfirm] = useState(false);
   const [showNotas, setShowNotas] = useState(false);
   const [showMove, setShowMove] = useState(false);
+  const [moveStep, setMoveStep] = useState<1 | 2>(1);
+  const [moveAreaId, setMoveAreaId] = useState<string | null>(null);
   const [showDatePicker, setShowDatePicker] = useState(false);
   const hlRef = useRef<HTMLDivElement>(null);
 
@@ -814,13 +839,37 @@ function ResultadoBlock({ resultado, index, total }: { resultado: Resultado; ind
 
       {showMove && (
         <div className="mx-5 mb-3 ml-14 rounded-lg border border-border bg-surface/50 p-3">
-          <p className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-muted">Mover a proyecto:</p>
-          <div className="flex flex-wrap gap-1">
-            {state.proyectos.filter((p) => p.id !== resultado.proyectoId).map((p) => (
-              <button key={p.id} onClick={() => { dispatch({ type: "MOVE_RESULTADO", resultadoId: resultado.id, nuevoProyectoId: p.id }); setShowMove(false); }}
-                className="rounded-md border border-border px-2 py-1 text-[10px] text-foreground hover:border-accent hover:bg-accent-soft">{p.nombre}</button>
-            ))}
-          </div>
+          {moveStep === 1 ? (
+            <>
+              <p className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-muted">1. Elegir área:</p>
+              <div className="flex flex-wrap gap-1.5">
+                {[...AREAS_EMPRESA, ...AREAS_PERSONAL].map((a) => {
+                  const hex = AREA_COLORS[a.id]?.hex ?? "#888";
+                  return (
+                    <button key={a.id} onClick={() => { setMoveAreaId(a.id); setMoveStep(2); }}
+                      className="rounded-md border px-2.5 py-1 text-[11px] font-medium transition-colors hover:brightness-95"
+                      style={{ borderColor: hex, color: hex }}>{a.label}</button>
+                  );
+                })}
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="mb-2 flex items-center gap-2">
+                <button onClick={() => setMoveStep(1)} className="text-[10px] text-accent hover:underline">← Atrás</button>
+                <p className="text-[10px] font-semibold uppercase tracking-wider text-muted">2. Elegir proyecto:</p>
+              </div>
+              <div className="flex flex-wrap gap-1">
+                {state.proyectos.filter((p) => p.area === moveAreaId && p.id !== resultado.proyectoId).map((p) => (
+                  <button key={p.id} onClick={() => { dispatch({ type: "MOVE_RESULTADO", resultadoId: resultado.id, nuevoProyectoId: p.id }); setShowMove(false); setMoveStep(1); setMoveAreaId(null); }}
+                    className="rounded-md border border-border px-2 py-1 text-[10px] text-foreground hover:border-accent hover:bg-accent-soft">{p.nombre}</button>
+                ))}
+                {state.proyectos.filter((p) => p.area === moveAreaId && p.id !== resultado.proyectoId).length === 0 && (
+                  <p className="text-[10px] italic text-muted">Sin proyectos en esta área</p>
+                )}
+              </div>
+            </>
+          )}
         </div>
       )}
 
@@ -873,6 +922,9 @@ function EntregableBlock({ entregable, index, total }: { entregable: Entregable;
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [justAssigned, setJustAssigned] = useState(false);
   const [showMove, setShowMove] = useState(false);
+  const [moveStep, setMoveStep] = useState<1 | 2 | 3>(1);
+  const [moveAreaId, setMoveAreaId] = useState<string | null>(null);
+  const [moveProyectoId, setMoveProyectoId] = useState<string | null>(null);
   const justAssignedTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
   const hlRef = useRef<HTMLDivElement>(null);
   useEffect(() => () => clearTimeout(justAssignedTimer.current), []);
@@ -956,18 +1008,53 @@ function EntregableBlock({ entregable, index, total }: { entregable: Entregable;
 
       {showMove && (
         <div className="mx-5 mb-3 ml-14 rounded-lg border border-border bg-surface/50 p-3">
-          <p className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-muted">Mover a resultado:</p>
-          <div className="flex flex-wrap gap-1">
-            {state.resultados.filter((r) => r.id !== entregable.resultadoId).map((r) => {
-              const proj = state.proyectos.find((p) => p.id === r.proyectoId);
-              return (
-                <button key={r.id} onClick={() => { dispatch({ type: "MOVE_ENTREGABLE", entregableId: entregable.id, nuevoResultadoId: r.id }); setShowMove(false); }}
-                  className="rounded-md border border-border px-2 py-1 text-[10px] text-foreground hover:border-accent hover:bg-accent-soft">
-                  {proj ? `${proj.nombre} → ` : ""}{r.nombre}
-                </button>
-              );
-            })}
-          </div>
+          {moveStep === 1 ? (
+            <>
+              <p className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-muted">1. Elegir área:</p>
+              <div className="flex flex-wrap gap-1.5">
+                {[...AREAS_EMPRESA, ...AREAS_PERSONAL].map((a) => {
+                  const hex = AREA_COLORS[a.id]?.hex ?? "#888";
+                  return (
+                    <button key={a.id} onClick={() => { setMoveAreaId(a.id); setMoveStep(2); }}
+                      className="rounded-md border px-2.5 py-1 text-[11px] font-medium transition-colors hover:brightness-95"
+                      style={{ borderColor: hex, color: hex }}>{a.label}</button>
+                  );
+                })}
+              </div>
+            </>
+          ) : moveStep === 2 ? (
+            <>
+              <div className="mb-2 flex items-center gap-2">
+                <button onClick={() => { setMoveStep(1); setMoveAreaId(null); }} className="text-[10px] text-accent hover:underline">← Atrás</button>
+                <p className="text-[10px] font-semibold uppercase tracking-wider text-muted">2. Elegir proyecto:</p>
+              </div>
+              <div className="flex flex-wrap gap-1">
+                {state.proyectos.filter((p) => p.area === moveAreaId).map((p) => (
+                  <button key={p.id} onClick={() => { setMoveProyectoId(p.id); setMoveStep(3); }}
+                    className="rounded-md border border-border px-2 py-1 text-[10px] text-foreground hover:border-accent hover:bg-accent-soft">{p.nombre}</button>
+                ))}
+                {state.proyectos.filter((p) => p.area === moveAreaId).length === 0 && (
+                  <p className="text-[10px] italic text-muted">Sin proyectos en esta área</p>
+                )}
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="mb-2 flex items-center gap-2">
+                <button onClick={() => { setMoveStep(2); setMoveProyectoId(null); }} className="text-[10px] text-accent hover:underline">← Atrás</button>
+                <p className="text-[10px] font-semibold uppercase tracking-wider text-muted">3. Elegir resultado:</p>
+              </div>
+              <div className="flex flex-wrap gap-1">
+                {state.resultados.filter((r) => r.proyectoId === moveProyectoId && r.id !== entregable.resultadoId).map((r) => (
+                  <button key={r.id} onClick={() => { dispatch({ type: "MOVE_ENTREGABLE", entregableId: entregable.id, nuevoResultadoId: r.id }); setShowMove(false); setMoveStep(1); setMoveAreaId(null); setMoveProyectoId(null); }}
+                    className="rounded-md border border-border px-2 py-1 text-[10px] text-foreground hover:border-accent hover:bg-accent-soft">{r.nombre}</button>
+                ))}
+                {state.resultados.filter((r) => r.proyectoId === moveProyectoId && r.id !== entregable.resultadoId).length === 0 && (
+                  <p className="text-[10px] italic text-muted">Sin resultados en este proyecto</p>
+                )}
+              </div>
+            </>
+          )}
         </div>
       )}
 
@@ -1174,6 +1261,7 @@ function SOPBlock({ sop, index, total }: { sop: PlantillaProceso; index: number;
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [justCreated, setJustCreated] = useState(false);
   const [showNotas, setShowNotas] = useState(false);
+  const [showProgPicker, setShowProgPicker] = useState(false);
   const justCreatedTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
   useEffect(() => () => clearTimeout(justCreatedTimer.current), []);
 
@@ -1241,7 +1329,14 @@ function SOPBlock({ sop, index, total }: { sop: PlantillaProceso; index: number;
             className="text-base font-medium text-foreground" />}
         <ReviewBadge review={sop.review} nivel="plantilla" targetId={sop.id} />
         <span className="rounded-full px-2.5 py-0.5 text-xs font-medium" style={{ backgroundColor: (AREA_COLORS[sop.area]?.hex ?? "#888") + "15", color: AREA_COLORS[sop.area]?.hex ?? "#888" }}>SOP · {sop.pasos.length}p</span>
-        <ScheduleBadge programacion={sop.programacion} />
+        {sop.programacion ? (
+          <ScheduleBadge programacion={sop.programacion} onClick={!isMentor ? () => setShowProgPicker(!showProgPicker) : undefined} />
+        ) : !isMentor ? (
+          <button onClick={(e) => { e.stopPropagation(); setShowProgPicker(!showProgPicker); }}
+            className="inline-flex items-center gap-1 rounded-full border border-dashed border-zinc-300 px-2 py-0.5 text-[10px] text-zinc-400 hover:border-purple-300 hover:text-purple-500">
+            + Frecuencia
+          </button>
+        ) : null}
         {hasActiveEntregable && (
           <span className="rounded-md bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-700">En curso</span>
         )}
@@ -1265,6 +1360,16 @@ function SOPBlock({ sop, index, total }: { sop: PlantillaProceso; index: number;
           onDown={() => dispatch({ type: "REORDER_PLANTILLA", id: sop.id, direction: "down" })} />}
         {!isMentor && <DeleteBtn onDelete={() => setConfirm(true)} />}
       </ToggleRow>
+
+      {showProgPicker && (
+        <div className="mx-5 mb-3 ml-14 rounded-lg border border-border bg-surface/50 p-3">
+          <p className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-muted">Frecuencia del proceso</p>
+          <ProgramacionPicker value={sop.programacion} onChange={(p) => {
+            dispatch({ type: "UPDATE_PLANTILLA", id: sop.id, changes: { programacion: p } });
+            setShowProgPicker(false);
+          }} />
+        </div>
+      )}
 
       {confirm && <ConfirmDelete label={sop.nombre}
         onConfirm={() => { dispatch({ type: "DELETE_PLANTILLA", id: sop.id }); setConfirm(false); }}

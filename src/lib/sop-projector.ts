@@ -32,6 +32,14 @@ function tocaFecha(prog: NonNullable<PlantillaProceso["programacion"]>, fecha: D
       if (prog.semanaMes === "primera") return dom >= 1 && dom <= 7 && dow === 1;
       return dom >= 1 && dom <= 7 && dow === 1;
     }
+    case "anual": {
+      const targetMonth = (prog.mesAnual ?? 0) + 1;
+      if (month !== targetMonth) return false;
+      if (prog.semanaMes === "primera") return dom >= 1 && dom <= 7 && dow === 1;
+      if (prog.semanaMes === "ultima") return dom > lastDay - 7 && dow === 1;
+      if (prog.diaMes === -1) return dom === lastDay;
+      return prog.diaMes != null ? dom === prog.diaMes : dom === 1;
+    }
     case "demanda":
       return false;
   }

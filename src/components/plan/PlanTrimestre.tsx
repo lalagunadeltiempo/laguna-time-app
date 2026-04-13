@@ -12,6 +12,7 @@ import {
   type Area,
   type Ambito,
   type Entregable,
+  type Proyecto,
   type Objetivo,
 } from "@/lib/types";
 import { AmbitoToggle } from "./PlanMes";
@@ -80,24 +81,46 @@ export function PlanTrimestre({ selectedDate }: Props) {
     return { byMonth, unassigned };
   }, [entregables, qMonths]);
 
-  const projects = useMemo(() => {
-    return state.proyectos.filter((p) => {
-      if (filtro !== "todo" && ambitoDeArea(p.area) !== filtro) return false;
-      const entregs = state.entregables.filter((e) => {
-        const res = state.resultados.find((r) => r.id === e.resultadoId);
-        return res?.proyectoId === p.id;
-      });
-      return entregs.some((e) => entInQuarter(e, qMonths, year))
-        || (!!p.fechaInicio && entInQuarter({ fechaInicio: p.fechaInicio } as Entregable, qMonths, year));
-    }).map((p) => {
+  type ProjStats = Proyecto & { done: number; total: number; percent: number };
+
+  const { operations, projectsByMonth, projectsUnassigned } = useMemo(() => {
+    const ops: ProjStats[] = [];
+    const projByMonth = new Map<number, ProjStats[]>();
+    for (const m of qMonths) projByMonth.set(m, []);
+    const projUnassigned: ProjStats[] = [];
+
+    for (const p of state.proyectos) {
+      if (filtro !== "todo" && ambitoDeArea(p.area) !== filtro) continue;
       const allEntregs = state.entregables.filter((e) => {
         const res = state.resultados.find((r) => r.id === e.resultadoId);
         return res?.proyectoId === p.id;
       });
       const done = allEntregs.filter((e) => e.estado === "hecho").length;
       const total = allEntregs.length;
-      return { ...p, done, total, percent: total ? Math.round((done / total) * 100) : 0 };
-    });
+      const ps: ProjStats = { ...p, done, total, percent: total ? Math.round((done / total) * 100) : 0 };
+
+      if (p.tipo === "operacion") {
+        const hasActive = allEntregs.some((e) => e.estado === "en_proceso" || e.estado === "planificado");
+        if (hasActive || total > 0) ops.push(ps);
+        continue;
+      }
+
+      const inQ = (!!p.fechaInicio && entInQuarter({ fechaInicio: p.fechaInicio } as Entregable, qMonths, year))
+        || allEntregs.some((e) => entInQuarter(e, qMonths, year));
+      if (!inQ) continue;
+
+      if (p.fechaInicio) {
+        const d = new Date(p.fechaInicio + "T12:00:00");
+        if (d.getFullYear() === year && qMonths.includes(d.getMonth())) {
+          projByMonth.get(d.getMonth())!.push(ps);
+        } else {
+          projUnassigned.push(ps);
+        }
+      } else {
+        projUnassigned.push(ps);
+      }
+    }
+    return { operations: ops, projectsByMonth: projByMonth, projectsUnassigned: projUnassigned };
   }, [state, filtro, qMonths, year]);
 
   const objetivos = useMemo(() => {
@@ -168,16 +191,43 @@ export function PlanTrimestre({ selectedDate }: Props) {
         )}
       </section>
 
+      {/* Operaciones activas */}
+      {operations.length > 0 && (
+        <section>
+          <h3 className="mb-2 text-xs font-bold uppercase tracking-wider text-muted">Operaciones</h3>
+          <div className="flex flex-wrap gap-2">
+            {operations.map((p) => {
+              const hex = AREA_COLORS[p.area]?.hex ?? "#888";
+              return (
+                <div key={p.id} className="flex items-center gap-2 rounded-lg border-2 bg-background px-3 py-2" style={{ borderColor: hex + "50" }}>
+                  <span className="h-3 w-3 shrink-0 rounded-full" style={{ backgroundColor: hex }} />
+                  <span className="text-sm font-medium text-foreground">{p.nombre}</span>
+                  <div className="h-2 w-16 overflow-hidden rounded-full bg-surface">
+                    <div className="h-full rounded-full transition-all" style={{ width: `${p.percent}%`, backgroundColor: hex }} />
+                  </div>
+                  <span className="text-[10px] font-bold text-muted">{p.done}/{p.total}</span>
+                </div>
+              );
+            })}
+          </div>
+        </section>
+      )}
+
       {/* Columnas de meses + sin asignar */}
       <section>
-        <h3 className="mb-2 text-xs font-bold uppercase tracking-wider text-muted">Entregables</h3>
+        <h3 className="mb-2 text-xs font-bold uppercase tracking-wider text-muted">Proyectos y Entregables</h3>
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-4">
           {qMonths.map((m) => (
-            <MonthColumn key={m} month={m} year={year} items={byMonth.get(m) ?? []} onAssign={assignToMonth} isMentor={isMentor} />
+            <MonthColumn key={m} month={m} year={year} items={byMonth.get(m) ?? []} projects={projectsByMonth.get(m) ?? []} onAssign={assignToMonth} isMentor={isMentor} />
           ))}
           <div className="rounded-xl border border-dashed border-border bg-surface/30 p-3">
             <h4 className="mb-2 text-[11px] font-bold uppercase tracking-wider text-muted">Sin asignar</h4>
-            {unassigned.length === 0 ? (
+            {projectsUnassigned.length > 0 && (
+              <div className="mb-2 space-y-1.5">
+                {projectsUnassigned.map((p) => <ProjectCard key={p.id} proj={p} />)}
+              </div>
+            )}
+            {unassigned.length === 0 && projectsUnassigned.length === 0 ? (
               <p className="py-4 text-center text-xs text-muted">—</p>
             ) : (
               <div className="space-y-1.5">
@@ -189,53 +239,54 @@ export function PlanTrimestre({ selectedDate }: Props) {
           </div>
         </div>
       </section>
-
-      {/* Proyectos activos */}
-      <section>
-        <h3 className="mb-2 text-xs font-bold uppercase tracking-wider text-muted">Proyectos activos</h3>
-        {projects.length === 0 ? (
-          <p className="py-4 text-center text-sm text-muted">Sin proyectos activos en este trimestre</p>
-        ) : (
-          <div className="space-y-2">
-            {projects.map((p) => {
-              const hex = AREA_COLORS[p.area]?.hex ?? "#888";
-              return (
-                <div key={p.id} className="flex items-center gap-3 rounded-lg border border-border bg-background p-2">
-                  <span className="h-3 w-3 shrink-0 rounded-full" style={{ backgroundColor: hex }} />
-                  <span className="flex-1 truncate text-sm font-medium text-foreground">{p.nombre}</span>
-                  <div className="h-2 w-24 overflow-hidden rounded-full bg-surface">
-                    <div className="h-full rounded-full transition-all" style={{ width: `${p.percent}%`, backgroundColor: hex }} />
-                  </div>
-                  <span className="w-10 text-right text-xs font-bold text-muted">{p.percent}%</span>
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </section>
     </div>
   );
 }
 
 /* ---------- sub-components ---------- */
 
-function MonthColumn({ month, year, items, onAssign, isMentor }: {
-  month: number; year: number; items: Entregable[]; onAssign: (id: string, month: number) => void; isMentor: boolean;
+type ProjWithStats = Proyecto & { done: number; total: number; percent: number };
+
+function MonthColumn({ month, year, items, projects, onAssign, isMentor }: {
+  month: number; year: number; items: Entregable[]; projects: ProjWithStats[]; onAssign: (id: string, month: number) => void; isMentor: boolean;
 }) {
   const now = new Date();
   const isCurrent = now.getFullYear() === year && now.getMonth() === month;
+  const empty = items.length === 0 && projects.length === 0;
   return (
     <div className={`rounded-xl border p-3 ${isCurrent ? "border-accent/40 bg-accent/5" : "border-border bg-background"}`}>
       <h4 className={`mb-2 text-center text-xs font-bold uppercase ${isCurrent ? "text-accent" : "text-muted"}`}>{MONTHS_ES[month]}</h4>
-      {items.length === 0 ? (
+      {empty ? (
         <p className="py-4 text-center text-xs text-muted">—</p>
       ) : (
         <div className="space-y-1.5">
+          {projects.map((p) => <ProjectCard key={p.id} proj={p} />)}
           {items.map((ent) => (
             <EntregableCard key={ent.id} ent={ent} months={[]} onAssign={onAssign} isMentor={isMentor} />
           ))}
         </div>
       )}
+    </div>
+  );
+}
+
+function ProjectCard({ proj }: { proj: ProjWithStats }) {
+  const hex = AREA_COLORS[proj.area]?.hex ?? "#888";
+  return (
+    <div className="rounded-lg border-2 bg-background p-2" style={{ borderColor: hex + "50" }}>
+      <div className="flex items-center gap-1.5">
+        <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: hex }} />
+        <span className="flex-1 truncate text-xs font-semibold text-foreground">{proj.nombre}</span>
+      </div>
+      {proj.descripcion && (
+        <p className="mt-0.5 truncate text-[10px] italic text-muted">{proj.descripcion}</p>
+      )}
+      <div className="mt-1 flex items-center gap-2">
+        <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-surface">
+          <div className="h-full rounded-full transition-all" style={{ width: `${proj.percent}%`, backgroundColor: hex }} />
+        </div>
+        <span className="text-[9px] font-bold text-muted">{proj.done}/{proj.total}</span>
+      </div>
     </div>
   );
 }
