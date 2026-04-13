@@ -125,19 +125,24 @@ export function PlanTrimestre({ selectedDate }: Props) {
     for (const p of state.proyectos) {
       if (filtro !== "todo" && ambitoDeArea(p.area) !== filtro) continue;
       const fullNode = buildFullProjNode(p);
-      if (fullNode.entCount === 0) continue;
 
       if (p.tipo === "operacion") {
-        ops.push(fullNode);
+        if (fullNode.total > 0) ops.push(fullNode);
       }
 
       for (const m of qMonths) {
         const slice = sliceProjNodeForMonth(fullNode, m);
-        if (slice) mProj.get(m)!.push(slice);
+        if (slice) {
+          mProj.get(m)!.push(slice);
+        } else if (entInQuarter(p.fechaInicio, [m], year)) {
+          mProj.get(m)!.push({ ...fullNode, resultados: [], entCount: 0 });
+        }
       }
 
-      const backlogSlice = sliceProjNodeBacklog(fullNode);
-      if (backlogSlice) backlog.push(backlogSlice);
+      if (fullNode.entCount > 0) {
+        const backlogSlice = sliceProjNodeBacklog(fullNode);
+        if (backlogSlice) backlog.push(backlogSlice);
+      }
     }
 
     return { monthProjects: mProj, operations: ops, backlogProjects: backlog };
@@ -308,17 +313,20 @@ function ExpandableProjectCard({ node, qMonths, onAssign, onUnassign, isMentor, 
 }) {
   const [open, setOpen] = useState(false);
   const isOp = node.proyecto.tipo === "operacion";
+  const expandable = node.resultados.length > 0;
 
   return (
     <div className={backlogStyle
       ? "rounded-xl border border-dashed border-border bg-surface/20"
       : "rounded-lg border-2 bg-background"
     } style={backlogStyle ? undefined : { borderColor: node.hex + "50" }}>
-      <button onClick={() => setOpen(!open)} className="flex w-full items-center gap-1.5 p-2 text-left">
-        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round"
-          className={`shrink-0 text-muted transition-transform ${open ? "rotate-90" : ""}`}>
-          <polyline points="9 18 15 12 9 6" />
-        </svg>
+      <button onClick={() => expandable && setOpen(!open)} className={`flex w-full items-center gap-1.5 p-2 text-left ${expandable ? "cursor-pointer" : "cursor-default"}`}>
+        {expandable ? (
+          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round"
+            className={`shrink-0 text-muted transition-transform ${open ? "rotate-90" : ""}`}>
+            <polyline points="9 18 15 12 9 6" />
+          </svg>
+        ) : <span className="w-2.5 shrink-0" />}
         <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: node.hex }} />
         <span className="flex-1 truncate text-xs font-semibold text-foreground">{node.proyecto.nombre}</span>
         {isOp && <span className="shrink-0 rounded bg-indigo-100 px-1.5 py-0.5 text-[9px] font-bold text-indigo-600">OP</span>}
