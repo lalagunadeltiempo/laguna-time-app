@@ -104,6 +104,8 @@ export function PlanMes({ selectedDate }: Props) {
     const selMonth = selectedDate.getMonth();
     const monthStart = new Date(selYear, selMonth, 1).getTime();
     const monthEnd = new Date(selYear, selMonth + 1, 0, 23, 59, 59).getTime();
+    const gridStart = weeks[0]?.mondayMs ?? monthStart;
+    const gridEnd = weeks[weeks.length - 1]?.sundayMs ?? monthEnd;
 
     const relevant: EntCard[] = [];
 
@@ -121,7 +123,7 @@ export function PlanMes({ selectedDate }: Props) {
 
       if (ent.fechaInicio) {
         const d = new Date(ent.fechaInicio + "T12:00:00");
-        if (!isNaN(d.getTime()) && d.getTime() >= monthStart && d.getTime() <= monthEnd) inMonth = true;
+        if (!isNaN(d.getTime()) && d.getTime() >= gridStart && d.getTime() <= gridEnd) inMonth = true;
       }
       if (!inMonth && ent.fechaLimite) {
         const dl = new Date(ent.fechaLimite + "T12:00:00");

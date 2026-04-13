@@ -12,6 +12,7 @@ import {
   type Area,
   type Ambito,
   type Entregable,
+  type Resultado,
   type Proyecto,
   type Objetivo,
 } from "@/lib/types";
@@ -20,7 +21,28 @@ import { AmbitoToggle } from "./PlanMes";
 const MONTHS_ES = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"];
 
 type AmbitoFilter = "todo" | Ambito;
-type ProjWithStats = Proyecto & { done: number; total: number; percent: number };
+
+interface EntWithContext {
+  ent: Entregable;
+  hex: string;
+  projName: string;
+}
+
+interface ResNode {
+  resultado: Resultado;
+  entregables: EntWithContext[];
+}
+
+interface ProjNode {
+  proyecto: Proyecto;
+  resultados: ResNode[];
+  allEntCount: number;
+  activeEntCount: number;
+  done: number;
+  total: number;
+  percent: number;
+  hex: string;
+}
 
 function pad(n: number) { return String(n).padStart(2, "0"); }
 
@@ -28,15 +50,15 @@ function quarterLabel(q: number, y: number) { return `Q${q + 1} ${y}`; }
 function quarterMonths(q: number) { return [q * 3, q * 3 + 1, q * 3 + 2]; }
 function periodoQ(q: number, y: number) { return `${y}-Q${q + 1}`; }
 
-function entInQuarter(ent: Entregable, qMonths: number[], year: number): boolean {
-  if (!ent.fechaInicio) return false;
-  const d = new Date(ent.fechaInicio + "T12:00:00");
+function entInQuarter(fechaInicio: string | null, qMonths: number[], year: number): boolean {
+  if (!fechaInicio) return false;
+  const d = new Date(fechaInicio + "T12:00:00");
   return d.getFullYear() === year && qMonths.includes(d.getMonth());
 }
 
-function entMonth(ent: Entregable): number {
-  if (!ent.fechaInicio) return -1;
-  return new Date(ent.fechaInicio + "T12:00:00").getMonth();
+function entMonth(fechaInicio: string | null): number {
+  if (!fechaInicio) return -1;
+  return new Date(fechaInicio + "T12:00:00").getMonth();
 }
 
 interface Props { selectedDate: Date }
@@ -54,73 +76,97 @@ export function PlanTrimestre({ selectedDate }: Props) {
   const qMonths = quarterMonths(currentQ);
   const qPeriodo = periodoQ(currentQ, year);
 
-  const entregables = useMemo(() => {
-    const filtered = state.entregables.filter((e) => {
-      if (e.estado === "hecho" || e.estado === "cancelada") return false;
-      if (!entInQuarter(e, qMonths, year)) return false;
+  function buildProjNode(p: Proyecto): ProjNode {
+    const hex = AREA_COLORS[p.area]?.hex ?? "#888";
+    const projResults = state.resultados.filter((r) => r.proyectoId === p.id);
+    const resNodes: ResNode[] = projResults.map((r) => {
+      const ents = state.entregables
+        .filter((e) => e.resultadoId === r.id && e.estado !== "hecho" && e.estado !== "cancelada")
+        .map((e) => ({ ent: e, hex, projName: p.nombre }));
+      return { resultado: r, entregables: ents };
+    }).filter((rn) => rn.entregables.length > 0);
+
+    const allEnts = state.entregables.filter((e) => {
       const res = state.resultados.find((r) => r.id === e.resultadoId);
-      const proj = res ? state.proyectos.find((p) => p.id === res.proyectoId) : null;
-      if (filtro !== "todo" && proj && ambitoDeArea(proj.area) !== filtro) return false;
-      return true;
+      return res?.proyectoId === p.id;
     });
-    return filtered;
-  }, [state, qMonths, year, filtro]);
+    const done = allEnts.filter((e) => e.estado === "hecho").length;
+    const total = allEnts.length;
+    const activeEntCount = allEnts.filter((e) => e.estado !== "hecho" && e.estado !== "cancelada").length;
 
-  const { byMonth, unassigned } = useMemo(() => {
-    const byMonth = new Map<number, Entregable[]>();
-    for (const m of qMonths) byMonth.set(m, []);
-    const unassigned: Entregable[] = [];
-    for (const ent of entregables) {
-      if (ent.planNivel === "trimestre") {
-        unassigned.push(ent);
-      } else {
-        const m = entMonth(ent);
-        if (byMonth.has(m)) byMonth.get(m)!.push(ent);
-        else unassigned.push(ent);
-      }
-    }
-    return { byMonth, unassigned };
-  }, [entregables, qMonths]);
+    return {
+      proyecto: p, resultados: resNodes, allEntCount: activeEntCount, activeEntCount,
+      done, total, percent: total ? Math.round((done / total) * 100) : 0, hex,
+    };
+  }
 
+  const { monthData, operations, backlogProjects } = useMemo(() => {
+    const monthEnt = new Map<number, EntWithContext[]>();
+    const monthProj = new Map<number, ProjNode[]>();
+    for (const m of qMonths) { monthEnt.set(m, []); monthProj.set(m, []); }
 
-  const { operations, projectsByMonth, projectsUnassigned } = useMemo(() => {
-    const ops: ProjWithStats[] = [];
-    const projByMonth = new Map<number, ProjWithStats[]>();
-    for (const m of qMonths) projByMonth.set(m, []);
-    const projUnassigned: ProjWithStats[] = [];
+    const ops: ProjNode[] = [];
+    const backlog: ProjNode[] = [];
+    const projSeen = new Set<string>();
 
     for (const p of state.proyectos) {
       if (filtro !== "todo" && ambitoDeArea(p.area) !== filtro) continue;
-      const allEntregs = state.entregables.filter((e) => {
-        const res = state.resultados.find((r) => r.id === e.resultadoId);
-        return res?.proyectoId === p.id;
-      });
-      const done = allEntregs.filter((e) => e.estado === "hecho").length;
-      const total = allEntregs.length;
-      const ps: ProjWithStats = { ...p, done, total, percent: total ? Math.round((done / total) * 100) : 0 };
+      const node = buildProjNode(p);
 
       if (p.tipo === "operacion") {
-        const hasActive = allEntregs.some((e) => e.estado === "en_proceso" || e.estado === "planificado");
-        if (hasActive || total > 0) ops.push(ps);
+        if (node.total > 0) ops.push(node);
+        for (const rn of node.resultados) {
+          for (const ec of rn.entregables) {
+            if (!entInQuarter(ec.ent.fechaInicio, qMonths, year) && ec.ent.fechaInicio) continue;
+            if (entInQuarter(ec.ent.fechaInicio, qMonths, year)) {
+              const m = entMonth(ec.ent.fechaInicio);
+              monthEnt.get(m)?.push(ec);
+            }
+          }
+        }
         continue;
       }
 
-      const inQ = (!!p.fechaInicio && entInQuarter({ fechaInicio: p.fechaInicio } as Entregable, qMonths, year))
-        || allEntregs.some((e) => entInQuarter(e, qMonths, year));
-      if (!inQ) continue;
+      const hasEntInQ = node.resultados.some((rn) =>
+        rn.entregables.some((ec) => entInQuarter(ec.ent.fechaInicio, qMonths, year))
+      );
+      const projInQ = entInQuarter(p.fechaInicio, qMonths, year);
 
-      if (p.fechaInicio) {
-        const d = new Date(p.fechaInicio + "T12:00:00");
-        if (d.getFullYear() === year && qMonths.includes(d.getMonth())) {
-          projByMonth.get(d.getMonth())!.push(ps);
-        } else {
-          projUnassigned.push(ps);
+      if (projInQ || hasEntInQ) {
+        projSeen.add(p.id);
+        if (projInQ) {
+          const m = entMonth(p.fechaInicio);
+          monthProj.get(m)?.push(node);
         }
-      } else {
-        projUnassigned.push(ps);
+        for (const rn of node.resultados) {
+          for (const ec of rn.entregables) {
+            if (entInQuarter(ec.ent.fechaInicio, qMonths, year)) {
+              const m = entMonth(ec.ent.fechaInicio);
+              monthEnt.get(m)?.push(ec);
+            }
+          }
+        }
+      }
+
+      if (node.activeEntCount > 0) {
+        const hasUnplanned = node.resultados.some((rn) =>
+          rn.entregables.some((ec) => !entInQuarter(ec.ent.fechaInicio, qMonths, year))
+        );
+        if (hasUnplanned || !projSeen.has(p.id)) {
+          backlog.push(node);
+          projSeen.add(p.id);
+        }
       }
     }
-    return { operations: ops, projectsByMonth: projByMonth, projectsUnassigned: projUnassigned };
+
+    const md = new Map<number, { entregables: EntWithContext[]; projects: ProjNode[]; count: number }>();
+    for (const m of qMonths) {
+      const ents = monthEnt.get(m) ?? [];
+      const projs = monthProj.get(m) ?? [];
+      md.set(m, { entregables: ents, projects: projs, count: ents.length + projs.reduce((s, pn) => s + pn.activeEntCount, 0) });
+    }
+
+    return { monthData: md, operations: ops, backlogProjects: backlog };
   }, [state, filtro, qMonths, year]);
 
   const objetivos = useMemo(() => {
@@ -140,6 +186,10 @@ export function PlanTrimestre({ selectedDate }: Props) {
     const newEstado = (ent.estado === "hecho" || ent.estado === "cancelada" || ent.estado === "en_espera")
       ? ent.estado : isCurrent ? "en_proceso" : "planificado";
     dispatch({ type: "UPDATE_ENTREGABLE", id: entId, changes: { fechaInicio: dateStr, planNivel: "mes", estado: newEstado } });
+  }
+
+  function unassignEnt(entId: string) {
+    dispatch({ type: "UPDATE_ENTREGABLE", id: entId, changes: { fechaInicio: null, planNivel: null, estado: "a_futuro" } });
   }
 
   function addObjetivo() {
@@ -167,7 +217,7 @@ export function PlanTrimestre({ selectedDate }: Props) {
         <AmbitoToggle value={filtro} onChange={setFiltro} />
       </div>
 
-      {/* Objetivos del trimestre */}
+      {/* Objetivos */}
       <section>
         <h3 className="mb-2 text-xs font-bold uppercase tracking-wider text-muted">Objetivos {quarterLabel(currentQ, year)}</h3>
         <div className="space-y-1">
@@ -191,76 +241,92 @@ export function PlanTrimestre({ selectedDate }: Props) {
         )}
       </section>
 
-      {/* Operaciones activas */}
+      {/* Operaciones */}
       {operations.length > 0 && (
         <section>
           <h3 className="mb-2 text-xs font-bold uppercase tracking-wider text-muted">Operaciones</h3>
           <div className="flex flex-wrap gap-2">
-            {operations.map((p) => {
-              const hex = AREA_COLORS[p.area]?.hex ?? "#888";
-              return (
-                <div key={p.id} className="flex items-center gap-2 rounded-lg border-2 bg-background px-3 py-2" style={{ borderColor: hex + "50" }}>
-                  <span className="h-3 w-3 shrink-0 rounded-full" style={{ backgroundColor: hex }} />
-                  <span className="text-sm font-medium text-foreground">{p.nombre}</span>
-                  <div className="h-2 w-16 overflow-hidden rounded-full bg-surface">
-                    <div className="h-full rounded-full transition-all" style={{ width: `${p.percent}%`, backgroundColor: hex }} />
-                  </div>
-                  <span className="text-[10px] font-bold text-muted">{p.done}/{p.total}</span>
+            {operations.map((pn) => (
+              <div key={pn.proyecto.id} className="flex items-center gap-2 rounded-lg border-2 bg-background px-3 py-2" style={{ borderColor: pn.hex + "50" }}>
+                <span className="h-3 w-3 shrink-0 rounded-full" style={{ backgroundColor: pn.hex }} />
+                <span className="text-sm font-medium text-foreground">{pn.proyecto.nombre}</span>
+                <div className="h-2 w-16 overflow-hidden rounded-full bg-surface">
+                  <div className="h-full rounded-full transition-all" style={{ width: `${pn.percent}%`, backgroundColor: pn.hex }} />
                 </div>
-              );
-            })}
+                <span className="text-[10px] font-bold text-muted">{pn.done}/{pn.total}</span>
+              </div>
+            ))}
           </div>
         </section>
       )}
 
-      {/* Columnas de meses + sin asignar */}
+      {/* Roadmap por mes */}
       <section>
-        <h3 className="mb-2 text-xs font-bold uppercase tracking-wider text-muted">Proyectos y Entregables</h3>
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-4">
-          {qMonths.map((m) => (
-            <MonthColumn key={m} month={m} year={year} items={byMonth.get(m) ?? []} projects={projectsByMonth.get(m) ?? []} onAssign={assignToMonth} isMentor={isMentor} />
-          ))}
-          <div className="rounded-xl border border-dashed border-border bg-surface/30 p-3">
-            <h4 className="mb-2 text-[11px] font-bold uppercase tracking-wider text-muted">Sin asignar</h4>
-            {projectsUnassigned.length > 0 && (
-              <div className="mb-2 space-y-1.5">
-                {projectsUnassigned.map((p) => <ProjectCard key={p.id} proj={p} />)}
-              </div>
-            )}
-            {unassigned.length === 0 && projectsUnassigned.length === 0 ? (
-              <p className="py-4 text-center text-xs text-muted">—</p>
-            ) : (
-              <div className="space-y-1.5">
-                {unassigned.map((ent) => (
-                  <EntregableCard key={ent.id} ent={ent} months={qMonths} onAssign={assignToMonth} isMentor={isMentor} />
-                ))}
-              </div>
-            )}
-          </div>
+        <h3 className="mb-2 text-xs font-bold uppercase tracking-wider text-muted">Roadmap</h3>
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+          {qMonths.map((m) => {
+            const data = monthData.get(m)!;
+            return (
+              <MonthColumn key={m} month={m} year={year} entregables={data.entregables}
+                projects={data.projects} count={data.count}
+                qMonths={qMonths} onAssign={assignToMonth} onUnassign={unassignEnt} isMentor={isMentor} />
+            );
+          })}
         </div>
+      </section>
+
+      {/* Backlog */}
+      <section>
+        <h3 className="mb-2 text-xs font-bold uppercase tracking-wider text-muted">
+          Backlog
+          {backlogProjects.length > 0 && <span className="ml-2 text-[10px] font-normal text-muted">({backlogProjects.reduce((s, pn) => s + pn.activeEntCount, 0)} entregables sin planificar)</span>}
+        </h3>
+        {backlogProjects.length === 0 ? (
+          <p className="py-4 text-center text-sm text-muted">Todo el trabajo está planificado</p>
+        ) : (
+          <div className="space-y-2">
+            {backlogProjects.map((pn) => (
+              <BacklogProjectCard key={pn.proyecto.id} node={pn} qMonths={qMonths} onAssign={assignToMonth} isMentor={isMentor} />
+            ))}
+          </div>
+        )}
       </section>
     </div>
   );
 }
 
-/* ---------- sub-components ---------- */
+/* ================================================================
+   SUB-COMPONENTS
+   ================================================================ */
 
-function MonthColumn({ month, year, items, projects, onAssign, isMentor }: {
-  month: number; year: number; items: Entregable[]; projects: ProjWithStats[]; onAssign: (id: string, month: number) => void; isMentor: boolean;
+function MonthColumn({ month, year, entregables, projects, count, qMonths, onAssign, onUnassign, isMentor }: {
+  month: number; year: number; entregables: EntWithContext[]; projects: ProjNode[];
+  count: number; qMonths: number[];
+  onAssign: (id: string, month: number) => void; onUnassign: (id: string) => void; isMentor: boolean;
 }) {
   const now = new Date();
   const isCurrent = now.getFullYear() === year && now.getMonth() === month;
-  const empty = items.length === 0 && projects.length === 0;
+  const empty = entregables.length === 0 && projects.length === 0;
+  const otherMonths = qMonths.filter((m) => m !== month);
+  const overloaded = count > 6;
+
   return (
     <div className={`rounded-xl border p-3 ${isCurrent ? "border-accent/40 bg-accent/5" : "border-border bg-background"}`}>
-      <h4 className={`mb-2 text-center text-xs font-bold uppercase ${isCurrent ? "text-accent" : "text-muted"}`}>{MONTHS_ES[month]}</h4>
+      <div className="mb-2 flex items-center justify-center gap-2">
+        <h4 className={`text-center text-xs font-bold uppercase ${isCurrent ? "text-accent" : "text-muted"}`}>{MONTHS_ES[month]}</h4>
+        <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${overloaded ? "bg-amber-100 text-amber-700" : "bg-surface text-muted"}`}>{count}</span>
+      </div>
       {empty ? (
         <p className="py-4 text-center text-xs text-muted">—</p>
       ) : (
         <div className="space-y-1.5">
-          {projects.map((p) => <ProjectCard key={p.id} proj={p} />)}
-          {items.map((ent) => (
-            <EntregableCard key={ent.id} ent={ent} months={[]} onAssign={onAssign} isMentor={isMentor} />
+          {projects.map((pn) => (
+            <ExpandableProjectCard key={pn.proyecto.id} node={pn} qMonths={qMonths}
+              onAssign={onAssign} onUnassign={onUnassign} isMentor={isMentor} inMonth />
+          ))}
+          {entregables.map((ec) => (
+            <MonthEntregableCard key={ec.ent.id} ec={ec} otherMonths={otherMonths}
+              onAssign={onAssign} onUnassign={onUnassign} isMentor={isMentor} />
           ))}
         </div>
       )}
@@ -268,51 +334,189 @@ function MonthColumn({ month, year, items, projects, onAssign, isMentor }: {
   );
 }
 
-function ProjectCard({ proj }: { proj: ProjWithStats }) {
-  const hex = AREA_COLORS[proj.area]?.hex ?? "#888";
-  return (
-    <div className="rounded-lg border-2 bg-background p-2" style={{ borderColor: hex + "50" }}>
-      <div className="flex items-center gap-1.5">
-        <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: hex }} />
-        <span className="flex-1 truncate text-xs font-semibold text-foreground">{proj.nombre}</span>
-      </div>
-      {proj.descripcion && (
-        <p className="mt-0.5 truncate text-[10px] italic text-muted">{proj.descripcion}</p>
-      )}
-      <div className="mt-1 flex items-center gap-2">
-        <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-surface">
-          <div className="h-full rounded-full transition-all" style={{ width: `${proj.percent}%`, backgroundColor: hex }} />
-        </div>
-        <span className="text-[9px] font-bold text-muted">{proj.done}/{proj.total}</span>
-      </div>
-    </div>
-  );
-}
-
-function EntregableCard({ ent, months, onAssign, isMentor }: {
-  ent: Entregable; months: number[]; onAssign: (id: string, month: number) => void; isMentor: boolean;
+function MonthEntregableCard({ ec, otherMonths, onAssign, onUnassign, isMentor }: {
+  ec: EntWithContext; otherMonths: number[];
+  onAssign: (id: string, month: number) => void; onUnassign: (id: string) => void; isMentor: boolean;
 }) {
-  const state = useAppState();
-  const res = state.resultados.find((r) => r.id === ent.resultadoId);
-  const proj = res ? state.proyectos.find((p) => p.id === res.proyectoId) : null;
-  const hex = proj ? (AREA_COLORS[proj.area]?.hex ?? "#888") : "#888";
-  const estadoBadge = ent.estado === "en_proceso" ? "bg-amber-100 text-amber-700" : ent.estado === "planificado" ? "bg-blue-100 text-blue-700" : "bg-gray-100 text-gray-500";
+  const [showActions, setShowActions] = useState(false);
+  const estadoBadge = ec.ent.estado === "en_proceso" ? "bg-amber-100 text-amber-700"
+    : ec.ent.estado === "planificado" ? "bg-blue-100 text-blue-700" : "bg-gray-100 text-gray-500";
 
   return (
     <div className="rounded-lg border border-border/60 bg-background p-2">
       <div className="flex items-start gap-1.5">
-        <span className="mt-1 h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: hex }} />
+        <span className="mt-1 h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: ec.hex }} />
         <div className="flex-1 min-w-0">
-          <p className="truncate text-xs font-medium text-foreground">{ent.nombre}</p>
-          {proj && <p className="truncate text-[10px] text-muted">{proj.nombre}</p>}
+          <p className="truncate text-xs font-medium text-foreground">{ec.ent.nombre}</p>
+          <p className="truncate text-[10px] text-muted">{ec.projName}</p>
         </div>
-        <span className={`shrink-0 rounded px-1.5 py-0.5 text-[9px] font-bold ${estadoBadge}`}>{ent.estado.replace("_", " ")}</span>
+        <span className={`shrink-0 rounded px-1.5 py-0.5 text-[9px] font-bold ${estadoBadge}`}>{ec.ent.estado.replace("_", " ")}</span>
+        {!isMentor && (
+          <button onClick={() => setShowActions(!showActions)}
+            className="shrink-0 rounded p-0.5 text-muted hover:bg-surface hover:text-foreground" title="Reasignar">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><circle cx="12" cy="12" r="1" /><circle cx="12" cy="5" r="1" /><circle cx="12" cy="19" r="1" /></svg>
+          </button>
+        )}
       </div>
-      {!isMentor && months.length > 0 && (
+      {showActions && !isMentor && (
         <div className="mt-1.5 flex gap-1">
-          {months.map((m) => (
-            <button key={m} onClick={() => onAssign(ent.id, m)}
+          {otherMonths.map((m) => (
+            <button key={m} onClick={() => { onAssign(ec.ent.id, m); setShowActions(false); }}
               className="flex-1 rounded border border-border px-1 py-0.5 text-[10px] font-medium text-muted hover:border-accent hover:bg-accent-soft hover:text-accent">
+              {MONTHS_ES[m]}
+            </button>
+          ))}
+          <button onClick={() => { onUnassign(ec.ent.id); setShowActions(false); }}
+            className="rounded border border-red-200 px-1.5 py-0.5 text-[10px] font-medium text-red-400 hover:border-red-400 hover:bg-red-50 hover:text-red-600">
+            ✕
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ExpandableProjectCard({ node, qMonths, onAssign, onUnassign, isMentor, inMonth }: {
+  node: ProjNode; qMonths: number[];
+  onAssign: (id: string, month: number) => void; onUnassign: (id: string) => void;
+  isMentor: boolean; inMonth?: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+
+  return (
+    <div className="rounded-lg border-2 bg-background" style={{ borderColor: node.hex + "50" }}>
+      <button onClick={() => setOpen(!open)} className="flex w-full items-center gap-1.5 p-2 text-left">
+        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round"
+          className={`shrink-0 text-muted transition-transform ${open ? "rotate-90" : ""}`}>
+          <polyline points="9 18 15 12 9 6" />
+        </svg>
+        <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: node.hex }} />
+        <span className="flex-1 truncate text-xs font-semibold text-foreground">{node.proyecto.nombre}</span>
+        <div className="flex items-center gap-1.5">
+          <div className="h-1.5 w-12 overflow-hidden rounded-full bg-surface">
+            <div className="h-full rounded-full transition-all" style={{ width: `${node.percent}%`, backgroundColor: node.hex }} />
+          </div>
+          <span className="text-[9px] font-bold text-muted">{node.done}/{node.total}</span>
+        </div>
+      </button>
+      {node.proyecto.descripcion && !open && (
+        <p className="truncate px-2 pb-1.5 text-[10px] italic text-muted">{node.proyecto.descripcion}</p>
+      )}
+      {open && (
+        <div className="space-y-1 px-2 pb-2">
+          {node.resultados.map((rn) => (
+            <div key={rn.resultado.id}>
+              <p className="mb-0.5 text-[10px] font-semibold uppercase tracking-wider text-muted">{rn.resultado.nombre}</p>
+              <div className="space-y-1 pl-2">
+                {rn.entregables.map((ec) => (
+                  <EntregableRow key={ec.ent.id} ec={ec} qMonths={qMonths} onAssign={onAssign} onUnassign={onUnassign} isMentor={isMentor} inMonth={inMonth} />
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function EntregableRow({ ec, qMonths, onAssign, onUnassign, isMentor, inMonth }: {
+  ec: EntWithContext; qMonths: number[];
+  onAssign: (id: string, month: number) => void; onUnassign: (id: string) => void;
+  isMentor: boolean; inMonth?: boolean;
+}) {
+  const estadoBadge = ec.ent.estado === "en_proceso" ? "bg-amber-100 text-amber-700"
+    : ec.ent.estado === "planificado" ? "bg-blue-100 text-blue-700" : "bg-gray-100 text-gray-500";
+  const assignedMonth = entMonth(ec.ent.fechaInicio);
+  const isInQ = qMonths.includes(assignedMonth);
+
+  return (
+    <div className="flex items-center gap-1.5 rounded bg-surface/50 px-1.5 py-1">
+      <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ backgroundColor: ec.hex }} />
+      <span className="flex-1 truncate text-[11px] text-foreground">{ec.ent.nombre}</span>
+      <span className={`shrink-0 rounded px-1 py-0.5 text-[8px] font-bold ${estadoBadge}`}>{ec.ent.estado.replace("_", " ")}</span>
+      {isInQ && (
+        <span className="shrink-0 rounded bg-accent/10 px-1 py-0.5 text-[8px] font-bold text-accent">{MONTHS_ES[assignedMonth]}</span>
+      )}
+      {!isMentor && !inMonth && (
+        <div className="flex shrink-0 gap-0.5">
+          {qMonths.map((m) => (
+            <button key={m} onClick={() => onAssign(ec.ent.id, m)}
+              className={`rounded px-1 py-0.5 text-[8px] font-medium transition-colors ${
+                m === assignedMonth ? "bg-accent text-white" : "border border-border text-muted hover:border-accent hover:text-accent"
+              }`}>
+              {MONTHS_ES[m]}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function BacklogProjectCard({ node, qMonths, onAssign, isMentor }: {
+  node: ProjNode; qMonths: number[];
+  onAssign: (id: string, month: number) => void; isMentor: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const unplannedCount = node.resultados.reduce((s, rn) =>
+    s + rn.entregables.filter((ec) => !entInQuarter(ec.ent.fechaInicio, qMonths, new Date().getFullYear())).length, 0);
+
+  return (
+    <div className="rounded-xl border border-dashed border-border bg-surface/20">
+      <button onClick={() => setOpen(!open)} className="flex w-full items-center gap-2 px-3 py-2 text-left">
+        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round"
+          className={`shrink-0 text-muted transition-transform ${open ? "rotate-90" : ""}`}>
+          <polyline points="9 18 15 12 9 6" />
+        </svg>
+        <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: node.hex }} />
+        <span className="flex-1 truncate text-sm font-medium text-foreground">{node.proyecto.nombre}</span>
+        {node.proyecto.tipo === "operacion" && (
+          <span className="shrink-0 rounded bg-indigo-100 px-1.5 py-0.5 text-[9px] font-bold text-indigo-600">OP</span>
+        )}
+        <span className="shrink-0 rounded-full bg-surface px-2 py-0.5 text-[10px] font-bold text-muted">{unplannedCount} pend.</span>
+        <div className="flex items-center gap-1.5">
+          <div className="h-1.5 w-12 overflow-hidden rounded-full bg-surface">
+            <div className="h-full rounded-full transition-all" style={{ width: `${node.percent}%`, backgroundColor: node.hex }} />
+          </div>
+          <span className="text-[9px] font-bold text-muted">{node.done}/{node.total}</span>
+        </div>
+      </button>
+      {open && (
+        <div className="space-y-1 px-3 pb-3">
+          {node.resultados.map((rn) => {
+            const unplanned = rn.entregables.filter((ec) => !entInQuarter(ec.ent.fechaInicio, qMonths, new Date().getFullYear()));
+            if (unplanned.length === 0) return null;
+            return (
+              <div key={rn.resultado.id}>
+                <p className="mb-0.5 text-[10px] font-semibold uppercase tracking-wider text-muted">{rn.resultado.nombre}</p>
+                <div className="space-y-1 pl-2">
+                  {unplanned.map((ec) => (
+                    <BacklogEntRow key={ec.ent.id} ec={ec} qMonths={qMonths} onAssign={onAssign} isMentor={isMentor} />
+                  ))}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function BacklogEntRow({ ec, qMonths, onAssign, isMentor }: {
+  ec: EntWithContext; qMonths: number[];
+  onAssign: (id: string, month: number) => void; isMentor: boolean;
+}) {
+  return (
+    <div className="flex items-center gap-1.5 rounded bg-white/50 px-1.5 py-1 dark:bg-surface/30">
+      <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ backgroundColor: ec.hex }} />
+      <span className="flex-1 truncate text-[11px] text-foreground">{ec.ent.nombre}</span>
+      {!isMentor && (
+        <div className="flex shrink-0 gap-0.5">
+          {qMonths.map((m) => (
+            <button key={m} onClick={() => onAssign(ec.ent.id, m)}
+              className="rounded border border-border px-1.5 py-0.5 text-[9px] font-medium text-muted hover:border-accent hover:bg-accent-soft hover:text-accent">
               {MONTHS_ES[m]}
             </button>
           ))}
