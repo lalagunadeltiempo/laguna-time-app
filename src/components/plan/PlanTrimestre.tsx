@@ -83,7 +83,7 @@ export function PlanTrimestre({ selectedDate }: Props) {
         .filter((e) => e.resultadoId === r.id && e.estado !== "hecho" && e.estado !== "cancelada")
         .map((e) => ({ ent: e, hex, projName: p.nombre }));
       return { resultado: r, entregables: ents };
-    }).filter((rn) => rn.entregables.length > 0);
+    }).filter((rn) => rn.entregables.length > 0 || rn.resultado.fechaInicio);
 
     const allEnts = state.entregables.filter((e) => {
       const res = state.resultados.find((r) => r.id === e.resultadoId);
@@ -100,7 +100,7 @@ export function PlanTrimestre({ selectedDate }: Props) {
     const slicedRes: ResNode[] = node.resultados.map((rn) => ({
       resultado: rn.resultado,
       entregables: rn.entregables.filter((ec) => entMonth(ec.ent.fechaInicio) === month),
-    })).filter((rn) => rn.entregables.length > 0);
+    })).filter((rn) => rn.entregables.length > 0 || entMonth(rn.resultado.fechaInicio) === month);
     if (slicedRes.length === 0) return null;
     const entCount = slicedRes.reduce((s, rn) => s + rn.entregables.length, 0);
     return { ...node, resultados: slicedRes, entCount };
@@ -110,7 +110,8 @@ export function PlanTrimestre({ selectedDate }: Props) {
     const slicedRes: ResNode[] = node.resultados.map((rn) => ({
       resultado: rn.resultado,
       entregables: rn.entregables.filter((ec) => !entInQuarter(ec.ent.fechaInicio, qMonths, year)),
-    })).filter((rn) => rn.entregables.length > 0);
+    })).filter((rn) => rn.entregables.length > 0
+      || (rn.resultado.fechaInicio && !entInQuarter(rn.resultado.fechaInicio, qMonths, year)));
     if (slicedRes.length === 0) return null;
     const entCount = slicedRes.reduce((s, rn) => s + rn.entregables.length, 0);
     return { ...node, resultados: slicedRes, entCount };
@@ -239,7 +240,7 @@ export function PlanTrimestre({ selectedDate }: Props) {
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
           {qMonths.map((m) => {
             const projects = monthProjects.get(m) ?? [];
-            const count = projects.reduce((s, pn) => s + pn.entCount, 0);
+            const count = projects.reduce((s, pn) => s + pn.entCount + pn.resultados.filter(rn => rn.entregables.length === 0).length, 0);
             return (
               <MonthColumn key={m} month={m} year={year} projects={projects} count={count}
                 qMonths={qMonths} onAssign={assignToMonth} onUnassign={unassignEnt} isMentor={isMentor} />
@@ -345,14 +346,25 @@ function ExpandableProjectCard({ node, qMonths, onAssign, onUnassign, isMentor, 
         <div className="space-y-1 px-2 pb-2">
           {node.resultados.map((rn) => (
             <div key={rn.resultado.id}>
-              <p className="mb-0.5 text-[10px] font-semibold uppercase tracking-wider text-muted">{rn.resultado.nombre}</p>
-              <div className="space-y-1 pl-2">
-                {rn.entregables.map((ec) => (
-                  <EntregableRow key={ec.ent.id} ec={ec} qMonths={qMonths}
-                    onAssign={onAssign} onUnassign={onUnassign} isMentor={isMentor}
-                    currentMonth={inMonth} />
-                ))}
+              <div className="mb-0.5 flex items-center gap-1.5">
+                <p className="text-[10px] font-semibold uppercase tracking-wider text-muted">{rn.resultado.nombre}</p>
+                {rn.resultado.fechaInicio && (
+                  <span className="rounded bg-accent/10 px-1.5 py-0.5 text-[9px] font-bold text-accent">
+                    {MONTHS_ES[new Date(rn.resultado.fechaInicio + "T12:00:00").getMonth()]}
+                  </span>
+                )}
               </div>
+              {rn.entregables.length > 0 ? (
+                <div className="space-y-1 pl-2">
+                  {rn.entregables.map((ec) => (
+                    <EntregableRow key={ec.ent.id} ec={ec} qMonths={qMonths}
+                      onAssign={onAssign} onUnassign={onUnassign} isMentor={isMentor}
+                      currentMonth={inMonth} />
+                  ))}
+                </div>
+              ) : (
+                <p className="pl-2 text-[10px] italic text-muted/60">Sin entregables</p>
+              )}
             </div>
           ))}
         </div>
