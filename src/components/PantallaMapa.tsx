@@ -27,13 +27,21 @@ import {
   type Programacion,
 } from "@/lib/types";
 
-function formatFechaInicio(f: string): string {
+const MESES_LARGOS = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"];
+const MESES_CORTOS = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"];
+
+function formatFechaInicio(f: string, planNivel?: PlanNivel): string {
   const d = new Date(f + "T12:00:00");
   if (isNaN(d.getTime())) return f;
+  if (planNivel === "trimestre") {
+    const q = Math.floor(d.getMonth() / 3) + 1;
+    return `T${q} ${d.getFullYear()}`;
+  }
+  if (planNivel === "mes") {
+    return MESES_LARGOS[d.getMonth()];
+  }
   return d.toLocaleDateString("es-ES", { day: "numeric", month: "short" });
 }
-
-const MESES_CORTOS = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"];
 
 function computeEstadoOnPlan(planNivel: PlanNivel, fechaInicio: string, currentEstado: EstadoEntregable): EstadoEntregable {
   if (currentEstado === "hecho" || currentEstado === "cancelada" || currentEstado === "en_espera") return currentEstado;
@@ -582,6 +590,9 @@ function ProyectoBlock({ proyecto, index, total }: { proyecto: Proyecto; index: 
   }, [isTarget]);
 
   const allResultados = state.resultados.filter((r) => r.proyectoId === proyecto.id);
+  const resIds = new Set(allResultados.map((r) => r.id));
+  const projEntregables = state.entregables.filter((e) => resIds.has(e.resultadoId));
+  const hasActiveWork = projEntregables.some((e) => e.estado === "en_proceso" || state.pasos.some((p) => p.entregableId === e.id && p.inicioTs && !p.finTs));
   const notasCount = (proyecto.notas ?? []).length;
   const isProgrammed = !!proyecto.fechaInicio;
 
@@ -600,8 +611,11 @@ function ProyectoBlock({ proyecto, index, total }: { proyecto: Proyecto; index: 
         <ReviewBadge review={proyecto.review} nivel="proyecto" targetId={proyecto.id} />
         {isEmpresa && <ResponsableBadge nombre={proyecto.responsable} />}
         <span className="rounded-full bg-surface px-3 py-1 text-xs font-medium text-muted">{allResultados.length} result.</span>
-        {isProgrammed && (
-          <span className="rounded-md bg-accent/10 px-2 py-0.5 text-[11px] font-medium text-accent">{formatFechaInicio(proyecto.fechaInicio!)}</span>
+        {hasActiveWork && (
+          <span className="rounded-md bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-700">En curso</span>
+        )}
+        {isProgrammed && !hasActiveWork && (
+          <span className="rounded-md bg-accent/10 px-2 py-0.5 text-[11px] font-medium text-accent">{formatFechaInicio(proyecto.fechaInicio!, proyecto.planNivel)}</span>
         )}
         {isMentor
           ? <CommentIcon count={notasCount} onClick={() => setShowNotas(!showNotas)} />
@@ -718,6 +732,7 @@ function ResultadoBlock({ resultado, index, total }: { resultado: Resultado; ind
   }, [isTarget]);
 
   const allEntregables = state.entregables.filter((e) => e.resultadoId === resultado.id);
+  const hasActiveWork = allEntregables.some((e) => e.estado === "en_proceso");
   const parentProj = state.proyectos.find((p) => p.id === resultado.proyectoId);
   const isEmpresa = parentProj ? ambitoDeArea(parentProj.area) === "empresa" : false;
   const notasCount = (resultado.notas ?? []).length;
@@ -738,8 +753,11 @@ function ResultadoBlock({ resultado, index, total }: { resultado: Resultado; ind
         <ReviewBadge review={resultado.review} nivel="resultado" targetId={resultado.id} />
         {isEmpresa && <ResponsableBadge nombre={resultado.responsable ?? parentProj?.responsable} />}
         <span className="rounded-full bg-surface px-2.5 py-0.5 text-xs text-muted">{allEntregables.length} entreg.</span>
-        {isProgrammed && (
-          <span className="rounded-md bg-accent/10 px-2 py-0.5 text-[11px] font-medium text-accent">{formatFechaInicio(resultado.fechaInicio!)}</span>
+        {hasActiveWork && (
+          <span className="rounded-md bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-700">En curso</span>
+        )}
+        {isProgrammed && !hasActiveWork && (
+          <span className="rounded-md bg-accent/10 px-2 py-0.5 text-[11px] font-medium text-accent">{formatFechaInicio(resultado.fechaInicio!, resultado.planNivel)}</span>
         )}
         {isMentor
           ? <CommentIcon count={notasCount} onClick={() => setShowNotas(!showNotas)} />
@@ -854,7 +872,7 @@ function EntregableBlock({ entregable, index, total }: { entregable: Entregable;
   const notasCount = (entregable.notas ?? []).length;
 
   const isProgrammed = !!entregable.fechaInicio;
-  const programLabel = isProgrammed ? formatFechaInicio(entregable.fechaInicio!) : null;
+  const programLabel = isProgrammed ? formatFechaInicio(entregable.fechaInicio!, entregable.planNivel) : null;
 
   function handlePlanSelect(fechaInicio: string, planNivel: PlanNivel) {
     const newEstado = computeEstadoOnPlan(planNivel, fechaInicio, entregable.estado);
@@ -1134,6 +1152,8 @@ function SOPBlock({ sop, index, total }: { sop: PlantillaProceso; index: number;
   const justCreatedTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
   useEffect(() => () => clearTimeout(justCreatedTimer.current), []);
 
+  const hasActiveEntregable = state.entregables.some((e) => e.plantillaId === sop.id && (e.estado === "en_proceso" || e.estado === "planificado"));
+
   function handleSOPPlanSelect(fechaInicio: string, _: PlanNivel) {
     createSOPEntregable(fechaInicio);
   }
@@ -1197,6 +1217,9 @@ function SOPBlock({ sop, index, total }: { sop: PlantillaProceso; index: number;
         <ReviewBadge review={sop.review} nivel="plantilla" targetId={sop.id} />
         <span className="rounded-full px-2.5 py-0.5 text-xs font-medium" style={{ backgroundColor: (AREA_COLORS[sop.area]?.hex ?? "#888") + "15", color: AREA_COLORS[sop.area]?.hex ?? "#888" }}>SOP · {sop.pasos.length}p</span>
         <ScheduleBadge programacion={sop.programacion} />
+        {hasActiveEntregable && (
+          <span className="rounded-md bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-700">En curso</span>
+        )}
         {justCreated && (
           <span className="animate-pulse rounded-md bg-green-100 px-2 py-0.5 text-[11px] font-bold text-green-700">Entregable creado</span>
         )}
