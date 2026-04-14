@@ -57,7 +57,7 @@ export type Action =
   | { type: "IMPORT_PLANTILLAS"; plantillas: PlantillaProceso[] }
   | { type: "ADD_PLANTILLA"; payload: PlantillaProceso }
   | { type: "DELETE_PLANTILLA"; id: string }
-  | { type: "UPDATE_PLANTILLA"; id: string; changes: Partial<Pick<PlantillaProceso, "nombre" | "area" | "objetivo" | "disparador" | "programacion" | "excepciones" | "responsableDefault" | "pasos" | "herramientas" | "dependeDeIds">> }
+  | { type: "UPDATE_PLANTILLA"; id: string; changes: Partial<Pick<PlantillaProceso, "nombre" | "area" | "objetivo" | "disparador" | "programacion" | "excepciones" | "responsableDefault" | "pasos" | "herramientas" | "dependeDeIds" | "proyectoId">> }
   | { type: "ADD_MIEMBRO"; payload: MiembroInfo }
   | { type: "UPDATE_MIEMBRO"; id: string; changes: Partial<Pick<MiembroInfo, "nombre" | "rol" | "color" | "capacidadDiaria" | "diasLaborables">> }
   | { type: "DELETE_MIEMBRO"; id: string }

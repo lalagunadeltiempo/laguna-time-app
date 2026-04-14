@@ -6,11 +6,12 @@ import { usePasosActivos, useSOPsHoy, useDependenciasEntrantes, useEsperandoResp
 import { generateId } from "@/lib/store";
 import { useUsuario, useIsMentor } from "@/lib/usuario";
 import { toDateKey } from "@/lib/date-utils";
-import type { InboxItem, Paso, Area } from "@/lib/types";
+import type { InboxItem, Paso } from "@/lib/types";
+import { AREA_COLORS } from "@/lib/types";
 import { PasoActivoCard } from "./PasoActivo";
 import { NuevoPaso } from "./NuevoPaso";
 import { VistaInbox } from "./VistaInbox";
-import SOPLaunchDialog from "./shared/SOPLaunchDialog";
+import HierarchyPicker from "./shared/HierarchyPicker";
 
 export function PantallaHoy() {
   const isMentor = useIsMentor();
@@ -23,7 +24,6 @@ export function PantallaHoy() {
   const [showEndOfDay, setShowEndOfDay] = useState(false);
   const [showRetro, setShowRetro] = useState(false);
   const [quickCapture, setQuickCapture] = useState("");
-  const [sopLaunch, setSopLaunch] = useState<{ plantillaId: string; nombre: string; area: Area; responsable: string } | null>(null);
 
   // Close stale steps from previous days → reschedule for today (once after data loads)
   const staleCleaned = useRef(false);
@@ -60,6 +60,67 @@ export function PantallaHoy() {
   const esperando = useEsperandoRespuesta();
   const pendingInbox = useMemo(() => state.inbox.filter((i) => !i.procesado).length, [state.inbox]);
 
+  const [todayKey, setTodayKey] = useState(() => toDateKey(new Date()));
+  useEffect(() => {
+    const id = setInterval(() => { const k = toDateKey(new Date()); setTodayKey((prev) => prev !== k ? k : prev); }, 60_000);
+    return () => clearInterval(id);
+  }, []);
+
+  // Planned blocks for today (same logic as PlanHoy)
+  const plannedBlocks = useMemo(() => {
+    const { pasos, entregables, resultados, proyectos } = state;
+    type PBlock = { id: string; title: string; subtitle: string; entregableId: string; pasoId?: string; area: string; hex: string };
+    const result: PBlock[] = [];
+    const entIdsWithPasos = new Set<string>();
+
+    for (const p of pasos) {
+      if (p.inicioTs && p.inicioTs.slice(0, 10) === todayKey) {
+        entIdsWithPasos.add(p.entregableId);
+      }
+    }
+
+    for (const paso of pasos) {
+      if (!paso.finTs || !paso.siguientePaso) continue;
+      if (paso.siguientePaso.tipo !== "continuar") continue;
+      let fp = paso.siguientePaso.fechaProgramada;
+      if (!fp) continue;
+      if (fp === "manana") {
+        const finDate = new Date(paso.finTs);
+        finDate.setDate(finDate.getDate() + 1);
+        fp = toDateKey(finDate);
+      }
+      if (fp > todayKey) continue;
+      if (result.some((b) => b.id === `next-${paso.id}`)) continue;
+      const newerPasoExists = pasos.some((p) => p.entregableId === paso.entregableId && p.inicioTs && paso.finTs && p.inicioTs >= paso.finTs);
+      if (newerPasoExists) continue;
+      const ent = entregables.find((e) => e.id === paso.entregableId);
+      if (!ent) continue;
+      if (ent.estado === "hecho" || ent.estado === "cancelada") continue;
+      if (ent.responsable && ent.responsable !== currentUser) continue;
+      entIdsWithPasos.add(ent.id);
+      const res = resultados.find((r) => r.id === ent.resultadoId);
+      const proj = res ? proyectos.find((pr) => pr.id === res.proyectoId) : undefined;
+      result.push({ id: `next-${paso.id}`, title: paso.siguientePaso.nombre ?? paso.nombre, subtitle: `${proj?.nombre ?? ""} · ${ent.nombre}`, entregableId: ent.id, pasoId: paso.id, area: proj?.area ?? "operativa", hex: AREA_COLORS[proj?.area ?? ""]?.hex ?? "#888" });
+    }
+
+    for (const ent of entregables) {
+      if (!ent.fechaInicio || ent.fechaInicio > todayKey) continue;
+      if (ent.planNivel === "mes" || ent.planNivel === "trimestre") continue;
+      if (ent.estado === "hecho" || ent.estado === "cancelada") continue;
+      if (entIdsWithPasos.has(ent.id)) continue;
+      if (ent.responsable && ent.responsable !== currentUser) continue;
+      const res = resultados.find((r) => r.id === ent.resultadoId);
+      const proj = res ? proyectos.find((pr) => pr.id === res.proyectoId) : undefined;
+      result.push({ id: `ent-${ent.id}`, title: ent.nombre, subtitle: proj?.nombre ?? "", entregableId: ent.id, area: proj?.area ?? "operativa", hex: AREA_COLORS[proj?.area ?? ""]?.hex ?? "#888" });
+    }
+
+    return result;
+  }, [state, todayKey, currentUser]);
+
+  const [sopDestPicker, setSopDestPicker] = useState<string | null>(null);
+  const [sopDestCache, setSopDestCache] = useState<Map<string, string>>(new Map());
+  const [orphanBlock, setOrphanBlock] = useState<{ entregableId: string; title: string } | null>(null);
+
   if (isMentor) return <div className="p-8 text-center text-muted">Vista no disponible para mentor.</div>;
 
   const sopsPendientes = sopsMios.filter((s) => {
@@ -70,7 +131,7 @@ export function PantallaHoy() {
     );
     return !yaEnCurso;
   });
-  const isEmpty = pasosActivos.length === 0;
+  const isEmpty = pasosActivos.length === 0 && plannedBlocks.length === 0;
   const hasOpenWork = pasosActivos.length > 0 || pendingInbox > 0;
 
   function captureIdea() {
@@ -79,6 +140,82 @@ export function PantallaHoy() {
     const item: InboxItem = { id: generateId(), texto: text, creado: new Date().toISOString(), procesado: false };
     dispatch({ type: "ADD_INBOX", payload: item });
     setQuickCapture("");
+  }
+
+  function startPlannedBlock(block: typeof plannedBlocks[0]) {
+    const ent = state.entregables.find((e) => e.id === block.entregableId);
+    if (!ent) return;
+    const res = state.resultados.find((r) => r.id === ent.resultadoId);
+    const proj = res ? state.proyectos.find((p) => p.id === res.proyectoId) : undefined;
+    if (!res || !proj) {
+      setOrphanBlock({ entregableId: block.entregableId, title: block.title });
+      return;
+    }
+    doStartPlanned(block);
+  }
+
+  function doStartPlanned(block: typeof plannedBlocks[0]) {
+    if (!block.entregableId) return;
+    const existingPending = state.pasos.find((p) => p.entregableId === block.entregableId && !p.inicioTs && !p.finTs && p.nombre === block.title);
+    if (existingPending) {
+      dispatch({ type: "ACTIVATE_PASO", id: existingPending.id });
+      dispatch({ type: "UPDATE_ENTREGABLE", id: block.entregableId, changes: { estado: "en_proceso" } });
+    } else {
+      dispatch({
+        type: "START_PASO",
+        payload: {
+          id: generateId(), entregableId: block.entregableId, nombre: block.title,
+          inicioTs: new Date().toISOString(), finTs: null, estado: "",
+          contexto: { urls: [], apps: [], notas: "" },
+          implicados: [{ tipo: "equipo", nombre: currentUser }],
+          pausas: [], siguientePaso: null,
+        },
+      });
+    }
+  }
+
+  function startSOPStep(plantilla: import("@/lib/types").PlantillaProceso, pasoNombre: string) {
+    const proj = plantilla.proyectoId ? state.proyectos.find((p) => p.id === plantilla.proyectoId) : undefined;
+    const cachedResId = sopDestCache.get(plantilla.id);
+    const res = cachedResId
+      ? state.resultados.find((r) => r.id === cachedResId)
+      : proj ? state.resultados.find((r) => r.proyectoId === proj.id) : undefined;
+
+    if (!res) {
+      setSopDestPicker(plantilla.id);
+      return;
+    }
+
+    const existingEnt = state.entregables.find((e) => e.plantillaId === plantilla.id && e.fechaInicio === todayKey);
+    let entregableId: string;
+
+    if (existingEnt) {
+      entregableId = existingEnt.id;
+    } else {
+      entregableId = generateId();
+      dispatch({
+        type: "MATERIALIZE_SOP",
+        plantillaId: plantilla.id,
+        area: plantilla.area,
+        responsable: plantilla.responsableDefault ?? currentUser,
+        currentUser,
+        dateKey: todayKey,
+        ids: { resultado: generateId(), entregable: entregableId, paso: generateId(), proyecto: generateId() },
+        resultadoId: res.id,
+        autoStart: false,
+      });
+    }
+
+    dispatch({
+      type: "START_PASO",
+      payload: {
+        id: generateId(), entregableId, nombre: pasoNombre,
+        inicioTs: new Date().toISOString(), finTs: null, estado: "",
+        contexto: { urls: [], apps: [], notas: "" },
+        implicados: [{ tipo: "equipo", nombre: currentUser }],
+        pausas: [], siguientePaso: null,
+      },
+    });
   }
 
   return (
@@ -108,12 +245,38 @@ export function PantallaHoy() {
       )}
 
       {/* Empty state */}
-      {isEmpty && !showNuevoPaso && (
+      {isEmpty && !showNuevoPaso && sopsPendientes.length === 0 && (
         <div className="mb-8 flex flex-1 flex-col items-center justify-center text-center">
           <div className="mb-4 text-5xl opacity-20">☀️</div>
           <p className="text-base text-muted">Tu día empieza vacío.</p>
           <p className="mt-1 text-sm text-muted/60">Inicia un paso o captura una idea.</p>
         </div>
+      )}
+
+      {/* Planned blocks for today */}
+      {plannedBlocks.length > 0 && (
+        <section className="mb-5 space-y-1.5">
+          <h2 className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-foreground/60">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+              <rect x="3" y="4" width="18" height="18" rx="2" /><line x1="16" y1="2" x2="16" y2="6" /><line x1="8" y1="2" x2="8" y2="6" /><line x1="3" y1="10" x2="21" y2="10" />
+            </svg>
+            Planificados para hoy ({plannedBlocks.length})
+          </h2>
+          {plannedBlocks.map((block) => (
+            <div key={block.id} className="flex items-center gap-2 rounded-xl border-l-[3px] bg-surface/50 px-3 py-2.5" style={{ borderLeftColor: block.hex }}>
+              <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: block.hex }} />
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-sm font-medium text-foreground">{block.title}</p>
+                <p className="truncate text-[11px] text-muted">{block.subtitle}</p>
+              </div>
+              <button onClick={() => startPlannedBlock(block)}
+                className="shrink-0 rounded-lg px-3 py-1.5 text-[11px] font-semibold text-white hover:brightness-110"
+                style={{ backgroundColor: block.hex }}>
+                Empezar
+              </button>
+            </div>
+          ))}
+        </section>
       )}
 
       {/* CTA: Start step */}
@@ -188,7 +351,7 @@ export function PantallaHoy() {
         </section>
       )}
 
-      {/* SOPs pendientes hoy */}
+      {/* SOPs pendientes hoy — expandable cards */}
       {sopsPendientes.length > 0 && (
         <section className="mb-5 space-y-2">
           <h2 className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-blue-600">
@@ -198,18 +361,7 @@ export function PantallaHoy() {
             SOPs programados ({sopsPendientes.length})
           </h2>
           {sopsPendientes.map((sop) => (
-            <div key={sop.plantilla.id} className="flex items-center justify-between rounded-xl border border-blue-200 bg-blue-50 p-3">
-              <div className="min-w-0 flex-1">
-                <p className="truncate text-sm font-medium text-blue-900">{sop.plantilla.nombre}</p>
-                <p className="text-[11px] text-blue-600">{sop.pasosHoy.length} paso{sop.pasosHoy.length !== 1 ? "s" : ""} pendiente{sop.pasosHoy.length !== 1 ? "s" : ""}</p>
-              </div>
-              <button
-                onClick={() => setSopLaunch({ plantillaId: sop.plantilla.id, nombre: sop.plantilla.nombre, area: sop.plantilla.area, responsable: sop.plantilla.responsableDefault ?? currentUser })}
-                className="shrink-0 rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-blue-700"
-              >
-                Lanzar
-              </button>
-            </div>
+            <SOPExpandableCard key={sop.plantilla.id} sop={sop} onStartStep={(pasoNombre) => startSOPStep(sop.plantilla, pasoNombre)} onPickDest={() => setSopDestPicker(sop.plantilla.id)} />
           ))}
         </section>
       )}
@@ -262,15 +414,105 @@ export function PantallaHoy() {
       {showNuevoPaso && <NuevoPaso onClose={() => setShowNuevoPaso(false)} />}
       {showInbox && <VistaInbox onClose={() => setShowInbox(false)} />}
       {showRetro && <RegistrarPasoPasado onClose={() => setShowRetro(false)} />}
-      {sopLaunch && (
-        <SOPLaunchDialog
-          plantillaId={sopLaunch.plantillaId}
-          plantillaNombre={sopLaunch.nombre}
-          area={sopLaunch.area}
-          responsable={sopLaunch.responsable}
-          dateKey={toDateKey(new Date())}
-          onClose={() => setSopLaunch(null)}
+      {sopDestPicker && (() => {
+        const pl = state.plantillas.find((p) => p.id === sopDestPicker);
+        if (!pl) return null;
+        return (
+          <HierarchyPicker
+            depth="resultado"
+            initialArea={pl.area}
+            title={`Destino para "${pl.nombre}"`}
+            onSelect={(sel) => {
+              if (sel.proyectoId) dispatch({ type: "UPDATE_PLANTILLA", id: pl.id, changes: { proyectoId: sel.proyectoId } });
+              if (sel.resultadoId) setSopDestCache((prev) => new Map(prev).set(pl.id, sel.resultadoId!));
+              setSopDestPicker(null);
+            }}
+            onCancel={() => setSopDestPicker(null)}
+          />
+        );
+      })()}
+      {orphanBlock && (
+        <HierarchyPicker
+          depth="resultado"
+          title={`Destino para "${orphanBlock.title}"`}
+          onSelect={(sel) => {
+            if (sel.resultadoId && orphanBlock.entregableId) {
+              dispatch({ type: "MOVE_ENTREGABLE", entregableId: orphanBlock.entregableId, nuevoResultadoId: sel.resultadoId });
+            }
+            setOrphanBlock(null);
+          }}
+          onCancel={() => setOrphanBlock(null)}
         />
+      )}
+    </div>
+  );
+}
+
+/* ============================================================
+   SOP EXPANDABLE CARD
+   ============================================================ */
+
+function SOPExpandableCard({ sop, onStartStep, onPickDest }: {
+  sop: import("@/lib/sop-scheduler").SOPHoy;
+  onStartStep: (pasoNombre: string) => void;
+  onPickDest: () => void;
+}) {
+  const state = useAppState();
+  const [open, setOpen] = useState(false);
+  const pl = sop.plantilla;
+  const hex = AREA_COLORS[pl.area]?.hex ?? "#6d28d9";
+
+  const proj = pl.proyectoId ? state.proyectos.find((p) => p.id === pl.proyectoId) : undefined;
+  const res = proj ? state.resultados.find((r) => r.proyectoId === proj.id) : undefined;
+  const hasDest = !!proj && !!res;
+
+  return (
+    <div className="overflow-hidden rounded-xl border" style={{ borderColor: hex + "40" }}>
+      <button onClick={() => setOpen(!open)}
+        className="flex w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-surface/50"
+        style={{ backgroundColor: hex + "08" }}>
+        <span className="h-3 w-3 shrink-0 rounded-full" style={{ backgroundColor: hex }} />
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-sm font-semibold" style={{ color: hex }}>{pl.nombre}</p>
+          {hasDest ? (
+            <p className="truncate text-[11px] text-muted">{proj!.nombre} → {res!.nombre}</p>
+          ) : (
+            <p className="text-[11px] font-medium text-amber-600">Sin destino asignado</p>
+          )}
+        </div>
+        <span className="shrink-0 rounded-md px-2 py-0.5 text-[10px] font-bold" style={{ backgroundColor: hex + "15", color: hex }}>
+          {pl.pasos.length}p
+        </span>
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"
+          className={`shrink-0 text-muted transition-transform ${open ? "rotate-90" : ""}`}>
+          <polyline points="9 6 15 12 9 18" />
+        </svg>
+      </button>
+
+      {open && (
+        <div className="border-t px-4 py-2 space-y-1" style={{ borderColor: hex + "20" }}>
+          {!hasDest && (
+            <button onClick={onPickDest}
+              className="mb-2 w-full rounded-lg border border-dashed border-amber-300 bg-amber-50 py-2 text-xs font-medium text-amber-700 hover:bg-amber-100">
+              Asignar proyecto y resultado
+            </button>
+          )}
+          {pl.pasos.map((paso, i) => (
+            <div key={paso.id} className="flex items-center gap-2 rounded-lg px-2 py-1.5 transition-colors hover:bg-surface">
+              <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[10px] font-bold text-white" style={{ backgroundColor: hex + "80" }}>
+                {i + 1}
+              </span>
+              <span className="flex-1 truncate text-sm text-foreground">{paso.nombre}</span>
+              {hasDest && (
+                <button onClick={() => onStartStep(paso.nombre)}
+                  className="shrink-0 rounded-md px-2.5 py-1 text-[10px] font-semibold text-white transition-colors hover:brightness-110"
+                  style={{ backgroundColor: hex }}>
+                  Iniciar
+                </button>
+              )}
+            </div>
+          ))}
+        </div>
       )}
     </div>
   );
