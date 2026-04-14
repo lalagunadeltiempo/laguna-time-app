@@ -5,7 +5,7 @@ import { useAppState, useAppDispatch } from "@/lib/context";
 import { useIsMentor } from "@/lib/usuario";
 import { ambitoDeArea, AREA_COLORS, type Entregable, type Proyecto, type Ambito } from "@/lib/types";
 
-type AmbitoFilter = "todo" | Ambito;
+export type AmbitoFilter = "todo" | Ambito;
 type RAG = "green" | "amber" | "red";
 
 const RAG_HEX: Record<RAG, string> = { green: "#22c55e", amber: "#f59e0b", red: "#ef4444" };
@@ -91,6 +91,7 @@ export function PlanMes({ selectedDate }: Props) {
   const dispatch = useAppDispatch();
   const isMentor = useIsMentor();
   const [filtro, setFiltro] = useState<AmbitoFilter>("todo");
+  const [showDone, setShowDone] = useState(true);
 
   const mesLabel = useMemo(() =>
     selectedDate.toLocaleDateString("es-ES", { month: "long", year: "numeric" }),
@@ -110,7 +111,8 @@ export function PlanMes({ selectedDate }: Props) {
     const relevant: EntCard[] = [];
 
     for (const ent of state.entregables) {
-      if (ent.estado === "hecho" || ent.estado === "cancelada") continue;
+      if (ent.estado === "cancelada") continue;
+      if (ent.estado === "hecho" && !showDone) continue;
 
       const res = state.resultados.find((r) => r.id === ent.resultadoId);
       const proj = res ? state.proyectos.find((p) => p.id === res.proyectoId) : undefined;
@@ -163,7 +165,7 @@ export function PlanMes({ selectedDate }: Props) {
     }
 
     return { weekEntregables: byWeek, unassigned: noWeek };
-  }, [state, selectedDate, filtro, weeks, nowMs]);
+  }, [state, selectedDate, filtro, showDone, weeks, nowMs]);
 
   function assignToWeek(entId: string, monday: string) {
     const today = toDateKey(new Date());
@@ -184,7 +186,14 @@ export function PlanMes({ selectedDate }: Props) {
           <p className="text-sm font-medium capitalize text-muted">{mesLabel}</p>
           <p className="text-xs text-muted">{totalCount} entregable{totalCount !== 1 ? "s" : ""} este mes</p>
         </div>
-        <AmbitoToggle value={filtro} onChange={setFiltro} />
+        <div className="flex items-center gap-3">
+          <label className="flex cursor-pointer items-center gap-1.5 text-[11px] text-muted">
+            <input type="checkbox" checked={showDone} onChange={(e) => setShowDone(e.target.checked)}
+              className="h-3.5 w-3.5 rounded border-border accent-accent" />
+            Hechos
+          </label>
+          <AmbitoToggle value={filtro} onChange={setFiltro} />
+        </div>
       </div>
 
       {totalCount === 0 ? (
@@ -268,13 +277,16 @@ function EntregableCard({ card, weeks, onAssign, currentWeek }: {
 }) {
   const { entregable, proyecto, areaHex, rag } = card;
   const [showWeeks, setShowWeeks] = useState(false);
+  const isDone = entregable.estado === "hecho";
 
   return (
-    <div className="rounded-lg border px-3 py-2.5" style={{ borderColor: areaHex + "30", borderLeftWidth: "3px", borderLeftColor: areaHex }}>
+    <div className={`rounded-lg border px-3 py-2.5${isDone ? " opacity-50" : ""}`} style={{ borderColor: areaHex + "30", borderLeftWidth: "3px", borderLeftColor: isDone ? "#22c55e" : areaHex }}>
       <div className="flex items-center gap-2">
-        <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: RAG_HEX[rag] }} />
+        {isDone
+          ? <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-green-500 text-[8px] text-white">✓</span>
+          : <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: RAG_HEX[rag] }} />}
         <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-medium text-foreground">{entregable.nombre}</p>
+          <p className={`truncate text-sm font-medium ${isDone ? "line-through text-muted" : "text-foreground"}`}>{entregable.nombre}</p>
           <p className="truncate text-[11px] text-muted">{proyecto.nombre}</p>
         </div>
         {onAssign && (

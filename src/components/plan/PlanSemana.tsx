@@ -3,9 +3,10 @@
 import { useMemo, useState, useEffect } from "react";
 import { useAppState, useAppDispatch } from "@/lib/context";
 import { useUsuario, useIsMentor } from "@/lib/usuario";
-import { AREA_COLORS, type Area, type Entregable } from "@/lib/types";
+import { ambitoDeArea, AREA_COLORS, type Area, type Entregable } from "@/lib/types";
 import { projectSOPsForDate, type ProjectedSOP } from "@/lib/sop-projector";
 import { generateId } from "@/lib/store";
+import { AmbitoToggle, type AmbitoFilter } from "./PlanMes";
 
 const DAYS = ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"];
 
@@ -45,6 +46,8 @@ export function PlanSemana({ selectedDate }: Props) {
   const state = useAppState();
   const dispatch = useAppDispatch();
   const [viewMode, setViewMode] = useState<"yo" | "equipo">("yo");
+  const [filtro, setFiltro] = useState<AmbitoFilter>("todo");
+  const [showDone, setShowDone] = useState(true);
   const [pickDay, setPickDay] = useState<string | null>(null);
   const [confirmSOP, setConfirmSOP] = useState<{ sop: ProjectedSOP; dateKey: string } | null>(null);
 
@@ -73,6 +76,10 @@ export function PlanSemana({ selectedDate }: Props) {
 
       const res = state.resultados.find((r) => r.id === ent.resultadoId);
       const proj = res ? state.proyectos.find((p) => p.id === res.proyectoId) : undefined;
+      if (filtro !== "todo" && proj && ambitoDeArea(proj.area) !== filtro) continue;
+
+      const isDone = !!paso.finTs;
+      if (isDone && !showDone) continue;
 
       result.push({
         id: paso.id,
@@ -81,7 +88,7 @@ export function PlanSemana({ selectedDate }: Props) {
         subtitle: proj?.nombre ?? "",
         responsable: ent.responsable ?? "",
         dateKey: pasoDate,
-        type: paso.finTs ? "done" : state.pasosActivos.includes(paso.id) ? "active" : "programado",
+        type: isDone ? "done" : state.pasosActivos.includes(paso.id) ? "active" : "programado",
       });
     }
 
@@ -107,6 +114,7 @@ export function PlanSemana({ selectedDate }: Props) {
 
       const res = state.resultados.find((r) => r.id === ent.resultadoId);
       const proj = res ? state.proyectos.find((p) => p.id === res.proyectoId) : undefined;
+      if (filtro !== "todo" && proj && ambitoDeArea(proj.area) !== filtro) continue;
 
       result.push({
         id: `next-${paso.id}`,
@@ -127,12 +135,14 @@ export function PlanSemana({ selectedDate }: Props) {
     for (const ent of state.entregables) {
       if (!ent.fechaInicio || !weekKeys.has(ent.fechaInicio)) continue;
       if (ent.planNivel === "mes" || ent.planNivel === "trimestre") continue;
-      if (ent.estado === "hecho" || ent.estado === "cancelada") continue;
+      if (ent.estado === "cancelada") continue;
+      if (ent.estado === "hecho" && !showDone) continue;
       if (entIdsWithPasos.has(ent.id)) continue;
       if (viewMode === "yo" && ent.responsable && ent.responsable !== currentUser) continue;
 
       const res = state.resultados.find((r) => r.id === ent.resultadoId);
       const proj = res ? state.proyectos.find((p) => p.id === res.proyectoId) : undefined;
+      if (filtro !== "todo" && proj && ambitoDeArea(proj.area) !== filtro) continue;
 
       result.push({
         id: `ent-${ent.id}`,
@@ -141,12 +151,12 @@ export function PlanSemana({ selectedDate }: Props) {
         subtitle: proj?.nombre ?? "",
         responsable: ent.responsable ?? "",
         dateKey: ent.fechaInicio,
-        type: "programado",
+        type: ent.estado === "hecho" ? "done" : "programado",
       });
     }
 
     return result;
-  }, [state, weekDates, viewMode, currentUser, todayKey]);
+  }, [state, weekDates, viewMode, currentUser, todayKey, filtro, showDone]);
 
   const blocksByDay = useMemo(() => {
     const map = new Map<string, WeekBlock[]>();
@@ -163,13 +173,15 @@ export function PlanSemana({ selectedDate }: Props) {
     for (const date of weekDates) {
       const key = toDateKey(date);
       const projected = projectSOPsForDate(state, date, viewMode === "yo" ? currentUser : undefined);
-      const filtered = projected.filter((sop) =>
-        !state.entregables.some((e) => e.tipo === "sop" && e.plantillaId === sop.plantillaId && e.fechaInicio === key)
-      );
+      const filtered = projected.filter((sop) => {
+        if (state.entregables.some((e) => e.tipo === "sop" && e.plantillaId === sop.plantillaId && e.fechaInicio === key)) return false;
+        if (filtro !== "todo" && ambitoDeArea(sop.area) !== filtro) return false;
+        return true;
+      });
       if (filtered.length > 0) map.set(key, filtered);
     }
     return map;
-  }, [state, weekDates, viewMode, currentUser]);
+  }, [state, weekDates, viewMode, currentUser, filtro]);
 
   const pendientes = useMemo(() => {
     return state.entregables.filter((e) =>
@@ -179,8 +191,8 @@ export function PlanSemana({ selectedDate }: Props) {
       const res = state.resultados.find((r) => r.id === e.resultadoId);
       const proj = res ? state.proyectos.find((p) => p.id === res.proyectoId) : undefined;
       return { entregable: e, proj };
-    });
-  }, [state, currentUser]);
+    }).filter(({ proj }) => filtro === "todo" || (proj && ambitoDeArea(proj.area) === filtro));
+  }, [state, currentUser, filtro]);
 
   function assignToPlan(ent: Entregable) {
     if (!pickDay) return;
@@ -207,7 +219,7 @@ export function PlanSemana({ selectedDate }: Props) {
 
   return (
     <div className="flex-1">
-      <div className="mb-4 flex items-center gap-2">
+      <div className="mb-4 flex flex-wrap items-center gap-2">
         <button onClick={() => setViewMode("yo")}
           className={`rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${viewMode === "yo" ? "bg-accent text-white" : "bg-surface text-muted hover:text-foreground"}`}>
           Mi semana
@@ -216,6 +228,14 @@ export function PlanSemana({ selectedDate }: Props) {
           className={`rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${viewMode === "equipo" ? "bg-accent text-white" : "bg-surface text-muted hover:text-foreground"}`}>
           Equipo
         </button>
+        <div className="ml-auto flex items-center gap-3">
+          <label className="flex cursor-pointer items-center gap-1.5 text-[11px] text-muted">
+            <input type="checkbox" checked={showDone} onChange={(e) => setShowDone(e.target.checked)}
+              className="h-3.5 w-3.5 rounded border-border accent-accent" />
+            Hechos
+          </label>
+          <AmbitoToggle value={filtro} onChange={setFiltro} />
+        </div>
       </div>
 
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 md:grid-cols-7">

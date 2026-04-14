@@ -10,17 +10,14 @@ import {
   AREAS_EMPRESA,
   AREAS_PERSONAL,
   type Area,
-  type Ambito,
   type Entregable,
   type Resultado,
   type Proyecto,
   type Objetivo,
 } from "@/lib/types";
-import { AmbitoToggle } from "./PlanMes";
+import { AmbitoToggle, type AmbitoFilter } from "./PlanMes";
 
 const MONTHS_ES = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"];
-
-type AmbitoFilter = "todo" | Ambito;
 
 interface EntWithContext {
   ent: Entregable;
@@ -67,6 +64,7 @@ export function PlanTrimestre({ selectedDate }: Props) {
   const dispatch = useAppDispatch();
   const isMentor = useIsMentor();
   const [filtro, setFiltro] = useState<AmbitoFilter>("todo");
+  const [showDone, setShowDone] = useState(true);
   const [newObjText, setNewObjText] = useState("");
   const [newObjArea, setNewObjArea] = useState<Area | "">("");
 
@@ -80,7 +78,7 @@ export function PlanTrimestre({ selectedDate }: Props) {
     const projResults = state.resultados.filter((r) => r.proyectoId === p.id);
     const resNodes: ResNode[] = projResults.map((r) => {
       const ents = state.entregables
-        .filter((e) => e.resultadoId === r.id && e.estado !== "hecho" && e.estado !== "cancelada")
+        .filter((e) => e.resultadoId === r.id && e.estado !== "cancelada" && (showDone || e.estado !== "hecho"))
         .map((e) => ({ ent: e, hex, projName: p.nombre }));
       return { resultado: r, entregables: ents };
     }).filter((rn) => rn.entregables.length > 0 || rn.resultado.fechaInicio);
@@ -96,10 +94,16 @@ export function PlanTrimestre({ selectedDate }: Props) {
     return { proyecto: p, resultados: resNodes, entCount, done, total, percent: total ? Math.round((done / total) * 100) : 0, hex };
   }
 
+  const nowMonth = useMemo(() => new Date().getMonth(), []);
+
   function sliceProjNodeForMonth(node: ProjNode, month: number): ProjNode | null {
     const slicedRes: ResNode[] = node.resultados.map((rn) => ({
       resultado: rn.resultado,
-      entregables: rn.entregables.filter((ec) => entMonth(ec.ent.fechaInicio) === month),
+      entregables: rn.entregables.filter((ec) => {
+        if (entMonth(ec.ent.fechaInicio) === month) return true;
+        if (!ec.ent.fechaInicio && ec.ent.estado === "en_proceso" && month === nowMonth) return true;
+        return false;
+      }),
     })).filter((rn) => rn.entregables.length > 0 || entMonth(rn.resultado.fechaInicio) === month);
     if (slicedRes.length === 0) return null;
     const entCount = slicedRes.reduce((s, rn) => s + rn.entregables.length, 0);
@@ -109,7 +113,10 @@ export function PlanTrimestre({ selectedDate }: Props) {
   function sliceProjNodeBacklog(node: ProjNode): ProjNode | null {
     const slicedRes: ResNode[] = node.resultados.map((rn) => ({
       resultado: rn.resultado,
-      entregables: rn.entregables.filter((ec) => !entInQuarter(ec.ent.fechaInicio, qMonths, year)),
+      entregables: rn.entregables.filter((ec) => {
+        if (!ec.ent.fechaInicio && ec.ent.estado === "en_proceso" && qMonths.includes(nowMonth)) return false;
+        return !entInQuarter(ec.ent.fechaInicio, qMonths, year);
+      }),
     })).filter((rn) => rn.entregables.length > 0
       || (rn.resultado.fechaInicio && !entInQuarter(rn.resultado.fechaInicio, qMonths, year)));
     if (slicedRes.length === 0) return null;
@@ -148,7 +155,8 @@ export function PlanTrimestre({ selectedDate }: Props) {
     }
 
     return { monthProjects: mProj, operations: ops, backlogProjects: backlog };
-  }, [state, filtro, qMonths, year]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state, filtro, showDone, qMonths, year, nowMonth]);
 
   const objetivos = useMemo(() => {
     return (state.objetivos ?? []).filter(
@@ -195,7 +203,14 @@ export function PlanTrimestre({ selectedDate }: Props) {
     <div className="flex-1 space-y-6 overflow-x-auto">
       <div className="flex items-center justify-between">
         <p className="text-sm font-medium text-muted">{quarterLabel(currentQ, year)}</p>
-        <AmbitoToggle value={filtro} onChange={setFiltro} />
+        <div className="flex items-center gap-3">
+          <label className="flex cursor-pointer items-center gap-1.5 text-[11px] text-muted">
+            <input type="checkbox" checked={showDone} onChange={(e) => setShowDone(e.target.checked)}
+              className="h-3.5 w-3.5 rounded border-border accent-accent" />
+            Hechos
+          </label>
+          <AmbitoToggle value={filtro} onChange={setFiltro} />
+        </div>
       </div>
 
       {/* Objetivos */}
@@ -380,17 +395,21 @@ function EntregableRow({ ec, qMonths, onAssign, onUnassign, isMentor, currentMon
   isMentor: boolean; currentMonth?: number;
 }) {
   const [showActions, setShowActions] = useState(false);
-  const estadoBadge = ec.ent.estado === "en_proceso" ? "bg-amber-100 text-amber-700"
+  const isDone = ec.ent.estado === "hecho";
+  const estadoBadge = isDone ? "bg-green-100 text-green-700"
+    : ec.ent.estado === "en_proceso" ? "bg-amber-100 text-amber-700"
     : ec.ent.estado === "planificado" ? "bg-blue-100 text-blue-700" : "bg-gray-100 text-gray-500";
   const assignedMonth = entMonth(ec.ent.fechaInicio);
   const isInQ = qMonths.includes(assignedMonth);
   const otherMonths = qMonths.filter((m) => m !== assignedMonth);
 
   return (
-    <div className="flex flex-wrap items-center gap-1.5 rounded bg-surface/50 px-1.5 py-1">
-      <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ backgroundColor: ec.hex }} />
-      <span className="flex-1 truncate text-[11px] text-foreground">{ec.ent.nombre}</span>
-      <span className={`shrink-0 rounded px-1 py-0.5 text-[8px] font-bold ${estadoBadge}`}>{ec.ent.estado.replace("_", " ")}</span>
+    <div className={`flex flex-wrap items-center gap-1.5 rounded bg-surface/50 px-1.5 py-1${isDone ? " opacity-50" : ""}`}>
+      {isDone
+        ? <span className="flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-full bg-green-500 text-[7px] text-white">✓</span>
+        : <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ backgroundColor: ec.hex }} />}
+      <span className={`flex-1 truncate text-[11px] ${isDone ? "text-muted line-through" : "text-foreground"}`}>{ec.ent.nombre}</span>
+      <span className={`shrink-0 rounded px-1 py-0.5 text-[8px] font-bold ${estadoBadge}`}>{isDone ? "hecho" : ec.ent.estado.replace("_", " ")}</span>
       {isInQ && currentMonth == null && (
         <span className="shrink-0 rounded bg-accent/10 px-1 py-0.5 text-[8px] font-bold text-accent">{MONTHS_ES[assignedMonth]}</span>
       )}
