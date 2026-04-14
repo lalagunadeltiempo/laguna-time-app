@@ -60,7 +60,14 @@ export function PantallaHoy() {
 
   if (isMentor) return <div className="p-8 text-center text-muted">Vista no disponible para mentor.</div>;
 
-  const sopsPendientes = sopsMios.filter((s) => !s.completadoHoy && !s.ejecucion);
+  const sopsPendientes = sopsMios.filter((s) => {
+    if (s.completadoHoy || s.ejecucion) return false;
+    const yaEnCurso = state.entregables.some(
+      (e) => e.plantillaId === s.plantilla.id
+        && state.pasosActivos.some((pid) => state.pasos.find((p) => p.id === pid)?.entregableId === e.id),
+    );
+    return !yaEnCurso;
+  });
   const isEmpty = pasosActivos.length === 0;
   const hasOpenWork = pasosActivos.length > 0 || pendingInbox > 0;
 
