@@ -939,9 +939,11 @@ function EntregableBlock({ entregable, index, total }: { entregable: Entregable;
   const [moveStep, setMoveStep] = useState<1 | 2 | 3>(1);
   const [moveAreaId, setMoveAreaId] = useState<string | null>(null);
   const [moveProyectoId, setMoveProyectoId] = useState<string | null>(null);
+  const [synced, setSynced] = useState(false);
   const justAssignedTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const syncedTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
   const hlRef = useRef<HTMLDivElement>(null);
-  useEffect(() => () => clearTimeout(justAssignedTimer.current), []);
+  useEffect(() => () => { clearTimeout(justAssignedTimer.current); clearTimeout(syncedTimer.current); }, []);
 
   useEffect(() => { if (isAncestor || isTarget) setOpen(true); }, [isAncestor, isTarget]);
   useEffect(() => {
@@ -1015,10 +1017,26 @@ function EntregableBlock({ entregable, index, total }: { entregable: Entregable;
           </button>
         )}
         {!isMentor && entregable.plantillaId && (
-          <button onClick={(e) => { e.stopPropagation(); dispatch({ type: "SYNC_ENTREGABLE_TO_PLANTILLA", entregableId: entregable.id }); }}
-            className="flex h-6 items-center gap-0.5 rounded px-1.5 text-[10px] text-blue-600 transition-colors hover:bg-blue-50 hover:text-blue-800" title="Actualizar la plantilla del SOP con los pasos de este entregable">
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><polyline points="23 4 23 10 17 10" /><polyline points="1 20 1 14 7 14" /><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" /></svg>
-            <span>Sync SOP</span>
+          <button onClick={(e) => {
+              e.stopPropagation();
+              dispatch({ type: "SYNC_ENTREGABLE_TO_PLANTILLA", entregableId: entregable.id });
+              setSynced(true);
+              clearTimeout(syncedTimer.current);
+              syncedTimer.current = setTimeout(() => setSynced(false), 2500);
+            }}
+            className={`flex h-6 items-center gap-0.5 rounded px-1.5 text-[10px] transition-colors ${synced ? "bg-green-100 text-green-700" : "text-blue-600 hover:bg-blue-50 hover:text-blue-800"}`}
+            title="Actualizar la plantilla del SOP con los pasos de este entregable">
+            {synced ? (
+              <>
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12" /></svg>
+                <span>Sincronizado</span>
+              </>
+            ) : (
+              <>
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><polyline points="23 4 23 10 17 10" /><polyline points="1 20 1 14 7 14" /><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" /></svg>
+                <span>Sync SOP</span>
+              </>
+            )}
           </button>
         )}
         {!isMentor && !entregable.plantillaId && allPasos.length >= 1 && (
