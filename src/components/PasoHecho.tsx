@@ -2,6 +2,7 @@
 
 import type { Paso } from "@/lib/types";
 import { MenuAcciones } from "./MenuAcciones";
+import { formatDuracion } from "@/lib/duration";
 
 interface Props {
   paso: Paso;
@@ -10,12 +11,7 @@ interface Props {
 }
 
 export function PasoHecho({ paso, onEdit, onDelete }: Props) {
-  const dur = paso.finTs && paso.inicioTs
-    ? Math.round(
-        (new Date(paso.finTs).getTime() - new Date(paso.inicioTs).getTime()) / 60000,
-      )
-    : 0;
-  const label = dur >= 60 ? `${Math.floor(dur / 60)}h ${dur % 60}m` : `${dur}m`;
+  const label = formatDuracion(paso);
 
   return (
     <div className="flex items-center gap-1">

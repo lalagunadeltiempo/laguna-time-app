@@ -2,6 +2,7 @@
 
 import { useState, useMemo, useRef, useEffect } from "react";
 import { useAppState, useAppDispatch } from "@/lib/context";
+import { minutosEfectivos } from "@/lib/duration";
 import {
   usePasosActivos,
   usePendientes,
@@ -565,9 +566,7 @@ function HechosHoySection({ hechosHoy, onDelete, onOpenDetalle }: {
       {expanded && (
         <div className="space-y-1.5">
           {hechosHoy.map((h) => {
-            const dur = h.paso.finTs && h.paso.inicioTs
-              ? Math.round((new Date(h.paso.finTs).getTime() - new Date(h.paso.inicioTs).getTime()) / 60000)
-              : 0;
+            const dur = minutosEfectivos(h.paso) ?? 0;
             return (
               <HechoCard
                 key={h.paso.id}

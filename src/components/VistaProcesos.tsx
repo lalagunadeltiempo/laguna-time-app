@@ -8,6 +8,7 @@ import { parseMarkdownProcesos } from "@/lib/parse-procesos";
 import { generateId } from "@/lib/store";
 import { useUsuario } from "@/lib/usuario";
 import { getISOWeek } from "@/lib/utils";
+import { minutosEfectivos } from "@/lib/duration";
 import { progLabel } from "@/lib/sop-scheduler";
 import { downloadPDF } from "@/lib/export-sop";
 import { ModalConfirm } from "./ModalConfirm";
@@ -899,7 +900,7 @@ function ConvertirEntregable({ onBack }: { onBack: () => void }) {
         ].filter(Boolean).join("\n"),
         herramientas: p.contexto.apps,
         tipo: "accion" as const,
-        minutosEstimados: p.finTs && p.inicioTs ? Math.round((new Date(p.finTs).getTime() - new Date(p.inicioTs).getTime()) / 60000) : null,
+        minutosEstimados: minutosEfectivos(p),
       })),
       herramientas: [...new Set(item.pasos.flatMap((p) => p.contexto.apps))],
       excepciones: "",
@@ -941,7 +942,7 @@ function ConvertirEntregable({ onBack }: { onBack: () => void }) {
                       <p className="flex-1 text-[11px] text-zinc-600 truncate">{p.nombre}</p>
                       {p.finTs && p.inicioTs && (
                         <span className="text-[9px] text-zinc-400">
-                          {Math.round((new Date(p.finTs).getTime() - new Date(p.inicioTs).getTime()) / 60000)}′
+                          {minutosEfectivos(p) ?? 0}′
                         </span>
                       )}
                     </div>

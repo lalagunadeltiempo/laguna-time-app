@@ -127,7 +127,7 @@ export function CerrarPaso({ paso, onClose }: Props) {
     setNewContacto({ nombre: "", email: "", telefono: "" });
   }
 
-  function handleFinish() {
+  function handleFinish(skipClose = false) {
     const finalCuando = sigCuando === "otro" ? sigFechaCustom : sigCuando;
 
     let fechaProg: string | undefined;
@@ -159,7 +159,7 @@ export function CerrarPaso({ paso, onClose }: Props) {
     };
 
     dispatch({ type: "CLOSE_PASO", payload: updated });
-    onClose();
+    if (!skipClose) onClose();
   }
 
   return (
@@ -398,7 +398,7 @@ export function CerrarPaso({ paso, onClose }: Props) {
               </div>
             )}
 
-            <button onClick={handleFinish}
+            <button onClick={() => handleFinish()}
               disabled={
                 (sigTipo === "continuar" && sigCuando === "depende" && dependePersonas.length === 0) ||
                 (sigTipo === "continuar" && sigCuando === "otro" && !sigFechaCustom)
@@ -410,7 +410,7 @@ export function CerrarPaso({ paso, onClose }: Props) {
               <button
                 type="button"
                 onClick={() => {
-                  handleFinish();
+                  handleFinish(true);
                   dispatch({ type: "CONVERT_ENTREGABLE_TO_SOP", entregableId: entregable.id });
                   setShowConvertWizard(true);
                 }}
