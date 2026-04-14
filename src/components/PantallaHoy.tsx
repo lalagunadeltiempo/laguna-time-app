@@ -21,6 +21,17 @@ export function PantallaHoy() {
   const [showEndOfDay, setShowEndOfDay] = useState(false);
   const [quickCapture, setQuickCapture] = useState("");
 
+  // Close stale steps from previous days → reschedule for today
+  useEffect(() => {
+    const today = dateStr(new Date());
+    const stale = pasosActivos.filter((p) => p.inicioTs && p.inicioTs.slice(0, 10) < today);
+    if (stale.length === 0) return;
+    for (const paso of stale) {
+      dispatch({ type: "CLOSE_PASO", payload: buildClosedPaso(paso, today) });
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps -- run once on mount
+
+  // Auto-close at midnight → reschedule for tomorrow
   const autoCloseAtMidnight = useCallback(() => {
     for (const paso of pasosActivos) {
       dispatch({ type: "CLOSE_PASO", payload: buildClosedPaso(paso) });
@@ -159,13 +170,12 @@ export function PantallaHoy() {
    END OF DAY FLOW
    ============================================================ */
 
-function tomorrowStr() {
-  const t = new Date();
-  t.setDate(t.getDate() + 1);
-  return `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, "0")}-${String(t.getDate()).padStart(2, "0")}`;
+function dateStr(d: Date) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
-function buildClosedPaso(paso: Paso): Paso {
+function buildClosedPaso(paso: Paso, targetDate?: string): Paso {
+  const target = targetDate ?? dateStr((() => { const t = new Date(); t.setDate(t.getDate() + 1); return t; })());
   return {
     ...paso,
     finTs: new Date().toISOString(),
@@ -174,7 +184,7 @@ function buildClosedPaso(paso: Paso): Paso {
       tipo: "continuar",
       nombre: paso.nombre,
       cuando: "manana",
-      fechaProgramada: tomorrowStr(),
+      fechaProgramada: target,
     },
   };
 }
