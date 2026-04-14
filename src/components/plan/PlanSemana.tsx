@@ -46,7 +46,7 @@ export function PlanSemana({ selectedDate }: Props) {
   const state = useAppState();
   const dispatch = useAppDispatch();
   const [viewMode, setViewMode] = useState<"yo" | "equipo">("yo");
-  const [filtro, setFiltro] = useState<AmbitoFilter>("todo");
+  const [filtro, setFiltro] = useState<AmbitoFilter>(isMentor ? "empresa" : "todo");
   const [showDone, setShowDone] = useState(true);
   const [pickDay, setPickDay] = useState<string | null>(null);
   const [confirmSOP, setConfirmSOP] = useState<{ sop: ProjectedSOP; dateKey: string } | null>(null);
@@ -234,7 +234,7 @@ export function PlanSemana({ selectedDate }: Props) {
               className="h-3.5 w-3.5 rounded border-border accent-accent" />
             Hechos
           </label>
-          <AmbitoToggle value={filtro} onChange={setFiltro} />
+          {!isMentor && <AmbitoToggle value={filtro} onChange={setFiltro} />}
         </div>
       </div>
 

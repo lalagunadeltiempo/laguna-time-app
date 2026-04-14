@@ -93,7 +93,7 @@ export function PlanMes({ selectedDate }: Props) {
   const dispatch = useAppDispatch();
   const isMentor = useIsMentor();
   const { nombre: currentUser } = useUsuario();
-  const [filtro, setFiltro] = useState<AmbitoFilter>("todo");
+  const [filtro, setFiltro] = useState<AmbitoFilter>(isMentor ? "empresa" : "todo");
   const [respFilter, setRespFilter] = useState<ResponsableFilter>("todo");
   const [showDone, setShowDone] = useState(true);
 
@@ -224,8 +224,8 @@ export function PlanMes({ selectedDate }: Props) {
               className="h-3.5 w-3.5 rounded border-border accent-accent" />
             Hechos
           </label>
-          <ResponsableToggle value={respFilter} onChange={setRespFilter} miembros={state.miembros} />
-          <AmbitoToggle value={filtro} onChange={setFiltro} />
+          {!isMentor && <ResponsableToggle value={respFilter} onChange={setRespFilter} miembros={state.miembros} />}
+          {!isMentor && <AmbitoToggle value={filtro} onChange={setFiltro} />}
         </div>
       </div>
 

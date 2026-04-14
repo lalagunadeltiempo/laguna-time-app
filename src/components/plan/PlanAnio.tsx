@@ -34,7 +34,7 @@ export function PlanAnio({ selectedDate }: Props) {
   const state = useAppState();
   const dispatch = useAppDispatch();
   const isMentor = useIsMentor();
-  const [filtro, setFiltro] = useState<AmbitoFilter>("todo");
+  const [filtro, setFiltro] = useState<AmbitoFilter>(isMentor ? "empresa" : "todo");
   const [newObjText, setNewObjText] = useState("");
   const [newObjArea, setNewObjArea] = useState<Area | "">("");
 
@@ -146,7 +146,7 @@ export function PlanAnio({ selectedDate }: Props) {
     <div className="flex-1 space-y-8">
       <div className="flex items-center justify-between">
         <p className="text-sm font-medium text-muted">{year} · Visión anual</p>
-        <AmbitoToggle value={filtro} onChange={setFiltro} />
+        {!isMentor && <AmbitoToggle value={filtro} onChange={setFiltro} />}
       </div>
 
       {/* MTP */}
