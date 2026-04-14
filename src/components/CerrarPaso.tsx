@@ -2,7 +2,7 @@
 
 import { useState, useMemo, useEffect } from "react";
 import { useAppState, useAppDispatch } from "@/lib/context";
-import type { Paso, DependeDe, Programacion, Area } from "@/lib/types";
+import type { Paso, DependeDe, Programacion, Area, PlantillaProceso } from "@/lib/types";
 import { AREAS_EMPRESA, AREAS_PERSONAL, AREA_COLORS } from "@/lib/types";
 import { generateId } from "@/lib/store";
 import { formatDuracion } from "@/lib/duration";
@@ -428,8 +428,9 @@ export function CerrarPaso({ paso, onClose }: Props) {
         )}
 
         {showConvertWizard && (() => {
-          const proj = state.proyectos.find((p) => state.resultados.some((r) => r.proyectoId === p.id && r.id === entregable.resultadoId));
-          const newPlantilla = state.plantillas.find((pl) => pl.nombre === entregable.nombre);
+          const newPlantilla = entregable.plantillaId
+            ? state.plantillas.find((pl) => pl.id === entregable.plantillaId)
+            : state.plantillas.find((pl) => pl.nombre === entregable.nombre);
           if (!newPlantilla) return null;
           return (
             <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/30 px-4 backdrop-blur-sm"
@@ -454,7 +455,7 @@ export function CerrarPaso({ paso, onClose }: Props) {
                 <div className="mb-4 flex flex-wrap gap-1.5">
                   {[...AREAS_EMPRESA, ...AREAS_PERSONAL].map((a) => {
                     const c = AREA_COLORS[a.id];
-                    const current = sopArea ?? proj?.area ?? newPlantilla.area;
+                    const current = sopArea ?? newPlantilla.area;
                     return (
                       <button key={a.id} onClick={() => setSOPArea(a.id)}
                         className={`rounded-full px-2.5 py-1 text-[11px] font-medium transition-colors ${current === a.id ? "ring-2 ring-accent text-foreground" : "text-muted hover:text-foreground"}`}
@@ -466,12 +467,12 @@ export function CerrarPaso({ paso, onClose }: Props) {
                 </div>
 
                 <button onClick={() => {
-                  const changes: Record<string, unknown> = {};
-                  if (sopObjetivo.trim()) changes.objetivo = sopObjetivo.trim();
-                  if (sopProg) changes.programacion = sopProg;
-                  if (sopArea) changes.area = sopArea;
-                  if (Object.keys(changes).length > 0) {
-                    dispatch({ type: "UPDATE_PLANTILLA", id: newPlantilla.id, changes: changes as Parameters<typeof dispatch>[0] extends { type: "UPDATE_PLANTILLA"; changes: infer C } ? C : never });
+                  const upd: Partial<Pick<PlantillaProceso, "objetivo" | "programacion" | "area">> = {};
+                  if (sopObjetivo.trim()) upd.objetivo = sopObjetivo.trim();
+                  if (sopProg) upd.programacion = sopProg;
+                  if (sopArea) upd.area = sopArea;
+                  if (Object.keys(upd).length > 0) {
+                    dispatch({ type: "UPDATE_PLANTILLA", id: newPlantilla.id, changes: upd });
                   }
                   setShowConvertWizard(false);
                   onClose();
