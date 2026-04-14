@@ -1,11 +1,12 @@
 "use client";
 
-import { useState, useCallback, type ReactNode } from "react";
+import { useState, useCallback, useMemo, type ReactNode } from "react";
 import { AuthGate } from "@/components/AuthGate";
 import { AppProvider, useAppState } from "@/lib/context";
 import { UsuarioContext, useUsuario } from "@/lib/usuario";
 import { getSupabase } from "@/lib/supabase";
 import { flushPendingCloudSave } from "@/lib/store";
+import { getSOPsHoy } from "@/lib/sop-scheduler";
 import type { RolUsuario } from "@/lib/types";
 import { PantallaHoy } from "@/components/PantallaHoy";
 import { PantallaPlan } from "@/components/PantallaPlan";
@@ -100,6 +101,7 @@ function AppShell({ userId, displayName }: { userId: string; displayName: string
   const clearHighlight = useCallback(() => setHighlightId(null), []);
   const navItems = isMentorUser ? NAV_ITEMS.filter((i) => MENTOR_VIEWS.includes(i.id)) : NAV_ITEMS;
 
+
   function openDetalle(id: string) {
     setDetalleResultadoId(id);
     setVista("resultado");
@@ -180,6 +182,7 @@ function AppShell({ userId, displayName }: { userId: string; displayName: string
                       </span>
                     </div>
                   )}
+                  {item.id === "hoy" && !collapsed && <HoyBadge />}
                   {active && !collapsed && (
                     <span className="ml-auto h-1.5 w-1.5 rounded-full bg-accent" />
                   )}
@@ -323,5 +326,20 @@ function UserFooter({ collapsed }: { collapsed: boolean }) {
         )}
       </div>
     </div>
+  );
+}
+
+function HoyBadge() {
+  const state = useAppState();
+  const count = useMemo(() => {
+    const sops = getSOPsHoy(state);
+    return sops.filter((s) => !s.completadoHoy && !s.ejecucion).length;
+  }, [state]);
+
+  if (count === 0) return null;
+  return (
+    <span className="ml-auto flex h-5 min-w-[20px] items-center justify-center rounded-full bg-blue-600 px-1.5 text-[10px] font-bold text-white">
+      {count}
+    </span>
   );
 }

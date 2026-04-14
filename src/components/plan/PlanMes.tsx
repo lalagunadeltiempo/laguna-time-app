@@ -2,8 +2,8 @@
 
 import { useMemo, useState } from "react";
 import { useAppState, useAppDispatch } from "@/lib/context";
-import { useIsMentor } from "@/lib/usuario";
-import { ambitoDeArea, AREA_COLORS, type Entregable, type Proyecto, type Ambito } from "@/lib/types";
+import { useUsuario, useIsMentor } from "@/lib/usuario";
+import { ambitoDeArea, AREA_COLORS, type Entregable, type Proyecto, type Ambito, type MiembroInfo } from "@/lib/types";
 
 export type AmbitoFilter = "todo" | Ambito;
 type RAG = "green" | "amber" | "red";
@@ -90,7 +90,9 @@ export function PlanMes({ selectedDate }: Props) {
   const state = useAppState();
   const dispatch = useAppDispatch();
   const isMentor = useIsMentor();
+  const { nombre: currentUser } = useUsuario();
   const [filtro, setFiltro] = useState<AmbitoFilter>("todo");
+  const [respFilter, setRespFilter] = useState<ResponsableFilter>("todo");
   const [showDone, setShowDone] = useState(true);
 
   const mesLabel = useMemo(() =>
@@ -118,6 +120,7 @@ export function PlanMes({ selectedDate }: Props) {
       const proj = res ? state.proyectos.find((p) => p.id === res.proyectoId) : undefined;
       if (!proj) continue;
       if (filtro !== "todo" && ambitoDeArea(proj.area) !== filtro) continue;
+      if (!matchesResponsable(ent.responsable, respFilter, currentUser)) continue;
 
       const areaHex = AREA_COLORS[proj.area]?.hex ?? "#888";
 
@@ -165,7 +168,7 @@ export function PlanMes({ selectedDate }: Props) {
     }
 
     return { weekEntregables: byWeek, unassigned: noWeek };
-  }, [state, selectedDate, filtro, showDone, weeks, nowMs]);
+  }, [state, selectedDate, filtro, respFilter, currentUser, showDone, weeks, nowMs]);
 
   function assignToWeek(entId: string, monday: string) {
     const today = toDateKey(new Date());
@@ -186,12 +189,13 @@ export function PlanMes({ selectedDate }: Props) {
           <p className="text-sm font-medium capitalize text-muted">{mesLabel}</p>
           <p className="text-xs text-muted">{totalCount} entregable{totalCount !== 1 ? "s" : ""} este mes</p>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3">
           <label className="flex cursor-pointer items-center gap-1.5 text-[11px] text-muted">
             <input type="checkbox" checked={showDone} onChange={(e) => setShowDone(e.target.checked)}
               className="h-3.5 w-3.5 rounded border-border accent-accent" />
             Hechos
           </label>
+          <ResponsableToggle value={respFilter} onChange={setRespFilter} miembros={state.miembros} />
           <AmbitoToggle value={filtro} onChange={setFiltro} />
         </div>
       </div>
@@ -335,4 +339,47 @@ export function AmbitoToggle({ value, onChange }: { value: AmbitoFilter; onChang
       ))}
     </div>
   );
+}
+
+export type ResponsableFilter = "todo" | "yo" | string;
+
+export function ResponsableToggle({
+  value, onChange, miembros,
+}: {
+  value: ResponsableFilter;
+  onChange: (v: ResponsableFilter) => void;
+  miembros: MiembroInfo[];
+}) {
+  return (
+    <div className="flex items-center gap-1 rounded-lg bg-surface p-0.5">
+      <button onClick={() => onChange("todo")}
+        className={`rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors ${
+          value === "todo" ? "bg-background text-foreground shadow-sm" : "text-muted hover:text-foreground"
+        }`}>Todos</button>
+      <button onClick={() => onChange("yo")}
+        className={`rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors ${
+          value === "yo" ? "bg-background text-foreground shadow-sm" : "text-muted hover:text-foreground"
+        }`}>Yo</button>
+      <select
+        value={value !== "todo" && value !== "yo" ? value : ""}
+        onChange={(e) => { if (e.target.value) onChange(e.target.value); }}
+        className="rounded-md bg-transparent px-1.5 py-1.5 text-xs font-medium text-muted outline-none hover:text-foreground"
+      >
+        <option value="">Miembro…</option>
+        {miembros.map((m) => (
+          <option key={m.id} value={m.nombre}>{m.nombre}</option>
+        ))}
+      </select>
+    </div>
+  );
+}
+
+export function matchesResponsable(
+  responsable: string | undefined,
+  filter: ResponsableFilter,
+  currentUser: string,
+): boolean {
+  if (filter === "todo") return true;
+  if (filter === "yo") return !responsable || responsable === currentUser;
+  return responsable === filter;
 }

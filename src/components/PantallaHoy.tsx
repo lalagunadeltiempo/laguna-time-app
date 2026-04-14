@@ -2,9 +2,10 @@
 
 import { useState, useMemo, useEffect, useCallback, useRef } from "react";
 import { useAppState, useAppDispatch } from "@/lib/context";
-import { usePasosActivos } from "@/lib/hooks";
+import { usePasosActivos, useSOPsHoy, useDependenciasEntrantes, useEsperandoRespuesta } from "@/lib/hooks";
 import { generateId } from "@/lib/store";
 import { useUsuario, useIsMentor } from "@/lib/usuario";
+import { toDateKey } from "@/lib/date-utils";
 import type { InboxItem, Paso } from "@/lib/types";
 import { PasoActivoCard } from "./PasoActivo";
 import { NuevoPaso } from "./NuevoPaso";
@@ -52,9 +53,14 @@ export function PantallaHoy() {
     return () => clearTimeout(timer);
   }, [pasosActivos, autoCloseAtMidnight]);
 
+  const { mios: sopsMios } = useSOPsHoy();
+  const depsEntrantes = useDependenciasEntrantes();
+  const esperando = useEsperandoRespuesta();
+
   if (isMentor) return <div className="p-8 text-center text-muted">Vista no disponible para mentor.</div>;
 
   const pendingInbox = useMemo(() => state.inbox.filter((i) => !i.procesado).length, [state.inbox]);
+  const sopsPendientes = sopsMios.filter((s) => !s.completadoHoy && !s.ejecucion);
   const isEmpty = pasosActivos.length === 0;
   const hasOpenWork = pasosActivos.length > 0 || pendingInbox > 0;
 
@@ -150,6 +156,87 @@ export function PantallaHoy() {
             {pendingInbox} {pendingInbox === 1 ? "idea" : "ideas"} por clasificar
           </p>
         </button>
+      )}
+
+      {/* Dependencias entrantes */}
+      {depsEntrantes.length > 0 && (
+        <section className="mb-5 space-y-2">
+          <h2 className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-purple-600">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+              <path d="M22 12h-6l-2 3h-4l-2-3H2" /><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z" />
+            </svg>
+            Esperan tu parte ({depsEntrantes.length})
+          </h2>
+          {depsEntrantes.map((dep) => (
+            <div key={dep.paso.id} className="rounded-xl border border-purple-200 bg-purple-50 p-3">
+              <p className="text-sm font-medium text-purple-900">{dep.entregableNombre}</p>
+              <p className="text-xs text-purple-700">
+                <span className="font-semibold">{dep.remitente}</span> espera que hagas tu parte
+              </p>
+              {dep.proyectoNombre && <p className="mt-0.5 text-[11px] text-purple-500">{dep.proyectoNombre}</p>}
+            </div>
+          ))}
+        </section>
+      )}
+
+      {/* SOPs pendientes hoy */}
+      {sopsPendientes.length > 0 && (
+        <section className="mb-5 space-y-2">
+          <h2 className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-blue-600">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><polyline points="14 2 14 8 20 8" /><line x1="16" y1="13" x2="8" y2="13" /><line x1="16" y1="17" x2="8" y2="17" />
+            </svg>
+            SOPs programados ({sopsPendientes.length})
+          </h2>
+          {sopsPendientes.map((sop) => (
+            <div key={sop.plantilla.id} className="flex items-center justify-between rounded-xl border border-blue-200 bg-blue-50 p-3">
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-sm font-medium text-blue-900">{sop.plantilla.nombre}</p>
+                <p className="text-[11px] text-blue-600">{sop.pasosHoy.length} paso{sop.pasosHoy.length !== 1 ? "s" : ""} pendiente{sop.pasosHoy.length !== 1 ? "s" : ""}</p>
+              </div>
+              <button
+                onClick={() => {
+                  dispatch({
+                    type: "MATERIALIZE_SOP",
+                    plantillaId: sop.plantilla.id,
+                    area: sop.plantilla.area,
+                    responsable: sop.plantilla.responsableDefault ?? currentUser,
+                    currentUser,
+                    dateKey: toDateKey(new Date()),
+                    ids: { resultado: generateId(), entregable: generateId(), paso: generateId(), proyecto: generateId() },
+                    autoStart: false,
+                  });
+                }}
+                className="shrink-0 rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-blue-700"
+              >
+                Lanzar
+              </button>
+            </div>
+          ))}
+        </section>
+      )}
+
+      {/* Esperando respuesta (tracking para remitente) */}
+      {esperando.length > 0 && (
+        <section className="mb-5 space-y-2">
+          <h2 className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-amber-600">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+              <circle cx="12" cy="12" r="10" /><polyline points="12 6 12 12 16 14" />
+            </svg>
+            Esperando respuesta ({esperando.length})
+          </h2>
+          {esperando.map((item) => (
+            <div key={item.paso.id} className="rounded-xl border border-amber-200 bg-amber-50 p-3">
+              <p className="text-sm font-medium text-amber-900">{item.entregableNombre}</p>
+              <p className="text-xs text-amber-700">
+                Depende de: {item.dependeDe.map((d) => d.nombre).join(", ")}
+              </p>
+              {item.fechaProgramada && (
+                <p className="mt-0.5 text-[11px] text-amber-500">Estimado: {item.fechaProgramada}</p>
+              )}
+            </div>
+          ))}
+        </section>
       )}
 
       {/* End of day button — always visible */}

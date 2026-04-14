@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import { useAppState, useAppDispatch } from "@/lib/context";
 import { generateId } from "@/lib/store";
-import { useIsMentor } from "@/lib/usuario";
+import { useUsuario, useIsMentor } from "@/lib/usuario";
 import {
   ambitoDeArea,
   AREA_COLORS,
@@ -15,7 +15,7 @@ import {
   type Proyecto,
   type Objetivo,
 } from "@/lib/types";
-import { AmbitoToggle, type AmbitoFilter } from "./PlanMes";
+import { AmbitoToggle, ResponsableToggle, matchesResponsable, type AmbitoFilter, type ResponsableFilter } from "./PlanMes";
 
 const MONTHS_ES = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"];
 
@@ -63,7 +63,9 @@ export function PlanTrimestre({ selectedDate }: Props) {
   const state = useAppState();
   const dispatch = useAppDispatch();
   const isMentor = useIsMentor();
+  const { nombre: currentUser } = useUsuario();
   const [filtro, setFiltro] = useState<AmbitoFilter>("todo");
+  const [respFilter, setRespFilter] = useState<ResponsableFilter>("todo");
   const [showDone, setShowDone] = useState(true);
   const [newObjText, setNewObjText] = useState("");
   const [newObjArea, setNewObjArea] = useState<Area | "">("");
@@ -78,7 +80,8 @@ export function PlanTrimestre({ selectedDate }: Props) {
     const projResults = state.resultados.filter((r) => r.proyectoId === p.id);
     const resNodes: ResNode[] = projResults.map((r) => {
       const ents = state.entregables
-        .filter((e) => e.resultadoId === r.id && e.estado !== "cancelada" && (showDone || e.estado !== "hecho"))
+        .filter((e) => e.resultadoId === r.id && e.estado !== "cancelada" && (showDone || e.estado !== "hecho")
+          && matchesResponsable(e.responsable, respFilter, currentUser))
         .map((e) => ({ ent: e, hex, projName: p.nombre }));
       return { resultado: r, entregables: ents };
     }).filter((rn) => rn.entregables.length > 0 || rn.resultado.fechaInicio);
@@ -203,12 +206,13 @@ export function PlanTrimestre({ selectedDate }: Props) {
     <div className="flex-1 space-y-6 overflow-x-auto">
       <div className="flex items-center justify-between">
         <p className="text-sm font-medium text-muted">{quarterLabel(currentQ, year)}</p>
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3">
           <label className="flex cursor-pointer items-center gap-1.5 text-[11px] text-muted">
             <input type="checkbox" checked={showDone} onChange={(e) => setShowDone(e.target.checked)}
               className="h-3.5 w-3.5 rounded border-border accent-accent" />
             Hechos
           </label>
+          <ResponsableToggle value={respFilter} onChange={setRespFilter} miembros={state.miembros} />
           <AmbitoToggle value={filtro} onChange={setFiltro} />
         </div>
       </div>

@@ -180,6 +180,55 @@ export function useEsperandoRespuesta(): EsperandoItem[] {
   }, [state]);
 }
 
+export interface DependenciaEntrante {
+  paso: Paso;
+  entregableNombre: string;
+  proyectoNombre: string;
+  remitente: string;
+  fechaProgramada?: string;
+}
+
+export function useDependenciasEntrantes(): DependenciaEntrante[] {
+  const state = useAppState();
+  const { nombre: currentUser } = useUsuario();
+
+  return useMemo(() => {
+    const items: DependenciaEntrante[] = [];
+
+    for (const paso of state.pasos) {
+      if (!paso.finTs || !paso.siguientePaso) continue;
+      if (paso.siguientePaso.cuando !== "depende") continue;
+      const deps = paso.siguientePaso.dependeDe;
+      if (!deps?.some((d) => d.tipo === "equipo" && d.nombre === currentUser)) continue;
+
+      const ent = state.entregables.find((e) => e.id === paso.entregableId);
+      if (!ent || ent.estado === "hecho" || ent.estado === "cancelada") continue;
+
+      const hasNewerWork = state.pasos.some(
+        (p) => p.entregableId === paso.entregableId && p.id !== paso.id && p.inicioTs
+          && new Date(p.inicioTs).getTime() > new Date(paso.finTs!).getTime(),
+      );
+      if (hasNewerWork) continue;
+
+      const remitente = paso.implicados.find((i) => i.nombre !== currentUser)?.nombre
+        ?? paso.implicados[0]?.nombre ?? "Alguien";
+
+      const res = state.resultados.find((r) => r.id === ent.resultadoId);
+      const proj = res ? state.proyectos.find((p) => p.id === res.proyectoId) : undefined;
+
+      items.push({
+        paso,
+        entregableNombre: ent.nombre,
+        proyectoNombre: proj?.nombre ?? "",
+        remitente,
+        fechaProgramada: paso.siguientePaso.fechaProgramada,
+      });
+    }
+
+    return items;
+  }, [state, currentUser]);
+}
+
 export function usePasosHoy() {
   const state = useAppState();
 
