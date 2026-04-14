@@ -489,6 +489,10 @@ function AreaSection({ areaId }: { areaId: Area }) {
   const [openSOP, setOpenSOP] = useState(false);
 
   useEffect(() => {
+    if (hasFilter && hasMatchingProjects) { setOpen(true); setOpenProj(true); }
+  }, [hasFilter, hasMatchingProjects]);
+
+  useEffect(() => {
     if (highlight?.ancestors.has(areaId)) { setOpen(true); setOpenProj(true); }
   }, [highlight, areaId]);
   const sops = state.plantillas.filter((pl) => pl.area === areaId);
@@ -595,6 +599,7 @@ function ProyectoBlock({ proyecto, index, total }: { proyecto: Proyecto; index: 
   const isTarget = highlight?.targetId === proyecto.id;
   const inFilter = !filter || filter.proyectos.has(proyecto.id);
   const [open, setOpen] = useState(filter ? inFilter : false);
+  useEffect(() => { if (inFilter && filter) setOpen(true); }, [inFilter, filter]);
   const [confirm, setConfirm] = useState(false);
   const [showNotas, setShowNotas] = useState(false);
   const [showDatePicker, setShowDatePicker] = useState(false);
@@ -769,6 +774,7 @@ function ResultadoBlock({ resultado, index, total }: { resultado: Resultado; ind
   const isTarget = highlight?.targetId === resultado.id;
   const inFilter = !filter || filter.resultados.has(resultado.id);
   const [open, setOpen] = useState(filter ? inFilter : false);
+  useEffect(() => { if (inFilter && filter) setOpen(true); }, [inFilter, filter]);
   const [confirm, setConfirm] = useState(false);
   const [showNotas, setShowNotas] = useState(false);
   const [showMove, setShowMove] = useState(false);
@@ -919,6 +925,7 @@ function EntregableBlock({ entregable, index, total }: { entregable: Entregable;
   const isTarget = highlight?.targetId === entregable.id;
   const inFilter = !filter || filter.entregables.has(entregable.id);
   const [open, setOpen] = useState(filter ? inFilter : false);
+  useEffect(() => { if (inFilter && filter) setOpen(true); }, [inFilter, filter]);
   const [confirm, setConfirm] = useState(false);
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [justAssigned, setJustAssigned] = useState(false);

@@ -44,8 +44,8 @@ export function NotasSection({ notas, nivel, targetId }: Props) {
   }
 
   const isMentorNote = (n: Nota) => n.autor === "Mentor";
-  const canDelete = (n: Nota) => !isMentor || isMentorNote(n);
-  const canEdit = (n: Nota) => n.autor === currentUser || (!isMentor && !isMentorNote(n));
+  const canDelete = (n: Nota) => n.autor === currentUser || (isMentor && isMentorNote(n));
+  const canEdit = (n: Nota) => n.autor === currentUser;
 
   return (
     <div className="mt-2 space-y-1.5">

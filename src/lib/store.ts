@@ -319,6 +319,7 @@ function mergeCloudReviews(local: AppState, cloud: AppState): AppState {
   merged.resultados = mergeReviewField(local.resultados, cloud.resultados ?? []);
   merged.entregables = mergeReviewField(local.entregables, cloud.entregables ?? []);
   merged.plantillas = mergeReviewField(local.plantillas, cloud.plantillas ?? []);
+  merged.pasos = mergeReviewField(local.pasos, cloud.pasos ?? []);
   return merged;
 }
 /* eslint-enable @typescript-eslint/no-explicit-any */

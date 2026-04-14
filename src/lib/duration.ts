@@ -39,6 +39,7 @@ function pausasTotalMs(pausas: PausaEntry[], fallbackEnd: number): number {
   return pausas.reduce((acc, p) => {
     const s = new Date(p.pauseTs).getTime();
     const e = p.resumeTs ? new Date(p.resumeTs).getTime() : fallbackEnd;
+    if (e <= s) return acc;
     return acc + (e - s);
   }, 0);
 }

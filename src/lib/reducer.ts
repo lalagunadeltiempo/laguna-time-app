@@ -146,6 +146,7 @@ export function reducer(state: AppState, action: Action): AppState {
     // --- Pasos ---
     case "START_PASO": {
       if (!state.entregables.some((e) => e.id === action.payload.entregableId)) return state;
+      if (state.pasos.some((p) => p.id === action.payload.id)) return state;
       const today = toDateKey(new Date());
       return {
         ...state,
@@ -168,16 +169,17 @@ export function reducer(state: AppState, action: Action): AppState {
 
     case "ACTIVATE_PASO": {
       const paso = state.pasos.find((p) => p.id === action.id);
+      if (!paso) return state;
       const todayAct = toDateKey(new Date());
       return {
         ...state,
         pasos: state.pasos.map((p) => p.id === action.id ? { ...p, inicioTs: new Date().toISOString() } : p),
-        entregables: paso ? state.entregables.map((e) =>
+        entregables: state.entregables.map((e) =>
           e.id === paso.entregableId && !e.fechaInicio
             ? { ...e, fechaInicio: todayAct, planNivel: e.planNivel ?? ("dia" as const),
                 estado: (e.estado === "a_futuro" || e.estado === "planificado") ? "en_proceso" as const : e.estado }
             : e
-        ) : state.entregables,
+        ),
         pasosActivos: state.pasosActivos.includes(action.id)
           ? state.pasosActivos
           : [...state.pasosActivos, action.id],
@@ -219,6 +221,8 @@ export function reducer(state: AppState, action: Action): AppState {
 
     case "CLOSE_PASO": {
       const updated = action.payload;
+      if (!state.pasos.some((p) => p.id === updated.id)) return state;
+      const alreadyClosed = state.pasos.find((p) => p.id === updated.id)?.finTs;
       const terminado = updated.siguientePaso?.tipo === "fin";
       return {
         ...state,
@@ -226,9 +230,8 @@ export function reducer(state: AppState, action: Action): AppState {
         pasosActivos: state.pasosActivos.filter((id) => id !== updated.id),
         entregables: state.entregables.map((e) => {
           if (e.id !== updated.entregableId) return e;
-          // Don't revert "hecho" to "en_proceso" if already completed
           const nuevoEstado = terminado ? "hecho" : (e.estado === "hecho" ? "hecho" : "en_proceso");
-          return { ...e, diasHechos: e.diasHechos + 1, estado: nuevoEstado };
+          return { ...e, diasHechos: alreadyClosed ? e.diasHechos : e.diasHechos + 1, estado: nuevoEstado };
         }),
       };
     }
@@ -338,9 +341,11 @@ export function reducer(state: AppState, action: Action): AppState {
 
     // --- Resultados ---
     case "MOVE_RESULTADO":
+      if (!state.proyectos.some((p) => p.id === action.nuevoProyectoId)) return state;
       return { ...state, resultados: state.resultados.map((r) => r.id === action.resultadoId ? { ...r, proyectoId: action.nuevoProyectoId } : r) };
 
     case "MOVE_ENTREGABLE":
+      if (!state.resultados.some((r) => r.id === action.nuevoResultadoId)) return state;
       return { ...state, entregables: state.entregables.map((e) => e.id === action.entregableId ? { ...e, resultadoId: action.nuevoResultadoId } : e) };
 
     case "PROMOTE_RESULTADO": {

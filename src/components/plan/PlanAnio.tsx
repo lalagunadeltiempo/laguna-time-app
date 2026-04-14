@@ -10,15 +10,12 @@ import {
   AREA_COLORS,
   ambitoDeArea,
   type Area,
-  type Ambito,
   type Objetivo,
   type Proyecto,
 } from "@/lib/types";
-import { AmbitoToggle } from "./PlanMes";
+import { AmbitoToggle, type AmbitoFilter } from "./PlanMes";
 
 const MONTHS_ES = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"];
-
-type AmbitoFilter = "todo" | Ambito;
 
 function pad(n: number) { return String(n).padStart(2, "0"); }
 
@@ -58,7 +55,7 @@ export function PlanAnio({ selectedDate }: Props) {
     return allAreas.map(({ id, label }) => {
       const projs = state.proyectos.filter((p) => p.area === id);
       const results = state.resultados.filter((r) => projs.some((p) => p.id === r.proyectoId));
-      const entregs = state.entregables.filter((e) => results.some((r) => r.id === e.resultadoId));
+      const entregs = state.entregables.filter((e) => results.some((r) => r.id === e.resultadoId) && e.estado !== "cancelada");
       const completados = entregs.filter((e) => e.estado === "hecho").length;
       const enProceso = entregs.filter((e) => e.estado === "en_proceso" || e.estado === "planificado").length;
       const total = entregs.length;
@@ -71,7 +68,7 @@ export function PlanAnio({ selectedDate }: Props) {
     for (const proj of state.proyectos) {
       if (filtro !== "todo" && ambitoDeArea(proj.area) !== filtro) continue;
       const results = state.resultados.filter((r) => r.proyectoId === proj.id);
-      const entregs = state.entregables.filter((e) => results.some((r) => r.id === e.resultadoId));
+      const entregs = state.entregables.filter((e) => results.some((r) => r.id === e.resultadoId) && e.estado !== "cancelada");
 
       const done = entregs.filter((e) => e.estado === "hecho").length;
       const total = entregs.length;

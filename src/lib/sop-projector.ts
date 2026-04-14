@@ -30,6 +30,7 @@ function tocaFecha(prog: NonNullable<PlantillaProceso["programacion"]>, fecha: D
       const meses = prog.mesesTrimestre ?? [1, 4, 7, 10];
       if (!meses.includes(month)) return false;
       if (prog.semanaMes === "primera") return dom >= 1 && dom <= 7 && dow === 1;
+      if (prog.semanaMes === "ultima") return dom > lastDay - 7 && dow === 1;
       return dom >= 1 && dom <= 7 && dow === 1;
     }
     case "anual": {

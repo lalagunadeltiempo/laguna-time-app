@@ -94,7 +94,6 @@ export function PantallaPlan() {
 
   function handleTabChange(newTab: Tab) {
     setTab(newTab);
-    setSelectedDate(new Date());
   }
 
   function handleDatePick(e: React.ChangeEvent<HTMLInputElement>) {

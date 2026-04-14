@@ -35,20 +35,18 @@ export function CerrarPaso({ paso, onClose }: Props) {
 
   const entregable = state.entregables.find((e) => e.id === paso.entregableId);
 
-  useEffect(() => { if (!entregable) onClose(); }, [entregable, onClose]);
-
-  if (!entregable) return null;
-
-  const plantilla = entregable.plantillaId
+  const plantilla = entregable?.plantillaId
     ? state.plantillas.find((pl) => pl.id === entregable.plantillaId)
     : null;
 
-  const pasosHechos = state.pasos
-    .filter((p) => p.entregableId === entregable?.id && p.finTs)
-    .sort((a, b) => (a.inicioTs ?? "").localeCompare(b.inicioTs ?? ""));
+  const pasosHechos = useMemo(() => state.pasos
+    .filter((p) => p.entregableId === paso.entregableId && p.finTs)
+    .sort((a, b) => (a.inicioTs ?? "").localeCompare(b.inicioTs ?? "")),
+  [state.pasos, paso.entregableId]);
 
-  const pasosPendientes = state.pasos
-    .filter((p) => p.entregableId === entregable?.id && !p.inicioTs && !p.finTs && p.id !== paso.id);
+  const pasosPendientes = useMemo(() => state.pasos
+    .filter((p) => p.entregableId === paso.entregableId && !p.inicioTs && !p.finTs && p.id !== paso.id),
+  [state.pasos, paso.entregableId, paso.id]);
 
   const allDoneNames = useMemo(() => {
     const s = new Set<string>();
@@ -78,18 +76,20 @@ export function CerrarPaso({ paso, onClose }: Props) {
   const [sigCuando, setSigCuando] = useState<CuandoMode>("manana");
   const [sigFechaCustom, setSigFechaCustom] = useState("");
 
-  // Depende de (múltiples personas + fecha programada)
   const [dependePersonas, setDependePersonas] = useState<DependeDe[]>([]);
   const [dependeFecha, setDependeFecha] = useState("");
   const [newContacto, setNewContacto] = useState({ nombre: "", email: "", telefono: "" });
 
   const contactosExternos = useMemo(() => state.contactos ?? [], [state.contactos]);
 
-  // Post-conversion wizard state
   const [showConvertWizard, setShowConvertWizard] = useState(false);
   const [sopObjetivo, setSOPObjetivo] = useState("");
   const [sopProg, setSOPProg] = useState<Programacion | null>(null);
   const [sopArea, setSOPArea] = useState<Area | null>(null);
+
+  useEffect(() => {
+    if (!entregable) onClose();
+  }, [entregable, onClose]);
 
   useEffect(() => {
     if (allStepsDone) setSigTipo("fin");
@@ -98,6 +98,8 @@ export function CerrarPaso({ paso, onClose }: Props) {
   useEffect(() => {
     if (firstSuggestion) setSigNombre((prev) => prev || firstSuggestion);
   }, [firstSuggestion]);
+
+  if (!entregable) return null;
 
   const cuandoActual = sigCuando === "otro" ? sigFechaCustom : sigCuando;
   const cuandoLabel = resolveCuandoLabel(cuandoActual);

@@ -5,14 +5,12 @@ import { useAppState, useAppDispatch } from "@/lib/context";
 import { generateId } from "@/lib/store";
 import { useUsuario, useIsMentor } from "@/lib/usuario";
 import {
-  AREA_COLORS, AREAS_PERSONAL, AREAS_EMPRESA, ambitoDeArea,
+  AREA_COLORS, AREAS_PERSONAL, AREAS_EMPRESA,
   type Area, type Entregable, type Ambito,
 } from "@/lib/types";
 import { projectSOPsForDate, type ProjectedSOP } from "@/lib/sop-projector";
 
-function pad2(n: number) { return String(n).padStart(2, "0"); }
 function addDays(d: Date, n: number) { const r = new Date(d); r.setDate(r.getDate() + n); return r; }
-function dateToKey(d: Date) { return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`; }
 
 const HOURS = Array.from({ length: 24 }, (_, i) => i);
 
@@ -395,9 +393,9 @@ function PlannedBlockRow({ block, hex, isToday, isMentor, onStart, onReschedule 
         {/* Inline actions */}
         {showMenu && !isMentor && (
           <div className="mt-2 flex flex-wrap gap-1.5">
-            <button type="button" onClick={() => { onReschedule(dateToKey(addDays(new Date(), 1))); setShowMenu(false); }}
+            <button type="button" onClick={() => { onReschedule(toDateKey(addDays(new Date(), 1))); setShowMenu(false); }}
               className="rounded-md border border-border bg-background px-2 py-1 text-[10px] font-medium text-foreground hover:bg-surface">Mañana</button>
-            <button type="button" onClick={() => { onReschedule(dateToKey(addDays(new Date(), 7))); setShowMenu(false); }}
+            <button type="button" onClick={() => { onReschedule(toDateKey(addDays(new Date(), 7))); setShowMenu(false); }}
               className="rounded-md border border-border bg-background px-2 py-1 text-[10px] font-medium text-foreground hover:bg-surface">+1 semana</button>
             <button type="button" onClick={() => setShowDatePicker(true)}
               className="rounded-md border border-border bg-background px-2 py-1 text-[10px] font-medium text-foreground hover:bg-surface">Otra fecha</button>
@@ -522,6 +520,15 @@ function DrillDownDialog({ dateKey, onClose }: { dateKey: string; onClose: () =>
     const name = newPasoName.trim();
     if (!name) return;
     dispatch({ type: "UPDATE_ENTREGABLE", id: selectedEntregableId, changes: { fechaInicio: dateKey, planNivel: "dia", estado: "en_proceso" } });
+    const pasoId = generateId();
+    dispatch({
+      type: "ADD_PASO",
+      payload: {
+        id: pasoId, nombre: name, entregableId: selectedEntregableId,
+        estado: "pendiente", inicioTs: null, finTs: null, pausas: [], siguientePaso: null,
+        contexto: { urls: [], apps: [], notas: "" }, implicados: [],
+      },
+    });
     onClose();
   }
 
