@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import type { PausaEntry } from "@/lib/types";
+import { msEfectivos } from "@/lib/duration";
 
 export function Timer({
   startTime,
@@ -15,18 +16,7 @@ export function Timer({
   const [elapsed, setElapsed] = useState(0);
 
   useEffect(() => {
-    const start = new Date(startTime).getTime();
-    function calcElapsed() {
-      const now = Date.now();
-      let pausedMs = 0;
-      for (const p of pausas) {
-        const pStart = new Date(p.pauseTs).getTime();
-        const pEnd = p.resumeTs ? new Date(p.resumeTs).getTime() : now;
-        pausedMs += pEnd - pStart;
-      }
-      return now - start - pausedMs;
-    }
-    const tick = () => setElapsed(calcElapsed());
+    const tick = () => setElapsed(msEfectivos({ inicioTs: startTime, finTs: null, pausas }) ?? 0);
     tick();
     const interval = setInterval(tick, 1000);
     return () => clearInterval(interval);

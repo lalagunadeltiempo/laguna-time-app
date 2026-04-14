@@ -19,6 +19,7 @@ export function PantallaHoy() {
   const [showNuevoPaso, setShowNuevoPaso] = useState(false);
   const [showInbox, setShowInbox] = useState(false);
   const [showEndOfDay, setShowEndOfDay] = useState(false);
+  const [showRetro, setShowRetro] = useState(false);
   const [quickCapture, setQuickCapture] = useState("");
 
   // Close stale steps from previous days → reschedule for today (once after data loads)
@@ -101,15 +102,25 @@ export function PantallaHoy() {
       )}
 
       {/* CTA: Start step */}
-      <button
-        onClick={() => setShowNuevoPaso(true)}
-        className="mb-5 flex w-full items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-accent to-orange-500 py-4 text-base font-semibold text-white shadow-lg shadow-accent/20 transition-transform hover:scale-[1.01] active:scale-[0.99]"
-      >
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
-          <circle cx="12" cy="12" r="10" /><path d="M12 6v12M6 12h12" />
-        </svg>
-        {pasosActivos.length > 0 ? "Iniciar otro paso" : "Iniciar un paso"}
-      </button>
+      <div className="mb-5 flex gap-2">
+        <button
+          onClick={() => setShowNuevoPaso(true)}
+          className="flex flex-1 items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-accent to-orange-500 py-4 text-base font-semibold text-white shadow-lg shadow-accent/20 transition-transform hover:scale-[1.01] active:scale-[0.99]"
+        >
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+            <circle cx="12" cy="12" r="10" /><path d="M12 6v12M6 12h12" />
+          </svg>
+          {pasosActivos.length > 0 ? "Iniciar otro paso" : "Iniciar un paso"}
+        </button>
+        <button
+          onClick={() => setShowRetro(true)}
+          className="flex items-center gap-1.5 rounded-2xl border border-border px-4 py-4 text-xs font-medium text-muted transition-colors hover:bg-surface hover:text-foreground"
+          title="Registrar un paso que ya hiciste"
+        >
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><circle cx="12" cy="12" r="10" /><polyline points="12 6 12 12 16 14" /></svg>
+          Registrar
+        </button>
+      </div>
 
       {/* Quick capture (Inbox GTD) */}
       <div className="mb-5">
@@ -165,6 +176,7 @@ export function PantallaHoy() {
       {/* Panels */}
       {showNuevoPaso && <NuevoPaso onClose={() => setShowNuevoPaso(false)} />}
       {showInbox && <VistaInbox onClose={() => setShowInbox(false)} />}
+      {showRetro && <RegistrarPasoPasado onClose={() => setShowRetro(false)} />}
     </div>
   );
 }
@@ -190,6 +202,113 @@ function buildClosedPaso(paso: Paso, targetDate?: string): Paso {
       fechaProgramada: target,
     },
   };
+}
+
+/* ============================================================
+   REGISTRAR PASO PASADO (retroactive)
+   ============================================================ */
+
+function RegistrarPasoPasado({ onClose }: { onClose: () => void }) {
+  const state = useAppState();
+  const dispatch = useAppDispatch();
+  const { nombre: currentUser } = useUsuario();
+
+  const [nombre, setNombre] = useState("");
+  const [entregableId, setEntregableId] = useState<string | null>(null);
+  const [fechaInicio, setFechaInicio] = useState(() => {
+    const d = new Date();
+    d.setHours(d.getHours() - 1);
+    return toLocalDateTimeStr(d);
+  });
+  const [fechaFin, setFechaFin] = useState(() => toLocalDateTimeStr(new Date()));
+
+  const entregables = useMemo(() => {
+    const lastAct = new Map<string, number>();
+    for (const p of state.pasos) {
+      if (!p.inicioTs) continue;
+      const ts = new Date(p.inicioTs).getTime();
+      const prev = lastAct.get(p.entregableId) ?? 0;
+      if (ts > prev) lastAct.set(p.entregableId, ts);
+    }
+    return state.entregables
+      .filter((e) => e.estado !== "hecho" && e.estado !== "cancelada")
+      .sort((a, b) => (lastAct.get(b.id) ?? 0) - (lastAct.get(a.id) ?? 0))
+      .slice(0, 15);
+  }, [state.entregables, state.pasos]);
+
+  function submit() {
+    if (!nombre.trim() || !entregableId) return;
+    const inicioTs = new Date(fechaInicio).toISOString();
+    const finTs = new Date(fechaFin).toISOString();
+    if (new Date(finTs) <= new Date(inicioTs)) return;
+    const paso: Paso = {
+      id: generateId(),
+      entregableId,
+      nombre: nombre.trim(),
+      inicioTs,
+      finTs,
+      estado: nombre.trim(),
+      contexto: { urls: [], apps: [], notas: "" },
+      implicados: [{ tipo: "equipo", nombre: currentUser }],
+      pausas: [],
+      siguientePaso: null,
+    };
+    dispatch({ type: "CLOSE_PASO", payload: paso });
+    onClose();
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 px-4 backdrop-blur-sm"
+      role="dialog" aria-modal="true" tabIndex={-1} ref={(el) => el?.focus()}
+      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+      onKeyDown={(e) => { if (e.key === "Escape") onClose(); }}>
+      <div className="w-full max-w-md rounded-2xl bg-background p-6 shadow-2xl">
+        <h2 className="mb-4 text-lg font-bold text-foreground">Registrar paso pasado</h2>
+
+        <label className="mb-1 block text-xs font-medium text-muted">Entregable</label>
+        <div className="mb-3 max-h-32 overflow-y-auto rounded-lg border border-border">
+          {entregables.map((e) => (
+            <button key={e.id} onClick={() => setEntregableId(e.id)}
+              className={`block w-full px-3 py-2 text-left text-sm transition-colors ${entregableId === e.id ? "bg-accent-soft font-medium text-accent" : "text-foreground hover:bg-surface"}`}>
+              {e.nombre}
+            </button>
+          ))}
+        </div>
+
+        <label className="mb-1 block text-xs font-medium text-muted">Nombre del paso</label>
+        <input value={nombre} onChange={(e) => setNombre(e.target.value)} autoFocus
+          placeholder="¿Qué hiciste?"
+          className="mb-3 w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground outline-none focus:border-accent" />
+
+        <div className="mb-3 grid grid-cols-2 gap-3">
+          <div>
+            <label className="mb-1 block text-xs font-medium text-muted">Inicio</label>
+            <input type="datetime-local" value={fechaInicio} onChange={(e) => setFechaInicio(e.target.value)}
+              className="w-full rounded-lg border border-border bg-background px-2 py-2 text-xs text-foreground outline-none focus:border-accent" />
+          </div>
+          <div>
+            <label className="mb-1 block text-xs font-medium text-muted">Fin</label>
+            <input type="datetime-local" value={fechaFin} onChange={(e) => setFechaFin(e.target.value)}
+              className="w-full rounded-lg border border-border bg-background px-2 py-2 text-xs text-foreground outline-none focus:border-accent" />
+          </div>
+        </div>
+
+        <button onClick={submit} disabled={!nombre.trim() || !entregableId}
+          className="mb-2 w-full rounded-xl bg-accent py-3 text-sm font-semibold text-white disabled:opacity-40 hover:bg-accent/90">
+          Registrar
+        </button>
+        <button onClick={onClose}
+          className="w-full rounded-xl border border-border py-2.5 text-xs font-medium text-muted hover:bg-surface">
+          Cancelar
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function toLocalDateTimeStr(d: Date): string {
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
 function EndOfDayFlow({

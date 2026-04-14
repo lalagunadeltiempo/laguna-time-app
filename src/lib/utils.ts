@@ -1,9 +1,9 @@
 import type { Paso } from "./types";
+import { minutosEfectivos } from "./duration";
 
+/** Effective work minutes (subtracting pauses). */
 export function minutosPaso(p: Paso): number {
-  if (!p.inicioTs) return 0;
-  if (!p.finTs) return Math.round((Date.now() - new Date(p.inicioTs).getTime()) / 60000);
-  return Math.round((new Date(p.finTs).getTime() - new Date(p.inicioTs).getTime()) / 60000);
+  return minutosEfectivos(p) ?? 0;
 }
 
 export function formatMin(min: number): string {

@@ -2,24 +2,14 @@
 
 import { useState, useMemo, useEffect } from "react";
 import { useAppState, useAppDispatch } from "@/lib/context";
-import type { Paso, DependeDe } from "@/lib/types";
+import type { Paso, DependeDe, Programacion, Area } from "@/lib/types";
+import { AREAS_EMPRESA, AREAS_PERSONAL, AREA_COLORS } from "@/lib/types";
 import { generateId } from "@/lib/store";
+import { formatDuracion } from "@/lib/duration";
+import ProgramacionPicker from "./shared/ProgramacionPicker";
 
 type Step = "nombre_paso" | "siguiente";
 type CuandoMode = "manana" | "otro" | "depende";
-
-function formatDuration(paso: Paso): string {
-  if (!paso.inicioTs) return "—";
-  const totalMs = Date.now() - new Date(paso.inicioTs).getTime();
-  const pausedMs = (paso.pausas ?? []).reduce((acc, p) => {
-    const start = new Date(p.pauseTs).getTime();
-    const end = p.resumeTs ? new Date(p.resumeTs).getTime() : Date.now();
-    return acc + (end - start);
-  }, 0);
-  const mins = Math.max(0, Math.round((totalMs - pausedMs) / 60000));
-  if (mins < 60) return `${mins} min`;
-  return `${Math.floor(mins / 60)}h ${mins % 60}m`;
-}
 
 function resolveCuandoLabel(cuando: string): string {
   if (cuando === "manana") {
@@ -94,6 +84,12 @@ export function CerrarPaso({ paso, onClose }: Props) {
   const [newContacto, setNewContacto] = useState({ nombre: "", email: "", telefono: "" });
 
   const contactosExternos = useMemo(() => state.contactos ?? [], [state.contactos]);
+
+  // Post-conversion wizard state
+  const [showConvertWizard, setShowConvertWizard] = useState(false);
+  const [sopObjetivo, setSOPObjetivo] = useState("");
+  const [sopProg, setSOPProg] = useState<Programacion | null>(null);
+  const [sopArea, setSOPArea] = useState<Area | null>(null);
 
   useEffect(() => {
     if (allStepsDone) setSigTipo("fin");
@@ -182,7 +178,7 @@ export function CerrarPaso({ paso, onClose }: Props) {
               </p>
             </div>
             <span className="shrink-0 rounded-lg bg-zinc-100 px-2 py-1 text-xs font-medium text-zinc-500">
-              {formatDuration(paso)}
+              {formatDuracion(paso)}
             </span>
           </div>
         </div>
@@ -416,6 +412,7 @@ export function CerrarPaso({ paso, onClose }: Props) {
                 onClick={() => {
                   handleFinish();
                   dispatch({ type: "CONVERT_ENTREGABLE_TO_SOP", entregableId: entregable.id });
+                  setShowConvertWizard(true);
                 }}
                 className="w-full rounded-xl border-2 border-purple-400 bg-purple-50 py-3 text-base font-semibold text-purple-700 transition-colors hover:bg-purple-100">
                 Paso dado + Convertir en SOP
@@ -429,6 +426,67 @@ export function CerrarPaso({ paso, onClose }: Props) {
             )}
           </div>
         )}
+
+        {showConvertWizard && (() => {
+          const proj = state.proyectos.find((p) => state.resultados.some((r) => r.proyectoId === p.id && r.id === entregable.resultadoId));
+          const newPlantilla = state.plantillas.find((pl) => pl.nombre === entregable.nombre);
+          if (!newPlantilla) return null;
+          return (
+            <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/30 px-4 backdrop-blur-sm"
+              role="dialog" aria-modal="true" tabIndex={-1} ref={(el) => el?.focus()}
+              onClick={(e) => { if (e.target === e.currentTarget) { setShowConvertWizard(false); onClose(); } }}
+              onKeyDown={(e) => { if (e.key === "Escape") { setShowConvertWizard(false); onClose(); } }}>
+              <div className="w-full max-w-sm rounded-2xl bg-background p-5 shadow-xl">
+                <h3 className="mb-3 text-base font-bold text-foreground">Configurar SOP</h3>
+                <p className="mb-4 text-xs text-muted">El entregable se ha convertido en un proceso. Completa los detalles:</p>
+
+                <label className="mb-1 block text-xs font-medium text-muted">Objetivo</label>
+                <textarea value={sopObjetivo} onChange={(e) => setSOPObjetivo(e.target.value)}
+                  placeholder="¿Para qué sirve este proceso?"
+                  rows={2} className="mb-3 w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground outline-none focus:border-accent" />
+
+                <label className="mb-1 block text-xs font-medium text-muted">Frecuencia</label>
+                <div className="mb-3">
+                  <ProgramacionPicker value={sopProg} onChange={setSOPProg} />
+                </div>
+
+                <label className="mb-1 block text-xs font-medium text-muted">Área</label>
+                <div className="mb-4 flex flex-wrap gap-1.5">
+                  {[...AREAS_EMPRESA, ...AREAS_PERSONAL].map((a) => {
+                    const c = AREA_COLORS[a.id];
+                    const current = sopArea ?? proj?.area ?? newPlantilla.area;
+                    return (
+                      <button key={a.id} onClick={() => setSOPArea(a.id)}
+                        className={`rounded-full px-2.5 py-1 text-[11px] font-medium transition-colors ${current === a.id ? "ring-2 ring-accent text-foreground" : "text-muted hover:text-foreground"}`}
+                        style={{ backgroundColor: (c?.hex ?? "#888") + "15" }}>
+                        {a.label}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                <button onClick={() => {
+                  const changes: Record<string, unknown> = {};
+                  if (sopObjetivo.trim()) changes.objetivo = sopObjetivo.trim();
+                  if (sopProg) changes.programacion = sopProg;
+                  if (sopArea) changes.area = sopArea;
+                  if (Object.keys(changes).length > 0) {
+                    dispatch({ type: "UPDATE_PLANTILLA", id: newPlantilla.id, changes: changes as Parameters<typeof dispatch>[0] extends { type: "UPDATE_PLANTILLA"; changes: infer C } ? C : never });
+                  }
+                  setShowConvertWizard(false);
+                  onClose();
+                }}
+                  className="mb-2 w-full rounded-xl bg-purple-600 py-3 text-sm font-semibold text-white hover:bg-purple-700">
+                  Guardar configuración
+                </button>
+                <button onClick={() => { setShowConvertWizard(false); onClose(); }}
+                  className="w-full rounded-xl border border-border py-2 text-xs text-muted hover:bg-surface">
+                  Omitir
+                </button>
+              </div>
+            </div>
+          );
+        })()}
     </div>
   );
 }

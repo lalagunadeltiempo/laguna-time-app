@@ -192,40 +192,16 @@ export function PlanSemana({ selectedDate }: Props) {
   const totalHoursAvailable = 8;
 
   function materializeSOP(sop: ProjectedSOP, targetDate: string) {
-    const plantilla = state.plantillas.find((pl) => pl.id === sop.plantillaId);
-    if (!plantilla) return;
-
-    let resultadoId: string | null = null;
-    if (plantilla.proyectoId) {
-      const existingRes = state.resultados.find((r) => r.proyectoId === plantilla.proyectoId);
-      resultadoId = existingRes?.id ?? null;
-      if (!resultadoId) {
-        const newResId = generateId();
-        dispatch({ type: "ADD_RESULTADO", payload: { id: newResId, nombre: "Procesos", descripcion: null, proyectoId: plantilla.proyectoId, creado: new Date().toISOString(), semana: null, fechaLimite: null, fechaInicio: null, diasEstimados: null } });
-        resultadoId = newResId;
-      }
-    } else {
-      const firstProj = state.proyectos.find((p) => p.area === sop.area);
-      if (firstProj) {
-        const existingRes = state.resultados.find((r) => r.proyectoId === firstProj.id);
-        resultadoId = existingRes?.id ?? null;
-        if (!resultadoId) {
-          const newResId = generateId();
-          dispatch({ type: "ADD_RESULTADO", payload: { id: newResId, nombre: "Procesos", descripcion: null, proyectoId: firstProj.id, creado: new Date().toISOString(), semana: null, fechaLimite: null, fechaInicio: null, diasEstimados: null } });
-          resultadoId = newResId;
-        }
-      }
-    }
-    if (!resultadoId) { setConfirmSOP(null); return; }
-
-    dispatch({ type: "ADD_ENTREGABLE", payload: {
-      id: generateId(), nombre: sop.nombre, resultadoId,
-      tipo: "sop" as const, plantillaId: sop.plantillaId,
-      diasEstimados: sop.pasosTotal, diasHechos: 0,
-      esDiaria: false, responsable: sop.responsable,
-      estado: "en_proceso" as const, creado: new Date().toISOString(),
-      semana: null, fechaLimite: null, fechaInicio: targetDate,
-    }});
+    dispatch({
+      type: "MATERIALIZE_SOP",
+      plantillaId: sop.plantillaId,
+      area: sop.area,
+      responsable: sop.responsable,
+      currentUser,
+      dateKey: targetDate,
+      ids: { resultado: generateId(), entregable: generateId(), paso: generateId(), proyecto: generateId() },
+      autoStart: false,
+    });
     setConfirmSOP(null);
   }
 

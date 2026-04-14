@@ -18,6 +18,7 @@ import type {
   ReviewMark,
 } from "./types";
 import { AREAS_EMPRESA, AREAS_PERSONAL } from "./types";
+import { minutosEfectivos } from "./duration";
 
 function areaLabelFor(area: Area): string {
   const all = [...AREAS_EMPRESA, ...AREAS_PERSONAL];
@@ -53,7 +54,7 @@ export type Action =
   | { type: "UPDATE_RESULTADO"; id: string; changes: Partial<Pick<Resultado, "nombre" | "descripcion" | "semana" | "fechaLimite" | "fechaInicio" | "diasEstimados" | "planNivel">> }
   | { type: "DELETE_PROYECTO"; id: string }
   | { type: "RENAME_PROYECTO"; id: string; nombre: string }
-  | { type: "UPDATE_PROYECTO"; id: string; changes: Partial<Pick<Proyecto, "nombre" | "descripcion" | "area" | "fechaInicio" | "fechaLimite" | "planNivel" | "tipo">> }
+  | { type: "UPDATE_PROYECTO"; id: string; changes: Partial<Pick<Proyecto, "nombre" | "descripcion" | "area" | "fechaInicio" | "fechaLimite" | "planNivel" | "tipo" | "responsable">> }
   | { type: "IMPORT_DATA"; proyectos: Proyecto[]; resultados: Resultado[]; entregables: Entregable[] }
   | { type: "ADD_INBOX"; payload: InboxItem }
   | { type: "PROCESS_INBOX"; id: string }
@@ -86,7 +87,7 @@ export type Action =
   | { type: "CONVERT_ENTREGABLE_TO_SOP"; entregableId: string }
   | { type: "SYNC_ENTREGABLE_TO_PLANTILLA"; entregableId: string }
   | { type: "LOG_ACTIVITY"; entry: ActivityEntry }
-  | { type: "MATERIALIZE_SOP"; plantillaId: string; area: Area; responsable: string; currentUser: string; dateKey: string; ids: { resultado: string; entregable: string; paso: string; proyecto: string } }
+  | { type: "MATERIALIZE_SOP"; plantillaId: string; area: Area; responsable: string; currentUser: string; dateKey: string; ids: { resultado: string; entregable: string; paso: string; proyecto: string }; proyectoId?: string; resultadoId?: string; autoStart?: boolean }
   | { type: "ADD_OBJETIVO"; payload: Objetivo }
   | { type: "UPDATE_OBJETIVO"; id: string; changes: Partial<Pick<Objetivo, "texto" | "completado" | "area">> }
   | { type: "DELETE_OBJETIVO"; id: string }
@@ -538,27 +539,15 @@ export function reducer(state: AppState, action: Action): AppState {
         programacion: null,
         proyectoId: proj?.id ?? null,
         responsableDefault: ent.responsable,
-        pasos: completedPasos.map((p, i) => {
-          let mins: number | null = null;
-          if (p.inicioTs && p.finTs) {
-            const totalMs = new Date(p.finTs).getTime() - new Date(p.inicioTs).getTime();
-            const pausedMs = (p.pausas ?? []).reduce((acc, pause) => {
-              const s = new Date(pause.pauseTs).getTime();
-              const e = pause.resumeTs ? new Date(pause.resumeTs).getTime() : new Date(p.finTs!).getTime();
-              return acc + (e - s);
-            }, 0);
-            mins = Math.max(1, Math.round((totalMs - pausedMs) / 60000));
-          }
-          return {
-            id: `${plantillaId}-paso-${i}`,
-            orden: i + 1,
-            nombre: p.nombre,
-            descripcion: "",
-            herramientas: [],
-            tipo: "accion" as const,
-            minutosEstimados: mins,
-          };
-        }),
+        pasos: completedPasos.map((p, i) => ({
+          id: `${plantillaId}-paso-${i}`,
+          orden: i + 1,
+          nombre: p.nombre,
+          descripcion: "",
+          herramientas: [],
+          tipo: "accion" as const,
+          minutosEstimados: minutosEfectivos(p),
+        })),
         herramientas: [],
         excepciones: "",
         dependeDeIds: [],
@@ -586,33 +575,35 @@ export function reducer(state: AppState, action: Action): AppState {
 
       if (realPasos.length === 0) return state;
 
-      const updatedPasos: PasoPlantilla[] = realPasos.map((p, i) => {
-        let mins: number | null = null;
-        if (p.inicioTs && p.finTs) {
-          const totalMs = new Date(p.finTs).getTime() - new Date(p.inicioTs).getTime();
-          const pausedMs = (p.pausas ?? []).reduce((acc, pause) => {
-            const s = new Date(pause.pauseTs).getTime();
-            const e = pause.resumeTs ? new Date(pause.resumeTs).getTime() : new Date(p.finTs!).getTime();
-            return acc + (e - s);
-          }, 0);
-          mins = Math.max(1, Math.round((totalMs - pausedMs) / 60000));
-        }
-        const existingPP = syncPlantilla.pasos.find((pp) => pp.nombre.toLowerCase() === p.nombre.toLowerCase() || pp.nombre.toLowerCase() === (p.estado || "").toLowerCase());
-        return {
-          id: existingPP?.id ?? `${syncPlantilla.id}-paso-${Date.now()}-${i}`,
-          orden: i + 1,
+      const matched = new Set<string>();
+      const merged: PasoPlantilla[] = [];
+
+      for (const p of realPasos) {
+        const existingPP = syncPlantilla.pasos.find(
+          (pp) => !matched.has(pp.id) && (pp.nombre.toLowerCase() === p.nombre.toLowerCase() || pp.nombre.toLowerCase() === (p.estado || "").toLowerCase())
+        );
+        if (existingPP) matched.add(existingPP.id);
+        merged.push({
+          id: existingPP?.id ?? `${syncPlantilla.id}-paso-${Date.now()}-${merged.length}`,
+          orden: merged.length + 1,
           nombre: p.nombre,
           descripcion: existingPP?.descripcion ?? "",
           herramientas: existingPP?.herramientas ?? [],
           tipo: existingPP?.tipo ?? ("accion" as const),
-          minutosEstimados: mins ?? existingPP?.minutosEstimados ?? null,
-        };
-      });
+          minutosEstimados: minutosEfectivos(p) ?? existingPP?.minutosEstimados ?? null,
+        });
+      }
+
+      for (const pp of syncPlantilla.pasos) {
+        if (!matched.has(pp.id)) {
+          merged.push({ ...pp, orden: merged.length + 1 });
+        }
+      }
 
       return {
         ...state,
         plantillas: state.plantillas.map((pl) =>
-          pl.id === syncEnt.plantillaId ? { ...pl, pasos: updatedPasos } : pl
+          pl.id === syncEnt.plantillaId ? { ...pl, pasos: merged } : pl
         ),
       };
     }
@@ -686,75 +677,80 @@ export function reducer(state: AppState, action: Action): AppState {
 
     // --- Materializar SOP atómicamente ---
     case "MATERIALIZE_SOP": {
-      const { plantillaId, area, responsable, currentUser, dateKey, ids } = action;
+      const { plantillaId, area, responsable, currentUser, dateKey, ids, autoStart = true } = action;
       const plantilla = state.plantillas.find((pl) => pl.id === plantillaId);
       if (!plantilla || plantilla.pasos.length === 0) return state;
 
       let newState = { ...state };
-      let resultadoId: string | null = null;
+      let resultadoId: string | null = action.resultadoId ?? null;
 
       const sopLabel = areaLabelFor(area);
 
-      if (plantilla.proyectoId) {
-        const existingRes = newState.resultados.find((r) => r.proyectoId === plantilla.proyectoId);
-        resultadoId = existingRes?.id ?? null;
-        if (!resultadoId) {
-          resultadoId = ids.resultado;
-          newState = {
-            ...newState,
-            resultados: [...newState.resultados, {
-              id: resultadoId, nombre: `Procesos ${sopLabel}`, descripcion: null,
-              proyectoId: plantilla.proyectoId, creado: new Date().toISOString(),
-              semana: null, fechaLimite: null, fechaInicio: null, diasEstimados: null,
-            }],
-          };
-        }
-      } else {
-        let proj = newState.proyectos.find((p) => p.area === area);
-        if (!proj) {
-          const newProj: Proyecto = {
-            id: ids.proyecto, nombre: `Procesos ${sopLabel}`,
-            descripcion: null, area, creado: new Date().toISOString(), fechaInicio: null,
-          };
-          newState = { ...newState, proyectos: [...newState.proyectos, newProj] };
-          proj = newProj;
-        }
-        const existingRes = newState.resultados.find((r) => r.proyectoId === proj!.id);
-        resultadoId = existingRes?.id ?? null;
-        if (!resultadoId) {
-          resultadoId = ids.resultado;
-          newState = {
-            ...newState,
-            resultados: [...newState.resultados, {
-              id: resultadoId, nombre: `Procesos ${sopLabel}`, descripcion: null,
-              proyectoId: proj.id, creado: new Date().toISOString(),
-              semana: null, fechaLimite: null, fechaInicio: null, diasEstimados: null,
-            }],
-          };
+      if (!resultadoId) {
+        const explicitProjId = action.proyectoId ?? plantilla.proyectoId;
+        if (explicitProjId) {
+          const existingRes = newState.resultados.find((r) => r.proyectoId === explicitProjId);
+          resultadoId = existingRes?.id ?? null;
+          if (!resultadoId) {
+            resultadoId = ids.resultado;
+            newState = {
+              ...newState,
+              resultados: [...newState.resultados, {
+                id: resultadoId, nombre: `Procesos ${sopLabel}`, descripcion: null,
+                proyectoId: explicitProjId, creado: new Date().toISOString(),
+                semana: null, fechaLimite: null, fechaInicio: null, diasEstimados: null,
+              }],
+            };
+          }
+        } else {
+          let proj = newState.proyectos.find((p) => p.area === area);
+          if (!proj) {
+            const newProj: Proyecto = {
+              id: ids.proyecto, nombre: `Procesos ${sopLabel}`,
+              descripcion: null, area, creado: new Date().toISOString(), fechaInicio: null,
+            };
+            newState = { ...newState, proyectos: [...newState.proyectos, newProj] };
+            proj = newProj;
+          }
+          const existingRes = newState.resultados.find((r) => r.proyectoId === proj!.id);
+          resultadoId = existingRes?.id ?? null;
+          if (!resultadoId) {
+            resultadoId = ids.resultado;
+            newState = {
+              ...newState,
+              resultados: [...newState.resultados, {
+                id: resultadoId, nombre: `Procesos ${sopLabel}`, descripcion: null,
+                proyectoId: proj.id, creado: new Date().toISOString(),
+                semana: null, fechaLimite: null, fechaInicio: null, diasEstimados: null,
+              }],
+            };
+          }
         }
       }
 
       const entregable: Entregable = {
         id: ids.entregable, nombre: plantilla.nombre, resultadoId,
         tipo: "sop", plantillaId, diasEstimados: plantilla.pasos.length, diasHechos: 0,
-        esDiaria: false, responsable, estado: "en_proceso",
+        esDiaria: false, responsable, estado: autoStart ? "en_proceso" : "planificado",
         creado: new Date().toISOString(), semana: null, fechaLimite: null, fechaInicio: dateKey,
       };
       newState = { ...newState, entregables: [...newState.entregables, entregable] };
 
-      const firstStep = plantilla.pasos[0];
-      const paso: Paso = {
-        id: ids.paso, entregableId: ids.entregable, nombre: firstStep.nombre,
-        inicioTs: new Date().toISOString(), finTs: null, estado: "",
-        contexto: { urls: [], apps: [], notas: "" },
-        implicados: [{ tipo: "equipo", nombre: currentUser }],
-        pausas: [], siguientePaso: null,
-      };
-      newState = {
-        ...newState,
-        pasos: [...newState.pasos, paso],
-        pasosActivos: [...newState.pasosActivos, paso.id],
-      };
+      if (autoStart) {
+        const firstStep = plantilla.pasos[0];
+        const paso: Paso = {
+          id: ids.paso, entregableId: ids.entregable, nombre: firstStep.nombre,
+          inicioTs: new Date().toISOString(), finTs: null, estado: "",
+          contexto: { urls: [], apps: [], notas: "" },
+          implicados: [{ tipo: "equipo", nombre: currentUser }],
+          pausas: [], siguientePaso: null,
+        };
+        newState = {
+          ...newState,
+          pasos: [...newState.pasos, paso],
+          pasosActivos: [...newState.pasosActivos, paso.id],
+        };
+      }
 
       return newState;
     }

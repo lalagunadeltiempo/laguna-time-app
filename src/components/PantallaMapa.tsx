@@ -8,6 +8,7 @@ import { NotasSection } from "./shared/NotasSection";
 import { EditableText } from "./shared/EditableText";
 import { ReviewBadge } from "./shared/ReviewBadge";
 import ProgramacionPicker from "./shared/ProgramacionPicker";
+import HierarchyPicker from "./shared/HierarchyPicker";
 export { NotasSection, EditableText };
 import {
   AREAS_PERSONAL,
@@ -629,7 +630,7 @@ function ProyectoBlock({ proyecto, index, total }: { proyecto: Proyecto; index: 
           : <EditableText value={proyecto.nombre} onChange={(v) => dispatch({ type: "RENAME_PROYECTO", id: proyecto.id, nombre: v })} className="text-lg font-semibold text-foreground" />
         }
         <ReviewBadge review={proyecto.review} nivel="proyecto" targetId={proyecto.id} />
-        {isEmpresa && <ResponsableBadge nombre={proyecto.responsable} />}
+        {isEmpresa && <ResponsableBadge nombre={proyecto.responsable} editable={!isMentor} miembros={state.miembros} onChange={(v) => dispatch({ type: "UPDATE_PROYECTO", id: proyecto.id, changes: { responsable: v } })} />}
         <span className="rounded-full bg-surface px-3 py-1 text-xs font-medium text-muted">{allResultados.length} result.</span>
         {isOperacion ? (
           <span className="rounded-md bg-indigo-100 px-2 py-0.5 text-[11px] font-semibold text-indigo-700">Operación</span>
@@ -1255,6 +1256,7 @@ function DurationInput({ value, onChange }: { value: number | null; onChange: (v
 function SOPBlock({ sop, index, total }: { sop: PlantillaProceso; index: number; total: number }) {
   const state = useAppState();
   const dispatch = useAppDispatch();
+  const { nombre: currentUser } = useUsuario();
   const isMentor = useIsMentor();
   const [open, setOpen] = useState(false);
   const [confirm, setConfirm] = useState(false);
@@ -1267,53 +1269,28 @@ function SOPBlock({ sop, index, total }: { sop: PlantillaProceso; index: number;
 
   const hasActiveEntregable = state.entregables.some((e) => e.plantillaId === sop.id && (e.estado === "en_proceso" || e.estado === "planificado"));
 
+  const [sopDestPicker, setSOPDestPicker] = useState(false);
+  const [sopPendingDate, setSOPPendingDate] = useState<string | null>(null);
+
   function handleSOPPlanSelect(fechaInicio: string, _: PlanNivel) {
-    createSOPEntregable(fechaInicio);
+    setSOPPendingDate(fechaInicio);
+    setShowDatePicker(false);
+    setSOPDestPicker(true);
   }
 
-  function createSOPEntregable(fechaInicio: string) {
-    let resultadoId: string | null = null;
-    if (sop.proyectoId) {
-      const existingRes = state.resultados.find((r) => r.proyectoId === sop.proyectoId);
-      if (existingRes) {
-        resultadoId = existingRes.id;
-      } else {
-        const newResId = generateId();
-        dispatch({ type: "ADD_RESULTADO", payload: { id: newResId, nombre: "Procesos", descripcion: null, proyectoId: sop.proyectoId!, creado: new Date().toISOString(), semana: null, fechaLimite: null, fechaInicio: null, diasEstimados: null } });
-        resultadoId = newResId;
-      }
-    } else {
-      const firstProj = state.proyectos.find((p) => p.area === sop.area);
-      if (firstProj) {
-        const existingRes = state.resultados.find((r) => r.proyectoId === firstProj.id);
-        if (existingRes) {
-          resultadoId = existingRes.id;
-        } else {
-          const newResId = generateId();
-          dispatch({ type: "ADD_RESULTADO", payload: { id: newResId, nombre: "Procesos", descripcion: null, proyectoId: firstProj.id, creado: new Date().toISOString(), semana: null, fechaLimite: null, fechaInicio: null, diasEstimados: null } });
-          resultadoId = newResId;
-        }
-      }
-    }
-    if (!resultadoId) return;
-
-    dispatch({ type: "ADD_ENTREGABLE", payload: {
-      id: generateId(),
-      nombre: sop.nombre,
-      resultadoId,
-      tipo: "sop" as const,
+  function materializeSOP(fechaInicio: string, proyectoId?: string, resultadoId?: string) {
+    dispatch({
+      type: "MATERIALIZE_SOP",
       plantillaId: sop.id,
-      diasEstimados: sop.pasos.length,
-      diasHechos: 0,
-      esDiaria: false,
-      responsable: sop.responsableDefault,
-      estado: "en_proceso" as const,
-      creado: new Date().toISOString(),
-      semana: null,
-      fechaLimite: null,
-      fechaInicio: fechaInicio,
-    }});
-    setShowDatePicker(false);
+      area: sop.area,
+      responsable: sop.responsableDefault ?? currentUser,
+      currentUser,
+      dateKey: fechaInicio,
+      ids: { resultado: generateId(), entregable: generateId(), paso: generateId(), proyecto: generateId() },
+      proyectoId,
+      resultadoId,
+      autoStart: false,
+    });
     setJustCreated(true);
     clearTimeout(justCreatedTimer.current);
     justCreatedTimer.current = setTimeout(() => setJustCreated(false), 2500);
@@ -1379,6 +1356,20 @@ function SOPBlock({ sop, index, total }: { sop: PlantillaProceso; index: number;
         <PlanPicker onSelect={handleSOPPlanSelect} onCancel={() => setShowDatePicker(false)} />
       )}
 
+      {sopDestPicker && sopPendingDate && (
+        <HierarchyPicker
+          depth="resultado"
+          initialArea={sop.area}
+          title={`Destino para "${sop.nombre}"`}
+          onSelect={(sel) => {
+            materializeSOP(sopPendingDate, sel.proyectoId, sel.resultadoId);
+            setSOPDestPicker(false);
+            setSOPPendingDate(null);
+          }}
+          onCancel={() => { setSOPDestPicker(false); setSOPPendingDate(null); }}
+        />
+      )}
+
       {showNotas && (
         <div className="mx-5 mb-3 ml-14">
           <NotasSection notas={sop.notas ?? []} nivel="plantilla" targetId={sop.id} />
@@ -1393,9 +1384,13 @@ function SOPBlock({ sop, index, total }: { sop: PlantillaProceso; index: number;
               : <EditableText value={sop.objetivo} onChange={(v) => dispatch({ type: "UPDATE_PLANTILLA", id: sop.id, changes: { objetivo: v } })}
                   className="mb-2 block text-sm italic text-muted" placeholder="Objetivo..." />
           )}
-          {sop.responsableDefault && (
-            <p className="mb-2 text-sm text-muted">Responsable: <strong className="text-foreground">{sop.responsableDefault}</strong></p>
-          )}
+          <div className="mb-2 flex items-center gap-2 text-sm text-muted">
+            <span>Responsable:</span>
+            {isMentor
+              ? <strong className="text-foreground">{sop.responsableDefault || "—"}</strong>
+              : <ResponsableBadge nombre={sop.responsableDefault} editable miembros={state.miembros} onChange={(v) => dispatch({ type: "UPDATE_PLANTILLA", id: sop.id, changes: { responsableDefault: v } })} />
+            }
+          </div>
           {sop.disparador && (
             isMentor
               ? <p className="mb-3 text-sm text-muted">{sop.disparador}</p>
@@ -1430,11 +1425,29 @@ function ConfirmDelete({ label, onConfirm, onCancel }: { label: string; onConfir
   );
 }
 
-function ResponsableBadge({ nombre }: { nombre?: string }) {
-  if (!nombre) return null;
+function ResponsableBadge({ nombre, editable, miembros, onChange }: { nombre?: string; editable?: boolean; miembros?: { id: string; nombre: string }[]; onChange?: (v: string) => void }) {
+  const [open, setOpen] = useState(false);
+  if (!nombre && !editable) return null;
+  if (!editable || !miembros || !onChange) {
+    return nombre ? <span className="rounded-md bg-surface px-2 py-0.5 text-[11px] font-medium text-muted" title="Responsable">{nombre}</span> : null;
+  }
   return (
-    <span className="rounded-md bg-surface px-2 py-0.5 text-[11px] font-medium text-muted" title="Responsable">
-      {nombre}
+    <span className="relative" onClick={(e) => e.stopPropagation()}>
+      <button onClick={() => setOpen(!open)}
+        className={`rounded-md px-2 py-0.5 text-[11px] font-medium transition-colors ${nombre ? "bg-surface text-muted hover:bg-accent-soft hover:text-accent" : "bg-accent-soft/50 text-accent/70 hover:bg-accent-soft"}`}
+        title="Cambiar responsable">
+        {nombre || "+ Responsable"}
+      </button>
+      {open && (
+        <div className="absolute left-0 top-full z-50 mt-1 max-h-40 overflow-y-auto rounded-lg border border-border bg-background shadow-lg">
+          {miembros.map((m) => (
+            <button key={m.id} onClick={() => { onChange(m.nombre); setOpen(false); }}
+              className={`block w-full whitespace-nowrap px-3 py-1.5 text-left text-xs transition-colors hover:bg-accent-soft ${m.nombre === nombre ? "font-bold text-accent" : "text-foreground"}`}>
+              {m.nombre}
+            </button>
+          ))}
+        </div>
+      )}
     </span>
   );
 }
