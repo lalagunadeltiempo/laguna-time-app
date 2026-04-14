@@ -312,7 +312,7 @@ export function PlanSemana({ selectedDate }: Props) {
       {/* Picker modal */}
       {pickDay && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/20 px-6 backdrop-blur-sm"
-          role="dialog" aria-modal="true" tabIndex={-1} ref={(el) => el?.focus()}
+          role="dialog" aria-modal="true" tabIndex={-1}
           onClick={(e) => { if (e.target === e.currentTarget) setPickDay(null); }}
           onKeyDown={(e) => { if (e.key === "Escape") setPickDay(null); }}>
           <div className="w-full max-w-md rounded-2xl bg-background p-5 shadow-xl">

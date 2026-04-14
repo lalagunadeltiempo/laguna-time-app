@@ -609,7 +609,7 @@ function RegistrarPasoPasado({ onClose }: { onClose: () => void }) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 px-4 backdrop-blur-sm"
-      role="dialog" aria-modal="true" tabIndex={-1} ref={(el) => el?.focus()}
+      role="dialog" aria-modal="true"
       onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
       onKeyDown={(e) => { if (e.key === "Escape") onClose(); }}>
       <div className="w-full max-w-md rounded-2xl bg-background p-6 shadow-2xl">
@@ -693,7 +693,6 @@ function EndOfDayFlow({
       aria-modal="true"
       aria-label="Cerrar el día"
       tabIndex={-1}
-      ref={(el) => el?.focus()}
       onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
       onKeyDown={(e) => { if (e.key === "Escape") onClose(); }}
     >

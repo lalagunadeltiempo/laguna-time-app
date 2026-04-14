@@ -436,7 +436,7 @@ export function CerrarPaso({ paso, onClose }: Props) {
           if (!newPlantilla) return null;
           return (
             <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/30 px-4 backdrop-blur-sm"
-              role="dialog" aria-modal="true" tabIndex={-1} ref={(el) => el?.focus()}
+              role="dialog" aria-modal="true" tabIndex={-1}
               onClick={(e) => { if (e.target === e.currentTarget) { setShowConvertWizard(false); onClose(); } }}
               onKeyDown={(e) => { if (e.key === "Escape") { setShowConvertWizard(false); onClose(); } }}>
               <div className="w-full max-w-sm rounded-2xl bg-background p-5 shadow-xl">
