@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import { useAppState, useAppDispatch } from "@/lib/context";
 import { useUsuario, useIsMentor } from "@/lib/usuario";
 import { ambitoDeArea, AREA_COLORS, type Entregable, type Proyecto, type Ambito, type MiembroInfo } from "@/lib/types";
+import { projectSOPsForRange, summarizeSOPsByWeek, type SOPWeekSummary } from "@/lib/sop-projector";
 
 export type AmbitoFilter = "todo" | Ambito;
 type RAG = "green" | "amber" | "red";
@@ -23,6 +24,7 @@ interface EntCard {
   proyecto: Proyecto;
   areaHex: string;
   rag: RAG;
+  arrastrado?: boolean;
 }
 
 function getWeeksOfMonth(date: Date): WeekDef[] {
@@ -136,9 +138,15 @@ export function PlanMes({ selectedDate }: Props) {
       }
       if (!inMonth && (ent.estado === "en_proceso" || ent.estado === "planificado") && !ent.fechaInicio) inMonth = true;
 
+      let arrastrado = false;
+      if (!inMonth && ent.estado === "en_proceso" && ent.fechaInicio) {
+        const fi = new Date(ent.fechaInicio + "T12:00:00").getTime();
+        if (fi < monthStart) { inMonth = true; arrastrado = true; }
+      }
+
       if (!inMonth) continue;
 
-      relevant.push({ entregable: ent, proyecto: proj, areaHex, rag: computeRAG(ent, nowMs) });
+      relevant.push({ entregable: ent, proyecto: proj, areaHex, rag: computeRAG(ent, nowMs), arrastrado });
     }
 
     const byWeek = new Map<number, EntCard[]>();
@@ -180,6 +188,19 @@ export function PlanMes({ selectedDate }: Props) {
     dispatch({ type: "UPDATE_ENTREGABLE", id: entId, changes: { fechaInicio: monday, planNivel: "semana", estado: newEstado } });
   }
 
+  const sopWeekSummaries = useMemo(() => {
+    const monthStartD = new Date(selectedDate.getFullYear(), selectedDate.getMonth(), 1);
+    const monthEndD = new Date(selectedDate.getFullYear(), selectedDate.getMonth() + 1, 0);
+    const sopMap = projectSOPsForRange(state, monthStartD, monthEndD, respFilter === "yo" ? currentUser : respFilter !== "todo" ? respFilter : undefined);
+    return summarizeSOPsByWeek(sopMap, weeks, state.plantillas);
+  }, [state, selectedDate, weeks, respFilter, currentUser]);
+
+  const sopTotalWeekly = useMemo(() => {
+    if (sopWeekSummaries.length === 0) return { count: 0, mins: 0 };
+    const mid = sopWeekSummaries[Math.floor(sopWeekSummaries.length / 2)];
+    return { count: mid.totalOcurrencias, mins: mid.totalMinutos };
+  }, [sopWeekSummaries]);
+
   const totalCount = Array.from(weekEntregables.values()).reduce((s, arr) => s + arr.length, 0) + unassigned.length;
 
   return (
@@ -187,7 +208,15 @@ export function PlanMes({ selectedDate }: Props) {
       <div className="mb-6 flex items-center justify-between">
         <div>
           <p className="text-sm font-medium capitalize text-muted">{mesLabel}</p>
-          <p className="text-xs text-muted">{totalCount} entregable{totalCount !== 1 ? "s" : ""} este mes</p>
+          <p className="text-xs text-muted">
+            {totalCount} entregable{totalCount !== 1 ? "s" : ""} este mes
+            {sopTotalWeekly.count > 0 && (
+              <span className="ml-2 text-blue-500">
+                + {sopTotalWeekly.count} SOP{sopTotalWeekly.count !== 1 ? "s" : ""}/sem
+                {sopTotalWeekly.mins > 0 && ` (~${Math.round(sopTotalWeekly.mins / 60)}h)`}
+              </span>
+            )}
+          </p>
         </div>
         <div className="flex flex-wrap items-center gap-3">
           <label className="flex cursor-pointer items-center gap-1.5 text-[11px] text-muted">
@@ -211,9 +240,10 @@ export function PlanMes({ selectedDate }: Props) {
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
             {weeks.map((w) => {
               const cards = weekEntregables.get(w.index) ?? [];
+              const sopSummary = sopWeekSummaries.find((s) => s.weekIndex === w.index);
               return (
                 <WeekColumn key={w.index} week={w} cards={cards} weeks={weeks}
-                  onAssign={isMentor ? undefined : assignToWeek} />
+                  onAssign={isMentor ? undefined : assignToWeek} sopSummary={sopSummary} />
               );
             })}
           </div>
@@ -238,16 +268,19 @@ export function PlanMes({ selectedDate }: Props) {
   );
 }
 
-function WeekColumn({ week, cards, weeks, onAssign }: {
+function WeekColumn({ week, cards, weeks, onAssign, sopSummary }: {
   week: WeekDef;
   cards: EntCard[];
   weeks: WeekDef[];
   onAssign?: (entId: string, monday: string) => void;
+  sopSummary?: SOPWeekSummary;
 }) {
   const isCurrentWeek = useMemo(() => {
     const now = Date.now();
     return now >= week.mondayMs && now <= week.sundayMs;
   }, [week]);
+
+  const [showSops, setShowSops] = useState(false);
 
   return (
     <div className={`rounded-xl border p-4 ${isCurrentWeek ? "border-accent bg-accent/5" : "border-border bg-background"}`}>
@@ -255,11 +288,31 @@ function WeekColumn({ week, cards, weeks, onAssign }: {
         <h4 className={`text-xs font-bold uppercase tracking-wider ${isCurrentWeek ? "text-accent" : "text-muted"}`}>
           {week.label}
         </h4>
-        <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${isCurrentWeek ? "bg-accent/15 text-accent" : "bg-surface text-muted"}`}>
-          {cards.length}
-        </span>
+        <div className="flex items-center gap-1.5">
+          {sopSummary && sopSummary.totalOcurrencias > 0 && (
+            <button onClick={() => setShowSops(!showSops)}
+              className="rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-bold text-blue-600 transition-colors hover:bg-blue-200"
+              title={sopSummary.sops.map((s) => `${s.nombre} (${s.count}×)`).join(", ")}>
+              {sopSummary.totalOcurrencias} SOP
+            </button>
+          )}
+          <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${isCurrentWeek ? "bg-accent/15 text-accent" : "bg-surface text-muted"}`}>
+            {cards.length}
+          </span>
+        </div>
       </div>
-      {cards.length === 0 ? (
+
+      {showSops && sopSummary && sopSummary.sops.length > 0 && (
+        <div className="mb-2 rounded-lg bg-blue-50 p-2">
+          {sopSummary.sops.map((s) => (
+            <p key={s.nombre} className="text-[11px] text-blue-700">
+              {s.nombre} <span className="text-blue-400">({s.count}× · {s.minEstimados} min)</span>
+            </p>
+          ))}
+        </div>
+      )}
+
+      {cards.length === 0 && (!sopSummary || sopSummary.totalOcurrencias === 0) ? (
         <p className="py-3 text-center text-xs text-muted/50">Vacía</p>
       ) : (
         <div className="space-y-2">
@@ -279,18 +332,21 @@ function EntregableCard({ card, weeks, onAssign, currentWeek }: {
   onAssign?: (entId: string, monday: string) => void;
   currentWeek?: number;
 }) {
-  const { entregable, proyecto, areaHex, rag } = card;
+  const { entregable, proyecto, areaHex, rag, arrastrado } = card;
   const [showWeeks, setShowWeeks] = useState(false);
   const isDone = entregable.estado === "hecho";
 
   return (
-    <div className={`rounded-lg border px-3 py-2.5${isDone ? " opacity-50" : ""}`} style={{ borderColor: areaHex + "30", borderLeftWidth: "3px", borderLeftColor: isDone ? "#22c55e" : areaHex }}>
+    <div className={`rounded-lg border px-3 py-2.5${isDone ? " opacity-50" : ""}${arrastrado ? " border-dashed" : ""}`} style={{ borderColor: arrastrado ? "#f59e0b" : areaHex + "30", borderLeftWidth: "3px", borderLeftColor: isDone ? "#22c55e" : arrastrado ? "#f59e0b" : areaHex }}>
       <div className="flex items-center gap-2">
         {isDone
           ? <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-green-500 text-[8px] text-white">✓</span>
           : <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: RAG_HEX[rag] }} />}
         <div className="min-w-0 flex-1">
-          <p className={`truncate text-sm font-medium ${isDone ? "line-through text-muted" : "text-foreground"}`}>{entregable.nombre}</p>
+          <div className="flex items-center gap-1.5">
+            <p className={`truncate text-sm font-medium ${isDone ? "line-through text-muted" : "text-foreground"}`}>{entregable.nombre}</p>
+            {arrastrado && <span className="shrink-0 rounded bg-amber-100 px-1.5 py-0.5 text-[9px] font-bold uppercase text-amber-700">Arrastrado</span>}
+          </div>
           <p className="truncate text-[11px] text-muted">{proyecto.nombre}</p>
         </div>
         {onAssign && (

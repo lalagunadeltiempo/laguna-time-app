@@ -16,6 +16,7 @@ import {
   type Objetivo,
 } from "@/lib/types";
 import { AmbitoToggle, ResponsableToggle, matchesResponsable, type AmbitoFilter, type ResponsableFilter } from "./PlanMes";
+import { projectSOPsForRange, summarizeSOPsByMonth, type SOPMonthSummary } from "@/lib/sop-projector";
 
 const MONTHS_ES = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"];
 
@@ -100,11 +101,16 @@ export function PlanTrimestre({ selectedDate }: Props) {
   const nowMonth = useMemo(() => new Date().getMonth(), []);
 
   function sliceProjNodeForMonth(node: ProjNode, month: number): ProjNode | null {
+    const qStart = new Date(year, qMonths[0], 1).getTime();
     const slicedRes: ResNode[] = node.resultados.map((rn) => ({
       resultado: rn.resultado,
       entregables: rn.entregables.filter((ec) => {
         if (entMonth(ec.ent.fechaInicio) === month) return true;
         if (!ec.ent.fechaInicio && ec.ent.estado === "en_proceso" && month === nowMonth) return true;
+        if (ec.ent.estado === "en_proceso" && ec.ent.fechaInicio && month === nowMonth) {
+          const fi = new Date(ec.ent.fechaInicio + "T12:00:00").getTime();
+          if (fi < qStart) return true;
+        }
         return false;
       }),
     })).filter((rn) => rn.entregables.length > 0 || entMonth(rn.resultado.fechaInicio) === month);
@@ -114,10 +120,15 @@ export function PlanTrimestre({ selectedDate }: Props) {
   }
 
   function sliceProjNodeBacklog(node: ProjNode): ProjNode | null {
+    const qStart = new Date(year, qMonths[0], 1).getTime();
     const slicedRes: ResNode[] = node.resultados.map((rn) => ({
       resultado: rn.resultado,
       entregables: rn.entregables.filter((ec) => {
         if (!ec.ent.fechaInicio && ec.ent.estado === "en_proceso" && qMonths.includes(nowMonth)) return false;
+        if (ec.ent.estado === "en_proceso" && ec.ent.fechaInicio) {
+          const fi = new Date(ec.ent.fechaInicio + "T12:00:00").getTime();
+          if (fi < qStart && qMonths.includes(nowMonth)) return false;
+        }
         return !entInQuarter(ec.ent.fechaInicio, qMonths, year);
       }),
     })).filter((rn) => rn.entregables.length > 0
@@ -160,6 +171,13 @@ export function PlanTrimestre({ selectedDate }: Props) {
     return { monthProjects: mProj, operations: ops, backlogProjects: backlog };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state, filtro, respFilter, currentUser, showDone, qMonths, year, nowMonth]);
+
+  const sopMonthSummaries = useMemo(() => {
+    const qStart = new Date(year, qMonths[0], 1);
+    const qEnd = new Date(year, qMonths[2] + 1, 0);
+    const sopMap = projectSOPsForRange(state, qStart, qEnd, respFilter === "yo" ? currentUser : respFilter !== "todo" ? respFilter : undefined);
+    return summarizeSOPsByMonth(sopMap, qMonths, state.plantillas);
+  }, [state, qMonths, year, respFilter, currentUser]);
 
   const objetivos = useMemo(() => {
     return (state.objetivos ?? []).filter(
@@ -261,9 +279,11 @@ export function PlanTrimestre({ selectedDate }: Props) {
           {qMonths.map((m) => {
             const projects = monthProjects.get(m) ?? [];
             const count = projects.reduce((s, pn) => s + pn.entCount + pn.resultados.filter(rn => rn.entregables.length === 0).length, 0);
+            const sopSum = sopMonthSummaries.find((s) => s.month === m);
             return (
               <MonthColumn key={m} month={m} year={year} projects={projects} count={count}
-                qMonths={qMonths} onAssign={assignToMonth} onUnassign={unassignEnt} isMentor={isMentor} />
+                qMonths={qMonths} onAssign={assignToMonth} onUnassign={unassignEnt} isMentor={isMentor}
+                sopSummary={sopSum} />
             );
           })}
         </div>
@@ -299,13 +319,15 @@ export function PlanTrimestre({ selectedDate }: Props) {
    SUB-COMPONENTS
    ================================================================ */
 
-function MonthColumn({ month, year, projects, count, qMonths, onAssign, onUnassign, isMentor }: {
+function MonthColumn({ month, year, projects, count, qMonths, onAssign, onUnassign, isMentor, sopSummary }: {
   month: number; year: number; projects: ProjNode[]; count: number; qMonths: number[];
   onAssign: (id: string, month: number) => void; onUnassign: (id: string) => void; isMentor: boolean;
+  sopSummary?: SOPMonthSummary;
 }) {
   const now = new Date();
   const isCurrent = now.getFullYear() === year && now.getMonth() === month;
   const overloaded = count > 6;
+  const [showSops, setShowSops] = useState(false);
 
   return (
     <div className={`rounded-xl border p-3 ${isCurrent ? "border-accent/40 bg-accent/5" : "border-border bg-background"}`}>
@@ -313,7 +335,27 @@ function MonthColumn({ month, year, projects, count, qMonths, onAssign, onUnassi
         <h4 className={`text-center text-xs font-bold uppercase ${isCurrent ? "text-accent" : "text-muted"}`}>{MONTHS_ES[month]}</h4>
         <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${overloaded ? "bg-amber-100 text-amber-700" : "bg-surface text-muted"}`}>{count}</span>
       </div>
-      {projects.length === 0 ? (
+
+      {sopSummary && sopSummary.totalOcurrencias > 0 && (
+        <div className="mb-2">
+          <button onClick={() => setShowSops(!showSops)}
+            className="w-full rounded-lg bg-blue-50 px-2 py-1.5 text-center text-[10px] font-medium text-blue-600 transition-colors hover:bg-blue-100">
+            {sopSummary.totalOcurrencias} SOP{sopSummary.totalOcurrencias !== 1 ? "s" : ""} recurrente{sopSummary.totalOcurrencias !== 1 ? "s" : ""}
+            {sopSummary.totalMinutos > 0 && ` (~${Math.round(sopSummary.totalMinutos / 60)}h)`}
+          </button>
+          {showSops && (
+            <div className="mt-1 rounded-lg bg-blue-50 p-2">
+              {sopSummary.sops.map((s) => (
+                <p key={s.nombre} className="text-[10px] text-blue-700">
+                  {s.nombre} <span className="text-blue-400">({s.count}×)</span>
+                </p>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {projects.length === 0 && (!sopSummary || sopSummary.totalOcurrencias === 0) ? (
         <p className="py-4 text-center text-xs text-muted">—</p>
       ) : (
         <div className="space-y-1.5">
