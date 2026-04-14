@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useEffect, useCallback } from "react";
+import { useState, useMemo, useEffect, useCallback, useRef } from "react";
 import { useAppState, useAppDispatch } from "@/lib/context";
 import { usePasosActivos } from "@/lib/hooks";
 import { generateId } from "@/lib/store";
@@ -21,15 +21,18 @@ export function PantallaHoy() {
   const [showEndOfDay, setShowEndOfDay] = useState(false);
   const [quickCapture, setQuickCapture] = useState("");
 
-  // Close stale steps from previous days → reschedule for today
+  // Close stale steps from previous days → reschedule for today (once after data loads)
+  const staleCleaned = useRef(false);
   useEffect(() => {
+    if (staleCleaned.current || pasosActivos.length === 0) return;
     const today = dateStr(new Date());
     const stale = pasosActivos.filter((p) => p.inicioTs && p.inicioTs.slice(0, 10) < today);
-    if (stale.length === 0) return;
+    if (stale.length === 0) { staleCleaned.current = true; return; }
+    staleCleaned.current = true;
     for (const paso of stale) {
       dispatch({ type: "CLOSE_PASO", payload: buildClosedPaso(paso, today) });
     }
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps -- run once on mount
+  }, [pasosActivos, dispatch]);
 
   // Auto-close at midnight → reschedule for tomorrow
   const autoCloseAtMidnight = useCallback(() => {
