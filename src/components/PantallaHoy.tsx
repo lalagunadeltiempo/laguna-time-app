@@ -603,6 +603,7 @@ function RegistrarPasoPasado({ onClose }: { onClose: () => void }) {
       pausas: [],
       siguientePaso: null,
     };
+    dispatch({ type: "ADD_PASO", payload: paso });
     dispatch({ type: "CLOSE_PASO", payload: paso });
     onClose();
   }
