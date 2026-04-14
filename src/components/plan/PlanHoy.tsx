@@ -14,11 +14,32 @@ import HierarchyPicker from "@/components/shared/HierarchyPicker";
 
 function addDays(d: Date, n: number) { const r = new Date(d); r.setDate(r.getDate() + n); return r; }
 
-const HOURS = Array.from({ length: 24 }, (_, i) => i);
-
 function toDateKey(d: Date) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
+
+function minsFromMidnight(ts: string): number {
+  const d = new Date(ts);
+  return d.getHours() * 60 + d.getMinutes();
+}
+
+function fmtTime(min: number): string {
+  const h = Math.floor(min / 60) % 24;
+  const m = min % 60;
+  return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+}
+
+function fmtDuration(mins: number): string {
+  if (mins < 1) return "<1 min";
+  const h = Math.floor(mins / 60);
+  const m = Math.round(mins % 60);
+  if (h === 0) return `${m} min`;
+  if (m === 0) return `${h}h`;
+  return `${h}h ${m}m`;
+}
+
+const PX_PER_MIN = 1.2;
+const MIN_BLOCK_H = 48;
 
 interface Block {
   id: string;
@@ -29,6 +50,10 @@ interface Block {
   hour: number;
   entregableId?: string;
   pasoId?: string;
+  startMin?: number;
+  endMin?: number;
+  timeLabel?: string;
+  durationLabel?: string;
 }
 
 interface Props {
@@ -58,11 +83,17 @@ export function PlanHoy({ selectedDate }: Props) {
   const isToday = dateKey === todayKey;
   const isPast = dateKey < todayKey;
 
+  const [nowMin, setNowMin] = useState(() => { const n = new Date(); return n.getHours() * 60 + n.getMinutes(); });
+  useEffect(() => {
+    if (!isToday) return;
+    const id = setInterval(() => { const n = new Date(); setNowMin(n.getHours() * 60 + n.getMinutes()); }, 30_000);
+    return () => clearInterval(id);
+  }, [isToday]);
+
   useEffect(() => {
     if (isToday && scrollRef.current) {
-      const nowHour = new Date().getHours();
-      const row = scrollRef.current.querySelector(`[data-hour="${nowHour}"]`);
-      if (row) row.scrollIntoView({ block: "center", behavior: "smooth" });
+      const nowLine = scrollRef.current.querySelector("[data-now-line]");
+      if (nowLine) nowLine.scrollIntoView({ block: "center", behavior: "smooth" });
     }
   }, [isToday, dateKey]);
 
@@ -83,9 +114,11 @@ export function PlanHoy({ selectedDate }: Props) {
       const res = ent ? resultados.find((r) => r.id === ent.resultadoId) : undefined;
       const proj = res ? proyectos.find((pr) => pr.id === res.proyectoId) : undefined;
       const hour = new Date(paso.inicioTs).getHours();
-
       const isDone = !!paso.finTs;
       const isActive = !isDone && pasosActivos.includes(paso.id);
+      const startMin = minsFromMidnight(paso.inicioTs);
+      const endMin = paso.finTs ? minsFromMidnight(paso.finTs) : startMin;
+      const dur = endMin - startMin;
 
       result.push({
         id: paso.id,
@@ -96,6 +129,10 @@ export function PlanHoy({ selectedDate }: Props) {
         hour,
         entregableId: ent.id,
         pasoId: paso.id,
+        startMin,
+        endMin: isDone ? endMin : undefined,
+        timeLabel: isDone ? `${fmtTime(startMin)} – ${fmtTime(endMin)}` : fmtTime(startMin),
+        durationLabel: isDone ? fmtDuration(dur) : undefined,
       });
     }
 
@@ -309,50 +346,8 @@ export function PlanHoy({ selectedDate }: Props) {
         </div>
       )}
 
-      {/* HORARIO — solo pasos en ejecución */}
-      <div ref={scrollRef} className="relative max-h-[60vh] overflow-y-auto rounded-xl border border-border bg-background">
-        <h3 className="sticky top-0 z-10 border-b border-border bg-background/95 px-4 py-2 text-xs font-bold uppercase tracking-wider text-muted backdrop-blur-sm">
-          Horario
-        </h3>
-        {HOURS.map((hour) => {
-          const hourBlocks = executedBlocks.filter((b) => b.hour === hour);
-          return (
-            <div key={hour} data-hour={hour} className="relative flex min-h-[44px] border-b border-border/50 last:border-b-0">
-              <div className="flex w-14 shrink-0 items-start justify-end pr-3 pt-1">
-                <span className="text-xs font-medium text-muted">{String(hour).padStart(2, "0")}:00</span>
-              </div>
-              <div className="flex-1 px-2 py-1">
-                {hourBlocks.map((block) => {
-                  const color = AREA_COLORS[block.area]?.hex ?? "#888";
-                  return (
-                    <div key={block.id} className="mb-1 rounded-lg border-l-[3px] px-3 py-2"
-                      style={{ borderLeftColor: color, backgroundColor: color + "0c" }}>
-                      <div className="flex items-center gap-2">
-                        {block.type === "active" && (
-                          <span className="relative flex h-2 w-2" aria-hidden="true">
-                            <span className="absolute inline-flex h-full w-full animate-ping rounded-full opacity-75" style={{ backgroundColor: "#4ade80" }} />
-                            <span className="relative inline-flex h-2 w-2 rounded-full" style={{ backgroundColor: "#22c55e" }} />
-                          </span>
-                        )}
-                        {block.type === "done" && (
-                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#22c55e" strokeWidth="3" strokeLinecap="round"><polyline points="20 6 9 17 4 12" /></svg>
-                        )}
-                        <span className={`text-sm font-medium ${block.type === "done" ? "text-muted line-through" : "text-foreground"}`}>{block.title}</span>
-                      </div>
-                      <p className="mt-0.5 text-xs text-muted">{block.subtitle}</p>
-                    </div>
-                  );
-                })}
-                {hourBlocks.length === 0 && (
-                  <div className="flex h-full min-h-[28px] items-center px-3">
-                    <span className="text-xs text-muted/20">·</span>
-                  </div>
-                )}
-              </div>
-            </div>
-          );
-        })}
-      </div>
+      {/* HORARIO — timeline proporcional */}
+      <TimelineHorario scrollRef={scrollRef} executedBlocks={executedBlocks} isToday={isToday} nowMin={nowMin} />
 
       {/* Drill-down dialog */}
       {showDrillDown && <DrillDownDialog dateKey={dateKey} onClose={() => setShowDrillDown(false)} />}
@@ -401,6 +396,126 @@ export function PlanHoy({ selectedDate }: Props) {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+/* ============================================================
+   TIMELINE HORARIO — proportional time blocks
+   ============================================================ */
+
+function TimelineHorario({ scrollRef, executedBlocks, isToday, nowMin }: {
+  scrollRef: React.RefObject<HTMLDivElement | null>;
+  executedBlocks: Block[];
+  isToday: boolean;
+  nowMin: number;
+}) {
+  const hasBlocks = executedBlocks.length > 0;
+
+  const rangeStart = useMemo(() => {
+    if (!hasBlocks) return isToday ? Math.max(0, nowMin - 60) : 8 * 60;
+    const firstStart = Math.min(...executedBlocks.map((b) => b.startMin ?? 0));
+    const hourFloor = Math.floor(firstStart / 60) * 60;
+    return Math.max(0, hourFloor - 60);
+  }, [executedBlocks, hasBlocks, isToday, nowMin]);
+
+  const rangeEnd = useMemo(() => {
+    if (!hasBlocks && !isToday) return 18 * 60;
+    const blockEnds = executedBlocks.map((b) => {
+      if (b.type === "active") return nowMin;
+      return b.endMin ?? (b.startMin ?? 0);
+    });
+    const lastEnd = hasBlocks ? Math.max(...blockEnds) : nowMin;
+    const ref = isToday ? Math.max(lastEnd, nowMin) : lastEnd;
+    const hourCeil = Math.ceil(ref / 60) * 60;
+    return Math.min(24 * 60, hourCeil + 60);
+  }, [executedBlocks, hasBlocks, isToday, nowMin]);
+
+  const totalMin = rangeEnd - rangeStart;
+  const containerH = Math.max(totalMin * PX_PER_MIN, 200);
+
+  const hourMarks = useMemo(() => {
+    const marks: number[] = [];
+    const firstHour = Math.ceil(rangeStart / 60);
+    for (let h = firstHour; h * 60 <= rangeEnd; h++) marks.push(h);
+    return marks;
+  }, [rangeStart, rangeEnd]);
+
+  return (
+    <div ref={scrollRef} className="relative max-h-[60vh] overflow-y-auto rounded-xl border border-border bg-background">
+      <h3 className="sticky top-0 z-10 border-b border-border bg-background/95 px-4 py-2 text-xs font-bold uppercase tracking-wider text-muted backdrop-blur-sm">
+        Horario
+      </h3>
+      <div className="relative ml-14" style={{ height: containerH }}>
+        {/* Hour marks */}
+        {hourMarks.map((h) => {
+          const top = (h * 60 - rangeStart) * PX_PER_MIN;
+          return (
+            <div key={h} className="absolute left-0 right-0" style={{ top }}>
+              <div className="border-t border-dashed border-border/30" />
+              <span className="absolute -left-14 -top-2 w-12 text-right text-[11px] font-medium text-muted/60">
+                {String(h % 24).padStart(2, "0")}:00
+              </span>
+            </div>
+          );
+        })}
+
+        {/* Now line */}
+        {isToday && nowMin >= rangeStart && nowMin <= rangeEnd && (
+          <div data-now-line className="absolute left-0 right-0 z-[5] flex items-center" style={{ top: (nowMin - rangeStart) * PX_PER_MIN }}>
+            <div className="h-px flex-1 bg-accent" />
+            <span className="ml-1 shrink-0 rounded-full bg-accent px-2 py-0.5 text-[9px] font-bold text-white">
+              {fmtTime(nowMin)}
+            </span>
+          </div>
+        )}
+
+        {/* Time blocks */}
+        {executedBlocks.map((block) => {
+          const color = AREA_COLORS[block.area]?.hex ?? "#888";
+          const bStart = block.startMin ?? 0;
+          const bEnd = block.type === "active" ? nowMin : (block.endMin ?? bStart);
+          const durMin = Math.max(bEnd - bStart, 0);
+          const rawH = durMin * PX_PER_MIN;
+          const h = Math.max(rawH, MIN_BLOCK_H);
+          const top = (bStart - rangeStart) * PX_PER_MIN;
+          const isActive = block.type === "active";
+          const durLabel = isActive ? `${fmtDuration(durMin)}...` : (block.durationLabel ?? "");
+          const timeLabel = isActive ? `${fmtTime(bStart)} – ...` : (block.timeLabel ?? "");
+
+          return (
+            <div key={block.id} className={`absolute left-1 right-1 overflow-hidden rounded-lg border-l-[3px] px-3 py-1.5 ${isActive ? "border-b border-dashed border-b-green-300" : ""}`}
+              style={{ top, height: h, borderLeftColor: color, backgroundColor: color + "0c" }}>
+              <div className="flex items-start justify-between gap-2">
+                <div className="flex min-w-0 flex-1 items-center gap-1.5">
+                  {isActive && (
+                    <span className="relative flex h-2 w-2 shrink-0" aria-hidden="true">
+                      <span className="absolute inline-flex h-full w-full animate-ping rounded-full opacity-75" style={{ backgroundColor: "#4ade80" }} />
+                      <span className="relative inline-flex h-2 w-2 rounded-full" style={{ backgroundColor: "#22c55e" }} />
+                    </span>
+                  )}
+                  {block.type === "done" && (
+                    <svg className="shrink-0" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#22c55e" strokeWidth="3" strokeLinecap="round"><polyline points="20 6 9 17 4 12" /></svg>
+                  )}
+                  <span className={`truncate text-sm font-medium ${block.type === "done" ? "text-muted line-through" : "text-foreground"}`}>{block.title}</span>
+                </div>
+                <span className="shrink-0 text-[10px] text-muted/70">{timeLabel}</span>
+              </div>
+              <div className="flex items-end justify-between gap-2">
+                <p className="truncate text-[11px] text-muted">{block.subtitle}</p>
+                {durLabel && <span className="shrink-0 text-[10px] font-semibold text-muted">{durLabel}</span>}
+              </div>
+            </div>
+          );
+        })}
+
+        {/* Empty state */}
+        {!hasBlocks && (
+          <div className="flex h-full items-center justify-center">
+            <p className="text-xs text-muted/50">Sin actividad registrada</p>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
