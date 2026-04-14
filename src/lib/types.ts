@@ -289,5 +289,6 @@ export interface AppState {
   miembros: MiembroInfo[];
   activityLog: ActivityEntry[];
   objetivos: Objetivo[];
+  mtp?: string;
   _migrationVersion?: number;
 }

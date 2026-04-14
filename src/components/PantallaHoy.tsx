@@ -1,11 +1,11 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect, useCallback } from "react";
 import { useAppState, useAppDispatch } from "@/lib/context";
 import { usePasosActivos } from "@/lib/hooks";
 import { generateId } from "@/lib/store";
 import { useUsuario, useIsMentor } from "@/lib/usuario";
-import type { InboxItem } from "@/lib/types";
+import type { InboxItem, Paso } from "@/lib/types";
 import { PasoActivoCard } from "./PasoActivo";
 import { NuevoPaso } from "./NuevoPaso";
 import { VistaInbox } from "./VistaInbox";
@@ -20,6 +20,22 @@ export function PantallaHoy() {
   const [showInbox, setShowInbox] = useState(false);
   const [showEndOfDay, setShowEndOfDay] = useState(false);
   const [quickCapture, setQuickCapture] = useState("");
+
+  const autoCloseAtMidnight = useCallback(() => {
+    for (const paso of pasosActivos) {
+      dispatch({ type: "CLOSE_PASO", payload: buildClosedPaso(paso) });
+    }
+  }, [pasosActivos, dispatch]);
+
+  useEffect(() => {
+    if (pasosActivos.length === 0) return;
+    const now = new Date();
+    const midnight = new Date(now);
+    midnight.setHours(24, 0, 0, 0);
+    const ms = midnight.getTime() - now.getTime();
+    const timer = setTimeout(autoCloseAtMidnight, ms);
+    return () => clearTimeout(timer);
+  }, [pasosActivos, autoCloseAtMidnight]);
 
   if (isMentor) return <div className="p-8 text-center text-muted">Vista no disponible para mentor.</div>;
 
@@ -111,18 +127,16 @@ export function PantallaHoy() {
         </button>
       )}
 
-      {/* End of day button */}
-      {hasOpenWork && (
-        <button
-          onClick={() => setShowEndOfDay(true)}
-          className="mb-5 flex w-full items-center justify-center gap-2 rounded-xl border border-border px-4 py-3 text-sm text-muted transition-colors hover:bg-surface hover:text-foreground"
-        >
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-            <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
-          </svg>
-          Cerrar el día
-        </button>
-      )}
+      {/* End of day button — always visible */}
+      <button
+        onClick={() => setShowEndOfDay(true)}
+        className="mb-5 flex w-full items-center justify-center gap-2 rounded-xl border border-border px-4 py-3 text-sm text-muted transition-colors hover:bg-surface hover:text-foreground"
+      >
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+          <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
+        </svg>
+        {hasOpenWork ? "Cerrar el día" : "Día completado"}
+      </button>
 
       {/* End of day flow */}
       {showEndOfDay && (
@@ -145,7 +159,25 @@ export function PantallaHoy() {
    END OF DAY FLOW
    ============================================================ */
 
-import type { Paso } from "@/lib/types";
+function tomorrowStr() {
+  const t = new Date();
+  t.setDate(t.getDate() + 1);
+  return `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, "0")}-${String(t.getDate()).padStart(2, "0")}`;
+}
+
+function buildClosedPaso(paso: Paso): Paso {
+  return {
+    ...paso,
+    finTs: new Date().toISOString(),
+    estado: paso.nombre,
+    siguientePaso: {
+      tipo: "continuar",
+      nombre: paso.nombre,
+      cuando: "manana",
+      fechaProgramada: tomorrowStr(),
+    },
+  };
+}
 
 function EndOfDayFlow({
   pasosActivos,
@@ -162,22 +194,14 @@ function EndOfDayFlow({
   const state = useAppState();
 
   function markContinueTomorrow(paso: Paso) {
-    const tomorrow = new Date();
-    tomorrow.setDate(tomorrow.getDate() + 1);
-    const tomorrowStr = `${tomorrow.getFullYear()}-${String(tomorrow.getMonth() + 1).padStart(2, "0")}-${String(tomorrow.getDate()).padStart(2, "0")}`;
+    dispatch({ type: "CLOSE_PASO", payload: buildClosedPaso(paso) });
+  }
 
-    const updated: Paso = {
-      ...paso,
-      finTs: new Date().toISOString(),
-      estado: paso.nombre,
-      siguientePaso: {
-        tipo: "continuar",
-        nombre: paso.nombre,
-        cuando: "manana",
-        fechaProgramada: tomorrowStr,
-      },
-    };
-    dispatch({ type: "CLOSE_PASO", payload: updated });
+  function closeAll() {
+    for (const paso of pasosActivos) {
+      dispatch({ type: "CLOSE_PASO", payload: buildClosedPaso(paso) });
+    }
+    onClose();
   }
 
   return (
@@ -207,9 +231,21 @@ function EndOfDayFlow({
         {/* Active steps */}
         {pasosActivos.length > 0 && (
           <div className="mb-6">
-            <h3 className="mb-3 text-sm font-semibold text-foreground">
-              {pasosActivos.length} {pasosActivos.length === 1 ? "paso abierto" : "pasos abiertos"}
-            </h3>
+            <div className="mb-3 flex items-center justify-between">
+              <h3 className="text-sm font-semibold text-foreground">
+                {pasosActivos.length} {pasosActivos.length === 1 ? "paso abierto" : "pasos abiertos"}
+              </h3>
+            </div>
+
+            {/* Close all button */}
+            <button
+              onClick={closeAll}
+              className="mb-3 w-full rounded-xl bg-gradient-to-r from-accent to-orange-500 py-3 text-sm font-semibold text-white shadow-md shadow-accent/20 transition-transform hover:scale-[1.01] active:scale-[0.99]"
+            >
+              Cerrar todos y continuar mañana
+            </button>
+
+            <p className="mb-2 text-center text-[10px] text-muted">o cierra uno a uno:</p>
             <div className="space-y-2">
               {pasosActivos.map((paso) => {
                 const ent = state.entregables.find((e) => e.id === paso.entregableId);

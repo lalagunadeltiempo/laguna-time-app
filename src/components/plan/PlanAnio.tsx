@@ -72,11 +72,17 @@ export function PlanAnio({ selectedDate }: Props) {
       if (filtro !== "todo" && ambitoDeArea(proj.area) !== filtro) continue;
       const results = state.resultados.filter((r) => r.proyectoId === proj.id);
       const entregs = state.entregables.filter((e) => results.some((r) => r.id === e.resultadoId));
-      if (entregs.length === 0 && !proj.fechaInicio) continue;
 
       const done = entregs.filter((e) => e.estado === "hecho").length;
       const total = entregs.length;
       const percent = total > 0 ? Math.round((done / total) * 100) : 0;
+
+      if (proj.tipo === "operacion") {
+        if (total > 0) items.push({ proyecto: proj, startMonth: 0, endMonth: 11, percent, total, done });
+        continue;
+      }
+
+      if (entregs.length === 0 && !proj.fechaInicio) continue;
 
       let startMonth = currentMonth >= 0 ? currentMonth : 0;
       if (proj.fechaInicio) {
@@ -131,12 +137,54 @@ export function PlanAnio({ selectedDate }: Props) {
 
   const areaHex = (a: Area) => AREA_COLORS[a]?.hex ?? "#888";
 
+  const [editingMtp, setEditingMtp] = useState(false);
+  const [mtpDraft, setMtpDraft] = useState(state.mtp ?? "");
+
+  function saveMtp() {
+    dispatch({ type: "SET_MTP", mtp: mtpDraft.trim() });
+    setEditingMtp(false);
+  }
+
   return (
     <div className="flex-1 space-y-8">
       <div className="flex items-center justify-between">
         <p className="text-sm font-medium text-muted">{year} · Visión anual</p>
         <AmbitoToggle value={filtro} onChange={setFiltro} />
       </div>
+
+      {/* MTP */}
+      <section className="rounded-2xl border-2 border-accent/20 bg-gradient-to-br from-accent/5 to-transparent p-6">
+        <h3 className="mb-2 text-[10px] font-bold uppercase tracking-widest text-accent/60">Propósito Transformador Masivo</h3>
+        {editingMtp && !isMentor ? (
+          <div className="space-y-2">
+            <textarea
+              value={mtpDraft}
+              onChange={(e) => setMtpDraft(e.target.value)}
+              placeholder="Define tu Propósito Transformador Masivo..."
+              rows={2}
+              autoFocus
+              onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); saveMtp(); } }}
+              className="w-full resize-none rounded-lg border border-accent/30 bg-background px-4 py-3 text-lg font-semibold text-foreground placeholder:text-muted/40 focus:border-accent focus:outline-none"
+            />
+            <div className="flex gap-2">
+              <button onClick={saveMtp} className="rounded-lg bg-accent px-4 py-1.5 text-xs font-medium text-white hover:bg-accent/80">Guardar</button>
+              <button onClick={() => { setEditingMtp(false); setMtpDraft(state.mtp ?? ""); }} className="rounded-lg border border-border px-4 py-1.5 text-xs text-muted hover:bg-surface">Cancelar</button>
+            </div>
+          </div>
+        ) : (
+          <button
+            type="button"
+            onClick={() => { if (!isMentor) { setMtpDraft(state.mtp ?? ""); setEditingMtp(true); } }}
+            className={`w-full text-left ${isMentor ? "cursor-default" : "cursor-pointer"}`}
+          >
+            {state.mtp ? (
+              <p className="text-xl font-bold leading-relaxed text-foreground">{state.mtp}</p>
+            ) : (
+              <p className="text-lg italic text-muted/40">{isMentor ? "Sin MTP definido" : "Define tu Propósito Transformador Masivo..."}</p>
+            )}
+          </button>
+        )}
+      </section>
 
       {/* Objetivos anuales */}
       <section>
@@ -208,51 +256,90 @@ export function PlanAnio({ selectedDate }: Props) {
 
       {/* Roadmap */}
       <section>
-        <h3 className="mb-3 text-xs font-bold uppercase tracking-wider text-muted">Roadmap de proyectos</h3>
+        <h3 className="mb-3 text-xs font-bold uppercase tracking-wider text-muted">Roadmap</h3>
         <div className="mb-2 grid grid-cols-6 gap-px sm:grid-cols-12">
           {MONTHS_ES.map((m, i) => (
             <div key={i} className={`rounded-lg px-1 py-1.5 text-center text-[10px] font-medium ${i === currentMonth ? "bg-accent text-white" : "bg-surface text-muted"}`}>{m}</div>
           ))}
         </div>
-        {roadmap.length === 0 ? (
-          <p className="py-8 text-center text-sm text-muted">Sin proyectos activos</p>
-        ) : (
-          <div className="space-y-1.5">
-            {roadmap.map((r) => {
-              const hex = areaHex(r.proyecto.area);
-              const span = r.endMonth - r.startMonth + 1;
-              return (
-                <div key={r.proyecto.id} className="group flex items-center gap-2">
-                  <div className="w-28 shrink-0 truncate text-right text-xs font-medium text-foreground">{r.proyecto.nombre}</div>
-                  <div className="relative flex-1">
-                    <div className="grid h-7 grid-cols-12 gap-px rounded-lg bg-surface">
-                      {Array.from({ length: 12 }, (_, i) => <div key={i} className="h-7 border-r border-border/30 last:border-r-0" />)}
-                    </div>
-                    <div className="absolute top-0 flex h-7 items-center overflow-hidden rounded-lg px-1.5"
-                      style={{
-                        left: `${(r.startMonth / 12) * 100}%`,
-                        width: `${(span / 12) * 100}%`,
-                        backgroundColor: hex + "20",
-                        border: `1px solid ${hex}`,
-                      }}>
-                      <div className="h-full rounded-lg opacity-30" style={{ width: `${r.percent}%`, backgroundColor: hex }} />
-                      <span className="absolute right-1.5 text-[10px] font-bold text-foreground">{r.percent}%</span>
-                    </div>
-                  </div>
-                  {/* Quick quarter assign */}
-                  {!isMentor && (
-                    <div className="hidden gap-0.5 group-hover:flex">
-                      {[0, 1, 2, 3].map((q) => (
-                        <button key={q} onClick={() => assignProjectToQuarter(r.proyecto.id, q)}
-                          className="rounded border border-border px-1 py-0.5 text-[9px] text-muted hover:border-accent hover:text-accent">Q{q + 1}</button>
-                      ))}
-                    </div>
-                  )}
+
+        {(() => {
+          const opsRoad = roadmap.filter((r) => r.proyecto.tipo === "operacion");
+          const projRoad = roadmap.filter((r) => r.proyecto.tipo !== "operacion");
+
+          return (
+            <>
+              {/* Operations — full-year bars */}
+              {opsRoad.length > 0 && (
+                <div className="mb-1 space-y-1">
+                  {opsRoad.map((r) => {
+                    const hex = areaHex(r.proyecto.area);
+                    return (
+                      <div key={r.proyecto.id} className="group flex items-center gap-2">
+                        <div className="w-28 shrink-0 truncate text-right text-xs font-medium text-foreground">
+                          {r.proyecto.nombre}
+                          <span className="ml-1.5 rounded bg-indigo-100 px-1 py-0.5 text-[8px] font-bold text-indigo-600 dark:bg-indigo-500/20 dark:text-indigo-400">OP</span>
+                        </div>
+                        <div className="relative flex-1">
+                          <div className="grid h-6 grid-cols-12 gap-px rounded-lg bg-surface">
+                            {Array.from({ length: 12 }, (_, i) => <div key={i} className="h-6 border-r border-border/30 last:border-r-0" />)}
+                          </div>
+                          <div className="absolute top-0 flex h-6 w-full items-center overflow-hidden rounded-lg border border-dashed px-1.5"
+                            style={{ borderColor: hex + "60", backgroundColor: hex + "08" }}>
+                            <div className="h-full rounded-lg opacity-20" style={{ width: `${r.percent}%`, backgroundColor: hex }} />
+                            <span className="absolute right-1.5 text-[9px] font-bold text-muted">{r.done}/{r.total}</span>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                  <div className="my-2 border-t border-border/40" />
                 </div>
-              );
-            })}
-          </div>
-        )}
+              )}
+
+              {/* Temporal projects */}
+              {projRoad.length === 0 && opsRoad.length === 0 && (
+                <p className="py-8 text-center text-sm text-muted">Sin proyectos activos</p>
+              )}
+              {projRoad.length > 0 && (
+                <div className="space-y-1.5">
+                  {projRoad.map((r) => {
+                    const hex = areaHex(r.proyecto.area);
+                    const span = r.endMonth - r.startMonth + 1;
+                    return (
+                      <div key={r.proyecto.id} className="group flex items-center gap-2">
+                        <div className="w-28 shrink-0 truncate text-right text-xs font-medium text-foreground">{r.proyecto.nombre}</div>
+                        <div className="relative flex-1">
+                          <div className="grid h-7 grid-cols-12 gap-px rounded-lg bg-surface">
+                            {Array.from({ length: 12 }, (_, i) => <div key={i} className="h-7 border-r border-border/30 last:border-r-0" />)}
+                          </div>
+                          <div className="absolute top-0 flex h-7 items-center overflow-hidden rounded-lg px-1.5"
+                            style={{
+                              left: `${(r.startMonth / 12) * 100}%`,
+                              width: `${(span / 12) * 100}%`,
+                              backgroundColor: hex + "20",
+                              border: `1px solid ${hex}`,
+                            }}>
+                            <div className="h-full rounded-lg opacity-30" style={{ width: `${r.percent}%`, backgroundColor: hex }} />
+                            <span className="absolute right-1.5 text-[10px] font-bold text-foreground">{r.percent}%</span>
+                          </div>
+                        </div>
+                        {!isMentor && (
+                          <div className="hidden gap-0.5 group-hover:flex">
+                            {[0, 1, 2, 3].map((q) => (
+                              <button key={q} onClick={() => assignProjectToQuarter(r.proyecto.id, q)}
+                                className="rounded border border-border px-1 py-0.5 text-[9px] text-muted hover:border-accent hover:text-accent">Q{q + 1}</button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </>
+          );
+        })()}
       </section>
     </div>
   );

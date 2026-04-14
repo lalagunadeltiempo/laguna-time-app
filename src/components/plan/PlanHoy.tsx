@@ -207,6 +207,8 @@ export function PlanHoy({ selectedDate }: Props) {
   }
 
   const hasPlanned = plannedBlocks.length > 0 || virtualSOPs.length > 0;
+  const plannedCount = plannedBlocks.length + virtualSOPs.length;
+  const [planOpen, setPlanOpen] = useState(true);
 
   return (
     <div className="flex-1 space-y-4">
@@ -214,8 +216,17 @@ export function PlanHoy({ selectedDate }: Props) {
       {/* PLANIFICADOS PARA HOY — arriba del horario */}
       {(isToday || !isPast) && (
         <div className="rounded-xl border border-border bg-background p-4">
-          <div className="mb-3 flex items-center justify-between">
-            <h3 className="text-sm font-bold uppercase tracking-wider text-foreground">Planificados para hoy</h3>
+          <div className="flex items-center justify-between">
+            <button type="button" onClick={() => setPlanOpen((v) => !v)} className="flex items-center gap-2">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round"
+                className={`shrink-0 text-muted transition-transform ${planOpen ? "rotate-90" : ""}`}>
+                <polyline points="9 18 15 12 9 6" />
+              </svg>
+              <h3 className="text-sm font-bold uppercase tracking-wider text-foreground">Planificados para hoy</h3>
+              {plannedCount > 0 && (
+                <span className="rounded-full bg-accent/10 px-2 py-0.5 text-[10px] font-bold text-accent">{plannedCount}</span>
+              )}
+            </button>
             {!isMentor && (
               <button onClick={() => setShowDrillDown(true)}
                 className="flex items-center gap-1 rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-white hover:bg-accent/90">
@@ -225,9 +236,9 @@ export function PlanHoy({ selectedDate }: Props) {
             )}
           </div>
 
-          {!hasPlanned && <p className="py-3 text-center text-xs text-muted">Nada planificado. Usa el botón + para añadir.</p>}
+          {planOpen && !hasPlanned && <p className="py-3 text-center text-xs text-muted">Nada planificado. Usa el botón + para añadir.</p>}
 
-          <div className="space-y-1.5">
+          {planOpen && <div className="mt-3 space-y-1.5">
             {plannedBlocks.map((block) => {
               const hex = AREA_COLORS[block.area]?.hex ?? "#888";
               return (
@@ -263,7 +274,7 @@ export function PlanHoy({ selectedDate }: Props) {
                 </button>
               );
             })}
-          </div>
+          </div>}
         </div>
       )}
 

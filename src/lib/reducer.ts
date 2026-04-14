@@ -90,7 +90,8 @@ export type Action =
   | { type: "ADD_OBJETIVO"; payload: Objetivo }
   | { type: "UPDATE_OBJETIVO"; id: string; changes: Partial<Pick<Objetivo, "texto" | "completado" | "area">> }
   | { type: "DELETE_OBJETIVO"; id: string }
-  | { type: "SET_REVIEW"; nivel: "proyecto" | "resultado" | "entregable" | "plantilla"; targetId: string; review: ReviewMark };
+  | { type: "SET_REVIEW"; nivel: "proyecto" | "resultado" | "entregable" | "plantilla"; targetId: string; review: ReviewMark }
+  | { type: "SET_MTP"; mtp: string };
 
 function swapSiblings<T extends { id: string }>(
   arr: T[],
@@ -782,6 +783,9 @@ export function reducer(state: AppState, action: Action): AppState {
           return state;
       }
     }
+
+    case "SET_MTP":
+      return { ...state, mtp: action.mtp };
 
     default:
       return state;

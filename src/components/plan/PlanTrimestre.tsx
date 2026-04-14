@@ -129,6 +129,7 @@ export function PlanTrimestre({ selectedDate }: Props) {
 
       if (p.tipo === "operacion") {
         if (fullNode.total > 0) ops.push(fullNode);
+        continue;
       }
 
       for (const m of qMonths) {
