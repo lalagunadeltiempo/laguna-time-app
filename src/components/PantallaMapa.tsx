@@ -475,6 +475,7 @@ function AreaSection({ areaId }: { areaId: Area }) {
   const state = useAppState();
   const dispatch = useAppDispatch();
   const isMentor = useIsMentor();
+  const { nombre: currentUser } = useUsuario();
   const filter = useMapaFilter();
   const highlight = useHighlight();
   const hasFilter = !!filter;
@@ -575,6 +576,11 @@ function AreaSection({ areaId }: { areaId: Area }) {
                   </div>
                 ) : (
                   <p className="py-3 text-base italic text-muted">Sin procesos</p>
+                )}
+                {!isMentor && (
+                  <AddButton label="Proceso" onAdd={(nombre) =>
+                    dispatch({ type: "ADD_PLANTILLA", payload: { id: generateId(), nombre, area: areaId, objetivo: "", disparador: "", programacion: null, proyectoId: null, responsableDefault: currentUser, pasos: [], herramientas: [], excepciones: "", dependeDeIds: [], creado: new Date().toISOString() } })
+                  } />
                 )}
               </>
             )}

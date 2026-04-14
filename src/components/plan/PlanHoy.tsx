@@ -10,6 +10,7 @@ import {
 } from "@/lib/types";
 import { projectSOPsForDate, type ProjectedSOP } from "@/lib/sop-projector";
 import SOPLaunchDialog from "@/components/shared/SOPLaunchDialog";
+import HierarchyPicker from "@/components/shared/HierarchyPicker";
 
 function addDays(d: Date, n: number) { const r = new Date(d); r.setDate(r.getDate() + n); return r; }
 
@@ -42,6 +43,7 @@ export function PlanHoy({ selectedDate }: Props) {
   const [confirmBlock, setConfirmBlock] = useState<Block | null>(null);
   const [confirmSOP, setConfirmSOP] = useState<ProjectedSOP | null>(null);
   const [showDrillDown, setShowDrillDown] = useState(false);
+  const [orphanBlock, setOrphanBlock] = useState<Block | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   const dateKey = useMemo(() => toDateKey(selectedDate), [selectedDate]);
@@ -118,6 +120,7 @@ export function PlanHoy({ selectedDate }: Props) {
 
         const ent = entregables.find((e) => e.id === paso.entregableId);
         if (!ent) continue;
+        if (ent.estado === "hecho" || ent.estado === "cancelada") continue;
         if (ent.responsable && ent.responsable !== currentUser) continue;
         entregableIdsWithPasos.add(ent.id);
         const res = ent ? resultados.find((r) => r.id === ent.resultadoId) : undefined;
@@ -168,7 +171,21 @@ export function PlanHoy({ selectedDate }: Props) {
     ));
   }, [projectedSOPs, state.entregables, dateKey]);
 
-  function startBlock(block: Block) {
+  function tryStartBlock(block: Block) {
+    if (!block.entregableId) return;
+    const ent = state.entregables.find((e) => e.id === block.entregableId);
+    if (!ent) return;
+    const res = state.resultados.find((r) => r.id === ent.resultadoId);
+    const proj = res ? state.proyectos.find((p) => p.id === res.proyectoId) : undefined;
+    if (!res || !proj) {
+      setConfirmBlock(null);
+      setOrphanBlock(block);
+      return;
+    }
+    doStartBlock(block);
+  }
+
+  function doStartBlock(block: Block) {
     if (!block.entregableId) return;
     const existingPending = state.pasos.find(
       (p) => p.entregableId === block.entregableId && !p.inicioTs && !p.finTs && p.nombre === block.title
@@ -328,6 +345,22 @@ export function PlanHoy({ selectedDate }: Props) {
         />
       )}
 
+      {/* Orphan entregable → pick destination first */}
+      {orphanBlock && orphanBlock.entregableId && (
+        <HierarchyPicker
+          depth="resultado"
+          title={`Destino para "${orphanBlock.title}"`}
+          onSelect={(sel) => {
+            if (sel.resultadoId && orphanBlock.entregableId) {
+              dispatch({ type: "MOVE_ENTREGABLE", entregableId: orphanBlock.entregableId, nuevoResultadoId: sel.resultadoId });
+              doStartBlock(orphanBlock);
+            }
+            setOrphanBlock(null);
+          }}
+          onCancel={() => setOrphanBlock(null)}
+        />
+      )}
+
       {/* Confirm start */}
       {confirmBlock && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/20 px-6 backdrop-blur-sm"
@@ -339,7 +372,7 @@ export function PlanHoy({ selectedDate }: Props) {
             <p className="mt-1 text-xs text-muted">{`¿Empezar "${confirmBlock.title}"?`}</p>
             <div className="mt-4 flex gap-2">
               <button onClick={() => setConfirmBlock(null)} className="flex-1 rounded-lg border border-border py-2.5 text-xs font-medium text-muted hover:bg-surface">Cancelar</button>
-              <button onClick={() => startBlock(confirmBlock)} className="flex-1 rounded-lg py-2.5 text-xs font-medium text-white" style={{ backgroundColor: "#16a34a" }}>Empezar</button>
+              <button onClick={() => tryStartBlock(confirmBlock)} className="flex-1 rounded-lg py-2.5 text-xs font-medium text-white" style={{ backgroundColor: "#16a34a" }}>Empezar</button>
             </div>
           </div>
         </div>
@@ -379,12 +412,12 @@ function PlannedBlockRow({ block, hex, isToday, isMentor, refDate, onStart, onRe
               className="rounded-md border border-border bg-background px-2 py-1 text-[10px] font-medium text-foreground hover:bg-surface">Otra fecha</button>
             {!confirmDelete ? (
               <button type="button" onClick={() => setConfirmDelete(true)}
-                className="rounded-md border border-red-200 bg-red-50 px-2 py-1 text-[10px] font-medium text-red-600 hover:bg-red-100 dark:border-red-700/30 dark:bg-red-500/10">Eliminar</button>
+                className="rounded-md border border-zinc-300 bg-zinc-50 px-2 py-1 text-[10px] font-medium text-zinc-600 hover:bg-zinc-100 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-400">Descartar</button>
             ) : (
               <>
-                <span className="text-[10px] text-red-500 py-1">¿Seguro?</span>
+                <span className="text-[10px] text-zinc-500 py-1">¿Seguro?</span>
                 <button type="button" onClick={() => { onReschedule(null); setShowMenu(false); }}
-                  className="rounded-md bg-red-500 px-2 py-1 text-[10px] font-medium text-white hover:bg-red-600">Sí</button>
+                  className="rounded-md bg-zinc-500 px-2 py-1 text-[10px] font-medium text-white hover:bg-zinc-600">Sí</button>
                 <button type="button" onClick={() => setConfirmDelete(false)}
                   className="rounded-md border border-border px-2 py-1 text-[10px] text-muted">No</button>
               </>
