@@ -17,14 +17,8 @@ import type {
   Objetivo,
   ReviewMark,
 } from "./types";
-import { AREAS_EMPRESA, AREAS_PERSONAL } from "./types";
 import { minutosEfectivos } from "./duration";
 import { toDateKey } from "./date-utils";
-
-function areaLabelFor(area: Area): string {
-  const all = [...AREAS_EMPRESA, ...AREAS_PERSONAL];
-  return all.find((a) => a.id === area)?.label ?? area.charAt(0).toUpperCase() + area.slice(1);
-}
 
 export type Action =
   | { type: "INIT"; state: AppState }
@@ -695,56 +689,14 @@ export function reducer(state: AppState, action: Action): AppState {
 
     // --- Materializar SOP atómicamente ---
     case "MATERIALIZE_SOP": {
-      const { plantillaId, area, responsable, currentUser, dateKey, ids, autoStart = true } = action;
+      const { plantillaId, responsable, currentUser, dateKey, ids, autoStart = true } = action;
       const plantilla = state.plantillas.find((pl) => pl.id === plantillaId);
       if (!plantilla || plantilla.pasos.length === 0) return state;
 
       let newState = { ...state };
-      let resultadoId: string | null = action.resultadoId ?? null;
+      const resultadoId: string | null = action.resultadoId ?? null;
 
-      const sopLabel = areaLabelFor(area);
-
-      if (!resultadoId) {
-        const explicitProjId = action.proyectoId ?? plantilla.proyectoId;
-        if (explicitProjId) {
-          const existingRes = newState.resultados.find((r) => r.proyectoId === explicitProjId);
-          resultadoId = existingRes?.id ?? null;
-          if (!resultadoId) {
-            resultadoId = ids.resultado;
-            newState = {
-              ...newState,
-              resultados: [...newState.resultados, {
-                id: resultadoId, nombre: `Procesos ${sopLabel}`, descripcion: null,
-                proyectoId: explicitProjId, creado: new Date().toISOString(),
-                semana: null, fechaLimite: null, fechaInicio: null, diasEstimados: null,
-              }],
-            };
-          }
-        } else {
-          let proj = newState.proyectos.find((p) => p.area === area);
-          if (!proj) {
-            const newProj: Proyecto = {
-              id: ids.proyecto, nombre: `Procesos ${sopLabel}`,
-              descripcion: null, area, creado: new Date().toISOString(), fechaInicio: null,
-            };
-            newState = { ...newState, proyectos: [...newState.proyectos, newProj] };
-            proj = newProj;
-          }
-          const existingRes = newState.resultados.find((r) => r.proyectoId === proj!.id);
-          resultadoId = existingRes?.id ?? null;
-          if (!resultadoId) {
-            resultadoId = ids.resultado;
-            newState = {
-              ...newState,
-              resultados: [...newState.resultados, {
-                id: resultadoId, nombre: `Procesos ${sopLabel}`, descripcion: null,
-                proyectoId: proj.id, creado: new Date().toISOString(),
-                semana: null, fechaLimite: null, fechaInicio: null, diasEstimados: null,
-              }],
-            };
-          }
-        }
-      }
+      if (!resultadoId) return state;
 
       const entregable: Entregable = {
         id: ids.entregable, nombre: plantilla.nombre, resultadoId,

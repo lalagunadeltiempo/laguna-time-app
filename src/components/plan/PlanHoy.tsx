@@ -9,6 +9,7 @@ import {
   type Area, type Entregable, type Ambito,
 } from "@/lib/types";
 import { projectSOPsForDate, type ProjectedSOP } from "@/lib/sop-projector";
+import SOPLaunchDialog from "@/components/shared/SOPLaunchDialog";
 
 function addDays(d: Date, n: number) { const r = new Date(d); r.setDate(r.getDate() + n); return r; }
 
@@ -193,25 +194,7 @@ export function PlanHoy({ selectedDate }: Props) {
     setConfirmBlock(null);
   }
 
-  function materializeSOP(sop: ProjectedSOP) {
-    if (isMentor) return;
-    dispatch({
-      type: "MATERIALIZE_SOP",
-      plantillaId: sop.plantillaId,
-      area: sop.area,
-      responsable: sop.responsable,
-      currentUser,
-      dateKey,
-      ids: {
-        resultado: generateId(),
-        entregable: generateId(),
-        paso: generateId(),
-        proyecto: generateId(),
-      },
-      autoStart: false,
-    });
-    setConfirmSOP(null);
-  }
+  // materializeSOP is now handled by SOPLaunchDialog
 
   const hasPlanned = plannedBlocks.length > 0 || virtualSOPs.length > 0;
   const plannedCount = plannedBlocks.length + virtualSOPs.length;
@@ -333,22 +316,16 @@ export function PlanHoy({ selectedDate }: Props) {
       {/* Drill-down dialog */}
       {showDrillDown && <DrillDownDialog dateKey={dateKey} onClose={() => setShowDrillDown(false)} />}
 
-      {/* Confirm SOP */}
+      {/* Confirm SOP → HierarchyPicker */}
       {confirmSOP && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/20 px-6 backdrop-blur-sm"
-          role="dialog" aria-modal="true" tabIndex={-1} ref={(el) => el?.focus()}
-          onClick={(e) => { if (e.target === e.currentTarget) setConfirmSOP(null); }}
-          onKeyDown={(e) => { if (e.key === "Escape") setConfirmSOP(null); }}>
-          <div className="w-full max-w-sm rounded-2xl bg-background p-5 shadow-xl">
-            <h3 className="text-sm font-semibold text-foreground">Iniciar SOP</h3>
-            <p className="mt-1 text-xs text-muted">{`¿Empezar "${confirmSOP.nombre}" hoy?`}</p>
-            <p className="mt-1 text-xs text-muted">{confirmSOP.pasosTotal} pasos</p>
-            <div className="mt-4 flex gap-2">
-              <button onClick={() => setConfirmSOP(null)} className="flex-1 rounded-lg border border-border py-2.5 text-xs font-medium text-muted hover:bg-surface">Cancelar</button>
-              <button onClick={() => materializeSOP(confirmSOP)} className="flex-1 rounded-lg py-2.5 text-xs font-medium text-white hover:brightness-110" style={{ backgroundColor: AREA_COLORS[confirmSOP.area]?.hex ?? "#6d28d9" }}>Empezar</button>
-            </div>
-          </div>
-        </div>
+        <SOPLaunchDialog
+          plantillaId={confirmSOP.plantillaId}
+          plantillaNombre={confirmSOP.nombre}
+          area={confirmSOP.area}
+          responsable={confirmSOP.responsable}
+          dateKey={dateKey}
+          onClose={() => setConfirmSOP(null)}
+        />
       )}
 
       {/* Confirm start */}

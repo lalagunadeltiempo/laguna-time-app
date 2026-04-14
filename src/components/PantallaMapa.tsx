@@ -1008,6 +1008,20 @@ function EntregableBlock({ entregable, index, total }: { entregable: Entregable;
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M5 12h14M12 5l7 7-7 7" /></svg>
           </button>
         )}
+        {!isMentor && entregable.plantillaId && (
+          <button onClick={(e) => { e.stopPropagation(); dispatch({ type: "SYNC_ENTREGABLE_TO_PLANTILLA", entregableId: entregable.id }); }}
+            className="flex h-6 items-center gap-0.5 rounded px-1.5 text-[10px] text-blue-600 transition-colors hover:bg-blue-50 hover:text-blue-800" title="Sincronizar cambios al SOP">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><polyline points="23 4 23 10 17 10" /><polyline points="1 20 1 14 7 14" /><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" /></svg>
+            <span>Sync SOP</span>
+          </button>
+        )}
+        {!isMentor && !entregable.plantillaId && allPasos.length >= 1 && (
+          <button onClick={(e) => { e.stopPropagation(); dispatch({ type: "CONVERT_ENTREGABLE_TO_SOP", entregableId: entregable.id }); }}
+            className="flex h-6 items-center gap-0.5 rounded px-1.5 text-[10px] text-indigo-600 transition-colors hover:bg-indigo-50 hover:text-indigo-800" title="Convertir en SOP">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><polyline points="14 2 14 8 20 8" /></svg>
+            <span>→ SOP</span>
+          </button>
+        )}
         {!isMentor && <MoveArrows canUp={index > 0} canDown={index < total - 1}
           onUp={() => dispatch({ type: "REORDER_ENTREGABLE", id: entregable.id, direction: "up" })}
           onDown={() => dispatch({ type: "REORDER_ENTREGABLE", id: entregable.id, direction: "down" })} />}

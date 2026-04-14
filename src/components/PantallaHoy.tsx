@@ -6,10 +6,11 @@ import { usePasosActivos, useSOPsHoy, useDependenciasEntrantes, useEsperandoResp
 import { generateId } from "@/lib/store";
 import { useUsuario, useIsMentor } from "@/lib/usuario";
 import { toDateKey } from "@/lib/date-utils";
-import type { InboxItem, Paso } from "@/lib/types";
+import type { InboxItem, Paso, Area } from "@/lib/types";
 import { PasoActivoCard } from "./PasoActivo";
 import { NuevoPaso } from "./NuevoPaso";
 import { VistaInbox } from "./VistaInbox";
+import SOPLaunchDialog from "./shared/SOPLaunchDialog";
 
 export function PantallaHoy() {
   const isMentor = useIsMentor();
@@ -22,6 +23,7 @@ export function PantallaHoy() {
   const [showEndOfDay, setShowEndOfDay] = useState(false);
   const [showRetro, setShowRetro] = useState(false);
   const [quickCapture, setQuickCapture] = useState("");
+  const [sopLaunch, setSopLaunch] = useState<{ plantillaId: string; nombre: string; area: Area; responsable: string } | null>(null);
 
   // Close stale steps from previous days → reschedule for today (once after data loads)
   const staleCleaned = useRef(false);
@@ -202,18 +204,7 @@ export function PantallaHoy() {
                 <p className="text-[11px] text-blue-600">{sop.pasosHoy.length} paso{sop.pasosHoy.length !== 1 ? "s" : ""} pendiente{sop.pasosHoy.length !== 1 ? "s" : ""}</p>
               </div>
               <button
-                onClick={() => {
-                  dispatch({
-                    type: "MATERIALIZE_SOP",
-                    plantillaId: sop.plantilla.id,
-                    area: sop.plantilla.area,
-                    responsable: sop.plantilla.responsableDefault ?? currentUser,
-                    currentUser,
-                    dateKey: toDateKey(new Date()),
-                    ids: { resultado: generateId(), entregable: generateId(), paso: generateId(), proyecto: generateId() },
-                    autoStart: false,
-                  });
-                }}
+                onClick={() => setSopLaunch({ plantillaId: sop.plantilla.id, nombre: sop.plantilla.nombre, area: sop.plantilla.area, responsable: sop.plantilla.responsableDefault ?? currentUser })}
                 className="shrink-0 rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-blue-700"
               >
                 Lanzar
@@ -271,6 +262,16 @@ export function PantallaHoy() {
       {showNuevoPaso && <NuevoPaso onClose={() => setShowNuevoPaso(false)} />}
       {showInbox && <VistaInbox onClose={() => setShowInbox(false)} />}
       {showRetro && <RegistrarPasoPasado onClose={() => setShowRetro(false)} />}
+      {sopLaunch && (
+        <SOPLaunchDialog
+          plantillaId={sopLaunch.plantillaId}
+          plantillaNombre={sopLaunch.nombre}
+          area={sopLaunch.area}
+          responsable={sopLaunch.responsable}
+          dateKey={toDateKey(new Date())}
+          onClose={() => setSopLaunch(null)}
+        />
+      )}
     </div>
   );
 }

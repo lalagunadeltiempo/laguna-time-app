@@ -5,7 +5,7 @@ import { useAppState, useAppDispatch } from "@/lib/context";
 import { useUsuario, useIsMentor } from "@/lib/usuario";
 import { ambitoDeArea, AREA_COLORS, type Area, type Entregable } from "@/lib/types";
 import { projectSOPsForDate, type ProjectedSOP } from "@/lib/sop-projector";
-import { generateId } from "@/lib/store";
+import SOPLaunchDialog from "@/components/shared/SOPLaunchDialog";
 import { AmbitoToggle, type AmbitoFilter } from "./PlanMes";
 
 const DAYS = ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"];
@@ -203,19 +203,7 @@ export function PlanSemana({ selectedDate }: Props) {
 
   const totalHoursAvailable = 8;
 
-  function materializeSOP(sop: ProjectedSOP, targetDate: string) {
-    dispatch({
-      type: "MATERIALIZE_SOP",
-      plantillaId: sop.plantillaId,
-      area: sop.area,
-      responsable: sop.responsable,
-      currentUser,
-      dateKey: targetDate,
-      ids: { resultado: generateId(), entregable: generateId(), paso: generateId(), proyecto: generateId() },
-      autoStart: false,
-    });
-    setConfirmSOP(null);
-  }
+  // materializeSOP is now handled by SOPLaunchDialog
 
   return (
     <div className="flex-1">
@@ -349,19 +337,14 @@ export function PlanSemana({ selectedDate }: Props) {
       )}
 
       {confirmSOP && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/20 px-6 backdrop-blur-sm"
-          role="dialog" aria-modal="true" tabIndex={-1} ref={(el) => el?.focus()}
-          onClick={(e) => { if (e.target === e.currentTarget) setConfirmSOP(null); }}
-          onKeyDown={(e) => { if (e.key === "Escape") setConfirmSOP(null); }}>
-          <div className="w-full max-w-sm rounded-2xl bg-background p-5 shadow-xl">
-            <h3 className="text-sm font-semibold text-foreground">Programar SOP</h3>
-            <p className="mt-1 text-xs text-muted">{`¿Programar "${confirmSOP.sop.nombre}" para ${new Date(confirmSOP.dateKey + "T12:00:00").toLocaleDateString("es-ES", { weekday: "long", day: "numeric", month: "long" })}?`}</p>
-            <div className="mt-4 flex gap-2">
-              <button onClick={() => setConfirmSOP(null)} className="flex-1 rounded-lg border border-border py-2.5 text-xs font-medium text-muted hover:bg-surface">Cancelar</button>
-              <button onClick={() => materializeSOP(confirmSOP.sop, confirmSOP.dateKey)} className="flex-1 rounded-lg py-2.5 text-xs font-medium text-white hover:brightness-110" style={{ backgroundColor: AREA_COLORS[confirmSOP.sop.area]?.hex ?? "#6d28d9" }}>Programar</button>
-            </div>
-          </div>
-        </div>
+        <SOPLaunchDialog
+          plantillaId={confirmSOP.sop.plantillaId}
+          plantillaNombre={confirmSOP.sop.nombre}
+          area={confirmSOP.sop.area}
+          responsable={confirmSOP.sop.responsable}
+          dateKey={confirmSOP.dateKey}
+          onClose={() => setConfirmSOP(null)}
+        />
       )}
     </div>
   );
