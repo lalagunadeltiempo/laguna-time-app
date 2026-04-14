@@ -633,7 +633,7 @@ function ProyectoBlock({ proyecto, index, total }: { proyecto: Proyecto; index: 
         {isEmpresa && <ResponsableBadge nombre={proyecto.responsable} editable={!isMentor} miembros={state.miembros} onChange={(v) => dispatch({ type: "UPDATE_PROYECTO", id: proyecto.id, changes: { responsable: v } })} />}
         <span className="rounded-full bg-surface px-3 py-1 text-xs font-medium text-muted">{allResultados.length} result.</span>
         {isOperacion ? (
-          <span className="rounded-md bg-indigo-100 px-2 py-0.5 text-[11px] font-semibold text-indigo-700">Operación</span>
+          <span className="rounded-md bg-indigo-100 px-2 py-0.5 text-[11px] font-semibold text-indigo-700">Core</span>
         ) : (
           <>
             {hasActiveWork && (
@@ -718,7 +718,7 @@ function ProyectoBlock({ proyecto, index, total }: { proyecto: Proyecto; index: 
                         ? t === "operacion" ? "bg-indigo-100 text-indigo-700" : "bg-zinc-200 text-zinc-700"
                         : "bg-surface text-muted hover:bg-surface-hover"
                     }`}>
-                    {t === "operacion" ? "Operación" : "Proyecto"}
+                    {t === "operacion" ? "Core" : "Proyecto"}
                   </button>
                 );
               })}

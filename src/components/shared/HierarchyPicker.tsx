@@ -170,7 +170,7 @@ export default function HierarchyPicker({
             {proyectos.map((p) => (
               <button key={p.id} onClick={() => selectProyecto(p.id)} className="flex w-full items-center gap-3 rounded-lg px-4 py-3 text-left transition-colors hover:bg-surface">
                 <span className="text-sm font-medium text-foreground">{p.nombre}</span>
-                {p.tipo === "operacion" && <span className="rounded-md bg-indigo-100 px-2 py-0.5 text-[10px] font-semibold text-indigo-700">OP</span>}
+                {p.tipo === "operacion" && <span className="rounded-md bg-indigo-100 px-2 py-0.5 text-[10px] font-semibold text-indigo-700">Core</span>}
               </button>
             ))}
           </div>

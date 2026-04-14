@@ -67,10 +67,10 @@ export function NuevoPaso({ onClose }: Props) {
 
   const entregableNombre = entregableId
     ? state.entregables.find((e) => e.id === entregableId)?.nombre ?? ""
-    : newEntregable.trim();
+    : newEntregable.trim() || pasoName.trim();
 
-  const pasoFinal = pasoName.trim() || entregableNombre;
-  const canStart = pasoFinal && entregableNombre;
+  const pasoFinal = pasoName.trim();
+  const canStart = !!pasoFinal;
 
   function handleStart() {
     if (!canStart) return;
@@ -146,55 +146,55 @@ export function NuevoPaso({ onClose }: Props) {
       </div>
 
       <div className="space-y-4">
-        {/* ENTREGABLE — lo primero */}
+        {/* PASO — lo primero: ¿qué vas a hacer? */}
         <div>
           <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-zinc-400">
-            Entregable
+            ¿Qué vas a hacer?
           </label>
-          {entregableId ? (
-            <div className="flex items-center gap-2 rounded-lg border border-green-300 bg-green-50 px-3 py-2">
-              <span className="flex-1 text-sm font-medium text-green-800">{entregableNombre}</span>
-              <button onClick={() => setEntregableId(null)} className="text-xs text-green-600 hover:underline">Cambiar</button>
-            </div>
-          ) : (
-            <>
-              <input
-                type="text"
-                value={newEntregable}
-                onChange={(e) => setNewEntregable(e.target.value)}
-                placeholder="¿En qué vas a trabajar?"
-                autoFocus
-                onKeyDown={(e) => { if (e.key === "Enter" && canStart) handleStart(); }}
-                className="w-full rounded-lg border border-zinc-200 bg-zinc-50 p-2.5 text-sm text-zinc-900 placeholder:text-zinc-400 focus:border-amber-400 focus:outline-none"
-              />
-              {entregablesActivos.length > 0 && !newEntregable.trim() && (
-                <div className="mt-2 flex flex-wrap gap-1.5">
-                  {entregablesActivos.map((e) => (
-                    <button key={e.id} onClick={() => { setEntregableId(e.id); setNewEntregable(""); }}
-                      className="rounded-lg border border-zinc-200 px-2.5 py-1.5 text-xs text-zinc-600 transition-all hover:border-green-400 hover:bg-green-50">
-                      {e.nombre}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </>
-          )}
+          <input
+            type="text"
+            value={pasoName}
+            onChange={(e) => setPasoName(e.target.value)}
+            placeholder="Describe brevemente tu próxima acción..."
+            autoFocus
+            onKeyDown={(e) => { if (e.key === "Enter" && canStart) handleStart(); }}
+            className="w-full rounded-lg border border-zinc-200 bg-zinc-50 p-2.5 text-sm text-zinc-900 placeholder:text-zinc-400 focus:border-amber-400 focus:outline-none"
+          />
         </div>
 
-        {/* NOMBRE DEL PASO */}
-        {entregableNombre && (
+        {/* ENTREGABLE — opcional, para clasificar */}
+        {pasoName.trim() && (
           <div>
             <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-zinc-400">
-              Nombre del paso <span className="font-normal normal-case text-zinc-300">(opcional, por defecto = entregable)</span>
+              Entregable <span className="font-normal normal-case text-zinc-300">(opcional — elige uno o escribe nuevo)</span>
             </label>
-            <input
-              type="text"
-              value={pasoName}
-              onChange={(e) => setPasoName(e.target.value)}
-              placeholder={entregableNombre}
-              onKeyDown={(e) => { if (e.key === "Enter" && canStart) handleStart(); }}
-              className="w-full rounded-lg border border-zinc-200 bg-zinc-50 p-2.5 text-sm text-zinc-900 placeholder:text-zinc-300 focus:border-amber-400 focus:outline-none"
-            />
+            {entregableId ? (
+              <div className="flex items-center gap-2 rounded-lg border border-green-300 bg-green-50 px-3 py-2">
+                <span className="flex-1 text-sm font-medium text-green-800">{entregableNombre}</span>
+                <button onClick={() => setEntregableId(null)} className="text-xs text-green-600 hover:underline">Cambiar</button>
+              </div>
+            ) : (
+              <>
+                <input
+                  type="text"
+                  value={newEntregable}
+                  onChange={(e) => setNewEntregable(e.target.value)}
+                  placeholder="¿A qué entregable pertenece? (Enter para empezar rápido)"
+                  onKeyDown={(e) => { if (e.key === "Enter" && canStart) handleStart(); }}
+                  className="w-full rounded-lg border border-zinc-200 bg-zinc-50 p-2.5 text-sm text-zinc-900 placeholder:text-zinc-400 focus:border-amber-400 focus:outline-none"
+                />
+                {entregablesActivos.length > 0 && !newEntregable.trim() && (
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    {entregablesActivos.map((e) => (
+                      <button key={e.id} onClick={() => { setEntregableId(e.id); setNewEntregable(""); }}
+                        className="rounded-lg border border-zinc-200 px-2.5 py-1.5 text-xs text-zinc-600 transition-all hover:border-green-400 hover:bg-green-50">
+                        {e.nombre}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </>
+            )}
           </div>
         )}
 

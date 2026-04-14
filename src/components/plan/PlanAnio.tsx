@@ -278,7 +278,7 @@ export function PlanAnio({ selectedDate }: Props) {
                       <div key={r.proyecto.id} className="group flex items-center gap-2">
                         <div className="w-28 shrink-0 truncate text-right text-xs font-medium text-foreground">
                           {r.proyecto.nombre}
-                          <span className="ml-1.5 rounded bg-indigo-100 px-1 py-0.5 text-[8px] font-bold text-indigo-600 dark:bg-indigo-500/20 dark:text-indigo-400">OP</span>
+                          <span className="ml-1.5 rounded bg-indigo-100 px-1 py-0.5 text-[8px] font-bold text-indigo-600 dark:bg-indigo-500/20 dark:text-indigo-400">Core</span>
                         </div>
                         <div className="relative flex-1">
                           <div className="grid h-6 grid-cols-12 gap-px rounded-lg bg-surface">

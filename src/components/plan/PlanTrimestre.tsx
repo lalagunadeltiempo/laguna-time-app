@@ -225,7 +225,7 @@ export function PlanTrimestre({ selectedDate }: Props) {
       {/* Operaciones (expandibles) */}
       {operations.length > 0 && (
         <section>
-          <h3 className="mb-2 text-xs font-bold uppercase tracking-wider text-muted">Operaciones</h3>
+          <h3 className="mb-2 text-xs font-bold uppercase tracking-wider text-muted">Core</h3>
           <div className="space-y-2">
             {operations.map((pn) => (
               <ExpandableProjectCard key={pn.proyecto.id} node={pn} qMonths={qMonths}
@@ -331,7 +331,7 @@ function ExpandableProjectCard({ node, qMonths, onAssign, onUnassign, isMentor, 
         ) : <span className="w-2.5 shrink-0" />}
         <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: node.hex }} />
         <span className="flex-1 truncate text-xs font-semibold text-foreground">{node.proyecto.nombre}</span>
-        {isOp && <span className="shrink-0 rounded bg-indigo-100 px-1.5 py-0.5 text-[9px] font-bold text-indigo-600">OP</span>}
+        {isOp && <span className="shrink-0 rounded bg-indigo-100 px-1.5 py-0.5 text-[9px] font-bold text-indigo-600">Core</span>}
         {backlogStyle && <span className="shrink-0 rounded-full bg-surface px-2 py-0.5 text-[10px] font-bold text-muted">{node.entCount} pend.</span>}
         <div className="flex items-center gap-1.5">
           <div className="h-1.5 w-12 overflow-hidden rounded-full bg-surface">

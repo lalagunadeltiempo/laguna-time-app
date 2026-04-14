@@ -171,19 +171,27 @@ export function PlanHoy({ selectedDate }: Props) {
 
   function startBlock(block: Block) {
     if (!block.entregableId) return;
-    dispatch({
-      type: "START_PASO",
-      payload: {
-        id: generateId(),
-        entregableId: block.entregableId,
-        nombre: block.title,
-        inicioTs: new Date().toISOString(),
-        finTs: null, estado: "",
-        contexto: { urls: [], apps: [], notas: "" },
-        implicados: [{ tipo: "equipo", nombre: currentUser }],
-        pausas: [], siguientePaso: null,
-      },
-    });
+    const existingPending = state.pasos.find(
+      (p) => p.entregableId === block.entregableId && !p.inicioTs && !p.finTs && p.nombre === block.title
+    );
+    if (existingPending) {
+      dispatch({ type: "ACTIVATE_PASO", id: existingPending.id });
+      dispatch({ type: "UPDATE_ENTREGABLE", id: block.entregableId, changes: { estado: "en_proceso" } });
+    } else {
+      dispatch({
+        type: "START_PASO",
+        payload: {
+          id: generateId(),
+          entregableId: block.entregableId,
+          nombre: block.title,
+          inicioTs: new Date().toISOString(),
+          finTs: null, estado: "",
+          contexto: { urls: [], apps: [], notas: "" },
+          implicados: [{ tipo: "equipo", nombre: currentUser }],
+          pausas: [], siguientePaso: null,
+        },
+      });
+    }
     setConfirmBlock(null);
   }
 
