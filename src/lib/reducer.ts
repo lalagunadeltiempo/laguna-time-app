@@ -19,6 +19,7 @@ import type {
 } from "./types";
 import { AREAS_EMPRESA, AREAS_PERSONAL } from "./types";
 import { minutosEfectivos } from "./duration";
+import { toDateKey } from "./date-utils";
 
 function areaLabelFor(area: Area): string {
   const all = [...AREAS_EMPRESA, ...AREAS_PERSONAL];
@@ -145,12 +146,15 @@ export function reducer(state: AppState, action: Action): AppState {
     // --- Pasos ---
     case "START_PASO": {
       if (!state.entregables.some((e) => e.id === action.payload.entregableId)) return state;
+      const today = toDateKey(new Date());
       return {
         ...state,
         pasos: [...state.pasos, action.payload],
         entregables: state.entregables.map((e) =>
           e.id === action.payload.entregableId && (e.estado === "a_futuro" || e.estado === "planificado")
-            ? { ...e, estado: "en_proceso" as const }
+            ? { ...e, estado: "en_proceso" as const,
+                fechaInicio: e.fechaInicio ?? today,
+                planNivel: e.planNivel ?? "dia" }
             : e
         ),
         pasosActivos: state.pasosActivos.includes(action.payload.id)
@@ -162,14 +166,23 @@ export function reducer(state: AppState, action: Action): AppState {
     case "ADD_PASO":
       return { ...state, pasos: [...state.pasos, action.payload] };
 
-    case "ACTIVATE_PASO":
+    case "ACTIVATE_PASO": {
+      const paso = state.pasos.find((p) => p.id === action.id);
+      const todayAct = toDateKey(new Date());
       return {
         ...state,
         pasos: state.pasos.map((p) => p.id === action.id ? { ...p, inicioTs: new Date().toISOString() } : p),
+        entregables: paso ? state.entregables.map((e) =>
+          e.id === paso.entregableId && !e.fechaInicio
+            ? { ...e, fechaInicio: todayAct, planNivel: e.planNivel ?? ("dia" as const),
+                estado: (e.estado === "a_futuro" || e.estado === "planificado") ? "en_proceso" as const : e.estado }
+            : e
+        ) : state.entregables,
         pasosActivos: state.pasosActivos.includes(action.id)
           ? state.pasosActivos
           : [...state.pasosActivos, action.id],
       };
+    }
 
     case "PAUSE_PASO":
       return {
