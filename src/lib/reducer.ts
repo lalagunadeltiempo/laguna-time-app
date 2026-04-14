@@ -35,6 +35,7 @@ export type Action =
   | { type: "DISCARD_PASO"; id: string }
   | { type: "RESCHEDULE_NEXT_PASO"; pasoId: string; newDate: string | null }
   | { type: "RENAME_PASO"; id: string; nombre: string }
+  | { type: "UPDATE_PASO_TIMES"; id: string; inicioTs: string; finTs: string | null }
   | { type: "DELETE_PASO"; id: string }
   | { type: "RENAME_ENTREGABLE"; id: string; nombre: string }
   | { type: "UPDATE_ENTREGABLE"; id: string; changes: Partial<Pick<Entregable, "nombre" | "responsable" | "tipo" | "plantillaId" | "diasEstimados" | "estado" | "fechaLimite" | "fechaInicio" | "planNivel">> }
@@ -232,6 +233,12 @@ export function reducer(state: AppState, action: Action): AppState {
 
     case "RENAME_PASO":
       return { ...state, pasos: state.pasos.map((p) => p.id === action.id ? { ...p, nombre: action.nombre } : p) };
+
+    case "UPDATE_PASO_TIMES": {
+      const { id, inicioTs, finTs } = action;
+      if (finTs && finTs <= inicioTs) return state;
+      return { ...state, pasos: state.pasos.map((p) => p.id === id ? { ...p, inicioTs, finTs } : p) };
+    }
 
     case "DELETE_PASO":
       return {

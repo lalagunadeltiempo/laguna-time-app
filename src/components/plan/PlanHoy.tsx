@@ -6,7 +6,7 @@ import { generateId } from "@/lib/store";
 import { useUsuario, useIsMentor } from "@/lib/usuario";
 import {
   AREA_COLORS, AREAS_PERSONAL, AREAS_EMPRESA,
-  type Area, type Entregable, type Ambito,
+  type Area, type Entregable, type Ambito, type Paso,
 } from "@/lib/types";
 import { projectSOPsForDate, type ProjectedSOP } from "@/lib/sop-projector";
 import SOPLaunchDialog from "@/components/shared/SOPLaunchDialog";
@@ -68,6 +68,8 @@ export function PlanHoy({ selectedDate }: Props) {
   const [confirmSOP, setConfirmSOP] = useState<ProjectedSOP | null>(null);
   const [showDrillDown, setShowDrillDown] = useState(false);
   const [orphanBlock, setOrphanBlock] = useState<Block | null>(null);
+  const [editingBlock, setEditingBlock] = useState<Block | null>(null);
+  const [logAsDoneBlock, setLogAsDoneBlock] = useState<Block | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   const dateKey = useMemo(() => toDateKey(selectedDate), [selectedDate]);
@@ -303,6 +305,7 @@ export function PlanHoy({ selectedDate }: Props) {
               return (
                 <PlannedBlockRow key={block.id} block={block} hex={hex} isToday={isToday} isMentor={isMentor} refDate={selectedDate}
                   onStart={() => setConfirmBlock(block)}
+                  onLogAsDone={() => setLogAsDoneBlock(block)}
                   onReschedule={(newDate) => {
                     if (block.id.startsWith("pending-") && block.pasoId) {
                       if (!newDate) dispatch({ type: "DELETE_PASO", id: block.pasoId });
@@ -354,9 +357,12 @@ export function PlanHoy({ selectedDate }: Props) {
               <div className="flex-1 px-2 py-1">
                 {hourBlocks.map((block) => {
                   const color = AREA_COLORS[block.area]?.hex ?? "#888";
+                  const clickable = block.type === "done" && block.pasoId;
                   return (
-                    <div key={block.id} className="mb-1 rounded-lg border-l-[3px] px-3 py-2"
-                      style={{ borderLeftColor: color, backgroundColor: color + "0c" }}>
+                    <div key={block.id}
+                      className={`mb-1 rounded-lg border-l-[3px] px-3 py-2 ${clickable ? "cursor-pointer hover:brightness-95 transition-all" : ""}`}
+                      style={{ borderLeftColor: color, backgroundColor: color + "0c" }}
+                      onClick={clickable ? () => setEditingBlock(block) : undefined}>
                       <div className="flex items-center gap-2">
                         {block.type === "active" && (
                           <span className="relative flex h-2 w-2" aria-hidden="true">
@@ -434,18 +440,159 @@ export function PlanHoy({ selectedDate }: Props) {
           </div>
         </div>
       )}
+
+      {/* Edit time of done block */}
+      {editingBlock && editingBlock.pasoId && (
+        <EditBlockTimesDialog
+          block={editingBlock}
+          pasoId={editingBlock.pasoId}
+          onClose={() => setEditingBlock(null)}
+        />
+      )}
+
+      {/* Log planned block as done in past */}
+      {logAsDoneBlock && (
+        <LogAsDoneDialog
+          block={logAsDoneBlock}
+          dateKey={dateKey}
+          onClose={() => setLogAsDoneBlock(null)}
+        />
+      )}
     </div>
   );
 }
 
 
+function toLocalDT(d: Date): string {
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+/* ============================================================
+   EDIT BLOCK TIMES DIALOG — edit inicioTs/finTs of a done block
+   ============================================================ */
+
+function EditBlockTimesDialog({ block, pasoId, onClose }: { block: Block; pasoId: string; onClose: () => void }) {
+  const dispatch = useAppDispatch();
+  const state = useAppState();
+  const paso = state.pasos.find((p) => p.id === pasoId);
+
+  const [inicio, setInicio] = useState(() => paso?.inicioTs ? toLocalDT(new Date(paso.inicioTs)) : "");
+  const [fin, setFin] = useState(() => paso?.finTs ? toLocalDT(new Date(paso.finTs)) : "");
+
+  function save() {
+    if (!inicio) return;
+    const inicioTs = new Date(inicio).toISOString();
+    const finTs = fin ? new Date(fin).toISOString() : null;
+    if (finTs && finTs <= inicioTs) return;
+    dispatch({ type: "UPDATE_PASO_TIMES", id: pasoId, inicioTs, finTs });
+    onClose();
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/20 px-6 backdrop-blur-sm"
+      role="dialog" aria-modal="true"
+      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+      onKeyDown={(e) => { if (e.key === "Escape") onClose(); }}>
+      <div className="w-full max-w-sm rounded-2xl bg-background p-5 shadow-xl">
+        <h3 className="text-sm font-semibold text-foreground">Editar horario</h3>
+        <p className="mt-1 mb-3 truncate text-xs text-muted">{block.title}</p>
+
+        <label className="mb-1 block text-[11px] font-medium text-muted">Inicio</label>
+        <input type="datetime-local" value={inicio} onChange={(e) => setInicio(e.target.value)}
+          className="mb-3 w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground outline-none focus:border-accent" />
+
+        <label className="mb-1 block text-[11px] font-medium text-muted">Fin</label>
+        <input type="datetime-local" value={fin} onChange={(e) => setFin(e.target.value)}
+          className="mb-4 w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground outline-none focus:border-accent" />
+
+        <div className="flex gap-2">
+          <button onClick={onClose} className="flex-1 rounded-lg border border-border py-2.5 text-xs font-medium text-muted hover:bg-surface">Cancelar</button>
+          <button onClick={save} disabled={!inicio} className="flex-1 rounded-lg bg-accent py-2.5 text-xs font-medium text-white hover:bg-accent/90 disabled:opacity-40">Guardar</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ============================================================
+   LOG AS DONE DIALOG — register a planned block as done in a past time slot
+   ============================================================ */
+
+function LogAsDoneDialog({ block, dateKey, onClose }: { block: Block; dateKey: string; onClose: () => void }) {
+  const dispatch = useAppDispatch();
+  const { nombre: currentUser } = useUsuario();
+
+  const [nombre, setNombre] = useState(block.title);
+  const [inicio, setInicio] = useState(() => {
+    const d = new Date();
+    d.setHours(d.getHours() - 1);
+    return toLocalDT(d);
+  });
+  const [fin, setFin] = useState(() => toLocalDT(new Date()));
+
+  function submit() {
+    if (!nombre.trim() || !block.entregableId) return;
+    const inicioTs = new Date(inicio).toISOString();
+    const finTs = new Date(fin).toISOString();
+    if (finTs <= inicioTs) return;
+
+    const makePaso = (id: string): Paso => ({
+      id, entregableId: block.entregableId!, nombre: nombre.trim(), inicioTs, finTs,
+      estado: nombre.trim(), contexto: { urls: [], apps: [], notas: "" },
+      implicados: [{ tipo: "equipo", nombre: currentUser }], pausas: [], siguientePaso: null,
+    });
+
+    if (block.pasoId) {
+      dispatch({ type: "UPDATE_PASO_TIMES", id: block.pasoId, inicioTs, finTs });
+      dispatch({ type: "CLOSE_PASO", payload: makePaso(block.pasoId) });
+    } else {
+      const paso = makePaso(generateId());
+      dispatch({ type: "ADD_PASO", payload: paso });
+      dispatch({ type: "CLOSE_PASO", payload: paso });
+    }
+    dispatch({ type: "UPDATE_ENTREGABLE", id: block.entregableId, changes: { fechaInicio: dateKey, planNivel: "dia" as const, estado: "en_proceso" as const } });
+    onClose();
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/20 px-6 backdrop-blur-sm"
+      role="dialog" aria-modal="true"
+      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+      onKeyDown={(e) => { if (e.key === "Escape") onClose(); }}>
+      <div className="w-full max-w-sm rounded-2xl bg-background p-5 shadow-xl">
+        <h3 className="text-sm font-semibold text-foreground">Registrar como hecho</h3>
+        <p className="mt-1 mb-3 truncate text-xs text-muted">{block.subtitle}</p>
+
+        <label className="mb-1 block text-[11px] font-medium text-muted">Nombre del paso</label>
+        <input type="text" value={nombre} onChange={(e) => setNombre(e.target.value)}
+          className="mb-3 w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground outline-none focus:border-accent" />
+
+        <label className="mb-1 block text-[11px] font-medium text-muted">Inicio</label>
+        <input type="datetime-local" value={inicio} onChange={(e) => setInicio(e.target.value)}
+          className="mb-3 w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground outline-none focus:border-accent" />
+
+        <label className="mb-1 block text-[11px] font-medium text-muted">Fin</label>
+        <input type="datetime-local" value={fin} onChange={(e) => setFin(e.target.value)}
+          className="mb-4 w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground outline-none focus:border-accent" />
+
+        <div className="flex gap-2">
+          <button onClick={onClose} className="flex-1 rounded-lg border border-border py-2.5 text-xs font-medium text-muted hover:bg-surface">Cancelar</button>
+          <button onClick={submit} disabled={!nombre.trim() || !inicio || !fin}
+            className="flex-1 rounded-lg bg-accent py-2.5 text-xs font-medium text-white hover:bg-accent/90 disabled:opacity-40">Registrar</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /* ============================================================
    PLANNED BLOCK ROW with reschedule/delete
    ============================================================ */
 
-function PlannedBlockRow({ block, hex, isToday, isMentor, refDate, onStart, onReschedule }: {
+function PlannedBlockRow({ block, hex, isToday, isMentor, refDate, onStart, onReschedule, onLogAsDone }: {
   block: Block; hex: string; isToday: boolean; isMentor: boolean; refDate: Date;
-  onStart: () => void; onReschedule: (newDate: string | null) => void;
+  onStart: () => void; onReschedule: (newDate: string | null) => void; onLogAsDone?: () => void;
 }) {
   const [showMenu, setShowMenu] = useState(false);
   const [showDatePicker, setShowDatePicker] = useState(false);
@@ -499,6 +646,12 @@ function PlannedBlockRow({ block, hex, isToday, isMentor, refDate, onStart, onRe
               <circle cx="12" cy="5" r="1" /><circle cx="12" cy="12" r="1" /><circle cx="12" cy="19" r="1" />
             </svg>
           </button>
+          {isToday && onLogAsDone && (
+            <button type="button" onClick={onLogAsDone} title="Registrar como ya hecho"
+              className="rounded-lg border border-border px-2 py-1.5 text-[11px] font-medium text-muted hover:bg-surface hover:text-foreground transition-colors">
+              Ya hecho
+            </button>
+          )}
           {isToday && (
             <button type="button" onClick={onStart}
               className="rounded-lg px-3 py-1.5 text-[11px] font-semibold text-white hover:brightness-110"

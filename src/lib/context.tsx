@@ -154,6 +154,51 @@ function actionToLog(action: Action, _userName: string, state: AppState): { acti
   }
 }
 
+function mergeStates(a: AppState, b: AppState): AppState {
+  function unionById<T extends { id: string }>(arrA: T[], arrB: T[], prefer?: (x: T, y: T) => T): T[] {
+    const map = new Map<string, T>();
+    for (const item of arrA) map.set(item.id, item);
+    for (const item of arrB) {
+      const existing = map.get(item.id);
+      if (!existing) { map.set(item.id, item); continue; }
+      map.set(item.id, prefer ? prefer(existing, item) : existing);
+    }
+    return Array.from(map.values());
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const preferPaso = (x: any, y: any) => {
+    if (x.finTs && !y.finTs) return x;
+    if (y.finTs && !x.finTs) return y;
+    return (x.inicioTs ?? "") >= (y.inicioTs ?? "") ? x : y;
+  };
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const preferMore = (x: any, y: any) => {
+    if ((x.diasHechos ?? 0) > (y.diasHechos ?? 0)) return x;
+    if ((y.diasHechos ?? 0) > (x.diasHechos ?? 0)) return y;
+    return x;
+  };
+
+  const merged: AppState = {
+    ...a,
+    proyectos: unionById(a.proyectos, b.proyectos),
+    resultados: unionById(a.resultados, b.resultados),
+    entregables: unionById(a.entregables, b.entregables, preferMore),
+    pasos: unionById(a.pasos, b.pasos, preferPaso),
+    contactos: unionById(a.contactos ?? [], b.contactos ?? []),
+    inbox: unionById(a.inbox ?? [], b.inbox ?? []),
+    plantillas: unionById(a.plantillas, b.plantillas),
+    ejecuciones: unionById(a.ejecuciones ?? [], b.ejecuciones ?? []),
+    miembros: unionById(a.miembros ?? [], b.miembros ?? []),
+    activityLog: unionById(a.activityLog ?? [], b.activityLog ?? []),
+    objetivos: unionById(a.objetivos ?? [], b.objetivos ?? []),
+    pasosActivos: Array.from(new Set([...a.pasosActivos, ...b.pasosActivos])),
+    _migrationVersion: Math.max(a._migrationVersion ?? 0, b._migrationVersion ?? 0),
+  };
+  return merged;
+}
+
 export function AppProvider({ userId, displayName, children }: ProviderProps) {
   const logName = displayName || userId;
   const [state, dispatch] = useReducer(reducer, INITIAL_STATE);
@@ -189,18 +234,16 @@ export function AppProvider({ userId, displayName, children }: ProviderProps) {
           return;
         }
 
-        // Compare cloud vs local: use whichever is newer
         const localState = loadStateLocal();
-        const localTs = getLocalSavedAt();
-        const cloudTs = cloudResult.updatedAt;
-        const localIsNewer = localTs && cloudTs && localTs > cloudTs;
+        const hasLocal = localState !== INITIAL_STATE;
 
-        if (localIsNewer && localState !== INITIAL_STATE) {
-          console.log("[init] Local es más reciente que cloud — usando local");
-          dispatch({ type: "INIT", state: localState });
-          runMigrations(localState, dispatch);
+        if (hasLocal) {
+          const merged = mergeStates(cloudResult.data, localState);
+          console.log("[init] Merge cloud + local (union por IDs)");
+          dispatch({ type: "INIT", state: merged });
+          runMigrations(merged, dispatch);
           markCloudLoadOk();
-          saveStateCloud(userId, localState);
+          saveStateCloud(userId, merged);
         } else {
           dispatch({ type: "INIT", state: cloudResult.data });
           saveStateLocal(cloudResult.data);
@@ -247,6 +290,7 @@ export function AppProvider({ userId, displayName, children }: ProviderProps) {
     if (!initDone.current) return;
     if (userId !== "mentor") saveStateLocal(state);
     saveStateCloud(userId, state);
+    flushPendingCloudSave();
   }, [state, userId]);
 
   // Flush pending cloud save on page close or tab switch
