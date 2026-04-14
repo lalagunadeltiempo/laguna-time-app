@@ -72,7 +72,7 @@ export function PlanTrimestre({ selectedDate }: Props) {
 
   const year = selectedDate.getFullYear();
   const currentQ = Math.floor(selectedDate.getMonth() / 3);
-  const qMonths = quarterMonths(currentQ);
+  const qMonths = useMemo(() => quarterMonths(currentQ), [currentQ]);
   const qPeriodo = periodoQ(currentQ, year);
 
   function buildFullProjNode(p: Proyecto): ProjNode {
