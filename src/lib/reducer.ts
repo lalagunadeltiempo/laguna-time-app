@@ -542,7 +542,7 @@ export function reducer(state: AppState, action: Action): AppState {
       const completedPasos = state.pasos
         .filter((p) => p.entregableId === action.entregableId && p.finTs)
         .sort((a, b) => (a.inicioTs ?? "").localeCompare(b.inicioTs ?? ""));
-      if (completedPasos.length < 2) return state;
+      if (completedPasos.length < 1) return state;
 
       const res = state.resultados.find((r) => r.id === ent.resultadoId);
       const proj = res ? state.proyectos.find((p) => p.id === res.proyectoId) : undefined;

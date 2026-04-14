@@ -236,7 +236,7 @@ function AppShell({ userId, displayName }: { userId: string; displayName: string
             )}
             {vista === "resultado" && detalleResultadoId && (
               <div className="mx-auto max-w-3xl">
-                <ResultadoDetalle resultadoId={detalleResultadoId} onBack={() => setVista("hoy")} />
+                <ResultadoDetalle resultadoId={detalleResultadoId} onBack={() => setVista(isMentorUser ? "mapa" : "hoy")} />
               </div>
             )}
           </div>

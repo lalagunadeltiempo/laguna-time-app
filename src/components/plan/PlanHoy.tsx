@@ -208,6 +208,7 @@ export function PlanHoy({ selectedDate }: Props) {
         paso: generateId(),
         proyecto: generateId(),
       },
+      autoStart: false,
     });
     setConfirmSOP(null);
   }
@@ -248,7 +249,7 @@ export function PlanHoy({ selectedDate }: Props) {
             {plannedBlocks.map((block) => {
               const hex = AREA_COLORS[block.area]?.hex ?? "#888";
               return (
-                <PlannedBlockRow key={block.id} block={block} hex={hex} isToday={isToday} isMentor={isMentor}
+                <PlannedBlockRow key={block.id} block={block} hex={hex} isToday={isToday} isMentor={isMentor} refDate={selectedDate}
                   onStart={() => setConfirmBlock(block)}
                   onReschedule={(newDate) => {
                     if (block.id.startsWith("next-") && block.pasoId) {
@@ -374,8 +375,8 @@ export function PlanHoy({ selectedDate }: Props) {
    PLANNED BLOCK ROW with reschedule/delete
    ============================================================ */
 
-function PlannedBlockRow({ block, hex, isToday, isMentor, onStart, onReschedule }: {
-  block: Block; hex: string; isToday: boolean; isMentor: boolean;
+function PlannedBlockRow({ block, hex, isToday, isMentor, refDate, onStart, onReschedule }: {
+  block: Block; hex: string; isToday: boolean; isMentor: boolean; refDate: Date;
   onStart: () => void; onReschedule: (newDate: string | null) => void;
 }) {
   const [showMenu, setShowMenu] = useState(false);
@@ -393,9 +394,9 @@ function PlannedBlockRow({ block, hex, isToday, isMentor, onStart, onReschedule 
         {/* Inline actions */}
         {showMenu && !isMentor && (
           <div className="mt-2 flex flex-wrap gap-1.5">
-            <button type="button" onClick={() => { onReschedule(toDateKey(addDays(new Date(), 1))); setShowMenu(false); }}
+            <button type="button" onClick={() => { onReschedule(toDateKey(addDays(refDate, 1))); setShowMenu(false); }}
               className="rounded-md border border-border bg-background px-2 py-1 text-[10px] font-medium text-foreground hover:bg-surface">Mañana</button>
-            <button type="button" onClick={() => { onReschedule(toDateKey(addDays(new Date(), 7))); setShowMenu(false); }}
+            <button type="button" onClick={() => { onReschedule(toDateKey(addDays(refDate, 7))); setShowMenu(false); }}
               className="rounded-md border border-border bg-background px-2 py-1 text-[10px] font-medium text-foreground hover:bg-surface">+1 semana</button>
             <button type="button" onClick={() => setShowDatePicker(true)}
               className="rounded-md border border-border bg-background px-2 py-1 text-[10px] font-medium text-foreground hover:bg-surface">Otra fecha</button>
