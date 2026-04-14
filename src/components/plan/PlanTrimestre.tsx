@@ -159,7 +159,7 @@ export function PlanTrimestre({ selectedDate }: Props) {
 
     return { monthProjects: mProj, operations: ops, backlogProjects: backlog };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state, filtro, showDone, qMonths, year, nowMonth]);
+  }, [state, filtro, respFilter, currentUser, showDone, qMonths, year, nowMonth]);
 
   const objetivos = useMemo(() => {
     return (state.objetivos ?? []).filter(

@@ -135,6 +135,7 @@ export interface EsperandoItem {
 
 export function useEsperandoRespuesta(): EsperandoItem[] {
   const state = useAppState();
+  const { nombre: currentUser } = useUsuario();
   return useMemo(() => {
     const items: EsperandoItem[] = [];
 
@@ -150,6 +151,7 @@ export function useEsperandoRespuesta(): EsperandoItem[] {
     for (const [entId, paso] of latestByEnt) {
       if (paso.siguientePaso?.cuando !== "depende") continue;
       if (!paso.siguientePaso.dependeDe?.length) continue;
+      if (!paso.implicados.some((i) => i.nombre === currentUser)) continue;
 
       const ent = state.entregables.find((e) => e.id === entId);
       if (!ent || ent.estado === "hecho" || ent.estado === "cancelada") continue;
@@ -177,7 +179,7 @@ export function useEsperandoRespuesta(): EsperandoItem[] {
     }
 
     return items;
-  }, [state]);
+  }, [state, currentUser]);
 }
 
 export interface DependenciaEntrante {

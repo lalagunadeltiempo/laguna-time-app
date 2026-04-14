@@ -56,10 +56,10 @@ export function PantallaHoy() {
   const { mios: sopsMios } = useSOPsHoy();
   const depsEntrantes = useDependenciasEntrantes();
   const esperando = useEsperandoRespuesta();
+  const pendingInbox = useMemo(() => state.inbox.filter((i) => !i.procesado).length, [state.inbox]);
 
   if (isMentor) return <div className="p-8 text-center text-muted">Vista no disponible para mentor.</div>;
 
-  const pendingInbox = useMemo(() => state.inbox.filter((i) => !i.procesado).length, [state.inbox]);
   const sopsPendientes = sopsMios.filter((s) => !s.completadoHoy && !s.ejecucion);
   const isEmpty = pasosActivos.length === 0;
   const hasOpenWork = pasosActivos.length > 0 || pendingInbox > 0;
