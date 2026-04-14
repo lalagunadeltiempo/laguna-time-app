@@ -156,6 +156,28 @@ export function PlanHoy({ selectedDate }: Props) {
           entregableId: ent.id,
         });
       }
+
+      for (const entId of entregableIdsWithPasos) {
+        if (result.some((b) => b.id.startsWith("next-") && b.entregableId === entId)) continue;
+        if (result.some((b) => b.id.startsWith("pending-") && b.entregableId === entId)) continue;
+        const ent = entregables.find((e) => e.id === entId);
+        if (!ent || ent.estado !== "en_proceso") continue;
+        if (ent.responsable && ent.responsable !== currentUser) continue;
+        const pendingPaso = pasos.find((p) => p.entregableId === entId && !p.inicioTs && !p.finTs);
+        if (!pendingPaso) continue;
+        const res = resultados.find((r) => r.id === ent.resultadoId);
+        const proj = res ? proyectos.find((pr) => pr.id === res.proyectoId) : undefined;
+        result.push({
+          id: `pending-${pendingPaso.id}`,
+          type: "programado",
+          area: proj?.area ?? "operativa",
+          title: pendingPaso.nombre,
+          subtitle: `${proj?.nombre ?? ""} · ${ent.nombre}`,
+          hour: -1,
+          entregableId: ent.id,
+          pasoId: pendingPaso.id,
+        });
+      }
     }
 
     return result;
@@ -252,7 +274,9 @@ export function PlanHoy({ selectedDate }: Props) {
                 <PlannedBlockRow key={block.id} block={block} hex={hex} isToday={isToday} isMentor={isMentor} refDate={selectedDate}
                   onStart={() => setConfirmBlock(block)}
                   onReschedule={(newDate) => {
-                    if (block.id.startsWith("next-") && block.pasoId) {
+                    if (block.id.startsWith("pending-") && block.pasoId) {
+                      if (!newDate) dispatch({ type: "DELETE_PASO", id: block.pasoId });
+                    } else if (block.id.startsWith("next-") && block.pasoId) {
                       dispatch({ type: "RESCHEDULE_NEXT_PASO", pasoId: block.pasoId, newDate });
                     } else if (block.id.startsWith("ent-") && block.entregableId) {
                       if (!newDate) {

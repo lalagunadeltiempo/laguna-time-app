@@ -581,18 +581,15 @@ export function reducer(state: AppState, action: Action): AppState {
       const syncPlantilla = state.plantillas.find((pl) => pl.id === syncEnt.plantillaId);
       if (!syncPlantilla) return state;
 
-      const realPasos = state.pasos
-        .filter((p) => p.entregableId === action.entregableId && p.finTs)
-        .sort((a, b) => (a.inicioTs ?? "").localeCompare(b.inicioTs ?? ""));
-
-      if (realPasos.length === 0) return state;
+      const allPasos = state.pasos.filter((p) => p.entregableId === action.entregableId);
+      if (allPasos.length === 0) return state;
 
       const matched = new Set<string>();
       const merged: PasoPlantilla[] = [];
 
-      for (const p of realPasos) {
+      for (const p of allPasos) {
         const existingPP = syncPlantilla.pasos.find(
-          (pp) => !matched.has(pp.id) && (pp.nombre.toLowerCase() === p.nombre.toLowerCase() || pp.nombre.toLowerCase() === (p.estado || "").toLowerCase())
+          (pp) => !matched.has(pp.id) && pp.nombre.toLowerCase() === p.nombre.toLowerCase()
         );
         if (existingPP) matched.add(existingPP.id);
         merged.push({
@@ -602,20 +599,25 @@ export function reducer(state: AppState, action: Action): AppState {
           descripcion: existingPP?.descripcion ?? "",
           herramientas: existingPP?.herramientas ?? [],
           tipo: existingPP?.tipo ?? ("accion" as const),
-          minutosEstimados: minutosEfectivos(p) ?? existingPP?.minutosEstimados ?? null,
+          minutosEstimados: (p.finTs ? minutosEfectivos(p) : null) ?? existingPP?.minutosEstimados ?? null,
         });
       }
 
-      for (const pp of syncPlantilla.pasos) {
-        if (!matched.has(pp.id)) {
-          merged.push({ ...pp, orden: merged.length + 1 });
-        }
-      }
+      const syncRes = state.resultados.find((r) => r.id === syncEnt.resultadoId);
+      const syncProyectoId = syncRes?.proyectoId ?? syncPlantilla.proyectoId;
 
       return {
         ...state,
         plantillas: state.plantillas.map((pl) =>
-          pl.id === syncEnt.plantillaId ? { ...pl, pasos: merged } : pl
+          pl.id === syncEnt.plantillaId
+            ? {
+                ...pl,
+                nombre: syncEnt.nombre,
+                pasos: merged,
+                proyectoId: syncProyectoId,
+                responsableDefault: syncEnt.responsable || pl.responsableDefault,
+              }
+            : pl
         ),
       };
     }

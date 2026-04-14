@@ -114,6 +114,19 @@ export function PantallaHoy() {
       result.push({ id: `ent-${ent.id}`, title: ent.nombre, subtitle: proj?.nombre ?? "", entregableId: ent.id, area: proj?.area ?? "operativa", hex: AREA_COLORS[proj?.area ?? ""]?.hex ?? "#888" });
     }
 
+    for (const entId of entIdsWithPasos) {
+      if (result.some((b) => b.id.startsWith("next-") && b.entregableId === entId)) continue;
+      if (result.some((b) => b.id.startsWith("pending-") && b.entregableId === entId)) continue;
+      const ent = entregables.find((e) => e.id === entId);
+      if (!ent || ent.estado !== "en_proceso") continue;
+      if (ent.responsable && ent.responsable !== currentUser) continue;
+      const pendingPaso = pasos.find((p) => p.entregableId === entId && !p.inicioTs && !p.finTs);
+      if (!pendingPaso) continue;
+      const res = resultados.find((r) => r.id === ent.resultadoId);
+      const proj = res ? proyectos.find((pr) => pr.id === res.proyectoId) : undefined;
+      result.push({ id: `pending-${pendingPaso.id}`, title: pendingPaso.nombre, subtitle: `${proj?.nombre ?? ""} · ${ent.nombre}`, entregableId: ent.id, pasoId: pendingPaso.id, area: proj?.area ?? "operativa", hex: AREA_COLORS[proj?.area ?? ""]?.hex ?? "#888" });
+    }
+
     return result;
   }, [state, todayKey, currentUser]);
 

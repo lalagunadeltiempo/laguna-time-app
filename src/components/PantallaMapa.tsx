@@ -1016,7 +1016,7 @@ function EntregableBlock({ entregable, index, total }: { entregable: Entregable;
         )}
         {!isMentor && entregable.plantillaId && (
           <button onClick={(e) => { e.stopPropagation(); dispatch({ type: "SYNC_ENTREGABLE_TO_PLANTILLA", entregableId: entregable.id }); }}
-            className="flex h-6 items-center gap-0.5 rounded px-1.5 text-[10px] text-blue-600 transition-colors hover:bg-blue-50 hover:text-blue-800" title="Sincronizar cambios al SOP">
+            className="flex h-6 items-center gap-0.5 rounded px-1.5 text-[10px] text-blue-600 transition-colors hover:bg-blue-50 hover:text-blue-800" title="Actualizar la plantilla del SOP con los pasos de este entregable">
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><polyline points="23 4 23 10 17 10" /><polyline points="1 20 1 14 7 14" /><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" /></svg>
             <span>Sync SOP</span>
           </button>
