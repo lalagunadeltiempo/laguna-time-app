@@ -445,7 +445,7 @@ function ToggleRow({ open, onToggle, children }: { open: boolean; onToggle: () =
   return (
     <div
       onClick={onToggle}
-      className="group/row flex min-h-[48px] cursor-pointer items-center gap-2 rounded-lg px-3 py-2.5 transition-colors hover:bg-surface"
+      className="group/row flex min-h-[48px] min-w-0 cursor-pointer items-center gap-2 rounded-lg px-3 py-2.5 transition-colors hover:bg-surface"
       role="button"
       tabIndex={0}
       onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") onToggle(); }}
@@ -511,7 +511,7 @@ function AreaSection({ areaId }: { areaId: Area }) {
       </button>
 
       {open && (
-        <div className="ml-6 border-l-[3px] pl-6 sm:ml-8 sm:pl-8" style={{ borderColor: AREA_COLORS[areaId]?.hex ?? "#888" }}>
+        <div className="ml-3 border-l-[3px] pl-3 sm:ml-6 sm:pl-6" style={{ borderColor: AREA_COLORS[areaId]?.hex ?? "#888" }}>
 
           {/* PROYECTOS */}
           <div className="mb-8">
@@ -680,11 +680,11 @@ function ProyectoBlock({ proyecto, index, total }: { proyecto: Proyecto; index: 
       </ToggleRow>
 
       {proyecto.descripcion && !open && (
-        <p className="truncate px-5 pl-14 -mt-1 pb-1.5 text-xs italic text-muted">{proyecto.descripcion}</p>
+        <p className="truncate px-5 pl-8 sm:pl-14 -mt-1 pb-1.5 text-xs italic text-muted">{proyecto.descripcion}</p>
       )}
 
       {showMoveArea && (
-        <div className="mx-5 mb-3 ml-14 rounded-lg border border-border bg-surface/50 p-3">
+        <div className="mx-5 mb-3 ml-8 sm:ml-14 rounded-lg border border-border bg-surface/50 p-3">
           <p className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-muted">Mover a área:</p>
           <div className="flex flex-wrap gap-1.5">
             {[...AREAS_EMPRESA, ...AREAS_PERSONAL].filter((a) => a.id !== proyecto.area).map((a) => {
@@ -710,13 +710,13 @@ function ProyectoBlock({ proyecto, index, total }: { proyecto: Proyecto; index: 
         onCancel={() => setConfirm(false)} />}
 
       {showNotas && (
-        <div className="mx-5 mb-3 ml-14">
+        <div className="mx-5 mb-3 ml-8 sm:ml-14">
           <NotasSection notas={proyecto.notas ?? []} nivel="proyecto" targetId={proyecto.id} />
         </div>
       )}
 
       {open && (
-        <div className="px-5 pb-5 pl-14">
+        <div className="px-5 pb-5 pl-8 sm:pl-14">
           {!isMentor && (
             <div className="mb-3 flex items-center gap-1.5">
               <span className="mr-1 text-[10px] font-semibold uppercase tracking-wider text-muted">Tipo:</span>
@@ -851,7 +851,7 @@ function ResultadoBlock({ resultado, index, total }: { resultado: Resultado; ind
       )}
 
       {showMove && (
-        <div className="mx-5 mb-3 ml-14 rounded-lg border border-border bg-surface/50 p-3">
+        <div className="mx-5 mb-3 ml-8 sm:ml-14 rounded-lg border border-border bg-surface/50 p-3">
           {moveStep === 1 ? (
             <>
               <p className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-muted">1. Elegir área:</p>
@@ -891,13 +891,13 @@ function ResultadoBlock({ resultado, index, total }: { resultado: Resultado; ind
         onCancel={() => setConfirm(false)} />}
 
       {showNotas && (
-        <div className="mx-5 mb-3 ml-14">
+        <div className="mx-5 mb-3 ml-8 sm:ml-14">
           <NotasSection notas={resultado.notas ?? []} nivel="resultado" targetId={resultado.id} />
         </div>
       )}
 
       {open && (
-        <div className="px-5 pb-5 pl-14">
+        <div className="px-5 pb-5 pl-8 sm:pl-14">
           {resultado.descripcion && (
             <p className="mb-3 text-sm italic text-muted">{resultado.descripcion}</p>
           )}
@@ -1053,7 +1053,7 @@ function EntregableBlock({ entregable, index, total }: { entregable: Entregable;
       </ToggleRow>
 
       {showMove && (
-        <div className="mx-5 mb-3 ml-14 rounded-lg border border-border bg-surface/50 p-3">
+        <div className="mx-5 mb-3 ml-8 sm:ml-14 rounded-lg border border-border bg-surface/50 p-3">
           {moveStep === 1 ? (
             <>
               <p className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-muted">1. Elegir área:</p>
@@ -1384,7 +1384,7 @@ function SOPBlock({ sop, index, total }: { sop: PlantillaProceso; index: number;
       </ToggleRow>
 
       {showProgPicker && (
-        <div className="mx-5 mb-3 ml-14 rounded-lg border border-border bg-surface/50 p-3">
+        <div className="mx-5 mb-3 ml-8 sm:ml-14 rounded-lg border border-border bg-surface/50 p-3">
           <p className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-muted">Frecuencia del proceso</p>
           <ProgramacionPicker value={sop.programacion} onChange={(p) => {
             dispatch({ type: "UPDATE_PLANTILLA", id: sop.id, changes: { programacion: p } });
@@ -1416,7 +1416,7 @@ function SOPBlock({ sop, index, total }: { sop: PlantillaProceso; index: number;
       )}
 
       {showNotas && (
-        <div className="mx-5 mb-3 ml-14">
+        <div className="mx-5 mb-3 ml-8 sm:ml-14">
           <NotasSection notas={sop.notas ?? []} nivel="plantilla" targetId={sop.id} />
         </div>
       )}

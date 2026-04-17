@@ -494,17 +494,17 @@ function EditBlockTimesDialog({ block, pasoId, onClose }: { block: Block; pasoId
       role="dialog" aria-modal="true"
       onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
       onKeyDown={(e) => { if (e.key === "Escape") onClose(); }}>
-      <div className="w-full max-w-sm rounded-2xl bg-background p-5 shadow-xl">
+      <div className="w-full max-w-sm max-h-[85vh] overflow-y-auto rounded-2xl bg-background p-5 shadow-xl">
         <h3 className="text-sm font-semibold text-foreground">Editar horario</h3>
         <p className="mt-1 mb-3 truncate text-xs text-muted">{block.title}</p>
 
         <label className="mb-1 block text-[11px] font-medium text-muted">Inicio</label>
         <input type="datetime-local" value={inicio} onChange={(e) => setInicio(e.target.value)}
-          className="mb-3 w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground outline-none focus:border-accent" />
+          className="mb-3 w-full rounded-lg border border-border bg-background px-3 py-2 text-base text-foreground outline-none focus:border-accent" />
 
         <label className="mb-1 block text-[11px] font-medium text-muted">Fin</label>
         <input type="datetime-local" value={fin} onChange={(e) => setFin(e.target.value)}
-          className="mb-4 w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground outline-none focus:border-accent" />
+          className="mb-4 w-full rounded-lg border border-border bg-background px-3 py-2 text-base text-foreground outline-none focus:border-accent" />
 
         <div className="flex gap-2">
           <button onClick={onClose} className="flex-1 rounded-lg border border-border py-2.5 text-xs font-medium text-muted hover:bg-surface">Cancelar</button>
@@ -560,21 +560,21 @@ function LogAsDoneDialog({ block, dateKey, onClose }: { block: Block; dateKey: s
       role="dialog" aria-modal="true"
       onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
       onKeyDown={(e) => { if (e.key === "Escape") onClose(); }}>
-      <div className="w-full max-w-sm rounded-2xl bg-background p-5 shadow-xl">
+      <div className="w-full max-w-sm max-h-[85vh] overflow-y-auto rounded-2xl bg-background p-5 shadow-xl">
         <h3 className="text-sm font-semibold text-foreground">Registrar como hecho</h3>
         <p className="mt-1 mb-3 truncate text-xs text-muted">{block.subtitle}</p>
 
         <label className="mb-1 block text-[11px] font-medium text-muted">Nombre del paso</label>
         <input type="text" value={nombre} onChange={(e) => setNombre(e.target.value)}
-          className="mb-3 w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground outline-none focus:border-accent" />
+          className="mb-3 w-full rounded-lg border border-border bg-background px-3 py-2 text-base text-foreground outline-none focus:border-accent" />
 
         <label className="mb-1 block text-[11px] font-medium text-muted">Inicio</label>
         <input type="datetime-local" value={inicio} onChange={(e) => setInicio(e.target.value)}
-          className="mb-3 w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground outline-none focus:border-accent" />
+          className="mb-3 w-full rounded-lg border border-border bg-background px-3 py-2 text-base text-foreground outline-none focus:border-accent" />
 
         <label className="mb-1 block text-[11px] font-medium text-muted">Fin</label>
         <input type="datetime-local" value={fin} onChange={(e) => setFin(e.target.value)}
-          className="mb-4 w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground outline-none focus:border-accent" />
+          className="mb-4 w-full rounded-lg border border-border bg-background px-3 py-2 text-base text-foreground outline-none focus:border-accent" />
 
         <div className="flex gap-2">
           <button onClick={onClose} className="flex-1 rounded-lg border border-border py-2.5 text-xs font-medium text-muted hover:bg-surface">Cancelar</button>
@@ -639,22 +639,22 @@ function PlannedBlockRow({ block, hex, isToday, isMentor, refDate, onStart, onRe
         )}
       </div>
       {!isMentor && (
-        <div className="flex shrink-0 items-center gap-1">
+        <div className="flex shrink-0 flex-wrap items-center justify-end gap-1">
           <button type="button" onClick={() => setShowMenu((s) => !s)} title="Opciones"
-            className="rounded-lg p-1.5 text-muted hover:bg-surface hover:text-foreground transition-colors">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+            className="rounded-lg p-2 text-muted hover:bg-surface hover:text-foreground transition-colors">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
               <circle cx="12" cy="5" r="1" /><circle cx="12" cy="12" r="1" /><circle cx="12" cy="19" r="1" />
             </svg>
           </button>
           {isToday && onLogAsDone && (
             <button type="button" onClick={onLogAsDone} title="Registrar como ya hecho"
-              className="rounded-lg border border-border px-2 py-1.5 text-[11px] font-medium text-muted hover:bg-surface hover:text-foreground transition-colors">
-              Ya hecho
+              className="rounded-lg border border-border p-2 text-muted hover:bg-surface hover:text-foreground transition-colors">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><circle cx="12" cy="12" r="10" /><polyline points="12 6 12 12 16 14" /></svg>
             </button>
           )}
           {isToday && (
             <button type="button" onClick={onStart}
-              className="rounded-lg px-3 py-1.5 text-[11px] font-semibold text-white hover:brightness-110"
+              className="rounded-lg px-3 py-2 text-xs font-semibold text-white hover:brightness-110"
               style={{ backgroundColor: hex }}>
               Empezar
             </button>
@@ -779,7 +779,7 @@ function DrillDownDialog({ dateKey, onClose }: { dateKey: string; onClose: () =>
       role="dialog" aria-modal="true" tabIndex={-1} ref={backdropRef}
       onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
       onKeyDown={(e) => { if (e.key === "Escape") onClose(); }}>
-      <div className="w-full max-w-md rounded-2xl bg-background p-5 shadow-xl">
+      <div className="w-full max-w-md max-h-[85vh] overflow-y-auto rounded-2xl bg-background p-5 shadow-xl">
         <div className="mb-4 flex items-center gap-3">
           {step !== "ambito" && (
             <button onClick={goBack} className="rounded-lg p-1 text-muted hover:bg-surface hover:text-foreground">

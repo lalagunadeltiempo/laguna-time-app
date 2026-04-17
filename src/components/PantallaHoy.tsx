@@ -613,7 +613,7 @@ function RegistrarPasoPasado({ onClose }: { onClose: () => void }) {
       role="dialog" aria-modal="true"
       onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
       onKeyDown={(e) => { if (e.key === "Escape") onClose(); }}>
-      <div className="w-full max-w-md rounded-2xl bg-background p-6 shadow-2xl">
+      <div className="w-full max-w-md max-h-[85vh] overflow-y-auto rounded-2xl bg-background p-6 shadow-2xl">
         <h2 className="mb-4 text-lg font-bold text-foreground">Registrar paso pasado</h2>
 
         <label className="mb-1 block text-xs font-medium text-muted">Entregable</label>
@@ -635,12 +635,12 @@ function RegistrarPasoPasado({ onClose }: { onClose: () => void }) {
           <div>
             <label className="mb-1 block text-xs font-medium text-muted">Inicio</label>
             <input type="datetime-local" value={fechaInicio} onChange={(e) => setFechaInicio(e.target.value)}
-              className="w-full rounded-lg border border-border bg-background px-2 py-2 text-xs text-foreground outline-none focus:border-accent" />
+              className="w-full rounded-lg border border-border bg-background px-2 py-2 text-base text-foreground outline-none focus:border-accent" />
           </div>
           <div>
             <label className="mb-1 block text-xs font-medium text-muted">Fin</label>
             <input type="datetime-local" value={fechaFin} onChange={(e) => setFechaFin(e.target.value)}
-              className="w-full rounded-lg border border-border bg-background px-2 py-2 text-xs text-foreground outline-none focus:border-accent" />
+              className="w-full rounded-lg border border-border bg-background px-2 py-2 text-base text-foreground outline-none focus:border-accent" />
           </div>
         </div>
 
@@ -697,7 +697,7 @@ function EndOfDayFlow({
       onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
       onKeyDown={(e) => { if (e.key === "Escape") onClose(); }}
     >
-      <div className="w-full max-w-md rounded-2xl bg-background p-6 shadow-2xl">
+      <div className="w-full max-w-md max-h-[85vh] overflow-y-auto rounded-2xl bg-background p-6 shadow-2xl">
         <div className="mb-6 flex items-center gap-3">
           <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-accent-soft">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" className="text-accent">

@@ -270,7 +270,7 @@ function UrlCard({ entry, isMentor, onEditField, onRemoveFromPaso }: {
               </a>
               {!isMentor && (
                 <button type="button" onClick={() => startEdit("nombre")} title="Editar título"
-                  className="shrink-0 rounded p-0.5 text-muted opacity-0 transition-opacity hover:text-foreground group-hover:opacity-100">
+                  className="shrink-0 rounded p-2 text-muted opacity-100 transition-opacity hover:text-foreground sm:opacity-0 sm:group-hover:opacity-100">
                   <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
                     <path d="M17 3a2.83 2.83 0 114 4L7.5 20.5 2 22l1.5-5.5L17 3z" />
                   </svg>
@@ -295,7 +295,7 @@ function UrlCard({ entry, isMentor, onEditField, onRemoveFromPaso }: {
               }
               {entry.descripcion && !isMentor && (
                 <button type="button" onClick={() => startEdit("descripcion")} title="Editar descripción"
-                  className="shrink-0 rounded p-0.5 text-muted opacity-0 transition-opacity hover:text-foreground group-hover:opacity-100">
+                  className="shrink-0 rounded p-2 text-muted opacity-100 transition-opacity hover:text-foreground sm:opacity-0 sm:group-hover:opacity-100">
                   <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
                     <path d="M17 3a2.83 2.83 0 114 4L7.5 20.5 2 22l1.5-5.5L17 3z" />
                   </svg>
@@ -328,7 +328,7 @@ function UrlCard({ entry, isMentor, onEditField, onRemoveFromPaso }: {
           <div className="flex items-center gap-1">
             {/* Copy URL */}
             <button type="button" onClick={copyUrl} title="Copiar URL"
-              className="rounded-lg p-1.5 text-muted transition-colors hover:bg-surface hover:text-foreground">
+              className="rounded-lg p-2 text-muted transition-colors hover:bg-surface hover:text-foreground">
               {copied ? (
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#22c55e" strokeWidth="2.5" strokeLinecap="round"><polyline points="20 6 9 17 4 12" /></svg>
               ) : (
@@ -339,7 +339,7 @@ function UrlCard({ entry, isMentor, onEditField, onRemoveFromPaso }: {
             </button>
             {/* Open in new tab */}
             <a href={entry.url} target="_blank" rel="noopener noreferrer" title="Abrir en nueva pestaña"
-              className="rounded-lg p-1.5 text-muted transition-colors hover:bg-surface hover:text-foreground">
+              className="rounded-lg p-2 text-muted transition-colors hover:bg-surface hover:text-foreground">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
                 <path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6" /><polyline points="15 3 21 3 21 9" /><line x1="10" y1="14" x2="21" y2="3" />
               </svg>
