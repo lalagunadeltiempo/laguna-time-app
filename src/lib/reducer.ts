@@ -66,6 +66,7 @@ export type Action =
   | { type: "UPDATE_EJECUCION"; id: string; changes: Partial<Pick<EjecucionSOP, "entregableId" | "pasosLanzados" | "estado">> }
   | { type: "TOGGLE_PASO_EJECUCION"; ejecucionId: string; pasoId: string }
   | { type: "COMPLETE_EJECUCION"; id: string }
+  | { type: "REOPEN_PASO"; id: string }
   | { type: "PAUSE_PASO"; id: string }
   | { type: "RESUME_PASO"; id: string }
   | { type: "SET_MIGRATION_VERSION"; version: number }
@@ -173,6 +174,34 @@ export function reducer(state: AppState, action: Action): AppState {
           e.id === paso.entregableId && !e.fechaInicio
             ? { ...e, fechaInicio: todayAct, planNivel: e.planNivel ?? ("dia" as const),
                 estado: (e.estado === "a_futuro" || e.estado === "planificado") ? "en_proceso" as const : e.estado }
+            : e
+        ),
+        pasosActivos: state.pasosActivos.includes(action.id)
+          ? state.pasosActivos
+          : [...state.pasosActivos, action.id],
+      };
+    }
+
+    case "REOPEN_PASO": {
+      const reopenPaso = state.pasos.find((p) => p.id === action.id);
+      if (!reopenPaso || !reopenPaso.finTs) return state;
+      const now = new Date().toISOString();
+      return {
+        ...state,
+        pasos: state.pasos.map((p) =>
+          p.id === action.id
+            ? {
+                ...p,
+                finTs: null,
+                estado: "",
+                siguientePaso: null,
+                pausas: [...p.pausas, { pauseTs: p.finTs!, resumeTs: now }],
+              }
+            : p
+        ),
+        entregables: state.entregables.map((e) =>
+          e.id === reopenPaso.entregableId
+            ? { ...e, diasHechos: Math.max(0, e.diasHechos - 1) }
             : e
         ),
         pasosActivos: state.pasosActivos.includes(action.id)

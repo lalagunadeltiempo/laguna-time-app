@@ -396,8 +396,8 @@ function StaleStepHandler() {
         <div className="fixed inset-x-0 top-0 z-[60] flex items-center justify-between bg-amber-500 px-4 py-2.5 text-sm font-medium text-white shadow-lg">
           <span>
             {bannerNames.length === 1
-              ? `Se reprogramó "${bannerNames[0]}" del día anterior`
-              : `Se reprogramaron ${bannerNames.length} pasos del día anterior`}
+              ? `Se reabrió "${bannerNames[0]}" del día anterior`
+              : `Se reabrieron ${bannerNames.length} pasos del día anterior`}
           </span>
           <button onClick={() => setBannerVisible(false)} className="ml-4 shrink-0 rounded-md p-1 hover:bg-amber-600">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">

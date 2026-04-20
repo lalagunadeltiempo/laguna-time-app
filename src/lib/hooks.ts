@@ -473,6 +473,32 @@ export function useStaleStepCleanup(): { rescheduledNames: string[]; staleSopSte
   const [rescheduledNames, setRescheduledNames] = useState<string[]>([]);
   const [staleSopSteps, setStaleSopSteps] = useState<StaleSopStep[]>([]);
 
+  function classifyAndProcess(pasos: Paso[], targetDate: string) {
+    const sopSteps: StaleSopStep[] = [];
+    const reopenedNames: string[] = [];
+
+    for (const paso of pasos) {
+      const ent = state.entregables.find((e) => e.id === paso.entregableId);
+      if (ent?.plantillaId) {
+        const pl = state.plantillas.find((p) => p.id === ent.plantillaId);
+        const esDiario = pl?.programacion?.tipo === "diario";
+        if (esDiario) {
+          sopSteps.push({ paso, entregableId: ent.id, plantillaId: ent.plantillaId, plantillaNombre: pl?.nombre ?? ent.nombre });
+        } else {
+          dispatch({ type: "CLOSE_PASO", payload: buildClosedPaso(paso, targetDate) });
+          dispatch({ type: "REOPEN_PASO", id: paso.id });
+          reopenedNames.push(paso.nombre);
+        }
+      } else {
+        dispatch({ type: "CLOSE_PASO", payload: buildClosedPaso(paso, targetDate) });
+        dispatch({ type: "REOPEN_PASO", id: paso.id });
+        reopenedNames.push(paso.nombre);
+      }
+    }
+
+    return { sopSteps, reopenedNames };
+  }
+
   const staleCleaned = useRef(false);
   useEffect(() => {
     if (staleCleaned.current || pasosActivos.length === 0) return;
@@ -481,43 +507,16 @@ export function useStaleStepCleanup(): { rescheduledNames: string[]; staleSopSte
     if (stale.length === 0) { staleCleaned.current = true; return; }
     staleCleaned.current = true;
 
-    const sopSteps: StaleSopStep[] = [];
-    const normalNames: string[] = [];
-
-    for (const paso of stale) {
-      const ent = state.entregables.find((e) => e.id === paso.entregableId);
-      if (ent?.plantillaId) {
-        const pl = state.plantillas.find((p) => p.id === ent.plantillaId);
-        sopSteps.push({ paso, entregableId: ent.id, plantillaId: ent.plantillaId, plantillaNombre: pl?.nombre ?? ent.nombre });
-      } else {
-        dispatch({ type: "CLOSE_PASO", payload: buildClosedPaso(paso, today) });
-        normalNames.push(paso.nombre);
-      }
-    }
-
-    if (normalNames.length > 0) setRescheduledNames(normalNames);
+    const { sopSteps, reopenedNames } = classifyAndProcess(stale, today);
+    if (reopenedNames.length > 0) setRescheduledNames(reopenedNames);
     if (sopSteps.length > 0) setStaleSopSteps(sopSteps);
   }, [pasosActivos, dispatch, state.entregables, state.plantillas]);
 
   const autoCloseAtMidnight = useCallback(() => {
     if (pasosActivos.length === 0) return;
     const tomorrow = toDateKey(nextDay());
-
-    const sopSteps: StaleSopStep[] = [];
-    const normalNames: string[] = [];
-
-    for (const paso of pasosActivos) {
-      const ent = state.entregables.find((e) => e.id === paso.entregableId);
-      if (ent?.plantillaId) {
-        const pl = state.plantillas.find((p) => p.id === ent.plantillaId);
-        sopSteps.push({ paso, entregableId: ent.id, plantillaId: ent.plantillaId, plantillaNombre: pl?.nombre ?? ent.nombre });
-      } else {
-        dispatch({ type: "CLOSE_PASO", payload: buildClosedPaso(paso, tomorrow) });
-        normalNames.push(paso.nombre);
-      }
-    }
-
-    if (normalNames.length > 0) setRescheduledNames(normalNames);
+    const { sopSteps, reopenedNames } = classifyAndProcess(pasosActivos, tomorrow);
+    if (reopenedNames.length > 0) setRescheduledNames(reopenedNames);
     if (sopSteps.length > 0) setStaleSopSteps(sopSteps);
   }, [pasosActivos, dispatch, state.entregables, state.plantillas]);
 

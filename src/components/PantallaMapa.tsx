@@ -1157,6 +1157,9 @@ function PasoLine({ paso, index, total, isEmpresa, entResponsable }: { paso: Pas
   const inFilter = !filter || filter.pasos.has(paso.id);
   const [showNotas, setShowNotas] = useState(false);
   const [confirmDel, setConfirmDel] = useState(false);
+  const [showDonePicker, setShowDonePicker] = useState(false);
+  const [doneDate, setDoneDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [doneTime, setDoneTime] = useState(() => new Date().toTimeString().slice(0, 5));
   const done = !!paso.finTs;
   const allNotas = paso.notas ?? [];
   const hasContextoNotas = !!paso.contexto.notas;
@@ -1193,11 +1196,39 @@ function PasoLine({ paso, index, total, isEmpresa, entResponsable }: { paso: Pas
             </svg>
           </button>
         )}
+        {!isMentor && !done && (
+          <button onClick={() => setShowDonePicker(!showDonePicker)} title="Marcar hecho"
+            className="h-7 w-7 shrink-0 rounded-md text-green-600 opacity-0 transition-opacity group-hover/row:opacity-100 hover:bg-green-50 dark:hover:bg-green-900/20 flex items-center justify-center">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <polyline points="20 6 9 17 4 12" />
+            </svg>
+          </button>
+        )}
         {!isMentor && <MoveArrows canUp={index > 0} canDown={index < total - 1}
           onUp={() => dispatch({ type: "REORDER_PASO", id: paso.id, direction: "up" })}
           onDown={() => dispatch({ type: "REORDER_PASO", id: paso.id, direction: "down" })} />}
         {!isMentor && <DeleteBtn onDelete={() => setConfirmDel(true)} />}
       </div>
+
+      {showDonePicker && (
+        <div className="ml-8 mb-2 flex flex-wrap items-center gap-2 rounded-lg border border-green-200 dark:border-green-900 bg-green-50/50 dark:bg-green-900/10 px-3 py-2">
+          <input type="date" value={doneDate} onChange={(e) => setDoneDate(e.target.value)}
+            className="rounded border border-border bg-background px-2 py-1 text-xs" />
+          <input type="time" value={doneTime} onChange={(e) => setDoneTime(e.target.value)}
+            className="rounded border border-border bg-background px-2 py-1 text-xs" />
+          <button onClick={() => {
+            const inicioTs = paso.inicioTs ?? `${doneDate}T${doneTime}:00.000Z`;
+            const finTs = `${doneDate}T${doneTime}:00.000Z`;
+            dispatch({ type: "UPDATE_PASO_TIMES", id: paso.id, inicioTs, finTs });
+            dispatch({ type: "CLOSE_PASO", payload: { ...paso, inicioTs, finTs, estado: paso.nombre, siguientePaso: { tipo: "fin" } } });
+            setShowDonePicker(false);
+          }} className="rounded-lg bg-green-600 px-3 py-1 text-xs font-semibold text-white hover:bg-green-700">
+            Hecho
+          </button>
+          <button onClick={() => setShowDonePicker(false)}
+            className="text-xs text-muted hover:text-foreground">Cancelar</button>
+        </div>
+      )}
 
       {confirmDel && (
         <ConfirmDelete label={paso.nombre}

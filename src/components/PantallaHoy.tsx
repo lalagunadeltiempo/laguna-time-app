@@ -77,22 +77,22 @@ export function PantallaHoy() {
 
   function doStartPlanned(block: typeof plannedBlocks[0]) {
     if (!block.entregableId) return;
+    if (block.id.startsWith("next-")) {
+      const pasoId = block.id.slice(5);
+      dispatch({ type: "REOPEN_PASO", id: pasoId });
+      return;
+    }
     const existingPending = state.pasos.find((p) => p.entregableId === block.entregableId && !p.inicioTs && !p.finTs && p.nombre === block.title);
     if (existingPending) {
       dispatch({ type: "ACTIVATE_PASO", id: existingPending.id });
       dispatch({ type: "UPDATE_ENTREGABLE", id: block.entregableId, changes: { estado: "en_proceso" } });
     } else {
-      const prevPasoId = block.id.startsWith("next-") ? block.id.slice(5) : null;
-      const prevPaso = prevPasoId ? state.pasos.find((p) => p.id === prevPasoId) : null;
-      const contexto = prevPaso
-        ? { ...prevPaso.contexto }
-        : { urls: [] as import("@/lib/types").UrlRef[], apps: [] as string[], notas: "" };
       dispatch({
         type: "START_PASO",
         payload: {
           id: generateId(), entregableId: block.entregableId, nombre: block.title,
           inicioTs: new Date().toISOString(), finTs: null, estado: "",
-          contexto,
+          contexto: { urls: [] as import("@/lib/types").UrlRef[], apps: [] as string[], notas: "" },
           implicados: [{ tipo: "equipo", nombre: currentUser }],
           pausas: [], siguientePaso: null,
         },

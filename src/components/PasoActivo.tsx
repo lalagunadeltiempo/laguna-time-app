@@ -50,6 +50,7 @@ export function PasoActivoCard({ paso }: CardProps) {
   const [showAddPaso, setShowAddPaso] = useState(false);
   const [newPasoName, setNewPasoName] = useState("");
   const addPasoRef = useRef<HTMLInputElement>(null);
+  const [expandedPasoId, setExpandedPasoId] = useState<string | null>(null);
   const [showImplicados, setShowImplicados] = useState(false);
   const [showDiscard, setShowDiscard] = useState(false);
   const [editUrlIdx, setEditUrlIdx] = useState<number | null>(null);
@@ -266,26 +267,36 @@ export function PasoActivoCard({ paso }: CardProps) {
               <div className="space-y-0.5">
                 {pasosDelEntregable.map((p) => {
                   const isCurrent = p.id === paso.id;
-                  const isEditable = !isCurrent;
+                  const isExpanded = expandedPasoId === p.id;
                   return (
-                    <div key={p.id} className={`flex items-center gap-2 rounded-lg px-2 py-1.5 text-xs ${isCurrent ? "font-semibold" : ""}`}
-                      style={isCurrent ? { backgroundColor: `${borderColor}20`, color: borderColor } : undefined}>
-                      <span className="h-2 w-2 shrink-0 rounded-full"
-                        style={{ backgroundColor: p.finTs ? borderColor : isCurrent ? "#f59e0b" : "#e4e4e7" }} />
-                      {isEditable ? (
-                        <EditableText
-                          value={p.nombre}
-                          onChange={(v) => dispatch({ type: "RENAME_PASO", id: p.id, nombre: v })}
-                          className={`text-xs ${p.finTs ? "text-zinc-400 dark:text-zinc-500 line-through" : "text-zinc-600 dark:text-zinc-400"}`}
-                        />
-                      ) : (
-                        <span>{p.nombre}</span>
-                      )}
-                      {p.inicioTs && !isCurrent && (
-                        <span className="ml-auto text-[10px] text-zinc-300 dark:text-zinc-600">
-                          {new Date(p.inicioTs).toLocaleDateString("es-ES", { day: "numeric", month: "short" })}
-                        </span>
-                      )}
+                    <div key={p.id}>
+                      <div className={`flex items-center gap-2 rounded-lg px-2 py-1.5 text-xs ${isCurrent ? "font-semibold" : "cursor-pointer hover:bg-zinc-50 dark:hover:bg-zinc-800"}`}
+                        style={isCurrent ? { backgroundColor: `${borderColor}20`, color: borderColor } : undefined}
+                        onClick={!isCurrent ? () => setExpandedPasoId(isExpanded ? null : p.id) : undefined}>
+                        <span className="h-2 w-2 shrink-0 rounded-full"
+                          style={{ backgroundColor: p.finTs ? borderColor : isCurrent ? "#f59e0b" : "#e4e4e7" }} />
+                        {!isCurrent ? (
+                          <EditableText
+                            value={p.nombre}
+                            onChange={(v) => dispatch({ type: "RENAME_PASO", id: p.id, nombre: v })}
+                            className={`text-xs ${p.finTs ? "text-zinc-400 dark:text-zinc-500 line-through" : "text-zinc-600 dark:text-zinc-400"}`}
+                          />
+                        ) : (
+                          <span>{p.nombre}</span>
+                        )}
+                        {p.inicioTs && !isCurrent && (
+                          <span className="ml-auto text-[10px] text-zinc-300 dark:text-zinc-600">
+                            {new Date(p.inicioTs).toLocaleDateString("es-ES", { day: "numeric", month: "short" })}
+                          </span>
+                        )}
+                        {!isCurrent && (p.contexto.urls.length > 0 || p.contexto.notas || (p.notas ?? []).length > 0) && (
+                          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"
+                            className={`shrink-0 text-zinc-300 transition-transform ${isExpanded ? "rotate-180" : ""}`}>
+                            <path d="M6 9l6 6 6-6" />
+                          </svg>
+                        )}
+                      </div>
+                      {isExpanded && !isCurrent && <PrevPasoDetail p={p} borderColor={borderColor} />}
                     </div>
                   );
                 })}
@@ -500,6 +511,9 @@ export function PasoActivoCard({ paso }: CardProps) {
               </div>
             )}
 
+            {/* Session history */}
+            {paso.pausas.length > 0 && <SessionHistory paso={paso} borderColor={borderColor} />}
+
             {/* Action buttons */}
             <div className="space-y-2">
               {/* Quick close */}
@@ -542,5 +556,153 @@ export function PasoActivoCard({ paso }: CardProps) {
         </div>
       )}
     </>
+  );
+}
+
+function PrevPasoDetail({ p, borderColor }: { p: Paso; borderColor: string }) {
+  const dispatch = useAppDispatch();
+  const [editUrlIdx, setEditUrlIdx] = useState<number | null>(null);
+  const [editUrlDraft, setEditUrlDraft] = useState<UrlRef>({ nombre: "", descripcion: "", url: "" });
+  const [urlDraft, setUrlDraft] = useState<UrlRef>({ nombre: "", descripcion: "", url: "" });
+
+  function updateContexto(ctx: Contexto) {
+    dispatch({ type: "UPDATE_PASO_CONTEXTO", id: p.id, contexto: ctx });
+  }
+
+  function addUrl() {
+    if (!urlDraft.url.trim()) return;
+    updateContexto({ ...p.contexto, urls: [...p.contexto.urls, { nombre: urlDraft.nombre.trim() || urlDraft.url.trim(), descripcion: urlDraft.descripcion.trim(), url: urlDraft.url.trim() }] });
+    setUrlDraft({ nombre: "", descripcion: "", url: "" });
+  }
+
+  const fmtDate = (ts: string) => new Date(ts).toLocaleDateString("es-ES", { day: "numeric", month: "short", year: "numeric" });
+
+  return (
+    <div className="ml-6 mb-1 rounded-lg border border-zinc-100 dark:border-zinc-700 bg-zinc-50/50 dark:bg-zinc-800/50 p-3 space-y-2" onClick={(e) => e.stopPropagation()}>
+      {p.inicioTs && (
+        <p className="text-[10px] text-zinc-400">
+          {fmtDate(p.inicioTs)}{p.finTs ? ` — ${fmtDate(p.finTs)}` : ""}
+        </p>
+      )}
+      {p.implicados.length > 0 && (
+        <div className="flex flex-wrap gap-1">
+          {p.implicados.map((i) => (
+            <span key={`${i.tipo}-${i.nombre}`} className="rounded-md border px-1.5 py-0.5 text-[9px] font-medium"
+              style={{ borderColor: i.tipo === "externo" ? "#f472b6" : borderColor, backgroundColor: i.tipo === "externo" ? "#fdf2f8" : `${borderColor}10`, color: i.tipo === "externo" ? "#be185d" : borderColor }}>
+              {i.nombre}
+            </span>
+          ))}
+        </div>
+      )}
+      {p.contexto.urls.length > 0 && (
+        <div className="space-y-1">
+          <p className="text-[9px] font-semibold uppercase tracking-wider text-zinc-400">Enlaces</p>
+          {p.contexto.urls.map((u, i) =>
+            editUrlIdx === i ? (
+              <div key={i} className="space-y-1 rounded border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 p-1.5">
+                <input type="text" value={editUrlDraft.url} onChange={(e) => setEditUrlDraft({ ...editUrlDraft, url: e.target.value })}
+                  placeholder="https://..." className="w-full rounded border border-zinc-200 dark:border-zinc-700 px-1.5 py-1 text-[10px] bg-white dark:bg-zinc-900 text-zinc-800 dark:text-zinc-200 focus:outline-none" />
+                <div className="flex gap-1">
+                  <input type="text" value={editUrlDraft.nombre} onChange={(e) => setEditUrlDraft({ ...editUrlDraft, nombre: e.target.value })}
+                    placeholder="Nombre" className="flex-1 rounded border border-zinc-200 dark:border-zinc-700 px-1.5 py-1 text-[10px] bg-white dark:bg-zinc-900 text-zinc-800 dark:text-zinc-200 focus:outline-none" />
+                  <input type="text" value={editUrlDraft.descripcion} onChange={(e) => setEditUrlDraft({ ...editUrlDraft, descripcion: e.target.value })}
+                    placeholder="Descripción" className="flex-1 rounded border border-zinc-200 dark:border-zinc-700 px-1.5 py-1 text-[10px] bg-white dark:bg-zinc-900 text-zinc-800 dark:text-zinc-200 focus:outline-none" />
+                </div>
+                <div className="flex gap-1 justify-end">
+                  <button onClick={() => { if (!editUrlDraft.url.trim()) return; const urls = [...p.contexto.urls]; urls[i] = { nombre: editUrlDraft.nombre.trim() || editUrlDraft.url.trim(), descripcion: editUrlDraft.descripcion.trim(), url: editUrlDraft.url.trim() }; updateContexto({ ...p.contexto, urls }); setEditUrlIdx(null); }}
+                    className="rounded px-2 py-0.5 text-[10px] font-medium text-white" style={{ backgroundColor: borderColor }}>Guardar</button>
+                  <button onClick={() => setEditUrlIdx(null)} className="text-[10px] text-zinc-400 px-2 py-0.5">Cancelar</button>
+                </div>
+              </div>
+            ) : (
+              <div key={i} className="flex items-start gap-1">
+                <a href={u.url} target="_blank" rel="noopener noreferrer" className="min-w-0 flex-1 truncate text-[10px] hover:underline" style={{ color: borderColor }}>
+                  {u.nombre || u.url}
+                </a>
+                <button onClick={() => { setEditUrlIdx(i); setEditUrlDraft({ ...u }); }} className="text-[10px] text-zinc-300 hover:text-zinc-600" title="Editar">✎</button>
+                <button onClick={() => updateContexto({ ...p.contexto, urls: p.contexto.urls.filter((_, j) => j !== i) })}
+                  className="text-[10px] text-zinc-300 hover:text-red-400">✕</button>
+              </div>
+            )
+          )}
+          <div className="flex gap-1">
+            <input type="text" value={urlDraft.url} onChange={(e) => setUrlDraft({ ...urlDraft, url: e.target.value })}
+              onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addUrl(); } }}
+              placeholder="+ URL..." className="flex-1 rounded border border-dashed border-zinc-200 dark:border-zinc-700 px-1.5 py-1 text-[10px] bg-white dark:bg-zinc-900 text-zinc-800 dark:text-zinc-200 focus:outline-none" />
+          </div>
+        </div>
+      )}
+      {p.contexto.urls.length === 0 && (
+        <div className="flex gap-1">
+          <input type="text" value={urlDraft.url} onChange={(e) => setUrlDraft({ ...urlDraft, url: e.target.value })}
+            onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addUrl(); } }}
+            placeholder="+ URL..." className="flex-1 rounded border border-dashed border-zinc-200 dark:border-zinc-700 px-1.5 py-1 text-[10px] bg-white dark:bg-zinc-900 text-zinc-800 dark:text-zinc-200 focus:outline-none" />
+        </div>
+      )}
+      {p.contexto.notas && (
+        <div>
+          <p className="text-[9px] font-semibold uppercase tracking-wider text-zinc-400 mb-0.5">Notas de contexto</p>
+          <p className="text-[10px] text-zinc-600 dark:text-zinc-400 whitespace-pre-wrap">{p.contexto.notas}</p>
+        </div>
+      )}
+      {(p.notas ?? []).length > 0 && (
+        <div>
+          <p className="text-[9px] font-semibold uppercase tracking-wider text-zinc-400 mb-0.5">Notas</p>
+          <NotasSection notas={p.notas ?? []} nivel="paso" targetId={p.id} />
+        </div>
+      )}
+      {p.pausas.length > 0 && <SessionHistory paso={p} borderColor={borderColor} />}
+    </div>
+  );
+}
+
+function SessionHistory({ paso, borderColor }: { p?: never; paso: Paso; borderColor: string }) {
+  const sessions: { start: string; end: string | null }[] = [];
+  let sessionStart = paso.inicioTs ?? "";
+  for (const pausa of paso.pausas) {
+    sessions.push({ start: sessionStart, end: pausa.pauseTs });
+    if (pausa.resumeTs) sessionStart = pausa.resumeTs;
+    else sessionStart = "";
+  }
+  if (sessionStart) {
+    sessions.push({ start: sessionStart, end: paso.finTs ?? null });
+  }
+
+  if (sessions.length <= 1) return null;
+
+  const fmtTs = (ts: string) => {
+    const d = new Date(ts);
+    return `${d.toLocaleDateString("es-ES", { day: "numeric", month: "short" })} ${d.toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" })}`;
+  };
+
+  const durationMs = (start: string, end: string) => new Date(end).getTime() - new Date(start).getTime();
+  const fmtDuration = (ms: number) => {
+    if (ms < 60000) return "<1m";
+    const h = Math.floor(ms / 3600000);
+    const m = Math.floor((ms % 3600000) / 60000);
+    return h > 0 ? `${h}h ${m}m` : `${m}m`;
+  };
+
+  return (
+    <div className="space-y-1">
+      <p className="text-[9px] font-semibold uppercase tracking-wider text-zinc-400 dark:text-zinc-500">Sesiones ({sessions.length})</p>
+      <div className="space-y-0.5">
+        {sessions.map((s, i) => (
+          <div key={i} className="flex items-center gap-2 rounded px-2 py-1 text-[10px]"
+            style={i === sessions.length - 1 && !paso.finTs ? { backgroundColor: `${borderColor}10` } : undefined}>
+            <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: i === sessions.length - 1 && !paso.finTs ? borderColor : "#d4d4d8" }} />
+            <span className="text-zinc-500 dark:text-zinc-400">{fmtTs(s.start)}</span>
+            {s.end && (
+              <>
+                <span className="text-zinc-300">→</span>
+                <span className="text-zinc-500 dark:text-zinc-400">{fmtTs(s.end)}</span>
+                <span className="ml-auto text-zinc-400 dark:text-zinc-500 font-medium">{fmtDuration(durationMs(s.start, s.end))}</span>
+              </>
+            )}
+            {!s.end && <span className="ml-auto text-[9px] font-medium" style={{ color: borderColor }}>En curso</span>}
+          </div>
+        ))}
+      </div>
+    </div>
   );
 }

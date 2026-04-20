@@ -116,6 +116,11 @@ function actionToLog(action: Action, _userName: string, state: AppState): { acti
       const ruta = buildRuta(state, { pasoId: action.id });
       return { action: "resume_paso", descripcion: `Paso reanudado "${p?.nombre ?? ""}"`, ruta, pasoId: action.id };
     }
+    case "REOPEN_PASO": {
+      const p = state.pasos.find((x) => x.id === action.id);
+      const ruta = buildRuta(state, { pasoId: action.id });
+      return { action: "reopen_paso", descripcion: `Paso reabierto "${p?.nombre ?? ""}"`, ruta, pasoId: action.id };
+    }
     case "DISCARD_PASO": {
       const p = state.pasos.find((x) => x.id === action.id);
       const ruta = buildRuta(state, { pasoId: action.id });
