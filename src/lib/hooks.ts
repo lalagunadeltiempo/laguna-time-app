@@ -1,10 +1,11 @@
 "use client";
 
-import { useMemo } from "react";
-import { useAppState } from "./context";
+import { useMemo, useEffect, useRef, useCallback, useState } from "react";
+import { useAppState, useAppDispatch } from "./context";
 import { AREAS_PERSONAL, AREAS_EMPRESA, ambitoDeArea, type DependeDe, type Entregable, type Paso } from "./types";
 import { useUsuario } from "./usuario";
 import { getSOPsHoy, getSOPsDemanda, type SOPHoy } from "./sop-scheduler";
+import { toDateKey } from "./date-utils";
 import type { PlantillaProceso } from "./types";
 
 const AREA_LABELS: Record<string, string> = Object.fromEntries([
@@ -289,4 +290,77 @@ export function agruparPorEntregable<T extends { entregableId: string }>(
   }
 
   return Array.from(map.values());
+}
+
+/* ============================================================
+   buildClosedPaso — shared helper for auto-closing stale steps
+   ============================================================ */
+
+export function buildClosedPaso(paso: Paso, targetDate?: string): Paso {
+  const startDay = paso.inicioTs ? paso.inicioTs.slice(0, 10) : toDateKey(new Date());
+  const endOfDay = `${startDay}T23:59:59.999Z`;
+  const target = targetDate ?? toDateKey(nextDay());
+  return {
+    ...paso,
+    finTs: endOfDay,
+    estado: paso.nombre,
+    siguientePaso: {
+      tipo: "continuar",
+      nombre: paso.nombre,
+      cuando: "manana",
+      fechaProgramada: target,
+    },
+  };
+}
+
+function nextDay(): Date {
+  const t = new Date();
+  t.setDate(t.getDate() + 1);
+  return t;
+}
+
+/* ============================================================
+   useStaleStepCleanup — global hook for auto-closing overnight steps
+   Runs once on mount (stale from past days) + timer at midnight.
+   Returns the names of steps that were auto-rescheduled.
+   ============================================================ */
+
+export function useStaleStepCleanup(): string[] {
+  const dispatch = useAppDispatch();
+  const pasosActivos = usePasosActivos();
+  const [rescheduledNames, setRescheduledNames] = useState<string[]>([]);
+
+  const staleCleaned = useRef(false);
+  useEffect(() => {
+    if (staleCleaned.current || pasosActivos.length === 0) return;
+    const today = toDateKey(new Date());
+    const stale = pasosActivos.filter((p) => p.inicioTs && p.inicioTs.slice(0, 10) < today);
+    if (stale.length === 0) { staleCleaned.current = true; return; }
+    staleCleaned.current = true;
+    for (const paso of stale) {
+      dispatch({ type: "CLOSE_PASO", payload: buildClosedPaso(paso, today) });
+    }
+    setRescheduledNames(stale.map((p) => p.nombre));
+  }, [pasosActivos, dispatch]);
+
+  const autoCloseAtMidnight = useCallback(() => {
+    if (pasosActivos.length === 0) return;
+    const tomorrow = toDateKey(nextDay());
+    for (const paso of pasosActivos) {
+      dispatch({ type: "CLOSE_PASO", payload: buildClosedPaso(paso, tomorrow) });
+    }
+    setRescheduledNames(pasosActivos.map((p) => p.nombre));
+  }, [pasosActivos, dispatch]);
+
+  useEffect(() => {
+    if (pasosActivos.length === 0) return;
+    const now = new Date();
+    const midnight = new Date(now);
+    midnight.setHours(24, 0, 0, 0);
+    const ms = midnight.getTime() - now.getTime();
+    const timer = setTimeout(autoCloseAtMidnight, ms);
+    return () => clearTimeout(timer);
+  }, [pasosActivos, autoCloseAtMidnight]);
+
+  return rescheduledNames;
 }

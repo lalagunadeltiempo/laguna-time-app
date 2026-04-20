@@ -1,8 +1,9 @@
 "use client";
 
-import { useState, useCallback, useMemo, type ReactNode } from "react";
+import { useState, useCallback, useMemo, useEffect, type ReactNode } from "react";
 import { AuthGate } from "@/components/AuthGate";
 import { AppProvider, useAppState } from "@/lib/context";
+import { useStaleStepCleanup } from "@/lib/hooks";
 import { UsuarioContext, useUsuario } from "@/lib/usuario";
 import { getSupabase } from "@/lib/supabase";
 import { flushPendingCloudSave } from "@/lib/store";
@@ -117,6 +118,7 @@ function AppShell({ userId, displayName }: { userId: string; displayName: string
   return (
     <AppProvider userId={userId} displayName={displayName}>
       <UsuarioWithRol userId={userId} nombre={displayName}>
+      <StaleStepBanner />
       <div className="flex h-dvh overflow-hidden bg-background text-foreground">
         {/* ── Sidebar (desktop md+) ── */}
         <aside
@@ -357,5 +359,36 @@ function HoyBadge() {
     <span className="ml-auto flex h-5 min-w-[20px] items-center justify-center rounded-full bg-blue-600 px-1.5 text-[10px] font-bold text-white">
       {count}
     </span>
+  );
+}
+
+function StaleStepBanner() {
+  const rescheduledNames = useStaleStepCleanup();
+  const [visible, setVisible] = useState(false);
+  const [names, setNames] = useState<string[]>([]);
+
+  useEffect(() => {
+    if (rescheduledNames.length === 0) return;
+    setNames(rescheduledNames);
+    setVisible(true);
+    const timer = setTimeout(() => setVisible(false), 8000);
+    return () => clearTimeout(timer);
+  }, [rescheduledNames]);
+
+  if (!visible || names.length === 0) return null;
+
+  return (
+    <div className="fixed inset-x-0 top-0 z-[60] flex items-center justify-between bg-amber-500 px-4 py-2.5 text-sm font-medium text-white shadow-lg">
+      <span>
+        {names.length === 1
+          ? `Se reprogramó "${names[0]}" del día anterior`
+          : `Se reprogramaron ${names.length} pasos del día anterior`}
+      </span>
+      <button onClick={() => setVisible(false)} className="ml-4 shrink-0 rounded-md p-1 hover:bg-amber-600">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+          <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
+        </svg>
+      </button>
+    </div>
   );
 }

@@ -1,8 +1,8 @@
 "use client";
 
-import { useState, useMemo, useEffect, useCallback, useRef } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useAppState, useAppDispatch } from "@/lib/context";
-import { usePasosActivos, useSOPsHoy, useDependenciasEntrantes, useEsperandoRespuesta } from "@/lib/hooks";
+import { usePasosActivos, useSOPsHoy, useDependenciasEntrantes, useEsperandoRespuesta, buildClosedPaso } from "@/lib/hooks";
 import { generateId } from "@/lib/store";
 import { useUsuario, useIsMentor } from "@/lib/usuario";
 import { toDateKey } from "@/lib/date-utils";
@@ -24,36 +24,6 @@ export function PantallaHoy() {
   const [showEndOfDay, setShowEndOfDay] = useState(false);
   const [showRetro, setShowRetro] = useState(false);
   const [quickCapture, setQuickCapture] = useState("");
-
-  // Close stale steps from previous days → reschedule for today (once after data loads)
-  const staleCleaned = useRef(false);
-  useEffect(() => {
-    if (staleCleaned.current || pasosActivos.length === 0) return;
-    const today = dateStr(new Date());
-    const stale = pasosActivos.filter((p) => p.inicioTs && p.inicioTs.slice(0, 10) < today);
-    if (stale.length === 0) { staleCleaned.current = true; return; }
-    staleCleaned.current = true;
-    for (const paso of stale) {
-      dispatch({ type: "CLOSE_PASO", payload: buildClosedPaso(paso, today) });
-    }
-  }, [pasosActivos, dispatch]);
-
-  // Auto-close at midnight → reschedule for tomorrow
-  const autoCloseAtMidnight = useCallback(() => {
-    for (const paso of pasosActivos) {
-      dispatch({ type: "CLOSE_PASO", payload: buildClosedPaso(paso) });
-    }
-  }, [pasosActivos, dispatch]);
-
-  useEffect(() => {
-    if (pasosActivos.length === 0) return;
-    const now = new Date();
-    const midnight = new Date(now);
-    midnight.setHours(24, 0, 0, 0);
-    const ms = midnight.getTime() - now.getTime();
-    const timer = setTimeout(autoCloseAtMidnight, ms);
-    return () => clearTimeout(timer);
-  }, [pasosActivos, autoCloseAtMidnight]);
 
   const { mios: sopsMios } = useSOPsHoy();
   const depsEntrantes = useDependenciasEntrantes();
@@ -174,12 +144,17 @@ export function PantallaHoy() {
       dispatch({ type: "ACTIVATE_PASO", id: existingPending.id });
       dispatch({ type: "UPDATE_ENTREGABLE", id: block.entregableId, changes: { estado: "en_proceso" } });
     } else {
+      const prevPasoId = block.id.startsWith("next-") ? block.id.slice(5) : null;
+      const prevPaso = prevPasoId ? state.pasos.find((p) => p.id === prevPasoId) : null;
+      const contexto = prevPaso
+        ? { ...prevPaso.contexto }
+        : { urls: [] as import("@/lib/types").UrlRef[], apps: [] as string[], notas: "" };
       dispatch({
         type: "START_PASO",
         payload: {
           id: generateId(), entregableId: block.entregableId, nombre: block.title,
           inicioTs: new Date().toISOString(), finTs: null, estado: "",
-          contexto: { urls: [], apps: [], notas: "" },
+          contexto,
           implicados: [{ tipo: "equipo", nombre: currentUser }],
           pausas: [], siguientePaso: null,
         },
@@ -535,24 +510,6 @@ function SOPExpandableCard({ sop, onStartStep, onPickDest }: {
    END OF DAY FLOW
    ============================================================ */
 
-function dateStr(d: Date) {
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-}
-
-function buildClosedPaso(paso: Paso, targetDate?: string): Paso {
-  const target = targetDate ?? dateStr((() => { const t = new Date(); t.setDate(t.getDate() + 1); return t; })());
-  return {
-    ...paso,
-    finTs: new Date().toISOString(),
-    estado: paso.nombre,
-    siguientePaso: {
-      tipo: "continuar",
-      nombre: paso.nombre,
-      cuando: "manana",
-      fechaProgramada: target,
-    },
-  };
-}
 
 /* ============================================================
    REGISTRAR PASO PASADO (retroactive)

@@ -345,16 +345,6 @@ export function flushPendingCloudSave(): void {
 
   const url = `${process.env.NEXT_PUBLIC_SUPABASE_URL}/rest/v1/user_data?on_conflict=user_id`;
 
-  // sendBeacon is more reliable on page close (up to 64 KB)
-  if (typeof navigator !== "undefined" && navigator.sendBeacon && payload.length < 65_536) {
-    const blob = new Blob([payload], { type: "application/json" });
-    const sent = navigator.sendBeacon(
-      `${url}&apikey=${encodeURIComponent(process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? "")}`,
-      blob,
-    );
-    if (sent) return;
-  }
-
   try {
     fetch(url, {
       method: "POST",

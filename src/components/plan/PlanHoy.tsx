@@ -49,6 +49,9 @@ interface Block {
   hour: number;
   entregableId?: string;
   pasoId?: string;
+  proyectoId?: string;
+  proyectoNombre?: string;
+  entregableNombre?: string;
   startMin?: number;
   endMin?: number;
   timeLabel?: string;
@@ -124,6 +127,9 @@ export function PlanHoy({ selectedDate }: Props) {
         hour,
         entregableId: ent.id,
         pasoId: paso.id,
+        proyectoId: proj?.id,
+        proyectoNombre: proj?.nombre,
+        entregableNombre: ent.nombre,
         startMin,
         endMin: isDone ? endMin : undefined,
         timeLabel: isDone ? `${fmtTime(startMin)} – ${fmtTime(endMin)}` : fmtTime(startMin),
@@ -167,6 +173,9 @@ export function PlanHoy({ selectedDate }: Props) {
           hour: -1,
           entregableId: ent.id,
           pasoId: paso.id,
+          proyectoId: proj?.id,
+          proyectoNombre: proj?.nombre,
+          entregableNombre: ent.nombre,
         });
       }
 
@@ -186,6 +195,9 @@ export function PlanHoy({ selectedDate }: Props) {
           subtitle: `${proj?.nombre ?? ""}`,
           hour: -1,
           entregableId: ent.id,
+          proyectoId: proj?.id,
+          proyectoNombre: proj?.nombre,
+          entregableNombre: ent.nombre,
         });
       }
 
@@ -208,6 +220,9 @@ export function PlanHoy({ selectedDate }: Props) {
           hour: -1,
           entregableId: ent.id,
           pasoId: pendingPaso.id,
+          proyectoId: proj?.id,
+          proyectoNombre: proj?.nombre,
+          entregableNombre: ent.nombre,
         });
       }
     }
@@ -215,7 +230,21 @@ export function PlanHoy({ selectedDate }: Props) {
     return result;
   }, [state.pasos, state.entregables, state.resultados, state.proyectos, state.pasosActivos, dateKey, isToday, isPast, currentUser]);
 
-  const plannedBlocks = useMemo(() => allBlocks.filter((b) => b.type === "programado"), [allBlocks]);
+  const plannedBlocks = useMemo(() => {
+    const blocks = allBlocks.filter((b) => b.type === "programado");
+    blocks.sort((a, b) => {
+      const areaA = a.area ?? "";
+      const areaB = b.area ?? "";
+      if (areaA !== areaB) return areaA.localeCompare(areaB);
+      const projA = a.proyectoNombre ?? "";
+      const projB = b.proyectoNombre ?? "";
+      if (projA !== projB) return projA.localeCompare(projB);
+      const entA = a.entregableNombre ?? "";
+      const entB = b.entregableNombre ?? "";
+      return entA.localeCompare(entB);
+    });
+    return blocks;
+  }, [allBlocks]);
   const executedBlocks = useMemo(() => allBlocks.filter((b) => b.type === "active" || b.type === "done"), [allBlocks]);
 
   const projectedSOPs = useMemo(() => projectSOPsForDate(state, selectedDate, currentUser), [state, selectedDate, currentUser]);
@@ -248,6 +277,11 @@ export function PlanHoy({ selectedDate }: Props) {
       dispatch({ type: "ACTIVATE_PASO", id: existingPending.id });
       dispatch({ type: "UPDATE_ENTREGABLE", id: block.entregableId, changes: { estado: "en_proceso" } });
     } else {
+      const prevPasoId = block.id.startsWith("next-") ? block.id.slice(5) : null;
+      const prevPaso = prevPasoId ? state.pasos.find((p) => p.id === prevPasoId) : null;
+      const contexto = prevPaso
+        ? { ...prevPaso.contexto }
+        : { urls: [] as Paso["contexto"]["urls"], apps: [] as string[], notas: "" };
       dispatch({
         type: "START_PASO",
         payload: {
@@ -256,7 +290,7 @@ export function PlanHoy({ selectedDate }: Props) {
           nombre: block.title,
           inicioTs: new Date().toISOString(),
           finTs: null, estado: "",
-          contexto: { urls: [], apps: [], notas: "" },
+          contexto,
           implicados: [{ tipo: "equipo", nombre: currentUser }],
           pausas: [], siguientePaso: null,
         },
@@ -300,26 +334,38 @@ export function PlanHoy({ selectedDate }: Props) {
           {planOpen && !hasPlanned && <p className="py-3 text-center text-xs text-muted">Nada planificado. Usa el botón + para añadir.</p>}
 
           {planOpen && <div className="mt-3 space-y-1.5">
-            {plannedBlocks.map((block) => {
+            {plannedBlocks.map((block, i) => {
               const hex = AREA_COLORS[block.area]?.hex ?? "#888";
+              const prev = i > 0 ? plannedBlocks[i - 1] : null;
+              const showProjectHeader = !prev || prev.proyectoId !== block.proyectoId || prev.area !== block.area;
               return (
-                <PlannedBlockRow key={block.id} block={block} hex={hex} isToday={isToday} isMentor={isMentor} refDate={selectedDate}
-                  onStart={() => setConfirmBlock(block)}
-                  onLogAsDone={() => setLogAsDoneBlock(block)}
-                  onReschedule={(newDate) => {
-                    if (block.id.startsWith("pending-") && block.pasoId) {
-                      if (!newDate) dispatch({ type: "DELETE_PASO", id: block.pasoId });
-                    } else if (block.id.startsWith("next-") && block.pasoId) {
-                      dispatch({ type: "RESCHEDULE_NEXT_PASO", pasoId: block.pasoId, newDate });
-                    } else if (block.id.startsWith("ent-") && block.entregableId) {
-                      if (!newDate) {
-                        dispatch({ type: "UPDATE_ENTREGABLE", id: block.entregableId, changes: { fechaInicio: null, estado: "a_futuro" as const } });
-                      } else {
-                        dispatch({ type: "UPDATE_ENTREGABLE", id: block.entregableId, changes: { fechaInicio: newDate } });
+                <div key={block.id}>
+                  {showProjectHeader && (
+                    <div className="flex items-center gap-2 pb-1 pt-2 first:pt-0">
+                      <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: hex }} />
+                      <span className="text-[11px] font-semibold uppercase tracking-wide" style={{ color: hex }}>
+                        {block.proyectoNombre || block.area}
+                      </span>
+                    </div>
+                  )}
+                  <PlannedBlockRow block={block} hex={hex} isToday={isToday} isMentor={isMentor} refDate={selectedDate}
+                    onStart={() => setConfirmBlock(block)}
+                    onLogAsDone={() => setLogAsDoneBlock(block)}
+                    onReschedule={(newDate) => {
+                      if (block.id.startsWith("pending-") && block.pasoId) {
+                        if (!newDate) dispatch({ type: "DELETE_PASO", id: block.pasoId });
+                      } else if (block.id.startsWith("next-") && block.pasoId) {
+                        dispatch({ type: "RESCHEDULE_NEXT_PASO", pasoId: block.pasoId, newDate });
+                      } else if (block.id.startsWith("ent-") && block.entregableId) {
+                        if (!newDate) {
+                          dispatch({ type: "UPDATE_ENTREGABLE", id: block.entregableId, changes: { fechaInicio: null, estado: "a_futuro" as const } });
+                        } else {
+                          dispatch({ type: "UPDATE_ENTREGABLE", id: block.entregableId, changes: { fechaInicio: newDate } });
+                        }
                       }
-                    }
-                  }}
-                />
+                    }}
+                  />
+                </div>
               );
             })}
 
