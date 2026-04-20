@@ -2,7 +2,7 @@
 
 import { useState, useMemo, useEffect } from "react";
 import { useAppState, useAppDispatch } from "@/lib/context";
-import { usePasosActivos, useSOPsHoy, useDependenciasEntrantes, useEsperandoRespuesta, buildClosedPaso } from "@/lib/hooks";
+import { usePasosActivos, useSOPsHoy, useDependenciasEntrantes, useEsperandoRespuesta, usePlannedBlocks, buildClosedPaso } from "@/lib/hooks";
 import { generateId } from "@/lib/store";
 import { useUsuario, useIsMentor } from "@/lib/usuario";
 import { toDateKey } from "@/lib/date-utils";
@@ -36,69 +36,7 @@ export function PantallaHoy() {
     return () => clearInterval(id);
   }, []);
 
-  // Planned blocks for today (same logic as PlanHoy)
-  const plannedBlocks = useMemo(() => {
-    const { pasos, entregables, resultados, proyectos } = state;
-    type PBlock = { id: string; title: string; subtitle: string; entregableId: string; pasoId?: string; area: string; hex: string };
-    const result: PBlock[] = [];
-    const entIdsWithPasos = new Set<string>();
-
-    for (const p of pasos) {
-      if (p.inicioTs && p.inicioTs.slice(0, 10) === todayKey) {
-        entIdsWithPasos.add(p.entregableId);
-      }
-    }
-
-    for (const paso of pasos) {
-      if (!paso.finTs || !paso.siguientePaso) continue;
-      if (paso.siguientePaso.tipo !== "continuar") continue;
-      let fp = paso.siguientePaso.fechaProgramada;
-      if (!fp) continue;
-      if (fp === "manana") {
-        const finDate = new Date(paso.finTs);
-        finDate.setDate(finDate.getDate() + 1);
-        fp = toDateKey(finDate);
-      }
-      if (fp > todayKey) continue;
-      if (result.some((b) => b.id === `next-${paso.id}`)) continue;
-      const newerPasoExists = pasos.some((p) => p.entregableId === paso.entregableId && p.inicioTs && paso.finTs && p.inicioTs >= paso.finTs);
-      if (newerPasoExists) continue;
-      const ent = entregables.find((e) => e.id === paso.entregableId);
-      if (!ent) continue;
-      if (ent.estado === "hecho" || ent.estado === "cancelada") continue;
-      if (ent.responsable && ent.responsable !== currentUser) continue;
-      entIdsWithPasos.add(ent.id);
-      const res = resultados.find((r) => r.id === ent.resultadoId);
-      const proj = res ? proyectos.find((pr) => pr.id === res.proyectoId) : undefined;
-      result.push({ id: `next-${paso.id}`, title: paso.siguientePaso.nombre ?? paso.nombre, subtitle: `${proj?.nombre ?? ""} · ${ent.nombre}`, entregableId: ent.id, pasoId: paso.id, area: proj?.area ?? "operativa", hex: AREA_COLORS[proj?.area ?? ""]?.hex ?? "#888" });
-    }
-
-    for (const ent of entregables) {
-      if (!ent.fechaInicio || ent.fechaInicio > todayKey) continue;
-      if (ent.planNivel === "mes" || ent.planNivel === "trimestre") continue;
-      if (ent.estado === "hecho" || ent.estado === "cancelada") continue;
-      if (entIdsWithPasos.has(ent.id)) continue;
-      if (ent.responsable && ent.responsable !== currentUser) continue;
-      const res = resultados.find((r) => r.id === ent.resultadoId);
-      const proj = res ? proyectos.find((pr) => pr.id === res.proyectoId) : undefined;
-      result.push({ id: `ent-${ent.id}`, title: ent.nombre, subtitle: proj?.nombre ?? "", entregableId: ent.id, area: proj?.area ?? "operativa", hex: AREA_COLORS[proj?.area ?? ""]?.hex ?? "#888" });
-    }
-
-    for (const entId of entIdsWithPasos) {
-      if (result.some((b) => b.id.startsWith("next-") && b.entregableId === entId)) continue;
-      if (result.some((b) => b.id.startsWith("pending-") && b.entregableId === entId)) continue;
-      const ent = entregables.find((e) => e.id === entId);
-      if (!ent || ent.estado !== "en_proceso") continue;
-      if (ent.responsable && ent.responsable !== currentUser) continue;
-      const pendingPaso = pasos.find((p) => p.entregableId === entId && !p.inicioTs && !p.finTs);
-      if (!pendingPaso) continue;
-      const res = resultados.find((r) => r.id === ent.resultadoId);
-      const proj = res ? proyectos.find((pr) => pr.id === res.proyectoId) : undefined;
-      result.push({ id: `pending-${pendingPaso.id}`, title: pendingPaso.nombre, subtitle: `${proj?.nombre ?? ""} · ${ent.nombre}`, entregableId: ent.id, pasoId: pendingPaso.id, area: proj?.area ?? "operativa", hex: AREA_COLORS[proj?.area ?? ""]?.hex ?? "#888" });
-    }
-
-    return result;
-  }, [state, todayKey, currentUser]);
+  const plannedBlocks = usePlannedBlocks(todayKey);
 
   const [sopDestPicker, setSopDestPicker] = useState<string | null>(null);
   const [sopDestCache, setSopDestCache] = useState<Map<string, string>>(new Map());

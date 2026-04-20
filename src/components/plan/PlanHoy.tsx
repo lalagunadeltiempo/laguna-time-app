@@ -4,6 +4,7 @@ import { useState, useMemo, useRef, useEffect } from "react";
 import { useAppState, useAppDispatch } from "@/lib/context";
 import { generateId } from "@/lib/store";
 import { useUsuario, useIsMentor } from "@/lib/usuario";
+import { usePlannedBlocks } from "@/lib/hooks";
 import {
   AREA_COLORS, AREAS_PERSONAL, AREAS_EMPRESA,
   type Area, type Entregable, type Ambito, type Paso,
@@ -56,6 +57,7 @@ interface Block {
   endMin?: number;
   timeLabel?: string;
   durationLabel?: string;
+  hex?: string;
 }
 
 interface Props {
@@ -95,32 +97,30 @@ export function PlanHoy({ selectedDate }: Props) {
     }
   }, [isToday, dateKey]);
 
-  const allBlocks = useMemo(() => {
+  const executedBlocks = useMemo(() => {
     const { pasos, entregables, resultados, proyectos, pasosActivos } = state;
     const result: Block[] = [];
-    const entregableIdsWithPasos = new Set<string>();
 
     for (const paso of pasos) {
       if (!paso.inicioTs) continue;
-      const pDate = paso.inicioTs.slice(0, 10);
-      if (pDate !== dateKey) continue;
+      if (paso.inicioTs.slice(0, 10) !== dateKey) continue;
+      const isDone = !!paso.finTs;
+      const isActive = !isDone && pasosActivos.includes(paso.id);
+      if (!isDone && !isActive) continue;
 
       const ent = entregables.find((e) => e.id === paso.entregableId);
       if (!ent) continue;
       if (ent.responsable && ent.responsable !== currentUser) continue;
-      entregableIdsWithPasos.add(ent.id);
-      const res = ent ? resultados.find((r) => r.id === ent.resultadoId) : undefined;
+      const res = resultados.find((r) => r.id === ent.resultadoId);
       const proj = res ? proyectos.find((pr) => pr.id === res.proyectoId) : undefined;
       const hour = new Date(paso.inicioTs).getHours();
-      const isDone = !!paso.finTs;
-      const isActive = !isDone && pasosActivos.includes(paso.id);
       const startMin = minsFromMidnight(paso.inicioTs);
       const endMin = paso.finTs ? minsFromMidnight(paso.finTs) : startMin;
       const dur = endMin - startMin;
 
       result.push({
         id: paso.id,
-        type: isDone ? "done" : isActive ? "active" : "programado",
+        type: isDone ? "done" : "active",
         area: proj?.area ?? "operativa",
         title: paso.nombre,
         subtitle: `${proj?.nombre ?? ""} · ${ent.nombre}`,
@@ -137,101 +137,17 @@ export function PlanHoy({ selectedDate }: Props) {
       });
     }
 
-    if (isToday || !isPast) {
-      for (const paso of pasos) {
-        if (!paso.finTs || !paso.siguientePaso) continue;
-        if (paso.siguientePaso.tipo !== "continuar") continue;
-        let fp = paso.siguientePaso.fechaProgramada;
-        if (!fp) continue;
-        if (fp === "manana") {
-          const finDate = new Date(paso.finTs);
-          finDate.setDate(finDate.getDate() + 1);
-          fp = toDateKey(finDate);
-        }
-        if (fp > dateKey) continue;
-        if (result.some((b) => b.id === `next-${paso.id}`)) continue;
-
-        const newerPasoExists = pasos.some((p) =>
-          p.entregableId === paso.entregableId && p.inicioTs && paso.finTs && p.inicioTs >= paso.finTs
-        );
-        if (newerPasoExists) continue;
-
-        const ent = entregables.find((e) => e.id === paso.entregableId);
-        if (!ent) continue;
-        if (ent.estado === "hecho" || ent.estado === "cancelada") continue;
-        if (ent.responsable && ent.responsable !== currentUser) continue;
-        entregableIdsWithPasos.add(ent.id);
-        const res = ent ? resultados.find((r) => r.id === ent.resultadoId) : undefined;
-        const proj = res ? proyectos.find((pr) => pr.id === res.proyectoId) : undefined;
-
-        result.push({
-          id: `next-${paso.id}`,
-          type: "programado",
-          area: proj?.area ?? "operativa",
-          title: paso.siguientePaso.nombre ?? paso.nombre,
-          subtitle: `${proj?.nombre ?? ""} · ${ent.nombre}`,
-          hour: -1,
-          entregableId: ent.id,
-          pasoId: paso.id,
-          proyectoId: proj?.id,
-          proyectoNombre: proj?.nombre,
-          entregableNombre: ent.nombre,
-        });
-      }
-
-      for (const ent of entregables) {
-        if (!ent.fechaInicio || ent.fechaInicio > dateKey) continue;
-        if (ent.planNivel === "mes" || ent.planNivel === "trimestre") continue;
-        if (ent.estado === "hecho" || ent.estado === "cancelada") continue;
-        if (entregableIdsWithPasos.has(ent.id)) continue;
-        if (ent.responsable && ent.responsable !== currentUser) continue;
-        const res = resultados.find((r) => r.id === ent.resultadoId);
-        const proj = res ? proyectos.find((pr) => pr.id === res.proyectoId) : undefined;
-        result.push({
-          id: `ent-${ent.id}`,
-          type: "programado",
-          area: proj?.area ?? "operativa",
-          title: ent.nombre,
-          subtitle: `${proj?.nombre ?? ""}`,
-          hour: -1,
-          entregableId: ent.id,
-          proyectoId: proj?.id,
-          proyectoNombre: proj?.nombre,
-          entregableNombre: ent.nombre,
-        });
-      }
-
-      for (const entId of entregableIdsWithPasos) {
-        if (result.some((b) => b.id.startsWith("next-") && b.entregableId === entId)) continue;
-        if (result.some((b) => b.id.startsWith("pending-") && b.entregableId === entId)) continue;
-        const ent = entregables.find((e) => e.id === entId);
-        if (!ent || ent.estado !== "en_proceso") continue;
-        if (ent.responsable && ent.responsable !== currentUser) continue;
-        const pendingPaso = pasos.find((p) => p.entregableId === entId && !p.inicioTs && !p.finTs);
-        if (!pendingPaso) continue;
-        const res = resultados.find((r) => r.id === ent.resultadoId);
-        const proj = res ? proyectos.find((pr) => pr.id === res.proyectoId) : undefined;
-        result.push({
-          id: `pending-${pendingPaso.id}`,
-          type: "programado",
-          area: proj?.area ?? "operativa",
-          title: pendingPaso.nombre,
-          subtitle: `${proj?.nombre ?? ""} · ${ent.nombre}`,
-          hour: -1,
-          entregableId: ent.id,
-          pasoId: pendingPaso.id,
-          proyectoId: proj?.id,
-          proyectoNombre: proj?.nombre,
-          entregableNombre: ent.nombre,
-        });
-      }
-    }
-
     return result;
-  }, [state.pasos, state.entregables, state.resultados, state.proyectos, state.pasosActivos, dateKey, isToday, isPast, currentUser]);
+  }, [state.pasos, state.entregables, state.resultados, state.proyectos, state.pasosActivos, dateKey, currentUser]);
 
+  const hookPlanned = usePlannedBlocks(dateKey);
   const plannedBlocks = useMemo(() => {
-    const blocks = allBlocks.filter((b) => b.type === "programado");
+    if (isPast && !isToday) return [] as Block[];
+    const blocks: Block[] = hookPlanned.map((b) => ({
+      ...b,
+      type: "programado" as const,
+      hour: -1,
+    }));
     blocks.sort((a, b) => {
       const areaA = a.area ?? "";
       const areaB = b.area ?? "";
@@ -244,8 +160,7 @@ export function PlanHoy({ selectedDate }: Props) {
       return entA.localeCompare(entB);
     });
     return blocks;
-  }, [allBlocks]);
-  const executedBlocks = useMemo(() => allBlocks.filter((b) => b.type === "active" || b.type === "done"), [allBlocks]);
+  }, [hookPlanned, isPast, isToday]);
 
   const projectedSOPs = useMemo(() => projectSOPsForDate(state, selectedDate, currentUser), [state, selectedDate, currentUser]);
   const virtualSOPs = useMemo(() => {

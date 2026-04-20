@@ -1,7 +1,7 @@
 import type { AppState, Paso } from "./types";
 
 export interface SearchResult {
-  tipo: "paso" | "entregable" | "resultado" | "proyecto" | "url" | "nota" | "contacto" | "inbox";
+  tipo: "paso" | "entregable" | "resultado" | "proyecto" | "url" | "nota" | "contacto" | "inbox" | "sop";
   id: string;
   titulo: string;
   subtitulo?: string;
@@ -63,6 +63,21 @@ export function buscar(state: AppState, query: string): SearchResult[] {
   for (const i of state.inbox) {
     if (i.texto.toLowerCase().includes(q)) {
       results.push({ tipo: "inbox", id: i.id, titulo: i.texto, fecha: i.creado });
+    }
+  }
+
+  const sopMatched = new Set<string>();
+  for (const pl of state.plantillas) {
+    if (pl.nombre.toLowerCase().includes(q) || pl.objetivo?.toLowerCase().includes(q)) {
+      results.push({ tipo: "sop", id: pl.id, titulo: pl.nombre, subtitulo: pl.objetivo || undefined });
+      sopMatched.add(pl.id);
+    }
+    for (const paso of pl.pasos) {
+      if (sopMatched.has(pl.id)) break;
+      if (paso.nombre.toLowerCase().includes(q)) {
+        results.push({ tipo: "sop", id: pl.id, titulo: `${pl.nombre} › ${paso.nombre}`, subtitulo: pl.objetivo || undefined });
+        sopMatched.add(pl.id);
+      }
     }
   }
 

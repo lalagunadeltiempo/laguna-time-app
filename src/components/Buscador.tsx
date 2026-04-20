@@ -13,9 +13,10 @@ const TIPO_LABELS: Record<string, { label: string; color: string }> = {
   nota: { label: "Nota", color: "bg-zinc-100 text-zinc-600" },
   contacto: { label: "Contacto", color: "bg-pink-100 text-pink-700" },
   inbox: { label: "Inbox", color: "bg-orange-100 text-orange-700" },
+  sop: { label: "SOP", color: "bg-indigo-100 text-indigo-700" },
 };
 
-const NAVIGABLE_TYPES = new Set(["paso", "entregable", "resultado", "proyecto", "url", "nota"]);
+const NAVIGABLE_TYPES = new Set(["paso", "entregable", "resultado", "proyecto", "url", "nota", "sop"]);
 
 interface Props {
   onClose: () => void;

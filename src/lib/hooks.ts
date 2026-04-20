@@ -2,7 +2,7 @@
 
 import { useMemo, useEffect, useRef, useCallback, useState } from "react";
 import { useAppState, useAppDispatch } from "./context";
-import { AREAS_PERSONAL, AREAS_EMPRESA, ambitoDeArea, type DependeDe, type Entregable, type Paso } from "./types";
+import { AREAS_PERSONAL, AREAS_EMPRESA, ambitoDeArea, AREA_COLORS, type Area, type DependeDe, type Entregable, type Paso } from "./types";
 import { useUsuario } from "./usuario";
 import { getSOPsHoy, getSOPsDemanda, type SOPHoy } from "./sop-scheduler";
 import { toDateKey } from "./date-utils";
@@ -269,6 +269,125 @@ export function useSOPsDemanda(): PlantillaProceso[] {
   );
 }
 
+/* ============================================================
+   usePlannedBlocks — shared hook for "planned for date" blocks
+   Both PantallaHoy and PlanHoy consume this single source of truth.
+   ============================================================ */
+
+export interface PlannedBlock {
+  id: string;
+  title: string;
+  subtitle: string;
+  entregableId: string;
+  pasoId?: string;
+  area: Area;
+  proyectoId?: string;
+  proyectoNombre?: string;
+  entregableNombre?: string;
+  hex: string;
+}
+
+export function usePlannedBlocks(dateKey: string): PlannedBlock[] {
+  const state = useAppState();
+  const { nombre: currentUser } = useUsuario();
+
+  return useMemo(() => {
+    const { pasos, entregables, resultados, proyectos } = state;
+    const result: PlannedBlock[] = [];
+    const entIdsWithPasos = new Set<string>();
+
+    for (const p of pasos) {
+      if (p.inicioTs && p.inicioTs.slice(0, 10) === dateKey) {
+        entIdsWithPasos.add(p.entregableId);
+      }
+    }
+
+    for (const paso of pasos) {
+      if (!paso.finTs || !paso.siguientePaso) continue;
+      if (paso.siguientePaso.tipo !== "continuar") continue;
+      let fp = paso.siguientePaso.fechaProgramada;
+      if (!fp) continue;
+      if (fp === "manana") {
+        const finDate = new Date(paso.finTs);
+        finDate.setDate(finDate.getDate() + 1);
+        fp = toDateKey(finDate);
+      }
+      if (fp > dateKey) continue;
+      if (result.some((b) => b.id === `next-${paso.id}`)) continue;
+      const newerPasoExists = pasos.some((p2) =>
+        p2.entregableId === paso.entregableId && p2.inicioTs && paso.finTs && p2.inicioTs >= paso.finTs,
+      );
+      if (newerPasoExists) continue;
+      const ent = entregables.find((e) => e.id === paso.entregableId);
+      if (!ent) continue;
+      if (ent.estado === "hecho" || ent.estado === "cancelada") continue;
+      if (ent.responsable && ent.responsable !== currentUser) continue;
+      entIdsWithPasos.add(ent.id);
+      const res = resultados.find((r) => r.id === ent.resultadoId);
+      const proj = res ? proyectos.find((pr) => pr.id === res.proyectoId) : undefined;
+      result.push({
+        id: `next-${paso.id}`,
+        title: paso.siguientePaso.nombre ?? paso.nombre,
+        subtitle: `${proj?.nombre ?? ""} · ${ent.nombre}`,
+        entregableId: ent.id,
+        pasoId: paso.id,
+        area: (proj?.area ?? "operativa") as Area,
+        proyectoId: proj?.id,
+        proyectoNombre: proj?.nombre,
+        entregableNombre: ent.nombre,
+        hex: AREA_COLORS[proj?.area ?? ""]?.hex ?? "#888",
+      });
+    }
+
+    for (const ent of entregables) {
+      if (!ent.fechaInicio || ent.fechaInicio > dateKey) continue;
+      if (ent.planNivel === "mes" || ent.planNivel === "trimestre") continue;
+      if (ent.estado === "hecho" || ent.estado === "cancelada") continue;
+      if (entIdsWithPasos.has(ent.id)) continue;
+      if (ent.responsable && ent.responsable !== currentUser) continue;
+      const res = resultados.find((r) => r.id === ent.resultadoId);
+      const proj = res ? proyectos.find((pr) => pr.id === res.proyectoId) : undefined;
+      result.push({
+        id: `ent-${ent.id}`,
+        title: ent.nombre,
+        subtitle: proj?.nombre ?? "",
+        entregableId: ent.id,
+        area: (proj?.area ?? "operativa") as Area,
+        proyectoId: proj?.id,
+        proyectoNombre: proj?.nombre,
+        entregableNombre: ent.nombre,
+        hex: AREA_COLORS[proj?.area ?? ""]?.hex ?? "#888",
+      });
+    }
+
+    for (const entId of entIdsWithPasos) {
+      if (result.some((b) => b.id.startsWith("next-") && b.entregableId === entId)) continue;
+      if (result.some((b) => b.id.startsWith("pending-") && b.entregableId === entId)) continue;
+      const ent = entregables.find((e) => e.id === entId);
+      if (!ent || ent.estado !== "en_proceso") continue;
+      if (ent.responsable && ent.responsable !== currentUser) continue;
+      const pendingPaso = pasos.find((p) => p.entregableId === entId && !p.inicioTs && !p.finTs);
+      if (!pendingPaso) continue;
+      const res = resultados.find((r) => r.id === ent.resultadoId);
+      const proj = res ? proyectos.find((pr) => pr.id === res.proyectoId) : undefined;
+      result.push({
+        id: `pending-${pendingPaso.id}`,
+        title: pendingPaso.nombre,
+        subtitle: `${proj?.nombre ?? ""} · ${ent.nombre}`,
+        entregableId: ent.id,
+        pasoId: pendingPaso.id,
+        area: (proj?.area ?? "operativa") as Area,
+        proyectoId: proj?.id,
+        proyectoNombre: proj?.nombre,
+        entregableNombre: ent.nombre,
+        hex: AREA_COLORS[proj?.area ?? ""]?.hex ?? "#888",
+      });
+    }
+
+    return result;
+  }, [state, dateKey, currentUser]);
+}
+
 export type Agrupados<T> = { entregable: string; entregableId: string; items: T[] }[];
 
 export function agruparPorEntregable<T extends { entregableId: string }>(
@@ -320,15 +439,39 @@ function nextDay(): Date {
 }
 
 /* ============================================================
-   useStaleStepCleanup — global hook for auto-closing overnight steps
-   Runs once on mount (stale from past days) + timer at midnight.
-   Returns the names of steps that were auto-rescheduled.
+   SOP-aware stale step helpers
    ============================================================ */
 
-export function useStaleStepCleanup(): string[] {
+export interface StaleSopStep {
+  paso: Paso;
+  entregableId: string;
+  plantillaId: string;
+  plantillaNombre: string;
+}
+
+export function buildClosedPasoFin(paso: Paso): Paso {
+  const startDay = paso.inicioTs ? paso.inicioTs.slice(0, 10) : toDateKey(new Date());
+  const endOfDay = `${startDay}T23:59:59.999Z`;
+  return {
+    ...paso,
+    finTs: endOfDay,
+    estado: paso.nombre,
+    siguientePaso: { tipo: "fin" },
+  };
+}
+
+/* ============================================================
+   useStaleStepCleanup — global hook for auto-closing overnight steps
+   Separates SOP steps (which need user decision) from normal steps
+   (which are auto-rescheduled silently).
+   ============================================================ */
+
+export function useStaleStepCleanup(): { rescheduledNames: string[]; staleSopSteps: StaleSopStep[] } {
+  const state = useAppState();
   const dispatch = useAppDispatch();
   const pasosActivos = usePasosActivos();
   const [rescheduledNames, setRescheduledNames] = useState<string[]>([]);
+  const [staleSopSteps, setStaleSopSteps] = useState<StaleSopStep[]>([]);
 
   const staleCleaned = useRef(false);
   useEffect(() => {
@@ -337,20 +480,46 @@ export function useStaleStepCleanup(): string[] {
     const stale = pasosActivos.filter((p) => p.inicioTs && p.inicioTs.slice(0, 10) < today);
     if (stale.length === 0) { staleCleaned.current = true; return; }
     staleCleaned.current = true;
+
+    const sopSteps: StaleSopStep[] = [];
+    const normalNames: string[] = [];
+
     for (const paso of stale) {
-      dispatch({ type: "CLOSE_PASO", payload: buildClosedPaso(paso, today) });
+      const ent = state.entregables.find((e) => e.id === paso.entregableId);
+      if (ent?.plantillaId) {
+        const pl = state.plantillas.find((p) => p.id === ent.plantillaId);
+        sopSteps.push({ paso, entregableId: ent.id, plantillaId: ent.plantillaId, plantillaNombre: pl?.nombre ?? ent.nombre });
+      } else {
+        dispatch({ type: "CLOSE_PASO", payload: buildClosedPaso(paso, today) });
+        normalNames.push(paso.nombre);
+      }
     }
-    setRescheduledNames(stale.map((p) => p.nombre));
-  }, [pasosActivos, dispatch]);
+
+    if (normalNames.length > 0) setRescheduledNames(normalNames);
+    if (sopSteps.length > 0) setStaleSopSteps(sopSteps);
+  }, [pasosActivos, dispatch, state.entregables, state.plantillas]);
 
   const autoCloseAtMidnight = useCallback(() => {
     if (pasosActivos.length === 0) return;
     const tomorrow = toDateKey(nextDay());
+
+    const sopSteps: StaleSopStep[] = [];
+    const normalNames: string[] = [];
+
     for (const paso of pasosActivos) {
-      dispatch({ type: "CLOSE_PASO", payload: buildClosedPaso(paso, tomorrow) });
+      const ent = state.entregables.find((e) => e.id === paso.entregableId);
+      if (ent?.plantillaId) {
+        const pl = state.plantillas.find((p) => p.id === ent.plantillaId);
+        sopSteps.push({ paso, entregableId: ent.id, plantillaId: ent.plantillaId, plantillaNombre: pl?.nombre ?? ent.nombre });
+      } else {
+        dispatch({ type: "CLOSE_PASO", payload: buildClosedPaso(paso, tomorrow) });
+        normalNames.push(paso.nombre);
+      }
     }
-    setRescheduledNames(pasosActivos.map((p) => p.nombre));
-  }, [pasosActivos, dispatch]);
+
+    if (normalNames.length > 0) setRescheduledNames(normalNames);
+    if (sopSteps.length > 0) setStaleSopSteps(sopSteps);
+  }, [pasosActivos, dispatch, state.entregables, state.plantillas]);
 
   useEffect(() => {
     if (pasosActivos.length === 0) return;
@@ -362,5 +531,5 @@ export function useStaleStepCleanup(): string[] {
     return () => clearTimeout(timer);
   }, [pasosActivos, autoCloseAtMidnight]);
 
-  return rescheduledNames;
+  return { rescheduledNames, staleSopSteps };
 }
