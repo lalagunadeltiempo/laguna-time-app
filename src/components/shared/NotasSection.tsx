@@ -62,7 +62,7 @@ export function NotasSection({ notas, nivel, targetId }: Props) {
                 <textarea value={editDraft} onChange={(e) => setEditDraft(e.target.value)}
                   onKeyDown={(e) => { if (e.key === "Escape") { setEditingId(null); setEditDraft(""); } }}
                   rows={Math.max(2, editDraft.split("\n").length)}
-                  autoFocus className="w-full resize-y rounded-lg border border-accent bg-background px-3 py-2 text-xs leading-relaxed text-foreground outline-none" />
+                  autoFocus className="w-full resize-y rounded-lg border border-accent bg-background px-3 py-2 text-sm leading-relaxed text-foreground outline-none sm:text-xs" />
                 <div className="flex gap-1.5">
                   <button onClick={saveEdit} className="rounded-lg bg-accent px-3 py-1 text-[10px] font-medium text-white">Guardar</button>
                   <button onClick={() => setEditingId(null)} className="text-[10px] text-muted hover:text-foreground">Cancelar</button>
@@ -70,12 +70,12 @@ export function NotasSection({ notas, nivel, targetId }: Props) {
               </div>
             ) : (
               <>
-                <p className={`text-xs text-foreground whitespace-pre-wrap ${canEdit(n) ? "cursor-pointer hover:bg-accent-soft rounded px-1 -mx-1 transition-colors" : ""}`}
+                <p className={`text-sm text-foreground whitespace-pre-wrap sm:text-xs ${canEdit(n) ? "cursor-pointer hover:bg-accent-soft rounded px-1 -mx-1 transition-colors" : ""}`}
                   onClick={() => canEdit(n) && startEdit(n)}
                   title={canEdit(n) ? "Clic para editar" : undefined}>
                   {n.texto}
                 </p>
-                <p className="mt-0.5 text-[10px] text-muted">
+                <p className="mt-0.5 text-xs text-muted sm:text-[10px]">
                   {n.autor} · {new Date(n.creadoTs).toLocaleDateString("es-ES", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}
                 </p>
               </>
@@ -101,7 +101,7 @@ export function NotasSection({ notas, nivel, targetId }: Props) {
           <textarea value={draft} onChange={(e) => setDraft(e.target.value)} placeholder={isMentor ? "Escribe un comentario..." : "Escribe una nota..."}
             onKeyDown={(e) => { if (e.key === "Escape") { setDraft(""); setShowForm(false); } }}
             rows={Math.max(3, draft.split("\n").length)}
-            autoFocus className={`w-full resize-y rounded-lg border bg-background px-3 py-2 text-xs leading-relaxed text-foreground outline-none ${isMentor ? "border-amber-300 focus:border-amber-500" : "border-border focus:border-accent"}`} />
+            autoFocus className={`w-full resize-y rounded-lg border bg-background px-3 py-2 text-sm leading-relaxed text-foreground outline-none sm:text-xs ${isMentor ? "border-amber-300 focus:border-amber-500" : "border-border focus:border-accent"}`} />
           <div className="flex gap-2">
             <button onClick={addNota} className={`rounded-lg px-3 py-1.5 text-xs font-medium text-white ${isMentor ? "bg-amber-500 hover:bg-amber-600" : "bg-accent hover:bg-accent/90"}`}>
               {isMentor ? "Comentar" : "Añadir"}

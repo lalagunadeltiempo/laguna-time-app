@@ -98,7 +98,7 @@ function PlanPicker({ onSelect, onCancel, showDayLevel = true }: {
   }
 
   return (
-    <div className="ml-12 mb-2 space-y-2 px-3">
+    <div className="ml-2 mb-2 space-y-2 px-3 sm:ml-6 md:ml-12">
       {showDayLevel && (
         <div className="flex flex-wrap gap-2">
           <button onClick={selectToday}
@@ -171,6 +171,16 @@ interface HighlightInfo {
 const HighlightCtx = createContext<HighlightInfo | null>(null);
 function useHighlight() { return useContext(HighlightCtx); }
 
+interface NotaSheetData {
+  title: string;
+  nivel: "paso" | "entregable" | "resultado" | "proyecto" | "plantilla";
+  targetId: string;
+  contextoNotas?: string;
+  urls?: { nombre: string; url: string }[];
+}
+const NotaSheetCtx = createContext<{ open: (data: NotaSheetData) => void }>({ open: () => {} });
+function useNotaSheet() { return useContext(NotaSheetCtx); }
+
 function buildHighlightAncestors(state: { pasos: Paso[]; entregables: Entregable[]; resultados: Resultado[]; proyectos: Proyecto[] }, targetId: string): Set<string> {
   const a = new Set<string>();
 
@@ -200,6 +210,73 @@ function buildHighlightAncestors(state: { pasos: Paso[]; entregables: Entregable
   return a;
 }
 
+function NotaSheet({ data, onClose }: { data: NotaSheetData; onClose: () => void }) {
+  const state = useAppState();
+  const backdropRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    document.body.style.overflow = "hidden";
+    return () => { document.body.style.overflow = ""; };
+  }, []);
+
+  const notas = useMemo(() => {
+    if (data.nivel === "paso") return state.pasos.find((p) => p.id === data.targetId)?.notas ?? [];
+    if (data.nivel === "entregable") return state.entregables.find((e) => e.id === data.targetId)?.notas ?? [];
+    if (data.nivel === "resultado") return state.resultados.find((r) => r.id === data.targetId)?.notas ?? [];
+    if (data.nivel === "proyecto") return state.proyectos.find((p) => p.id === data.targetId)?.notas ?? [];
+    if (data.nivel === "plantilla") return state.plantillas.find((p) => p.id === data.targetId)?.notas ?? [];
+    return [];
+  }, [state, data.nivel, data.targetId]);
+
+  return (
+    <div ref={backdropRef} className="fixed inset-0 z-[80] flex items-end sm:hidden"
+      onClick={(e) => { if (e.target === backdropRef.current) onClose(); }}>
+      <div className="absolute inset-0 bg-black/40" />
+      <div className="relative w-full max-h-[85vh] overflow-y-auto rounded-t-2xl bg-background px-4 pb-6 pt-3 shadow-2xl">
+        <div className="mx-auto mb-3 h-1 w-10 rounded-full bg-border" />
+        <div className="mb-4 flex items-center justify-between">
+          <h3 className="text-base font-bold text-foreground">{data.title}</h3>
+          <button onClick={onClose} className="rounded-lg p-1.5 text-muted hover:bg-surface hover:text-foreground">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+              <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
+            </svg>
+          </button>
+        </div>
+        {data.contextoNotas && (
+          <div className="mb-4 rounded-lg bg-surface/50 px-4 py-3">
+            <p className="text-sm text-foreground whitespace-pre-wrap leading-relaxed">{data.contextoNotas}</p>
+            <p className="mt-1 text-xs text-muted italic">Nota de contexto</p>
+          </div>
+        )}
+        <NotasSection notas={notas} nivel={data.nivel} targetId={data.targetId} />
+        {data.urls && data.urls.length > 0 && (
+          <div className="mt-4 space-y-2">
+            <p className="text-xs font-semibold uppercase tracking-wider text-muted">Enlaces</p>
+            {data.urls.map((u, i) => (
+              <a key={i} href={u.url} target="_blank" rel="noopener noreferrer"
+                className="block rounded-lg bg-surface/30 px-4 py-2.5 text-sm text-accent underline hover:text-accent/80">
+                {u.nombre || u.url}
+              </a>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function toggleOrSheet(
+  current: boolean,
+  toggle: (v: boolean) => void,
+  openSheet: (data: NotaSheetData) => void,
+  data: NotaSheetData,
+) {
+  if (typeof window !== "undefined" && window.innerWidth < 640) {
+    openSheet(data);
+  } else {
+    toggle(!current);
+  }
+}
+
 const EMPRESA_ORDER: AreaEmpresa[] = ["financiera", "operativa", "comercial", "administrativa"];
 const PERSONAL_ORDER: AreaPersonal[] = ["fisico", "emocional", "mental", "espiritual"];
 
@@ -226,6 +303,13 @@ export function PantallaMapa({ onOpenDetalle, highlightId, onClearHighlight }: P
     const timer = setTimeout(() => onClearHighlight?.(), 4000);
     return () => clearTimeout(timer);
   }, [highlightId, onClearHighlight]);
+
+  const [sheetData, setSheetData] = useState<NotaSheetData | null>(null);
+  const notaSheetCtx = useMemo(() => ({
+    open: (data: NotaSheetData) => {
+      if (window.innerWidth < 640) setSheetData(data);
+    },
+  }), []);
 
   const [dateFilterOn, setDateFilterOn] = useState(false);
   const [dateFrom, setDateFrom] = useState(() => toDateKey(new Date()));
@@ -270,7 +354,8 @@ export function PantallaMapa({ onOpenDetalle, highlightId, onClearHighlight }: P
   return (
     <HighlightCtx.Provider value={highlightInfo}>
     <MapaFilterCtx.Provider value={visibleFilter}>
-      <div className="w-full px-6 py-8 sm:px-10">
+    <NotaSheetCtx.Provider value={notaSheetCtx}>
+      <div className="w-full px-3 py-8 sm:px-6 md:px-10">
         <div className="mb-6 flex flex-wrap items-center gap-3">
           <button
             onClick={() => setDateFilterOn(!dateFilterOn)}
@@ -314,6 +399,8 @@ export function PantallaMapa({ onOpenDetalle, highlightId, onClearHighlight }: P
           </>
         )}
       </div>
+      {sheetData && <NotaSheet data={sheetData} onClose={() => setSheetData(null)} />}
+    </NotaSheetCtx.Provider>
     </MapaFilterCtx.Provider>
     </HighlightCtx.Provider>
   );
@@ -511,7 +598,7 @@ function AreaSection({ areaId }: { areaId: Area }) {
       </button>
 
       {open && (
-        <div className="ml-3 border-l-[3px] pl-3 sm:ml-6 sm:pl-6" style={{ borderColor: AREA_COLORS[areaId]?.hex ?? "#888" }}>
+        <div className="ml-1 border-l-[3px] pl-2 sm:ml-3 sm:pl-3 md:ml-6 md:pl-6" style={{ borderColor: AREA_COLORS[areaId]?.hex ?? "#888" }}>
 
           {/* PROYECTOS */}
           <div className="mb-8">
@@ -601,6 +688,7 @@ function ProyectoBlock({ proyecto, index, total }: { proyecto: Proyecto; index: 
   const isMentor = useIsMentor();
   const filter = useMapaFilter();
   const highlight = useHighlight();
+  const { open: openSheet } = useNotaSheet();
   const isAncestor = !!highlight?.ancestors.has(proyecto.id);
   const isTarget = highlight?.targetId === proyecto.id;
   const inFilter = !filter || filter.proyectos.has(proyecto.id);
@@ -656,8 +744,8 @@ function ProyectoBlock({ proyecto, index, total }: { proyecto: Proyecto; index: 
           </>
         )}
         {isMentor
-          ? <CommentIcon count={notasCount} onClick={() => setShowNotas(!showNotas)} />
-          : <NotasIcon count={notasCount} onClick={() => setShowNotas(!showNotas)} />}
+          ? <CommentIcon count={notasCount} onClick={() => toggleOrSheet(showNotas, setShowNotas, openSheet, { title: proyecto.nombre, nivel: "proyecto", targetId: proyecto.id })} />
+          : <NotasIcon count={notasCount} onClick={() => toggleOrSheet(showNotas, setShowNotas, openSheet, { title: proyecto.nombre, nivel: "proyecto", targetId: proyecto.id })} />}
         {!isMentor && !isOperacion && (
           <button onClick={(e) => { e.stopPropagation(); setShowDatePicker(!showDatePicker); }}
             className={`flex h-7 items-center gap-1 rounded-md px-2 text-xs transition-all hover:bg-accent-soft hover:text-accent ${isProgrammed ? "text-accent" : "text-muted opacity-60 hover:opacity-100"}`}
@@ -684,7 +772,7 @@ function ProyectoBlock({ proyecto, index, total }: { proyecto: Proyecto; index: 
       )}
 
       {showMoveArea && (
-        <div className="mx-5 mb-3 ml-8 sm:ml-14 rounded-lg border border-border bg-surface/50 p-3">
+        <div className="mx-2 mb-3 ml-3 sm:mx-5 sm:ml-8 md:ml-14 rounded-lg border border-border bg-surface/50 p-3">
           <p className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-muted">Mover a área:</p>
           <div className="flex flex-wrap gap-1.5">
             {[...AREAS_EMPRESA, ...AREAS_PERSONAL].filter((a) => a.id !== proyecto.area).map((a) => {
@@ -710,13 +798,13 @@ function ProyectoBlock({ proyecto, index, total }: { proyecto: Proyecto; index: 
         onCancel={() => setConfirm(false)} />}
 
       {showNotas && (
-        <div className="mx-5 mb-3 ml-8 sm:ml-14">
+        <div className="mx-2 mb-3 ml-3 sm:mx-5 sm:ml-8 md:ml-14">
           <NotasSection notas={proyecto.notas ?? []} nivel="proyecto" targetId={proyecto.id} />
         </div>
       )}
 
       {open && (
-        <div className="px-5 pb-5 pl-8 sm:pl-14">
+        <div className="px-2 pb-5 pl-3 sm:px-5 sm:pl-8 md:pl-14">
           {!isMentor && (
             <div className="mb-3 flex items-center gap-1.5">
               <span className="mr-1 text-[10px] font-semibold uppercase tracking-wider text-muted">Tipo:</span>
@@ -776,6 +864,7 @@ function ResultadoBlock({ resultado, index, total }: { resultado: Resultado; ind
   const isMentor = useIsMentor();
   const filter = useMapaFilter();
   const highlight = useHighlight();
+  const { open: openSheet } = useNotaSheet();
   const isAncestor = !!highlight?.ancestors.has(resultado.id);
   const isTarget = highlight?.targetId === resultado.id;
   const inFilter = !filter || filter.resultados.has(resultado.id);
@@ -823,8 +912,8 @@ function ResultadoBlock({ resultado, index, total }: { resultado: Resultado; ind
           <span className="rounded-md bg-accent/10 px-2 py-0.5 text-[11px] font-medium text-accent">{formatFechaInicio(resultado.fechaInicio!, resultado.planNivel)}</span>
         )}
         {isMentor
-          ? <CommentIcon count={notasCount} onClick={() => setShowNotas(!showNotas)} />
-          : <NotasIcon count={notasCount} onClick={() => setShowNotas(!showNotas)} />}
+          ? <CommentIcon count={notasCount} onClick={() => toggleOrSheet(showNotas, setShowNotas, openSheet, { title: resultado.nombre, nivel: "resultado", targetId: resultado.id })} />
+          : <NotasIcon count={notasCount} onClick={() => toggleOrSheet(showNotas, setShowNotas, openSheet, { title: resultado.nombre, nivel: "resultado", targetId: resultado.id })} />}
         {!isMentor && (
           <button onClick={(e) => { e.stopPropagation(); setShowDatePicker(!showDatePicker); }}
             className={`flex h-7 items-center gap-1 rounded-md px-2 text-xs transition-all hover:bg-accent-soft hover:text-accent ${isProgrammed ? "text-accent" : "text-muted opacity-60 hover:opacity-100"}`}
@@ -851,7 +940,7 @@ function ResultadoBlock({ resultado, index, total }: { resultado: Resultado; ind
       )}
 
       {showMove && (
-        <div className="mx-5 mb-3 ml-8 sm:ml-14 rounded-lg border border-border bg-surface/50 p-3">
+        <div className="mx-2 mb-3 ml-3 sm:mx-5 sm:ml-8 md:ml-14 rounded-lg border border-border bg-surface/50 p-3">
           {moveStep === 1 ? (
             <>
               <p className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-muted">1. Elegir área:</p>
@@ -891,13 +980,13 @@ function ResultadoBlock({ resultado, index, total }: { resultado: Resultado; ind
         onCancel={() => setConfirm(false)} />}
 
       {showNotas && (
-        <div className="mx-5 mb-3 ml-8 sm:ml-14">
+        <div className="mx-2 mb-3 ml-3 sm:mx-5 sm:ml-8 md:ml-14">
           <NotasSection notas={resultado.notas ?? []} nivel="resultado" targetId={resultado.id} />
         </div>
       )}
 
       {open && (
-        <div className="px-5 pb-5 pl-8 sm:pl-14">
+        <div className="px-2 pb-5 pl-3 sm:px-5 sm:pl-8 md:pl-14">
           {resultado.descripcion && (
             <p className="mb-3 text-sm italic text-muted">{resultado.descripcion}</p>
           )}
@@ -927,6 +1016,7 @@ function EntregableBlock({ entregable, index, total }: { entregable: Entregable;
   const isMentor = useIsMentor();
   const filter = useMapaFilter();
   const highlight = useHighlight();
+  const { open: openSheet } = useNotaSheet();
   const isAncestor = !!highlight?.ancestors.has(entregable.id);
   const isTarget = highlight?.targetId === entregable.id;
   const inFilter = !filter || filter.entregables.has(entregable.id);
@@ -995,8 +1085,8 @@ function EntregableBlock({ entregable, index, total }: { entregable: Entregable;
         )}
         {allPasos.length > 0 && <span className="text-xs text-muted">{allPasos.length}p</span>}
         {isMentor
-          ? <CommentIcon count={notasCount} onClick={() => setShowNotas(!showNotas)} />
-          : <NotasIcon count={notasCount} onClick={() => setShowNotas(!showNotas)} />}
+          ? <CommentIcon count={notasCount} onClick={() => toggleOrSheet(showNotas, setShowNotas, openSheet, { title: entregable.nombre, nivel: "entregable", targetId: entregable.id })} />
+          : <NotasIcon count={notasCount} onClick={() => toggleOrSheet(showNotas, setShowNotas, openSheet, { title: entregable.nombre, nivel: "entregable", targetId: entregable.id })} />}
 
         {!isMentor && (
           <button
@@ -1053,7 +1143,7 @@ function EntregableBlock({ entregable, index, total }: { entregable: Entregable;
       </ToggleRow>
 
       {showMove && (
-        <div className="mx-5 mb-3 ml-8 sm:ml-14 rounded-lg border border-border bg-surface/50 p-3">
+        <div className="mx-2 mb-3 ml-3 sm:mx-5 sm:ml-8 md:ml-14 rounded-lg border border-border bg-surface/50 p-3">
           {moveStep === 1 ? (
             <>
               <p className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-muted">1. Elegir área:</p>
@@ -1113,13 +1203,13 @@ function EntregableBlock({ entregable, index, total }: { entregable: Entregable;
         onCancel={() => setConfirm(false)} />}
 
       {showNotas && (
-        <div className="mx-5 mb-3 ml-16">
+        <div className="mx-2 mb-3 ml-4 sm:mx-5 sm:ml-10 md:ml-16">
           <NotasSection notas={entregable.notas ?? []} nivel="entregable" targetId={entregable.id} />
         </div>
       )}
 
       {open && (
-        <div className="pb-2 pl-16">
+        <div className="pb-2 pl-4 sm:pl-10 md:pl-16">
           {allPasos.map((paso, i) => <PasoLine key={paso.id} paso={paso} index={i} total={allPasos.length} isEmpresa={isEmpresa} entResponsable={entregable.responsable} />)}
           {!isMentor && (
             <AddButton label="Paso" onAdd={(nombre) =>
@@ -1153,6 +1243,7 @@ function PasoLine({ paso, index, total, isEmpresa, entResponsable }: { paso: Pas
   const isMentor = useIsMentor();
   const filter = useMapaFilter();
   const highlight = useHighlight();
+  const { open: openSheet } = useNotaSheet();
   const isTarget = highlight?.targetId === paso.id;
   const inFilter = !filter || filter.pasos.has(paso.id);
   const [showNotas, setShowNotas] = useState(false);
@@ -1171,6 +1262,14 @@ function PasoLine({ paso, index, total, isEmpresa, entResponsable }: { paso: Pas
     if (isTarget && hlRef.current) hlRef.current.scrollIntoView({ behavior: "smooth", block: "center" });
   }, [isTarget]);
 
+  function toggleNotas() {
+    toggleOrSheet(showNotas, setShowNotas, openSheet, {
+      title: paso.nombre, nivel: "paso", targetId: paso.id,
+      contextoNotas: paso.contexto.notas || undefined,
+      urls: paso.contexto.urls.map((u) => ({ nombre: u.nombre, url: u.url })),
+    });
+  }
+
   return (
     <div ref={hlRef} className={`mb-1 transition-all duration-700${filter && !inFilter ? " opacity-40" : ""}${isTarget ? " rounded-lg ring-2 ring-accent ring-offset-2 animate-pulse" : ""}`}>
       <div className="group/row flex min-h-[44px] items-center gap-2 rounded-lg px-3 py-2 hover:bg-surface">
@@ -1186,10 +1285,10 @@ function PasoLine({ paso, index, total, isEmpresa, entResponsable }: { paso: Pas
           </span>
         )}
         {isMentor
-          ? <CommentIcon count={notasCount} onClick={() => setShowNotas(!showNotas)} />
-          : <NotasIcon count={notasCount} onClick={() => setShowNotas(!showNotas)} />}
+          ? <CommentIcon count={notasCount} onClick={toggleNotas} />
+          : <NotasIcon count={notasCount} onClick={toggleNotas} />}
         {hasUrls && (
-          <button onClick={() => setShowNotas(!showNotas)}
+          <button onClick={toggleNotas}
             className="flex h-7 items-center gap-0.5 rounded-md px-1.5 text-xs text-accent hover:bg-accent-soft" title="Ver enlaces">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
               <path d="M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71" /><path d="M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71" />
@@ -1211,7 +1310,7 @@ function PasoLine({ paso, index, total, isEmpresa, entResponsable }: { paso: Pas
       </div>
 
       {showDonePicker && (
-        <div className="ml-8 mb-2 flex flex-wrap items-center gap-2 rounded-lg border border-green-200 dark:border-green-900 bg-green-50/50 dark:bg-green-900/10 px-3 py-2">
+        <div className="ml-2 mb-2 flex flex-wrap items-center gap-2 rounded-lg border border-green-200 dark:border-green-900 bg-green-50/50 dark:bg-green-900/10 px-3 py-2 sm:ml-4 md:ml-8">
           <input type="date" value={doneDate} onChange={(e) => setDoneDate(e.target.value)}
             className="rounded border border-border bg-background px-2 py-1 text-xs" />
           <input type="time" value={doneTime} onChange={(e) => setDoneTime(e.target.value)}
@@ -1237,19 +1336,19 @@ function PasoLine({ paso, index, total, isEmpresa, entResponsable }: { paso: Pas
       )}
 
       {showNotas && (
-        <div className="ml-12 mt-1 mb-2 space-y-2">
+        <div className="ml-2 mt-1 mb-2 space-y-2 sm:ml-6 md:ml-12">
           {hasContextoNotas && (
             <div className="rounded-lg bg-surface/50 px-3 py-2">
-              <p className="text-xs text-foreground whitespace-pre-wrap">{paso.contexto.notas}</p>
-              <p className="mt-0.5 text-[10px] text-muted italic">Nota de contexto</p>
+              <p className="text-sm text-foreground whitespace-pre-wrap sm:text-xs">{paso.contexto.notas}</p>
+              <p className="mt-0.5 text-xs text-muted italic sm:text-[10px]">Nota de contexto</p>
             </div>
           )}
           <NotasSection notas={allNotas} nivel="paso" targetId={paso.id} />
           {hasUrls && (
             <div className="space-y-1 rounded-lg bg-surface/30 px-3 py-2">
-              <p className="text-[10px] font-medium uppercase tracking-wider text-muted">Enlaces</p>
+              <p className="text-xs font-medium uppercase tracking-wider text-muted sm:text-[10px]">Enlaces</p>
               {paso.contexto.urls.map((u, i) => (
-                <a key={i} href={u.url} target="_blank" rel="noopener noreferrer" className="block truncate text-xs text-accent underline hover:text-accent/80">
+                <a key={i} href={u.url} target="_blank" rel="noopener noreferrer" className="block truncate text-sm text-accent underline hover:text-accent/80 sm:text-xs">
                   {u.nombre || u.url}
                 </a>
               ))}
@@ -1334,6 +1433,7 @@ function SOPBlock({ sop, index, total }: { sop: PlantillaProceso; index: number;
   const dispatch = useAppDispatch();
   const { nombre: currentUser } = useUsuario();
   const isMentor = useIsMentor();
+  const { open: openSheet } = useNotaSheet();
   const [open, setOpen] = useState(false);
   const [confirm, setConfirm] = useState(false);
   const [showDatePicker, setShowDatePicker] = useState(false);
@@ -1407,7 +1507,7 @@ function SOPBlock({ sop, index, total }: { sop: PlantillaProceso; index: number;
             </svg>
           </button>
         )}
-        <CommentIcon onClick={() => setShowNotas(!showNotas)} />
+        <CommentIcon onClick={() => toggleOrSheet(showNotas, setShowNotas, openSheet, { title: sop.nombre, nivel: "plantilla", targetId: sop.id })} />
         {!isMentor && <MoveArrows canUp={index > 0} canDown={index < total - 1}
           onUp={() => dispatch({ type: "REORDER_PLANTILLA", id: sop.id, direction: "up" })}
           onDown={() => dispatch({ type: "REORDER_PLANTILLA", id: sop.id, direction: "down" })} />}
@@ -1415,7 +1515,7 @@ function SOPBlock({ sop, index, total }: { sop: PlantillaProceso; index: number;
       </ToggleRow>
 
       {showProgPicker && (
-        <div className="mx-5 mb-3 ml-8 sm:ml-14 rounded-lg border border-border bg-surface/50 p-3">
+        <div className="mx-2 mb-3 ml-3 sm:mx-5 sm:ml-8 md:ml-14 rounded-lg border border-border bg-surface/50 p-3">
           <p className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-muted">Frecuencia del proceso</p>
           <ProgramacionPicker value={sop.programacion} onChange={(p) => {
             dispatch({ type: "UPDATE_PLANTILLA", id: sop.id, changes: { programacion: p } });
@@ -1447,7 +1547,7 @@ function SOPBlock({ sop, index, total }: { sop: PlantillaProceso; index: number;
       )}
 
       {showNotas && (
-        <div className="mx-5 mb-3 ml-8 sm:ml-14">
+        <div className="mx-2 mb-3 ml-3 sm:mx-5 sm:ml-8 md:ml-14">
           <NotasSection notas={sop.notas ?? []} nivel="plantilla" targetId={sop.id} />
         </div>
       )}
