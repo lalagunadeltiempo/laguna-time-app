@@ -10,6 +10,7 @@ import {
 import { computeProyectoRitmo, ritmoColor, ritmoLabelCorto } from "@/lib/proyecto-stats";
 import { projectSOPsForRange, summarizeSOPsByWeek, type SOPWeekSummary } from "@/lib/sop-projector";
 import { ProyectoPlanner } from "./ProyectoPlanner";
+import { GanttMultiProyecto, type GanttProject } from "./GanttMultiProyecto";
 
 export type AmbitoFilter = "todo" | Ambito;
 type RAG = "green" | "amber" | "red";
@@ -225,6 +226,16 @@ export function PlanMes({ selectedDate, onNavigateToWeek }: Props) {
     return summaries;
   }, [state, selectedDate, filtro, respFilter, currentUser, showDone, hoy]);
 
+  /* ---- Gantt data ---- */
+  const ganttProjects = useMemo<GanttProject[]>(() => {
+    return projectSummaries.map((s) => {
+      const resultados = state.resultados.filter((r) => r.proyectoId === s.proyecto.id);
+      const resIds = new Set(resultados.map((r) => r.id));
+      const entregables = state.entregables.filter((e) => resIds.has(e.resultadoId));
+      return { proyecto: s.proyecto, resultados, entregables, ritmo: s.ritmo };
+    });
+  }, [projectSummaries, state.resultados, state.entregables]);
+
   /* ---- Week view data ---- */
   const { weekEntregables, unassigned } = useMemo(() => {
     const selYear = selectedDate.getFullYear();
@@ -346,6 +357,13 @@ export function PlanMes({ selectedDate, onNavigateToWeek }: Props) {
           {!isMentor && <AmbitoToggle value={filtro} onChange={setFiltro} />}
         </div>
       </div>
+
+      {/* Gantt multi-proyecto */}
+      {ganttProjects.length > 0 && (
+        <section className="mb-8">
+          <GanttMultiProyecto projects={ganttProjects} hoy={hoy} />
+        </section>
+      )}
 
       {/* Section 1: Active projects this month */}
       <section className="mb-8">
