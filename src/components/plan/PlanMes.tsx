@@ -413,7 +413,7 @@ export function PlanMes({ selectedDate }: Props) {
               {empresaAreas.length > 0 && (
                 <>
                   {empresaAreas.map((areaId) => (
-                    <AreaSection key={areaId} areaId={areaId} hideSops />
+                    <AreaSection key={areaId} areaId={areaId} />
                   ))}
                 </>
               )}
@@ -421,7 +421,7 @@ export function PlanMes({ selectedDate }: Props) {
                 <>
                   {empresaAreas.length > 0 && <div className="border-t border-border" />}
                   {personalAreas.map((areaId) => (
-                    <AreaSection key={areaId} areaId={areaId} hideSops />
+                    <AreaSection key={areaId} areaId={areaId} />
                   ))}
                 </>
               )}

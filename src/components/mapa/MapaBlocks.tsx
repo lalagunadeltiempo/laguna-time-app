@@ -527,8 +527,8 @@ export function AreaSection({ areaId, hideSops }: { areaId: Area; hideSops?: boo
             )}
           </div>
 
-          {/* PROCESOS — hidden when date filter active or hideSops */}
-          {!hasFilter && !hideSops && <div className="mb-4">
+          {/* PROCESOS */}
+          {!hideSops && <div className="mb-4">
             <button onClick={() => setOpenSOP(!openSOP)} className="mb-3 flex w-full items-center gap-2 text-sm font-bold uppercase tracking-widest text-muted hover:text-foreground">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" className="text-muted">
                 <polyline points="16 3 21 3 21 8" /><line x1="4" y1="20" x2="21" y2="3" /><polyline points="21 16 21 21 16 21" /><line x1="15" y1="15" x2="21" y2="21" /><line x1="4" y1="4" x2="9" y2="9" />
