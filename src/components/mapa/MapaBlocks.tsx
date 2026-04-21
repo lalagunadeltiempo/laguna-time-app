@@ -1956,17 +1956,32 @@ function SOPBlock({ sop, index, total }: { sop: PlantillaProceso; index: number;
   const [sopDestPicker, setSOPDestPicker] = useState(false);
   const [sopPendingDate, setSOPPendingDate] = useState<string | null>(null);
   const [showBatchDialog, setShowBatchDialog] = useState(false);
+  const [showNeedResultado, setShowNeedResultado] = useState(false);
   const hasDestino = !!sop.resultadoId;
 
-  function handleSOPPlanSelect(fechaInicio: string, _: PlanNivel) {
+  const resultadosParaVincular = useMemo(
+    () => (sop.proyectoId ? state.resultados.filter((r) => r.proyectoId === sop.proyectoId) : []),
+    [sop.proyectoId, state.resultados],
+  );
+
+  function handleSOPPlanSelect(fechaInicio: string, _nivel: PlanNivel) {
     if (hasDestino) {
       setShowDatePicker(false);
       setShowBatchDialog(true);
+    } else if (sop.proyectoId) {
+      setShowDatePicker(false);
+      setShowNeedResultado(true);
     } else {
       setSOPPendingDate(fechaInicio);
       setShowDatePicker(false);
       setSOPDestPicker(true);
     }
+  }
+
+  function linkResultadoAndBatch(resultadoId: string) {
+    dispatch({ type: "UPDATE_PLANTILLA", id: sop.id, changes: { resultadoId } });
+    setShowNeedResultado(false);
+    setShowBatchDialog(true);
   }
 
   function materializeSOP(fechaInicio: string, proyectoId?: string, resultadoId?: string) {
@@ -2067,6 +2082,34 @@ function SOPBlock({ sop, index, total }: { sop: PlantillaProceso; index: number;
 
       {showDatePicker && (
         <PlanPicker onSelect={handleSOPPlanSelect} onCancel={() => setShowDatePicker(false)} />
+      )}
+
+      {showNeedResultado && (
+        <div className="mx-2 mb-3 ml-3 sm:mx-5 sm:ml-8 md:ml-14 rounded-lg border border-amber-300 bg-amber-50 p-3 dark:border-amber-700 dark:bg-amber-950/40">
+          <p className="mb-2 text-sm font-medium text-amber-800 dark:text-amber-200">
+            Este SOP tiene proyecto pero no resultado vinculado. Selecciona un resultado para planificar en lote:
+          </p>
+          {resultadosParaVincular.length > 0 ? (
+            <div className="flex flex-wrap gap-1">
+              {resultadosParaVincular.map((r) => (
+                <button key={r.id} onClick={() => linkResultadoAndBatch(r.id)}
+                  className="rounded-md border border-border px-2 py-1 text-[11px] text-foreground transition-colors hover:border-accent hover:bg-accent/10 hover:text-accent">
+                  {r.nombre}
+                </button>
+              ))}
+            </div>
+          ) : (
+            <p className="text-[12px] text-amber-700 dark:text-amber-300">
+              No hay resultados en este proyecto. Crea uno primero desde Mapa.
+            </p>
+          )}
+          <button
+            onClick={() => setShowNeedResultado(false)}
+            className="mt-2 text-xs text-muted hover:text-foreground"
+          >
+            Cancelar
+          </button>
+        </div>
       )}
 
       {sopDestPicker && sopPendingDate && (
