@@ -36,6 +36,7 @@ function migrateV1(raw: any): AppState {
     objetivo: pl.objetivo ?? pl.descripcion ?? "",
     disparador: pl.disparador ?? "",
     programacion: pl.programacion ?? null,
+    resultadoId: pl.resultadoId ?? null,
     excepciones: pl.excepciones ?? "",
     pasos: (pl.pasos ?? []).map((ps: any) => ({
       ...ps,

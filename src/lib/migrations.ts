@@ -4,7 +4,7 @@ import { buildSeedSOPs } from "./seed-sops";
 import { buildPersonalSeedData } from "./seed-personal";
 import { buildEmpresaSeedProyectos } from "./seed-proyectos-empresa";
 
-export const CURRENT_MIGRATION = 14;
+export const CURRENT_MIGRATION = 15;
 
 type Dispatch = (action: Action) => void;
 
@@ -30,6 +30,10 @@ export function runMigrations(state: AppState, dispatch: Dispatch): void {
 
   if (version < 14) {
     migrateProyectoEstado(state, dispatch);
+  }
+
+  if (version < 15) {
+    migrateProyectoEstadoV2(state, dispatch);
   }
 
   if (version < CURRENT_MIGRATION) {
@@ -76,7 +80,18 @@ function migratePlanNivelAndObjetivos(_state: AppState, _dispatch: Dispatch): vo
 function migrateProyectoEstado(state: AppState, dispatch: Dispatch): void {
   for (const proj of state.proyectos) {
     if (!proj.estado) {
-      dispatch({ type: "UPDATE_PROYECTO", id: proj.id, changes: { estado: "activo" } });
+      dispatch({ type: "UPDATE_PROYECTO", id: proj.id, changes: { estado: "plan" } });
+    }
+  }
+}
+
+function migrateProyectoEstadoV2(state: AppState, dispatch: Dispatch): void {
+  for (const proj of state.proyectos) {
+    if ((proj.estado as string) === "activo") {
+      const resIds = new Set(state.resultados.filter((r) => r.proyectoId === proj.id).map((r) => r.id));
+      const entIds = state.entregables.filter((e) => resIds.has(e.resultadoId)).map((e) => e.id);
+      const hasStartedWork = state.pasos.some((p) => entIds.includes(p.entregableId) && p.inicioTs);
+      dispatch({ type: "UPDATE_PROYECTO", id: proj.id, changes: { estado: hasStartedWork ? "en_marcha" : "plan" } });
     }
   }
 }

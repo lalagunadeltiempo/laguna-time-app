@@ -22,7 +22,7 @@ function sop(
 ): PlantillaProceso {
   return {
     id: generateId(), nombre, area, objetivo, disparador, programacion,
-    proyectoId: null, responsableDefault: responsable,
+    proyectoId: null, resultadoId: null, responsableDefault: responsable,
     pasos: pasos.map((p, i) => ({ ...p, orden: i + 1 })),
     herramientas, excepciones, dependeDeIds: [],
     creado: new Date().toISOString(),

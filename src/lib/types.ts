@@ -65,7 +65,7 @@ export interface ReviewMark {
 }
 
 export type TipoProyecto = "proyecto" | "operacion";
-export type EstadoProyecto = "activo" | "pausado" | "completado";
+export type EstadoProyecto = "plan" | "en_marcha" | "pausado" | "completado";
 
 export interface Proyecto {
   id: string;
@@ -218,6 +218,7 @@ export interface PlantillaProceso {
   disparador: string;
   programacion: Programacion | null;
   proyectoId: string | null;
+  resultadoId: string | null;
   responsableDefault: MiembroEquipo;
   pasos: PasoPlantilla[];
   herramientas: string[];

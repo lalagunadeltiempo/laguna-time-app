@@ -47,6 +47,17 @@ export function formatFechaInicio(f: string, planNivel?: PlanNivel): string {
   return d.toLocaleDateString("es-ES", { day: "numeric", month: "short" });
 }
 
+function formatDateRange(inicio: string | null | undefined, fin: string | null | undefined): string | null {
+  if (!inicio && !fin) return null;
+  const fmt = (d: string) => {
+    const dt = new Date(d + "T12:00:00");
+    return isNaN(dt.getTime()) ? d : dt.toLocaleDateString("es-ES", { day: "numeric", month: "short" });
+  };
+  if (inicio && fin) return `${fmt(inicio)} – ${fmt(fin)}`;
+  if (inicio) return `Desde ${fmt(inicio)}`;
+  return `Hasta ${fmt(fin!)}`;
+}
+
 function computeEstadoOnPlan(planNivel: PlanNivel, fechaInicio: string, currentEstado: EstadoEntregable): EstadoEntregable {
   if (currentEstado === "hecho" || currentEstado === "cancelada" || currentEstado === "en_espera") return currentEstado;
   if (planNivel === "trimestre") return "planificado";
@@ -464,7 +475,7 @@ export function AreaSection({ areaId, hideSops }: { areaId: Area; hideSops?: boo
   const allProyectos = state.proyectos.filter((p) => p.area === areaId);
   const hideFiltered = useContext(HideFilteredCtx);
   const [showInactive, setShowInactive] = useState(false);
-  const visibleProyectos = showInactive ? allProyectos : allProyectos.filter((p) => (p.estado ?? "activo") === "activo");
+  const visibleProyectos = showInactive ? allProyectos : allProyectos.filter((p) => { const e = p.estado ?? "plan"; return e !== "completado" && e !== "pausado"; });
   const hiddenCount = allProyectos.length - visibleProyectos.length;
   const filteredCount = filter ? visibleProyectos.filter((p) => filter.proyectos.has(p.id)).length : visibleProyectos.length;
   const [open, setOpen] = useState(false);
@@ -524,7 +535,7 @@ export function AreaSection({ areaId, hideSops }: { areaId: Area; hideSops?: boo
                 )}
                 {!isMentor && (
                   <AddButton label="Proyecto" onAdd={(nombre) =>
-                    dispatch({ type: "ADD_PROYECTO", payload: { id: generateId(), nombre, descripcion: null, area: areaId, creado: new Date().toISOString(), fechaInicio: null, estado: "activo" } })
+                    dispatch({ type: "ADD_PROYECTO", payload: { id: generateId(), nombre, descripcion: null, area: areaId, creado: new Date().toISOString(), fechaInicio: null, estado: "plan" } })
                   } />
                 )}
                 {hiddenCount > 0 && (
@@ -566,7 +577,7 @@ export function AreaSection({ areaId, hideSops }: { areaId: Area; hideSops?: boo
                 )}
                 {!isMentor && (
                   <AddButton label="Proceso" onAdd={(nombre) =>
-                    dispatch({ type: "ADD_PLANTILLA", payload: { id: generateId(), nombre, area: areaId, objetivo: "", disparador: "", programacion: null, proyectoId: null, responsableDefault: currentUser, pasos: [], herramientas: [], excepciones: "", dependeDeIds: [], creado: new Date().toISOString() } })
+                    dispatch({ type: "ADD_PLANTILLA", payload: { id: generateId(), nombre, area: areaId, objetivo: "", disparador: "", programacion: null, proyectoId: null, resultadoId: null, responsableDefault: currentUser, pasos: [], herramientas: [], excepciones: "", dependeDeIds: [], creado: new Date().toISOString() } })
                   } />
                 )}
               </>
@@ -645,7 +656,7 @@ function ProyectoBlock({ proyecto, index, total }: { proyecto: Proyecto; index: 
   const notasCount = (proyecto.notas ?? []).length;
   const isProgrammed = !!proyecto.fechaInicio;
   const hasDeadline = !!proyecto.fechaLimite;
-  const projEstado = proyecto.estado ?? "activo";
+  const projEstado = proyecto.estado ?? "plan";
   const isInactive = projEstado === "completado" || projEstado === "pausado";
 
   const ritmo = useMemo(() => showRitmo ? computeProyectoRitmo(proyecto, projEntregables, allResultados, new Date()) : null, [showRitmo, proyecto, projEntregables, allResultados]);
@@ -665,26 +676,31 @@ function ProyectoBlock({ proyecto, index, total }: { proyecto: Proyecto; index: 
           : <EditableText value={proyecto.nombre} onChange={(v) => dispatch({ type: "RENAME_PROYECTO", id: proyecto.id, nombre: v })} className={`text-lg font-semibold ${isInactive ? "text-muted" : "text-foreground"}`} />
         }
         {projEstado === "completado" && (
-          <span className="rounded-md bg-emerald-100 px-2 py-0.5 text-[11px] font-semibold text-emerald-700">Completado</span>
+          <span className="rounded-md bg-emerald-100 px-2 py-0.5 text-[11px] font-semibold text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-400">Completado</span>
         )}
         {projEstado === "pausado" && (
-          <span className="rounded-md bg-gray-200 px-2 py-0.5 text-[11px] font-semibold text-gray-600">Pausado</span>
+          <span className="rounded-md bg-gray-200 px-2 py-0.5 text-[11px] font-semibold text-gray-600 dark:bg-gray-700/30 dark:text-gray-400">Pausado</span>
+        )}
+        {projEstado === "plan" && !isOperacion && (
+          <span className="rounded-md bg-gray-100 px-2 py-0.5 text-[11px] font-medium text-gray-500 dark:bg-gray-700/20 dark:text-gray-400">Plan</span>
+        )}
+        {projEstado === "en_marcha" && !isOperacion && (
+          <span className="rounded-md bg-blue-100 px-2 py-0.5 text-[11px] font-semibold text-blue-700 dark:bg-blue-500/10 dark:text-blue-400">En marcha</span>
         )}
         <ReviewBadge review={proyecto.review} nivel="proyecto" targetId={proyecto.id} />
         {isEmpresa && <ResponsableBadge nombre={proyecto.responsable} editable={!isMentor} miembros={state.miembros} onChange={(v) => dispatch({ type: "UPDATE_PROYECTO", id: proyecto.id, changes: { responsable: v } })} />}
         <span className="rounded-full bg-surface px-3 py-1 text-xs font-medium text-muted">{allResultados.length} result.</span>
-        {isOperacion ? (
-          <span className="rounded-md bg-indigo-100 px-2 py-0.5 text-[11px] font-semibold text-indigo-700">Core</span>
-        ) : projEstado === "activo" ? (
-          <>
-            {hasActiveWork && (
-              <span className="rounded-md bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-700">En curso</span>
-            )}
-            {isProgrammed && !hasActiveWork && (
-              <span className="rounded-md bg-accent/10 px-2 py-0.5 text-[11px] font-medium text-accent">{formatFechaInicio(proyecto.fechaInicio!, proyecto.planNivel)}</span>
-            )}
-          </>
-        ) : null}
+        {!isOperacion && (proyecto.fechaInicio || proyecto.fechaLimite) && (
+          <span className="hidden sm:inline rounded-md bg-surface px-2 py-0.5 text-[11px] text-muted" title="Fechas del proyecto">
+            {formatDateRange(proyecto.fechaInicio, proyecto.fechaLimite)}
+          </span>
+        )}
+        {!isOperacion && !proyecto.fechaInicio && !proyecto.fechaLimite && projEstado !== "completado" && (
+          <span className="hidden sm:inline rounded-md bg-amber-50 px-2 py-0.5 text-[10px] text-amber-600 dark:bg-amber-500/10 dark:text-amber-400">Sin fechas</span>
+        )}
+        {isOperacion && (
+          <span className="rounded-md bg-indigo-100 px-2 py-0.5 text-[11px] font-semibold text-indigo-700 dark:bg-indigo-500/10 dark:text-indigo-400">Core</span>
+        )}
         {isMentor
           ? <CommentIcon count={notasCount} onClick={() => toggleOrSheet(showNotas, setShowNotas, openSheet, { title: proyecto.nombre, nivel: "proyecto", targetId: proyecto.id })} />
           : <NotasIcon count={notasCount} onClick={() => toggleOrSheet(showNotas, setShowNotas, openSheet, { title: proyecto.nombre, nivel: "proyecto", targetId: proyecto.id })} />}
@@ -717,20 +733,20 @@ function ProyectoBlock({ proyecto, index, total }: { proyecto: Proyecto; index: 
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M5 12h14M12 5l7 7-7 7" /></svg>
           </button>
         )}
-        {!isMentor && !isOperacion && projEstado === "activo" && (
+        {!isMentor && !isOperacion && !isInactive && (
           <button onClick={(e) => { e.stopPropagation(); dispatch({ type: "UPDATE_PROYECTO", id: proyecto.id, changes: { estado: "completado" } }); }}
             className="flex h-6 items-center gap-0.5 rounded px-1.5 text-[10px] text-muted transition-colors hover:bg-emerald-50 hover:text-emerald-600" title="Completar proyecto">
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><polyline points="20 6 9 17 4 12" /></svg>
           </button>
         )}
-        {!isMentor && !isOperacion && projEstado === "activo" && (
+        {!isMentor && !isOperacion && !isInactive && (
           <button onClick={(e) => { e.stopPropagation(); dispatch({ type: "UPDATE_PROYECTO", id: proyecto.id, changes: { estado: "pausado" } }); }}
             className="flex h-6 items-center gap-0.5 rounded px-1.5 text-[10px] text-muted transition-colors hover:bg-gray-100 hover:text-gray-600" title="Pausar proyecto">
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><rect x="6" y="4" width="4" height="16" /><rect x="14" y="4" width="4" height="16" /></svg>
           </button>
         )}
         {!isMentor && !isOperacion && isInactive && (
-          <button onClick={(e) => { e.stopPropagation(); dispatch({ type: "UPDATE_PROYECTO", id: proyecto.id, changes: { estado: "activo" } }); }}
+          <button onClick={(e) => { e.stopPropagation(); dispatch({ type: "UPDATE_PROYECTO", id: proyecto.id, changes: { estado: "en_marcha" } }); }}
             className="flex h-6 items-center gap-0.5 rounded px-1.5 text-[10px] text-emerald-600 transition-colors hover:bg-emerald-50" title="Reactivar proyecto">
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><polygon points="5 3 19 12 5 21 5 3" /></svg>
           </button>
@@ -887,7 +903,9 @@ function ResultadoBlock({ resultado, index, total }: { resultado: Resultado; ind
   }, [isTarget]);
 
   const allEntregables = state.entregables.filter((e) => e.resultadoId === resultado.id);
-  const hasActiveWork = allEntregables.some((e) => e.estado === "en_proceso");
+  const hechos = allEntregables.filter((e) => e.estado === "hecho").length;
+  const totalEnts = allEntregables.length;
+  const computedEstado = totalEnts === 0 ? "plan" : hechos === totalEnts ? "completado" : allEntregables.some((e) => e.estado === "en_proceso" || e.estado === "en_espera") ? "en_marcha" : "plan";
   const parentProj = state.proyectos.find((p) => p.id === resultado.proyectoId);
   const isEmpresa = parentProj ? ambitoDeArea(parentProj.area) === "empresa" : false;
   const notasCount = (resultado.notas ?? []).length;
@@ -902,20 +920,30 @@ function ResultadoBlock({ resultado, index, total }: { resultado: Resultado; ind
   }
 
   return (
-    <div ref={hlRef} className={`rounded-xl border border-border/50 bg-surface/30 transition-all duration-700${filter && !inFilter && !hideFiltered ? " opacity-40" : ""}${isTarget ? " ring-2 ring-accent ring-offset-2 animate-pulse" : ""}`}>
+    <div ref={hlRef} className={`rounded-xl border border-border/50 bg-surface/30 transition-all duration-700${filter && !inFilter && !hideFiltered ? " opacity-40" : ""}${computedEstado === "completado" ? " opacity-60" : ""}${isTarget ? " ring-2 ring-accent ring-offset-2 animate-pulse" : ""}`}>
       <ToggleRow open={open} onToggle={() => setOpen(!open)}>
         {isMentor
-          ? <span className="text-base font-medium text-foreground">{resultado.nombre}</span>
-          : <EditableText value={resultado.nombre} onChange={(v) => dispatch({ type: "RENAME_RESULTADO", id: resultado.id, nombre: v })} className="text-base font-medium text-foreground" />
+          ? <span className={`text-base font-medium ${computedEstado === "completado" ? "text-muted line-through" : "text-foreground"}`}>{resultado.nombre}</span>
+          : <EditableText value={resultado.nombre} onChange={(v) => dispatch({ type: "RENAME_RESULTADO", id: resultado.id, nombre: v })} className={`text-base font-medium ${computedEstado === "completado" ? "text-muted line-through" : "text-foreground"}`} />
         }
         <ReviewBadge review={resultado.review} nivel="resultado" targetId={resultado.id} />
-        {isEmpresa && <ResponsableBadge nombre={resultado.responsable ?? parentProj?.responsable} />}
-        <span className="rounded-full bg-surface px-2.5 py-0.5 text-xs text-muted">{allEntregables.length} entreg.</span>
-        {hasActiveWork && (
-          <span className="rounded-md bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-700">En curso</span>
+        {isEmpresa && <ResponsableBadge nombre={resultado.responsable ?? parentProj?.responsable} editable={!isMentor} miembros={state.miembros} onChange={(v) => dispatch({ type: "UPDATE_RESULTADO", id: resultado.id, changes: { responsable: v } })} />}
+        {totalEnts > 0 && (
+          <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${computedEstado === "completado" ? "bg-green-100 text-green-700 dark:bg-green-500/10 dark:text-green-400" : "bg-surface text-muted"}`}>
+            {hechos}/{totalEnts}
+          </span>
         )}
-        {isProgrammed && !hasActiveWork && (
-          <span className="rounded-md bg-accent/10 px-2 py-0.5 text-[11px] font-medium text-accent">{formatFechaInicio(resultado.fechaInicio!, resultado.planNivel)}</span>
+        {totalEnts === 0 && <span className="rounded-full bg-surface px-2.5 py-0.5 text-xs text-muted">0 entreg.</span>}
+        {computedEstado === "en_marcha" && (
+          <span className="rounded-md bg-blue-100 px-2 py-0.5 text-[11px] font-semibold text-blue-700 dark:bg-blue-500/10 dark:text-blue-400">En marcha</span>
+        )}
+        {computedEstado === "completado" && (
+          <span className="rounded-md bg-green-100 px-2 py-0.5 text-[11px] font-semibold text-green-700 dark:bg-green-500/10 dark:text-green-400">Completado</span>
+        )}
+        {(resultado.fechaInicio || resultado.fechaLimite) && computedEstado !== "completado" && (
+          <span className="hidden sm:inline rounded-md bg-surface px-2 py-0.5 text-[11px] text-muted">
+            {formatDateRange(resultado.fechaInicio, resultado.fechaLimite)}
+          </span>
         )}
         {isMentor
           ? <CommentIcon count={notasCount} onClick={() => toggleOrSheet(showNotas, setShowNotas, openSheet, { title: resultado.nombre, nivel: "resultado", targetId: resultado.id })} />
@@ -1062,10 +1090,25 @@ function EntregableBlock({ entregable, index, total }: { entregable: Entregable;
   const [moveAreaId, setMoveAreaId] = useState<string | null>(null);
   const [moveProyectoId, setMoveProyectoId] = useState<string | null>(null);
   const [synced, setSynced] = useState(false);
+  const [showSyncPrompt, setShowSyncPrompt] = useState(false);
   const justAssignedTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
   const syncedTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const prevEstadoRef = useRef(entregable.estado);
   const hlRef = useRef<HTMLDivElement>(null);
   useEffect(() => () => { clearTimeout(justAssignedTimer.current); clearTimeout(syncedTimer.current); }, []);
+
+  useEffect(() => {
+    if (prevEstadoRef.current !== "hecho" && entregable.estado === "hecho" && entregable.plantillaId) {
+      const plantilla = state.plantillas.find((pl) => pl.id === entregable.plantillaId);
+      if (plantilla) {
+        const entPasoNames = state.pasos.filter((p) => p.entregableId === entregable.id).map((p) => p.nombre.toLowerCase().trim());
+        const templateNames = plantilla.pasos.map((p) => p.nombre.toLowerCase().trim());
+        const differ = entPasoNames.length !== templateNames.length || entPasoNames.some((n, i) => n !== templateNames[i]);
+        if (differ) setShowSyncPrompt(true);
+      }
+    }
+    prevEstadoRef.current = entregable.estado;
+  }, [entregable.estado, entregable.plantillaId, entregable.id, state.plantillas, state.pasos]);
 
   useEffect(() => { if (isAncestor || isTarget) setOpen(true); }, [isAncestor, isTarget]);
   useEffect(() => {
@@ -1081,7 +1124,8 @@ function EntregableBlock({ entregable, index, total }: { entregable: Entregable;
   if (hideFiltered && !inFilter) return null;
 
   const tipoTag = entregable.tipo !== "raw" ? entregable.tipo.toUpperCase() : null;
-  const dotColor = entregable.estado === "hecho" ? "bg-green-500" : entregable.estado === "en_proceso" ? "bg-amber-500" : entregable.estado === "planificado" ? "bg-blue-400" : "bg-border";
+  const isDone = entregable.estado === "hecho";
+  const dotColor = isDone ? "bg-green-500" : entregable.estado === "en_proceso" ? "bg-amber-500" : entregable.estado === "planificado" ? "bg-blue-400" : "bg-border";
   const parentRes = state.resultados.find((r) => r.id === entregable.resultadoId);
   const parentProj = parentRes ? state.proyectos.find((p) => p.id === parentRes.proyectoId) : undefined;
   const entAreaHex = parentProj ? (AREA_COLORS[parentProj.area]?.hex ?? "#888") : "#888";
@@ -1102,22 +1146,39 @@ function EntregableBlock({ entregable, index, total }: { entregable: Entregable;
   }
 
   return (
-    <div ref={hlRef} className={`transition-all duration-700${filter && !inFilter && !hideFiltered ? " opacity-40" : ""}${isTarget ? " rounded-lg ring-2 ring-accent ring-offset-2 animate-pulse" : ""}`}>
+    <div ref={hlRef} className={`transition-all duration-700${filter && !inFilter && !hideFiltered ? " opacity-40" : ""}${isDone ? " opacity-60" : ""}${isTarget ? " rounded-lg ring-2 ring-accent ring-offset-2 animate-pulse" : ""}`}>
       <ToggleRow open={open} onToggle={() => setOpen(!open)}>
-        <span className={`h-3 w-3 shrink-0 rounded-full ${dotColor}`} />
+        {!isMentor ? (
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              dispatch({ type: "UPDATE_ENTREGABLE", id: entregable.id, changes: { estado: isDone ? "planificado" : "hecho" } });
+            }}
+            className={`flex h-5 w-5 shrink-0 items-center justify-center rounded border-2 transition-all ${isDone ? "border-green-500 bg-green-500 text-white" : "border-border hover:border-green-400"}`}
+            title={isDone ? "Revertir (no hecho)" : "Marcar como hecho"}>
+            {isDone && <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round"><polyline points="20 6 9 17 4 12" /></svg>}
+          </button>
+        ) : (
+          <span className={`h-3 w-3 shrink-0 rounded-full ${dotColor}`} />
+        )}
         {isMentor
-          ? <span className="text-sm text-foreground">{entregable.nombre}</span>
-          : <EditableText value={entregable.nombre} onChange={(v) => dispatch({ type: "RENAME_ENTREGABLE", id: entregable.id, nombre: v })} className="text-sm text-foreground" />
+          ? <span className={`text-sm ${isDone ? "text-muted line-through" : "text-foreground"}`}>{entregable.nombre}</span>
+          : <EditableText value={entregable.nombre} onChange={(v) => dispatch({ type: "RENAME_ENTREGABLE", id: entregable.id, nombre: v })} className={`text-sm ${isDone ? "text-muted line-through" : "text-foreground"}`} />
         }
         <ReviewBadge review={entregable.review} nivel="entregable" targetId={entregable.id} />
         {tipoTag && <span className="rounded-md px-2 py-0.5 text-[11px] font-bold" style={{ backgroundColor: entAreaHex + "15", color: entAreaHex }}>{tipoTag}</span>}
-        {isEmpresa && <ResponsableBadge nombre={entregable.responsable} />}
-        {programLabel && (
+        {isDone && <span className="rounded-md bg-green-100 px-2 py-0.5 text-[11px] font-semibold text-green-700 dark:bg-green-500/10 dark:text-green-400">Hecho</span>}
+        {isEmpresa && <ResponsableBadge nombre={entregable.responsable} editable={!isMentor} miembros={state.miembros} onChange={(v) => dispatch({ type: "UPDATE_ENTREGABLE", id: entregable.id, changes: { responsable: v } })} />}
+        {programLabel && !isDone && (
           <span className="rounded-md bg-accent/10 px-2 py-0.5 text-[11px] font-medium text-accent">{programLabel}</span>
         )}
         {justAssigned && (
           <span className="animate-pulse rounded-md bg-green-100 px-2 py-0.5 text-[11px] font-bold text-green-700">Planificado</span>
         )}
+        {!isMentor && (
+          <DaysInput value={entregable.diasEstimados} onChange={(v) => dispatch({ type: "UPDATE_ENTREGABLE", id: entregable.id, changes: { diasEstimados: v } })} />
+        )}
+        {isMentor && entregable.diasEstimados > 0 && <span className="text-[10px] text-muted">{entregable.diasEstimados}d</span>}
         {allPasos.length > 0 && <span className="text-xs text-muted">{allPasos.length}p</span>}
         {isMentor
           ? <CommentIcon count={notasCount} onClick={() => toggleOrSheet(showNotas, setShowNotas, openSheet, { title: entregable.nombre, nivel: "entregable", targetId: entregable.id })} />
@@ -1261,6 +1322,20 @@ function EntregableBlock({ entregable, index, total }: { entregable: Entregable;
       {confirm && <ConfirmDelete label={entregable.nombre}
         onConfirm={() => { dispatch({ type: "DELETE_ENTREGABLE", id: entregable.id }); setConfirm(false); }}
         onCancel={() => setConfirm(false)} />}
+
+      {showSyncPrompt && (
+        <div className="mx-2 mb-3 ml-4 sm:mx-5 sm:ml-10 md:ml-16 flex items-center gap-3 rounded-xl border-2 border-blue-200 bg-blue-50 px-4 py-3 text-sm dark:border-blue-800/30 dark:bg-blue-500/10">
+          <span className="text-blue-700 dark:text-blue-400">Los pasos han cambiado. ¿Actualizar la plantilla para futuras ejecuciones?</span>
+          <button onClick={() => {
+            dispatch({ type: "SYNC_ENTREGABLE_TO_PLANTILLA", entregableId: entregable.id });
+            setShowSyncPrompt(false);
+            setSynced(true);
+            clearTimeout(syncedTimer.current);
+            syncedTimer.current = setTimeout(() => setSynced(false), 2500);
+          }} className="rounded-lg bg-blue-600 px-3 py-1 text-xs font-semibold text-white hover:bg-blue-700">Sí</button>
+          <button onClick={() => setShowSyncPrompt(false)} className="text-xs text-muted hover:text-foreground">No</button>
+        </div>
+      )}
 
       {showNotas && (
         <div className="mx-2 mb-3 ml-4 sm:mx-5 sm:ml-10 md:ml-16">
@@ -1491,6 +1566,295 @@ function DurationInput({ value, onChange }: { value: number | null; onChange: (v
   );
 }
 
+function DaysInput({ value, onChange }: { value: number; onChange: (v: number) => void }) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(String(value));
+  const ref = useRef<HTMLInputElement>(null);
+
+  useEffect(() => { if (editing) ref.current?.focus(); }, [editing]);
+
+  const save = useCallback(() => {
+    const n = parseInt(draft, 10);
+    onChange(isNaN(n) || n < 0 ? 0 : n);
+    setEditing(false);
+  }, [draft, onChange]);
+
+  if (editing) {
+    return (
+      <div className="flex items-center gap-0.5" onClick={(e) => e.stopPropagation()}>
+        <input ref={ref} type="number" min="0" value={draft} onChange={(e) => setDraft(e.target.value)}
+          onBlur={save} onKeyDown={(e) => { if (e.key === "Enter") save(); if (e.key === "Escape") setEditing(false); }}
+          className="w-10 rounded border-2 border-accent bg-background px-1 py-0.5 text-[11px] text-foreground outline-none" />
+        <span className="text-[10px] text-muted">d</span>
+      </div>
+    );
+  }
+
+  return (
+    <button onClick={(e) => { e.stopPropagation(); setDraft(String(value)); setEditing(true); }}
+      className="flex shrink-0 items-center gap-0.5 rounded px-1.5 py-0.5 text-[10px] text-muted opacity-60 transition-all hover:bg-surface-hover hover:text-foreground hover:opacity-100"
+      title="Días estimados">
+      {value > 0 ? <>{value}d</> : <>+d</>}
+    </button>
+  );
+}
+
+const MESES_BATCH = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"];
+const DIAS_SEMANA_BATCH = ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"];
+
+function getMonday(d: Date): Date {
+  const day = d.getDay() || 7;
+  const mon = new Date(d);
+  mon.setDate(d.getDate() - day + 1);
+  return mon;
+}
+
+function padBatch(n: number) { return String(n).padStart(2, "0"); }
+function dateKeyBatch(d: Date) { return `${d.getFullYear()}-${padBatch(d.getMonth() + 1)}-${padBatch(d.getDate())}`; }
+function weekNum(d: Date) {
+  const oneJan = new Date(d.getFullYear(), 0, 1);
+  return Math.ceil(((d.getTime() - oneJan.getTime()) / 86400000 + oneJan.getDay() + 1) / 7);
+}
+
+function SOPBatchDialog({ sop, onConfirm, onCancel }: { sop: PlantillaProceso; onConfirm: (items: { name: string; dateKey: string }[]) => void; onCancel: () => void }) {
+  const tipo = sop.programacion?.tipo ?? "demanda";
+  const now = new Date();
+  const [count, setCount] = useState(tipo === "diario" ? 4 : tipo === "semanal" ? 4 : tipo === "mensual" ? 3 : tipo === "trimestral" ? 4 : 1);
+
+  const items = useMemo(() => {
+    const result: { name: string; dateKey: string; editable: boolean }[] = [];
+
+    if (tipo === "semanal") {
+      const baseDay = sop.programacion?.diaSemana ?? 1;
+      let monday = getMonday(now);
+      for (let i = 0; i < count; i++) {
+        const target = new Date(monday);
+        target.setDate(monday.getDate() + (baseDay === 0 ? 6 : baseDay - 1));
+        const wn = weekNum(target);
+        result.push({ name: `${sop.nombre} S${wn}`, dateKey: dateKeyBatch(target), editable: true });
+        monday = new Date(monday);
+        monday.setDate(monday.getDate() + 7);
+      }
+    } else if (tipo === "mensual") {
+      const baseDay = sop.programacion?.diaMes ?? 1;
+      for (let i = 0; i < count; i++) {
+        const m = new Date(now.getFullYear(), now.getMonth() + i, 1);
+        const day = baseDay === -1 ? new Date(m.getFullYear(), m.getMonth() + 1, 0).getDate() : Math.min(baseDay, new Date(m.getFullYear(), m.getMonth() + 1, 0).getDate());
+        const target = new Date(m.getFullYear(), m.getMonth(), day);
+        result.push({ name: `${sop.nombre} ${MESES_BATCH[target.getMonth()]}`, dateKey: dateKeyBatch(target), editable: true });
+      }
+    } else if (tipo === "trimestral") {
+      const currentQ = Math.floor(now.getMonth() / 3);
+      for (let i = 0; i < count; i++) {
+        const q = currentQ + i;
+        const yr = now.getFullYear() + Math.floor(q / 4);
+        const qn = (q % 4) + 1;
+        const firstMonth = (q % 4) * 3;
+        const target = new Date(yr, firstMonth, 1);
+        result.push({ name: `${sop.nombre} Q${qn} ${yr}`, dateKey: dateKeyBatch(target), editable: true });
+      }
+    } else if (tipo === "diario") {
+      let monday = getMonday(now);
+      for (let i = 0; i < count; i++) {
+        const wn = weekNum(monday);
+        result.push({ name: `${sop.nombre} S${wn}`, dateKey: dateKeyBatch(monday), editable: true });
+        monday = new Date(monday);
+        monday.setDate(monday.getDate() + 7);
+      }
+    } else {
+      result.push({ name: sop.nombre, dateKey: dateKeyBatch(now), editable: true });
+    }
+    return result;
+  }, [tipo, count, sop.nombre, sop.programacion, now]);
+
+  const [names, setNames] = useState<string[]>([]);
+  const [dates, setDates] = useState<string[]>([]);
+
+  useEffect(() => {
+    setNames(items.map((i) => i.name));
+    setDates(items.map((i) => i.dateKey));
+  }, [items.length]);
+
+  const linkedProj = sop.proyectoId ? `→ Proyecto configurado` : "";
+
+  return (
+    <div className="mx-2 mb-3 ml-3 sm:mx-5 sm:ml-8 md:ml-14 rounded-lg border border-border bg-surface/50 p-4 space-y-3">
+      <div className="flex items-center justify-between">
+        <p className="text-sm font-semibold text-foreground">Planificar en lote</p>
+        {linkedProj && <span className="text-[10px] text-muted">{linkedProj}</span>}
+      </div>
+
+      <div className="flex items-center gap-3">
+        <label className="text-[11px] text-muted">Repeticiones:</label>
+        <input type="number" min="1" max="52" value={count} onChange={(e) => setCount(Math.max(1, parseInt(e.target.value) || 1))}
+          className="w-14 rounded border border-border bg-background px-2 py-1 text-sm text-foreground" />
+        <span className="text-[11px] text-muted">
+          {tipo === "semanal" ? "semanas" : tipo === "mensual" ? "meses" : tipo === "trimestral" ? "trimestres" : tipo === "diario" ? "semanas (1 por semana)" : "veces"}
+        </span>
+      </div>
+
+      <div className="space-y-1.5 max-h-60 overflow-y-auto">
+        {items.map((item, i) => (
+          <div key={i} className="flex items-center gap-2 rounded-lg bg-background px-3 py-1.5">
+            <input type="date" value={dates[i] ?? item.dateKey}
+              onChange={(e) => { const d = [...dates]; d[i] = e.target.value; setDates(d); }}
+              className="rounded border border-border bg-surface px-2 py-0.5 text-[11px] text-foreground" />
+            <input value={names[i] ?? item.name}
+              onChange={(e) => { const n = [...names]; n[i] = e.target.value; setNames(n); }}
+              className="flex-1 rounded border border-border bg-surface px-2 py-0.5 text-[11px] text-foreground outline-none focus:border-accent" />
+          </div>
+        ))}
+      </div>
+
+      <div className="flex items-center gap-2">
+        <button onClick={() => {
+          const final = items.map((item, i) => ({
+            name: names[i] ?? item.name,
+            dateKey: dates[i] ?? item.dateKey,
+          }));
+          onConfirm(final);
+        }} className="rounded-lg bg-accent px-4 py-1.5 text-xs font-semibold text-white hover:bg-accent/90">
+          Crear {items.length} entregable{items.length !== 1 ? "s" : ""}
+        </button>
+        <button onClick={onCancel} className="text-xs text-muted hover:text-foreground">Cancelar</button>
+      </div>
+    </div>
+  );
+}
+
+function SOPDestinoPicker({ sop }: { sop: PlantillaProceso }) {
+  const state = useAppState();
+  const dispatch = useAppDispatch();
+  const [editing, setEditing] = useState(false);
+
+  const linkedProj = sop.proyectoId ? state.proyectos.find((p) => p.id === sop.proyectoId) : null;
+  const linkedRes = sop.resultadoId ? state.resultados.find((r) => r.id === sop.resultadoId) : null;
+
+  if (!editing) {
+    return (
+      <div className="mb-3 flex items-center gap-2 text-sm text-muted">
+        <span className="text-[10px] font-semibold uppercase tracking-wider">Destino:</span>
+        {linkedProj && linkedRes ? (
+          <span className="rounded-md bg-surface px-2 py-0.5 text-[11px] text-foreground">
+            {linkedProj.nombre} → {linkedRes.nombre}
+          </span>
+        ) : linkedProj ? (
+          <span className="rounded-md bg-amber-50 px-2 py-0.5 text-[11px] text-amber-600 dark:bg-amber-500/10 dark:text-amber-400">
+            {linkedProj.nombre} (sin resultado)
+          </span>
+        ) : (
+          <span className="text-[11px] text-muted">Sin configurar</span>
+        )}
+        <button onClick={() => setEditing(true)} className="rounded px-1.5 py-0.5 text-[10px] text-accent hover:bg-accent-soft">
+          {linkedProj ? "Cambiar" : "Configurar"}
+        </button>
+      </div>
+    );
+  }
+
+  return <SOPDestinoEditor sop={sop} onClose={() => setEditing(false)} />;
+}
+
+function SOPDestinoEditor({ sop, onClose }: { sop: PlantillaProceso; onClose: () => void }) {
+  const state = useAppState();
+  const dispatch = useAppDispatch();
+  const [selProyectoId, setSelProyectoId] = useState<string | null>(sop.proyectoId);
+  const [selResultadoId, setSelResultadoId] = useState<string | null>(sop.resultadoId);
+  const [newProjName, setNewProjName] = useState("");
+  const [newResName, setNewResName] = useState("");
+  const [creatingProj, setCreatingProj] = useState(false);
+  const [creatingRes, setCreatingRes] = useState(false);
+
+  const proyectos = state.proyectos.filter((p) => p.area === sop.area && (p.estado ?? "plan") !== "completado");
+  const resultados = selProyectoId ? state.resultados.filter((r) => r.proyectoId === selProyectoId) : [];
+
+  function save() {
+    dispatch({ type: "UPDATE_PLANTILLA", id: sop.id, changes: { proyectoId: selProyectoId, resultadoId: selResultadoId } });
+    onClose();
+  }
+
+  function createProj() {
+    if (!newProjName.trim()) return;
+    const id = generateId();
+    dispatch({ type: "ADD_PROYECTO", payload: { id, nombre: newProjName.trim(), descripcion: null, area: sop.area, creado: new Date().toISOString(), fechaInicio: null, tipo: "operacion", estado: "plan" } });
+    setSelProyectoId(id);
+    setSelResultadoId(null);
+    setNewProjName("");
+    setCreatingProj(false);
+  }
+
+  function createRes() {
+    if (!newResName.trim() || !selProyectoId) return;
+    const id = generateId();
+    dispatch({ type: "ADD_RESULTADO", payload: { id, nombre: newResName.trim(), descripcion: null, proyectoId: selProyectoId, creado: new Date().toISOString(), semana: null, fechaLimite: null, fechaInicio: null, diasEstimados: null } });
+    setSelResultadoId(id);
+    setNewResName("");
+    setCreatingRes(false);
+  }
+
+  return (
+    <div className="mb-3 rounded-lg border border-border bg-surface/50 p-3 space-y-3">
+      <p className="text-[10px] font-semibold uppercase tracking-wider text-muted">Destino de ejecuciones</p>
+
+      <div>
+        <p className="mb-1 text-[11px] font-medium text-muted">Proyecto:</p>
+        <div className="flex flex-wrap gap-1">
+          {proyectos.map((p) => (
+            <button key={p.id} onClick={() => { setSelProyectoId(p.id); setSelResultadoId(null); }}
+              className={`rounded-md border px-2 py-1 text-[11px] transition-colors ${selProyectoId === p.id ? "border-accent bg-accent/10 text-accent font-semibold" : "border-border text-foreground hover:border-accent"}`}>
+              {p.nombre}
+            </button>
+          ))}
+          {!creatingProj ? (
+            <button onClick={() => setCreatingProj(true)} className="rounded-md border border-dashed border-border px-2 py-1 text-[11px] text-muted hover:border-accent hover:text-accent">+ Nuevo</button>
+          ) : (
+            <div className="flex items-center gap-1">
+              <input autoFocus value={newProjName} onChange={(e) => setNewProjName(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter") createProj(); if (e.key === "Escape") setCreatingProj(false); }}
+                placeholder="Nombre..."
+                className="w-32 rounded border border-border bg-background px-2 py-1 text-[11px] outline-none focus:border-accent" />
+              <button onClick={createProj} className="text-[10px] text-accent hover:underline">Crear</button>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {selProyectoId && (
+        <div>
+          <p className="mb-1 text-[11px] font-medium text-muted">Resultado:</p>
+          <div className="flex flex-wrap gap-1">
+            {resultados.map((r) => (
+              <button key={r.id} onClick={() => setSelResultadoId(r.id)}
+                className={`rounded-md border px-2 py-1 text-[11px] transition-colors ${selResultadoId === r.id ? "border-accent bg-accent/10 text-accent font-semibold" : "border-border text-foreground hover:border-accent"}`}>
+                {r.nombre}
+              </button>
+            ))}
+            {!creatingRes ? (
+              <button onClick={() => setCreatingRes(true)} className="rounded-md border border-dashed border-border px-2 py-1 text-[11px] text-muted hover:border-accent hover:text-accent">+ Nuevo</button>
+            ) : (
+              <div className="flex items-center gap-1">
+                <input autoFocus value={newResName} onChange={(e) => setNewResName(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Enter") createRes(); if (e.key === "Escape") setCreatingRes(false); }}
+                  placeholder="Nombre..."
+                  className="w-32 rounded border border-border bg-background px-2 py-1 text-[11px] outline-none focus:border-accent" />
+                <button onClick={createRes} className="text-[10px] text-accent hover:underline">Crear</button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      <div className="flex gap-2">
+        <button onClick={save} disabled={!selProyectoId || !selResultadoId}
+          className="rounded-lg bg-accent px-3 py-1 text-xs font-semibold text-white hover:bg-accent/90 disabled:opacity-40">
+          Guardar destino
+        </button>
+        <button onClick={onClose} className="text-xs text-muted hover:text-foreground">Cancelar</button>
+      </div>
+    </div>
+  );
+}
+
 function SOPBlock({ sop, index, total }: { sop: PlantillaProceso; index: number; total: number }) {
   const state = useAppState();
   const dispatch = useAppDispatch();
@@ -1510,11 +1874,18 @@ function SOPBlock({ sop, index, total }: { sop: PlantillaProceso; index: number;
 
   const [sopDestPicker, setSOPDestPicker] = useState(false);
   const [sopPendingDate, setSOPPendingDate] = useState<string | null>(null);
+  const [showBatchDialog, setShowBatchDialog] = useState(false);
+  const hasDestino = !!sop.resultadoId;
 
   function handleSOPPlanSelect(fechaInicio: string, _: PlanNivel) {
-    setSOPPendingDate(fechaInicio);
-    setShowDatePicker(false);
-    setSOPDestPicker(true);
+    if (hasDestino) {
+      setShowDatePicker(false);
+      setShowBatchDialog(true);
+    } else {
+      setSOPPendingDate(fechaInicio);
+      setShowDatePicker(false);
+      setSOPDestPicker(true);
+    }
   }
 
   function materializeSOP(fechaInicio: string, proyectoId?: string, resultadoId?: string) {
@@ -1533,6 +1904,28 @@ function SOPBlock({ sop, index, total }: { sop: PlantillaProceso; index: number;
     setJustCreated(true);
     clearTimeout(justCreatedTimer.current);
     justCreatedTimer.current = setTimeout(() => setJustCreated(false), 2500);
+  }
+
+  function materializeBatch(items: { name: string; dateKey: string }[]) {
+    for (const item of items) {
+      dispatch({
+        type: "MATERIALIZE_SOP",
+        plantillaId: sop.id,
+        area: sop.area,
+        responsable: sop.responsableDefault ?? currentUser,
+        currentUser,
+        dateKey: item.dateKey,
+        ids: { resultado: generateId(), entregable: generateId(), paso: generateId(), proyecto: generateId() },
+        proyectoId: sop.proyectoId ?? undefined,
+        resultadoId: sop.resultadoId ?? undefined,
+        autoStart: false,
+        customName: item.name,
+      });
+    }
+    setJustCreated(true);
+    clearTimeout(justCreatedTimer.current);
+    justCreatedTimer.current = setTimeout(() => setJustCreated(false), 2500);
+    setShowBatchDialog(false);
   }
 
   return (
@@ -1609,6 +2002,14 @@ function SOPBlock({ sop, index, total }: { sop: PlantillaProceso; index: number;
         />
       )}
 
+      {showBatchDialog && (
+        <SOPBatchDialog
+          sop={sop}
+          onConfirm={materializeBatch}
+          onCancel={() => setShowBatchDialog(false)}
+        />
+      )}
+
       {showNotas && (
         <div className="mx-2 mb-3 ml-3 sm:mx-5 sm:ml-8 md:ml-14">
           <NotasSection notas={sop.notas ?? []} nivel="plantilla" targetId={sop.id} />
@@ -1630,6 +2031,7 @@ function SOPBlock({ sop, index, total }: { sop: PlantillaProceso; index: number;
               : <ResponsableBadge nombre={sop.responsableDefault} editable miembros={state.miembros} onChange={(v) => dispatch({ type: "UPDATE_PLANTILLA", id: sop.id, changes: { responsableDefault: v } })} />
             }
           </div>
+          {!isMentor && <SOPDestinoPicker sop={sop} />}
           {sop.disparador && (
             isMentor
               ? <p className="mb-3 text-sm text-muted">{sop.disparador}</p>

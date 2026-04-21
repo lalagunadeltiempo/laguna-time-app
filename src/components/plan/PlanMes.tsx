@@ -146,8 +146,8 @@ export function PlanMes({ selectedDate, onNavigateToWeek }: Props) {
     const summaries: ProjSummary[] = [];
 
     for (const proj of state.proyectos) {
-      const projEstado = proj.estado ?? "activo";
-      if (projEstado !== "activo") continue;
+      const projEstado = proj.estado ?? "plan";
+      if (projEstado === "completado" || projEstado === "pausado") continue;
       if (filtro !== "todo" && ambitoDeArea(proj.area) !== filtro) continue;
 
       const resultados = state.resultados.filter((r) => r.proyectoId === proj.id);

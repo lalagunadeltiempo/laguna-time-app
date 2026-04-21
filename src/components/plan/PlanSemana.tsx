@@ -216,7 +216,7 @@ export function PlanSemana({ selectedDate }: Props) {
       return { entregable: e, proj };
     }).filter(({ proj }) => {
       if (!proj) return false;
-      if ((proj.estado ?? "activo") !== "activo") return false;
+      if ((proj.estado ?? "plan") === "completado" || (proj.estado ?? "plan") === "pausado") return false;
       return filtro === "todo" || ambitoDeArea(proj.area) === filtro;
     });
 

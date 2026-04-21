@@ -316,6 +316,7 @@ function CrearSOP({ onBack }: { onBack: () => void }) {
       disparador: disparador.trim(),
       programacion,
       proyectoId: proyectoId || null,
+      resultadoId: null,
       responsableDefault: responsable,
       pasos: pasos.map((p, i) => ({
         id: generateId(), orden: i + 1, nombre: p.nombre, descripcion: "",
@@ -890,6 +891,7 @@ function ConvertirEntregable({ onBack }: { onBack: () => void }) {
       disparador: "",
       programacion: null,
       proyectoId: item.proyecto?.id ?? null,
+      resultadoId: item.entregable.resultadoId ?? null,
       responsableDefault: item.entregable.responsable,
       pasos: item.pasos.map((p, i) => ({
         id: generateId(), orden: i + 1, nombre: p.nombre,

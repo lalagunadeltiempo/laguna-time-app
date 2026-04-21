@@ -47,7 +47,7 @@ export type Action =
   | { type: "PROMOTE_RESULTADO"; resultadoId: string; area: Proyecto["area"]; nuevoProyectoId: string }
   | { type: "DELETE_RESULTADO"; id: string }
   | { type: "RENAME_RESULTADO"; id: string; nombre: string }
-  | { type: "UPDATE_RESULTADO"; id: string; changes: Partial<Pick<Resultado, "nombre" | "descripcion" | "semana" | "fechaLimite" | "fechaInicio" | "diasEstimados" | "planNivel">> }
+  | { type: "UPDATE_RESULTADO"; id: string; changes: Partial<Pick<Resultado, "nombre" | "descripcion" | "semana" | "fechaLimite" | "fechaInicio" | "diasEstimados" | "planNivel" | "responsable">> }
   | { type: "DELETE_PROYECTO"; id: string }
   | { type: "RENAME_PROYECTO"; id: string; nombre: string }
   | { type: "UPDATE_PROYECTO"; id: string; changes: Partial<Pick<Proyecto, "nombre" | "descripcion" | "area" | "fechaInicio" | "fechaLimite" | "planNivel" | "tipo" | "estado" | "responsable">> }
@@ -58,7 +58,7 @@ export type Action =
   | { type: "IMPORT_PLANTILLAS"; plantillas: PlantillaProceso[] }
   | { type: "ADD_PLANTILLA"; payload: PlantillaProceso }
   | { type: "DELETE_PLANTILLA"; id: string }
-  | { type: "UPDATE_PLANTILLA"; id: string; changes: Partial<Pick<PlantillaProceso, "nombre" | "area" | "objetivo" | "disparador" | "programacion" | "excepciones" | "responsableDefault" | "pasos" | "herramientas" | "dependeDeIds" | "proyectoId">> }
+  | { type: "UPDATE_PLANTILLA"; id: string; changes: Partial<Pick<PlantillaProceso, "nombre" | "area" | "objetivo" | "disparador" | "programacion" | "excepciones" | "responsableDefault" | "pasos" | "herramientas" | "dependeDeIds" | "proyectoId" | "resultadoId">> }
   | { type: "ADD_MIEMBRO"; payload: MiembroInfo }
   | { type: "UPDATE_MIEMBRO"; id: string; changes: Partial<Pick<MiembroInfo, "nombre" | "rol" | "color" | "capacidadDiaria" | "diasLaborables">> }
   | { type: "DELETE_MIEMBRO"; id: string }
@@ -84,7 +84,7 @@ export type Action =
   | { type: "CONVERT_ENTREGABLE_TO_SOP"; entregableId: string }
   | { type: "SYNC_ENTREGABLE_TO_PLANTILLA"; entregableId: string }
   | { type: "LOG_ACTIVITY"; entry: ActivityEntry }
-  | { type: "MATERIALIZE_SOP"; plantillaId: string; area: Area; responsable: string; currentUser: string; dateKey: string; ids: { resultado: string; entregable: string; paso: string; proyecto: string }; proyectoId?: string; resultadoId?: string; autoStart?: boolean }
+  | { type: "MATERIALIZE_SOP"; plantillaId: string; area: Area; responsable: string; currentUser: string; dateKey: string; ids: { resultado: string; entregable: string; paso: string; proyecto: string }; proyectoId?: string; resultadoId?: string; autoStart?: boolean; customName?: string }
   | { type: "ADD_OBJETIVO"; payload: Objetivo }
   | { type: "UPDATE_OBJETIVO"; id: string; changes: Partial<Pick<Objetivo, "texto" | "completado" | "area">> }
   | { type: "DELETE_OBJETIVO"; id: string }
@@ -121,6 +121,16 @@ function clearPasosActivos(state: AppState, entregableIds: Set<string>): string[
     const paso = state.pasos.find((p) => p.id === id);
     return !paso || !entregableIds.has(paso.entregableId);
   });
+}
+
+function autoTransitionToEnMarcha(s: AppState, entregableId: string): AppState {
+  const ent = s.entregables.find((e) => e.id === entregableId);
+  if (!ent) return s;
+  const res = s.resultados.find((r) => r.id === ent.resultadoId);
+  if (!res) return s;
+  const proj = s.proyectos.find((p) => p.id === res.proyectoId);
+  if (!proj || (proj.estado !== "plan" && proj.estado !== undefined)) return s;
+  return { ...s, proyectos: s.proyectos.map((p) => p.id === proj.id ? { ...p, estado: "en_marcha" as const } : p) };
 }
 
 export function reducer(state: AppState, action: Action): AppState {
@@ -248,16 +258,18 @@ export function reducer(state: AppState, action: Action): AppState {
       if (!state.pasos.some((p) => p.id === updated.id)) return state;
       const alreadyClosed = state.pasos.find((p) => p.id === updated.id)?.finTs;
       const terminado = updated.siguientePaso?.tipo === "fin";
-      return {
+      let newState = {
         ...state,
         pasos: state.pasos.map((p) => (p.id === updated.id ? updated : p)),
         pasosActivos: state.pasosActivos.filter((id) => id !== updated.id),
         entregables: state.entregables.map((e) => {
           if (e.id !== updated.entregableId) return e;
-          const nuevoEstado = terminado ? "hecho" : (e.estado === "hecho" ? "hecho" : "en_proceso");
+          const nuevoEstado: Entregable["estado"] = terminado ? "hecho" : (e.estado === "hecho" ? "hecho" : "en_proceso");
           return { ...e, diasHechos: alreadyClosed ? e.diasHechos : e.diasHechos + 1, estado: nuevoEstado };
         }),
       };
+      newState = autoTransitionToEnMarcha(newState, updated.entregableId);
+      return newState;
     }
 
     case "RENAME_PASO":
@@ -266,7 +278,12 @@ export function reducer(state: AppState, action: Action): AppState {
     case "UPDATE_PASO_TIMES": {
       const { id, inicioTs, finTs } = action;
       if (finTs && finTs <= inicioTs) return state;
-      return { ...state, pasos: state.pasos.map((p) => p.id === id ? { ...p, inicioTs, finTs } : p) };
+      let newState = { ...state, pasos: state.pasos.map((p) => p.id === id ? { ...p, inicioTs, finTs } : p) };
+      if (inicioTs) {
+        const paso = state.pasos.find((p) => p.id === id);
+        if (paso) newState = autoTransitionToEnMarcha(newState, paso.entregableId);
+      }
+      return newState;
     }
 
     case "DELETE_PASO":
@@ -586,6 +603,7 @@ export function reducer(state: AppState, action: Action): AppState {
         disparador: "",
         programacion: null,
         proyectoId: proj?.id ?? null,
+        resultadoId: res?.id ?? null,
         responsableDefault: ent.responsable,
         pasos: completedPasos.map((p, i) => ({
           id: `${plantillaId}-paso-${i}`,
@@ -737,7 +755,7 @@ export function reducer(state: AppState, action: Action): AppState {
       if (!resultadoId) return state;
 
       const entregable: Entregable = {
-        id: ids.entregable, nombre: plantilla.nombre, resultadoId,
+        id: ids.entregable, nombre: action.customName ?? plantilla.nombre, resultadoId,
         tipo: "sop", plantillaId, diasEstimados: plantilla.pasos.length, diasHechos: 0,
         esDiaria: false, responsable, estado: autoStart ? "en_proceso" : "planificado",
         creado: new Date().toISOString(), semana: null, fechaLimite: null, fechaInicio: dateKey,

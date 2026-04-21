@@ -116,7 +116,7 @@ export function parseMarkdownProcesos(
       id: generateId(), nombre, area: "operativa",
       objetivo, disparador,
       programacion: null,
-      proyectoId, responsableDefault: responsable,
+      proyectoId, resultadoId: null, responsableDefault: responsable,
       pasos, herramientas: allHerramientas,
       excepciones, dependeDeIds: [],
       creado: new Date().toISOString(),
