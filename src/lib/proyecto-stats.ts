@@ -62,7 +62,8 @@ function computeRitmo(
     };
   }
 
-  if (diasTrabajoPendientes === 0) {
+  const allDone = activos.every((e) => e.estado === "hecho");
+  if (allDone && activos.length > 0) {
     return {
       diasTrabajoPendientes: 0,
       diasTrabajoTotal,
@@ -71,7 +72,7 @@ function computeRitmo(
       ritmoRequerido: 0,
       estadoRitmo: "completado",
       deadline,
-      porcentaje,
+      porcentaje: 1,
     };
   }
 

@@ -5,20 +5,27 @@ import { useAppState, useAppDispatch } from "@/lib/context";
 import { useUsuario, useIsMentor } from "@/lib/usuario";
 import {
   ambitoDeArea, AREA_COLORS,
-  type Entregable, type Proyecto, type Resultado, type Ambito, type MiembroInfo,
+  type Entregable, type Proyecto, type Ambito, type MiembroInfo,
 } from "@/lib/types";
 import { projectSOPsForRange, summarizeSOPsByWeek, type SOPWeekSummary } from "@/lib/sop-projector";
-import { computeProyectoRitmo, ritmoColor, ritmoLabel, ritmoLabelCorto, type ProyectoRitmo } from "@/lib/proyecto-stats";
+import { computeProyectoRitmo } from "@/lib/proyecto-stats";
 import { ProyectoPlanner } from "./ProyectoPlanner";
+import {
+  MapaFilterCtx, HighlightCtx, NotaSheetCtx, ShowTimelineCtx,
+  NotaSheet,
+  AreaSection,
+  EMPRESA_ORDER, PERSONAL_ORDER,
+  type VisibleFilter, type NotaSheetData,
+} from "../mapa/MapaBlocks";
 
 export type AmbitoFilter = "todo" | Ambito;
-type ViewMode = "proyectos" | "semanas";
+type ViewMode = "mapa" | "semanas";
 type RAG = "green" | "amber" | "red";
 
 const RAG_HEX: Record<RAG, string> = { green: "#22c55e", amber: "#f59e0b", red: "#ef4444" };
 
 /* ============================================================
-   Shared helpers (unchanged)
+   Shared helpers
    ============================================================ */
 
 interface WeekDef {
@@ -95,18 +102,6 @@ function computeRAG(ent: Entregable, nowMs: number): RAG {
 }
 
 /* ============================================================
-   Project view types
-   ============================================================ */
-
-interface ProyectoMesData {
-  proyecto: Proyecto;
-  resultados: Resultado[];
-  entregables: Entregable[];
-  ritmo: ProyectoRitmo;
-  areaHex: string;
-}
-
-/* ============================================================
    Main component
    ============================================================ */
 
@@ -122,7 +117,7 @@ export function PlanMes({ selectedDate }: Props) {
   const [filtro, setFiltro] = useState<AmbitoFilter>(isMentor ? "empresa" : "todo");
   const [respFilter, setRespFilter] = useState<ResponsableFilter>("todo");
   const [showDone, setShowDone] = useState(true);
-  const [viewMode, setViewMode] = useState<ViewMode>("proyectos");
+  const [viewMode, setViewMode] = useState<ViewMode>("mapa");
   const [plannerProyectoId, setPlannerProyectoId] = useState<string | null>(null);
 
   const mesLabel = useMemo(() =>
@@ -133,14 +128,14 @@ export function PlanMes({ selectedDate }: Props) {
   const [nowMs] = useState<number>(() => Date.now());
   const [hoy] = useState<Date>(() => new Date());
 
-  /* ---- Project view data ---- */
-  const proyectosMes: ProyectoMesData[] = useMemo(() => {
+  /* ---- Compute which projects are in month ---- */
+  const proyectosMesIds = useMemo(() => {
     const selYear = selectedDate.getFullYear();
     const selMonth = selectedDate.getMonth();
     const monthStart = new Date(selYear, selMonth, 1).getTime();
     const monthEnd = new Date(selYear, selMonth + 1, 0, 23, 59, 59).getTime();
 
-    const result: ProyectoMesData[] = [];
+    const ids = new Set<string>();
 
     for (const proj of state.proyectos) {
       if (filtro !== "todo" && ambitoDeArea(proj.area) !== filtro) continue;
@@ -188,31 +183,68 @@ export function PlanMes({ selectedDate }: Props) {
         if (pasoEnMes) inMonth = true;
       }
 
-      if (!inMonth) continue;
-
-      const ritmo = computeProyectoRitmo(proj, filtered, resultados, hoy);
-      const areaHex = AREA_COLORS[proj.area]?.hex ?? "#888";
-
-      result.push({ proyecto: proj, resultados, entregables: filtered, ritmo, areaHex });
+      if (inMonth) ids.add(proj.id);
     }
 
-    result.sort((a, b) => {
-      const order: Record<ProyectoRitmo["estadoRitmo"], number> = {
-        vencido: 0, imposible: 1, rojo: 2, amarillo: 3, verde: 4, "sin-deadline": 5, vacio: 6, completado: 7,
-      };
-      const diff = order[a.ritmo.estadoRitmo] - order[b.ritmo.estadoRitmo];
-      if (diff !== 0) return diff;
-      return a.proyecto.nombre.localeCompare(b.proyecto.nombre);
-    });
+    return ids;
+  }, [state, selectedDate, filtro, respFilter, currentUser, showDone]);
 
-    return result;
-  }, [state, selectedDate, filtro, respFilter, currentUser, showDone, hoy]);
+  /* ---- Build VisibleFilter for AreaSection ---- */
+  const mapaFilter = useMemo<VisibleFilter | null>(() => {
+    const projSet = proyectosMesIds;
+    if (projSet.size === 0) return null;
 
+    const resSet = new Set<string>();
+    const entSet = new Set<string>();
+    const pasoSet = new Set<string>();
+
+    for (const r of state.resultados) {
+      if (projSet.has(r.proyectoId)) resSet.add(r.id);
+    }
+    for (const e of state.entregables) {
+      if (resSet.has(e.resultadoId)) entSet.add(e.id);
+    }
+    for (const p of state.pasos) {
+      if (entSet.has(p.entregableId)) pasoSet.add(p.id);
+    }
+
+    return { proyectos: projSet, resultados: resSet, entregables: entSet, pasos: pasoSet };
+  }, [proyectosMesIds, state.resultados, state.entregables, state.pasos]);
+
+  /* ---- Carga total ---- */
   const cargaTotal = useMemo(() => {
-    return proyectosMes.reduce((s, p) => s + (p.ritmo.ritmoRequerido ?? 0), 0);
-  }, [proyectosMes]);
+    let total = 0;
+    for (const projId of proyectosMesIds) {
+      const proj = state.proyectos.find((p) => p.id === projId);
+      if (!proj) continue;
+      const resultados = state.resultados.filter((r) => r.proyectoId === projId);
+      const resIds = new Set(resultados.map((r) => r.id));
+      const entregables = state.entregables.filter((e) => resIds.has(e.resultadoId));
+      const ritmo = computeProyectoRitmo(proj, entregables, resultados, hoy);
+      total += ritmo.ritmoRequerido ?? 0;
+    }
+    return total;
+  }, [proyectosMesIds, state, hoy]);
 
-  /* ---- Week view data (preserved from original) ---- */
+  /* ---- Areas that have projects this month ---- */
+  const areasConProyectos = useMemo(() => {
+    const areas = new Set<string>();
+    for (const projId of proyectosMesIds) {
+      const proj = state.proyectos.find((p) => p.id === projId);
+      if (proj) areas.add(proj.area);
+    }
+    return areas;
+  }, [proyectosMesIds, state.proyectos]);
+
+  /* ---- NotaSheet state ---- */
+  const [sheetData, setSheetData] = useState<NotaSheetData | null>(null);
+  const notaSheetCtx = useMemo(() => ({
+    open: (data: NotaSheetData) => {
+      if (typeof window !== "undefined" && window.innerWidth < 640) setSheetData(data);
+    },
+  }), []);
+
+  /* ---- Week view data (preserved) ---- */
   const { weekEntregables, unassigned } = useMemo(() => {
     if (viewMode !== "semanas") return { weekEntregables: new Map<number, EntCard[]>(), unassigned: [] as EntCard[] };
     const selYear = selectedDate.getFullYear();
@@ -310,14 +342,17 @@ export function PlanMes({ selectedDate }: Props) {
     ? Array.from(weekEntregables.values()).reduce((s, arr) => s + arr.length, 0) + unassigned.length
     : 0;
 
+  const empresaAreas = EMPRESA_ORDER.filter((a) => areasConProyectos.has(a));
+  const personalAreas = PERSONAL_ORDER.filter((a) => areasConProyectos.has(a));
+
   return (
     <div className="flex-1">
       <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
         <div>
           <p className="text-sm font-medium capitalize text-muted">{mesLabel}</p>
           <p className="text-xs text-muted">
-            {viewMode === "proyectos"
-              ? `${proyectosMes.length} proyecto${proyectosMes.length !== 1 ? "s" : ""} activo${proyectosMes.length !== 1 ? "s" : ""}`
+            {viewMode === "mapa"
+              ? `${proyectosMesIds.size} proyecto${proyectosMesIds.size !== 1 ? "s" : ""} activo${proyectosMesIds.size !== 1 ? "s" : ""}`
               : `${totalEntCount} entregable${totalEntCount !== 1 ? "s" : ""}`}
             {viewMode === "semanas" && sopTotalWeekly.count > 0 && (
               <span className="ml-2 text-blue-500">
@@ -339,8 +374,8 @@ export function PlanMes({ selectedDate }: Props) {
         </div>
       </div>
 
-      {/* Carga total banner (project view only) */}
-      {viewMode === "proyectos" && proyectosMes.length > 0 && cargaTotal > 0 && (
+      {/* Carga total banner */}
+      {proyectosMesIds.size > 0 && cargaTotal > 0 && (
         <div className={`mb-4 flex items-center gap-2 rounded-xl border px-4 py-2.5 ${cargaTotal > 1 ? "border-red-300 bg-red-50" : cargaTotal > 0.7 ? "border-amber-300 bg-amber-50" : "border-green-300 bg-green-50"}`}>
           <span className={`text-sm font-semibold ${cargaTotal > 1 ? "text-red-700" : cargaTotal > 0.7 ? "text-amber-700" : "text-green-700"}`}>
             Carga total: {Math.round(cargaTotal * 100)}% del día
@@ -353,18 +388,39 @@ export function PlanMes({ selectedDate }: Props) {
         </div>
       )}
 
-      {viewMode === "proyectos" ? (
-        proyectosMes.length === 0 ? (
+      {viewMode === "mapa" ? (
+        proyectosMesIds.size === 0 ? (
           <div className="py-12 text-center">
             <p className="text-sm text-muted">No hay proyectos activos este mes.</p>
             <p className="mt-1 text-xs text-muted">Planifica proyectos desde el Mapa o cambia los filtros.</p>
           </div>
         ) : (
-          <div className="space-y-3">
-            {proyectosMes.map((data) => (
-              <ProyectoMesCard key={data.proyecto.id} data={data} onOpenPlanner={setPlannerProyectoId} />
-            ))}
-          </div>
+          <HighlightCtx.Provider value={null}>
+          <MapaFilterCtx.Provider value={mapaFilter}>
+          <NotaSheetCtx.Provider value={notaSheetCtx}>
+          <ShowTimelineCtx.Provider value={true}>
+            <div className="space-y-6">
+              {empresaAreas.length > 0 && (
+                <>
+                  {empresaAreas.map((areaId) => (
+                    <AreaSection key={areaId} areaId={areaId} hideSops />
+                  ))}
+                </>
+              )}
+              {personalAreas.length > 0 && (
+                <>
+                  {empresaAreas.length > 0 && <div className="border-t border-border" />}
+                  {personalAreas.map((areaId) => (
+                    <AreaSection key={areaId} areaId={areaId} hideSops />
+                  ))}
+                </>
+              )}
+            </div>
+            {sheetData && <NotaSheet data={sheetData} onClose={() => setSheetData(null)} />}
+          </ShowTimelineCtx.Provider>
+          </NotaSheetCtx.Provider>
+          </MapaFilterCtx.Provider>
+          </HighlightCtx.Provider>
         )
       ) : (
         /* Week columns view (preserved) */
@@ -411,85 +467,12 @@ export function PlanMes({ selectedDate }: Props) {
 }
 
 /* ============================================================
-   ProyectoMesCard
-   ============================================================ */
-
-function ProyectoMesCard({ data, onOpenPlanner }: { data: ProyectoMesData; onOpenPlanner: (id: string) => void }) {
-  const { proyecto, entregables, ritmo, areaHex } = data;
-  const dispatch = useAppDispatch();
-  const color = ritmoColor(ritmo.estadoRitmo);
-  const pct = Math.min(100, Math.round(ritmo.porcentaje * 100));
-  const entPending = entregables.filter((e) => e.estado !== "hecho" && e.estado !== "cancelada").length;
-  const entTotal = entregables.length;
-
-  return (
-    <div
-      className="cursor-pointer rounded-xl border border-border bg-background p-4 transition-all hover:border-accent/40 hover:shadow-md"
-      onClick={() => onOpenPlanner(proyecto.id)}
-      style={{ borderLeftWidth: "4px", borderLeftColor: areaHex }}
-    >
-      <div className="mb-2 flex items-start justify-between gap-3">
-        <div className="min-w-0 flex-1">
-          <h3 className="truncate text-sm font-bold text-foreground">{proyecto.nombre}</h3>
-          {proyecto.descripcion && (
-            <p className="mt-0.5 truncate text-xs italic text-muted">{proyecto.descripcion}</p>
-          )}
-        </div>
-        <div className="flex shrink-0 items-center gap-2">
-          <span className="rounded-full px-2 py-0.5 text-[11px] font-bold" style={{ backgroundColor: color + "18", color }}>
-            {ritmoLabelCorto(ritmo.estadoRitmo)}
-          </span>
-          {!proyecto.fechaLimite && ritmo.estadoRitmo === "sin-deadline" && (
-            <button
-              onClick={(e) => { e.stopPropagation(); onOpenPlanner(proyecto.id); }}
-              className="rounded-md bg-accent/10 px-2 py-0.5 text-[10px] font-semibold text-accent transition-colors hover:bg-accent/20"
-            >
-              + Deadline
-            </button>
-          )}
-        </div>
-      </div>
-
-      {/* Progress bar */}
-      <div className="mb-2 h-1.5 overflow-hidden rounded-full bg-surface">
-        <div className="h-full rounded-full transition-all" style={{ width: `${pct}%`, backgroundColor: color }} />
-      </div>
-
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted">
-        <span>{pct}% avance</span>
-        <span>{entPending}/{entTotal} entregables</span>
-        <span>{ritmoLabel(ritmo)}</span>
-        {proyecto.fechaLimite && (
-          <span>
-            Deadline: {new Date(proyecto.fechaLimite + "T12:00:00").toLocaleDateString("es-ES", { day: "numeric", month: "short" })}
-          </span>
-        )}
-      </div>
-
-      {/* Editable deadline inline (without opening planner) */}
-      {!proyecto.fechaLimite && (
-        <div className="mt-2" onClick={(e) => e.stopPropagation()}>
-          <label className="flex items-center gap-2 text-xs text-muted">
-            <span className="text-[10px] font-semibold uppercase tracking-wider">Fecha límite:</span>
-            <input type="date"
-              onChange={(e) => {
-                if (e.target.value) dispatch({ type: "UPDATE_PROYECTO", id: proyecto.id, changes: { fechaLimite: e.target.value } });
-              }}
-              className="rounded border border-border bg-background px-1.5 py-0.5 text-xs text-foreground" />
-          </label>
-        </div>
-      )}
-    </div>
-  );
-}
-
-/* ============================================================
    View mode toggle
    ============================================================ */
 
 function ViewModeToggle({ value, onChange }: { value: ViewMode; onChange: (v: ViewMode) => void }) {
   const opts: { id: ViewMode; label: string }[] = [
-    { id: "proyectos", label: "Proyectos" },
+    { id: "mapa", label: "Mapa" },
     { id: "semanas", label: "Semanas" },
   ];
   return (
@@ -507,7 +490,7 @@ function ViewModeToggle({ value, onChange }: { value: ViewMode; onChange: (v: Vi
 }
 
 /* ============================================================
-   Week view components (preserved from original)
+   Week view components (preserved)
    ============================================================ */
 
 function WeekColumn({ week, cards, weeks, onAssign, sopSummary }: {
