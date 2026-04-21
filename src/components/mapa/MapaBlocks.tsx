@@ -463,14 +463,9 @@ export function AreaSection({ areaId, hideSops }: { areaId: Area; hideSops?: boo
 
   const allProyectos = state.proyectos.filter((p) => p.area === areaId);
   const filteredCount = filter ? allProyectos.filter((p) => filter.proyectos.has(p.id)).length : allProyectos.length;
-  const hasMatchingProjects = !filter || filteredCount > 0;
-  const [open, setOpen] = useState(hasFilter && hasMatchingProjects);
-  const [openProj, setOpenProj] = useState(hasFilter && hasMatchingProjects);
+  const [open, setOpen] = useState(false);
+  const [openProj, setOpenProj] = useState(false);
   const [openSOP, setOpenSOP] = useState(false);
-
-  useEffect(() => {
-    if (hasFilter && hasMatchingProjects) { setOpen(true); setOpenProj(true); }
-  }, [hasFilter, hasMatchingProjects]);
 
   useEffect(() => {
     if (highlight?.ancestors.has(areaId)) { setOpen(true); setOpenProj(true); }
@@ -612,8 +607,7 @@ function ProyectoBlock({ proyecto, index, total }: { proyecto: Proyecto; index: 
   const isAncestor = !!highlight?.ancestors.has(proyecto.id);
   const isTarget = highlight?.targetId === proyecto.id;
   const inFilter = !filter || filter.proyectos.has(proyecto.id);
-  const [open, setOpen] = useState(filter ? inFilter : false);
-  useEffect(() => { if (inFilter && filter) setOpen(true); }, [inFilter, filter]);
+  const [open, setOpen] = useState(false);
   const [confirm, setConfirm] = useState(false);
   const [showNotas, setShowNotas] = useState(false);
   const [showDatePicker, setShowDatePicker] = useState(false);
@@ -838,8 +832,7 @@ function ResultadoBlock({ resultado, index, total }: { resultado: Resultado; ind
   const isAncestor = !!highlight?.ancestors.has(resultado.id);
   const isTarget = highlight?.targetId === resultado.id;
   const inFilter = !filter || filter.resultados.has(resultado.id);
-  const [open, setOpen] = useState(filter ? inFilter : false);
-  useEffect(() => { if (inFilter && filter) setOpen(true); }, [inFilter, filter]);
+  const [open, setOpen] = useState(false);
   const [confirm, setConfirm] = useState(false);
   const [showNotas, setShowNotas] = useState(false);
   const [showMove, setShowMove] = useState(false);
@@ -1020,8 +1013,7 @@ function EntregableBlock({ entregable, index, total }: { entregable: Entregable;
   const isAncestor = !!highlight?.ancestors.has(entregable.id);
   const isTarget = highlight?.targetId === entregable.id;
   const inFilter = !filter || filter.entregables.has(entregable.id);
-  const [open, setOpen] = useState(filter ? inFilter : false);
-  useEffect(() => { if (inFilter && filter) setOpen(true); }, [inFilter, filter]);
+  const [open, setOpen] = useState(false);
   const [confirm, setConfirm] = useState(false);
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [showDeadlinePicker, setShowDeadlinePicker] = useState(false);
