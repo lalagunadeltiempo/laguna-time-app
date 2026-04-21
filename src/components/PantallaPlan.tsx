@@ -161,7 +161,7 @@ export function PantallaPlan() {
       {/* Tab content */}
       {tab === "hoy" && <PlanHoy selectedDate={selectedDate} />}
       {tab === "semana" && <PlanSemana selectedDate={selectedDate} />}
-      {tab === "mes" && <PlanMes selectedDate={selectedDate} />}
+      {tab === "mes" && <PlanMes selectedDate={selectedDate} onNavigateToWeek={(d) => { setSelectedDate(d); setTab("semana"); }} />}
       {tab === "trimestre" && <PlanTrimestre selectedDate={selectedDate} />}
       {tab === "anio" && <PlanAnio selectedDate={selectedDate} />}
     </div>

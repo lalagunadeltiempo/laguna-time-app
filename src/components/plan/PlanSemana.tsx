@@ -206,15 +206,27 @@ export function PlanSemana({ selectedDate }: Props) {
     return map;
   }, [state, weekDates, viewMode, currentUser, filtro]);
 
-  const pendientes = useMemo(() => {
-    return state.entregables.filter((e) =>
+  const pendientesByProject = useMemo(() => {
+    const items = state.entregables.filter((e) =>
       e.estado !== "hecho" && e.estado !== "cancelada" &&
       (e.responsable === currentUser || !e.responsable)
     ).map((e) => {
       const res = state.resultados.find((r) => r.id === e.resultadoId);
       const proj = res ? state.proyectos.find((p) => p.id === res.proyectoId) : undefined;
       return { entregable: e, proj };
-    }).filter(({ proj }) => filtro === "todo" || (proj && ambitoDeArea(proj.area) === filtro));
+    }).filter(({ proj }) => {
+      if (!proj) return false;
+      if ((proj.estado ?? "activo") !== "activo") return false;
+      return filtro === "todo" || ambitoDeArea(proj.area) === filtro;
+    });
+
+    const grouped = new Map<string, { proj: typeof items[0]["proj"]; ents: typeof items }>();
+    for (const item of items) {
+      const pid = item.proj?.id ?? "_none";
+      if (!grouped.has(pid)) grouped.set(pid, { proj: item.proj, ents: [] });
+      grouped.get(pid)!.ents.push(item);
+    }
+    return grouped;
   }, [state, currentUser, filtro]);
 
   function assignToPlan(ent: Entregable) {
@@ -340,9 +352,9 @@ export function PlanSemana({ selectedDate }: Props) {
                           {block.title}
                         </p>
                       </div>
-                      <p className="text-[10px] text-muted">{block.subtitle}</p>
+                      <p className="text-[10px] font-medium" style={{ color: hex + "b0" }}>{block.subtitle}</p>
                       {viewMode === "equipo" && block.responsable && (
-                        <p className="text-[10px] font-semibold" style={{ color: hex }}>{block.responsable}</p>
+                        <p className="text-[10px] font-semibold text-muted">{block.responsable}</p>
                       )}
                     </button>
                   );
@@ -391,18 +403,25 @@ export function PlanSemana({ selectedDate }: Props) {
           onKeyDown={(e) => { if (e.key === "Escape") setPickDay(null); }}>
           <div className="w-full max-w-md rounded-2xl bg-background p-5 shadow-xl">
             <h3 className="mb-1 text-sm font-semibold text-foreground">Planificar para {new Date(pickDay + "T12:00:00").toLocaleDateString("es-ES", { weekday: "long", day: "numeric", month: "long" })}</h3>
-            <p className="mb-4 text-xs text-muted">Elige un entregable pendiente:</p>
-            <div className="max-h-60 space-y-1 overflow-y-auto">
-              {pendientes.length === 0 && <p className="py-4 text-center text-xs text-muted">No hay entregables pendientes</p>}
-              {pendientes.map(({ entregable, proj }) => (
-                <button key={entregable.id} onClick={() => assignToPlan(entregable)}
-                  className="flex w-full items-center gap-2 rounded-lg px-3 py-2.5 text-left transition-colors hover:bg-surface">
-                  <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: AREA_COLORS[proj?.area ?? "operativa"]?.hex ?? "#888" }} />
-                  <div className="flex-1 truncate">
-                    <p className="truncate text-sm font-medium text-foreground">{entregable.nombre}</p>
-                    <p className="truncate text-xs text-muted">{proj?.nombre ?? ""}</p>
+            <p className="mb-4 text-xs text-muted">Elige un entregable pendiente (solo proyectos activos):</p>
+            <div className="max-h-72 space-y-3 overflow-y-auto">
+              {pendientesByProject.size === 0 && <p className="py-4 text-center text-xs text-muted">No hay entregables pendientes</p>}
+              {Array.from(pendientesByProject.entries()).map(([pid, { proj, ents }]) => (
+                <div key={pid}>
+                  <p className="mb-1 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider" style={{ color: AREA_COLORS[proj?.area ?? "operativa"]?.hex ?? "#888" }}>
+                    <span className="h-2 w-2 rounded-full" style={{ backgroundColor: AREA_COLORS[proj?.area ?? "operativa"]?.hex ?? "#888" }} />
+                    {proj?.nombre ?? "Sin proyecto"}
+                  </p>
+                  <div className="space-y-0.5">
+                    {ents.map(({ entregable }) => (
+                      <button key={entregable.id} onClick={() => assignToPlan(entregable)}
+                        className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left transition-colors hover:bg-surface">
+                        <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-muted" />
+                        <p className="truncate text-sm text-foreground">{entregable.nombre}</p>
+                      </button>
+                    ))}
                   </div>
-                </button>
+                </div>
               ))}
             </div>
             <button onClick={() => setPickDay(null)} className="mt-3 w-full rounded-lg border border-border py-2 text-xs font-medium text-muted hover:bg-surface">Cancelar</button>

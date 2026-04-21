@@ -65,6 +65,7 @@ export interface ReviewMark {
 }
 
 export type TipoProyecto = "proyecto" | "operacion";
+export type EstadoProyecto = "activo" | "pausado" | "completado";
 
 export interface Proyecto {
   id: string;
@@ -76,6 +77,7 @@ export interface Proyecto {
   fechaLimite?: string | null;
   planNivel?: PlanNivel;
   tipo?: TipoProyecto;
+  estado?: EstadoProyecto;
   responsable?: string;
   notas?: Nota[];
   review?: ReviewMark;

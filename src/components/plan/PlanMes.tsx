@@ -7,20 +7,11 @@ import {
   ambitoDeArea, AREA_COLORS,
   type Entregable, type Proyecto, type Ambito, type MiembroInfo,
 } from "@/lib/types";
+import { computeProyectoRitmo, ritmoColor, ritmoLabelCorto } from "@/lib/proyecto-stats";
 import { projectSOPsForRange, summarizeSOPsByWeek, type SOPWeekSummary } from "@/lib/sop-projector";
-import { computeProyectoRitmo } from "@/lib/proyecto-stats";
 import { ProyectoPlanner } from "./ProyectoPlanner";
-import {
-  MapaFilterCtx, HighlightCtx, NotaSheetCtx, ShowTimelineCtx,
-  HideFilteredCtx, ShowRitmoCtx,
-  NotaSheet,
-  AreaSection,
-  EMPRESA_ORDER, PERSONAL_ORDER,
-  type VisibleFilter, type NotaSheetData,
-} from "../mapa/MapaBlocks";
 
 export type AmbitoFilter = "todo" | Ambito;
-type ViewMode = "mapa" | "semanas";
 type RAG = "green" | "amber" | "red";
 
 const RAG_HEX: Record<RAG, string> = { green: "#22c55e", amber: "#f59e0b", red: "#ef4444" };
@@ -103,23 +94,39 @@ function computeRAG(ent: Entregable, nowMs: number): RAG {
 }
 
 /* ============================================================
+   Proyecto summary card for dashboard
+   ============================================================ */
+
+interface ProjSummary {
+  proyecto: Proyecto;
+  resultados: { id: string; nombre: string }[];
+  entregablesTotal: number;
+  entregablesHechos: number;
+  entregablesEnCurso: number;
+  areaHex: string;
+  ritmo: ReturnType<typeof computeProyectoRitmo>;
+  warnings: string[];
+}
+
+/* ============================================================
    Main component
    ============================================================ */
 
 interface Props {
   selectedDate: Date;
+  onNavigateToWeek?: (date: Date) => void;
 }
 
-export function PlanMes({ selectedDate }: Props) {
+export function PlanMes({ selectedDate, onNavigateToWeek }: Props) {
   const state = useAppState();
   const dispatch = useAppDispatch();
   const isMentor = useIsMentor();
   const { nombre: currentUser } = useUsuario();
   const [filtro, setFiltro] = useState<AmbitoFilter>(isMentor ? "empresa" : "todo");
   const [respFilter, setRespFilter] = useState<ResponsableFilter>("todo");
-  const [showDone, setShowDone] = useState(true);
-  const [viewMode, setViewMode] = useState<ViewMode>("mapa");
+  const [showDone, setShowDone] = useState(false);
   const [plannerProyectoId, setPlannerProyectoId] = useState<string | null>(null);
+  const [expandedProjects, setExpandedProjects] = useState<Set<string>>(new Set());
 
   const mesLabel = useMemo(() =>
     selectedDate.toLocaleDateString("es-ES", { month: "long", year: "numeric" }),
@@ -129,32 +136,33 @@ export function PlanMes({ selectedDate }: Props) {
   const [nowMs] = useState<number>(() => Date.now());
   const [hoy] = useState<Date>(() => new Date());
 
-  /* ---- Compute which projects are in month ---- */
-  const proyectosMesIds = useMemo(() => {
+  /* ---- Compute active projects for this month ---- */
+  const projectSummaries = useMemo<ProjSummary[]>(() => {
     const selYear = selectedDate.getFullYear();
     const selMonth = selectedDate.getMonth();
     const monthStart = new Date(selYear, selMonth, 1).getTime();
     const monthEnd = new Date(selYear, selMonth + 1, 0, 23, 59, 59).getTime();
 
-    const ids = new Set<string>();
+    const summaries: ProjSummary[] = [];
 
     for (const proj of state.proyectos) {
+      const projEstado = proj.estado ?? "activo";
+      if (projEstado !== "activo") continue;
       if (filtro !== "todo" && ambitoDeArea(proj.area) !== filtro) continue;
 
       const resultados = state.resultados.filter((r) => r.proyectoId === proj.id);
       const resIds = new Set(resultados.map((r) => r.id));
       const entregables = state.entregables.filter((e) => resIds.has(e.resultadoId));
 
-      if (!showDone && entregables.every((e) => e.estado === "hecho" || e.estado === "cancelada")) continue;
+      if (!showDone && entregables.length > 0 && entregables.every((e) => e.estado === "hecho" || e.estado === "cancelada")) continue;
 
       const filtered = respFilter === "todo"
         ? entregables
         : entregables.filter((e) => matchesResponsable(e.responsable, respFilter, currentUser));
-      if (filtered.length === 0) continue;
+      if (filtered.length === 0 && entregables.length > 0) continue;
 
       let inMonth = false;
 
-      // Project date range overlaps month
       if (proj.fechaInicio && proj.fechaLimite) {
         const fi = new Date(proj.fechaInicio + "T12:00:00").getTime();
         const fl = new Date(proj.fechaLimite + "T12:00:00").getTime();
@@ -167,7 +175,6 @@ export function PlanMes({ selectedDate }: Props) {
         if (fl >= monthStart && fl <= monthEnd) inMonth = true;
       }
 
-      // Entregable dates fall in month
       if (!inMonth) {
         for (const ent of filtered) {
           if (ent.fechaInicio) {
@@ -181,7 +188,6 @@ export function PlanMes({ selectedDate }: Props) {
         }
       }
 
-      // Pasos with activity in month
       if (!inMonth) {
         const pasoEnMes = state.pasos.some((p) => {
           if (!p.inicioTs) return false;
@@ -191,70 +197,36 @@ export function PlanMes({ selectedDate }: Props) {
         if (pasoEnMes) inMonth = true;
       }
 
-      if (inMonth) ids.add(proj.id);
-    }
+      if (!inMonth) continue;
 
-    return ids;
-  }, [state, selectedDate, filtro, respFilter, currentUser, showDone]);
-
-  /* ---- Build VisibleFilter for AreaSection ---- */
-  const mapaFilter = useMemo<VisibleFilter | null>(() => {
-    const projSet = proyectosMesIds;
-    if (projSet.size === 0) return null;
-
-    const resSet = new Set<string>();
-    const entSet = new Set<string>();
-    const pasoSet = new Set<string>();
-
-    for (const r of state.resultados) {
-      if (projSet.has(r.proyectoId)) resSet.add(r.id);
-    }
-    for (const e of state.entregables) {
-      if (resSet.has(e.resultadoId)) entSet.add(e.id);
-    }
-    for (const p of state.pasos) {
-      if (entSet.has(p.entregableId)) pasoSet.add(p.id);
-    }
-
-    return { proyectos: projSet, resultados: resSet, entregables: entSet, pasos: pasoSet };
-  }, [proyectosMesIds, state.resultados, state.entregables, state.pasos]);
-
-  /* ---- Carga total ---- */
-  const cargaTotal = useMemo(() => {
-    let total = 0;
-    for (const projId of proyectosMesIds) {
-      const proj = state.proyectos.find((p) => p.id === projId);
-      if (!proj) continue;
-      const resultados = state.resultados.filter((r) => r.proyectoId === projId);
-      const resIds = new Set(resultados.map((r) => r.id));
-      const entregables = state.entregables.filter((e) => resIds.has(e.resultadoId));
+      const areaHex = AREA_COLORS[proj.area]?.hex ?? "#888";
       const ritmo = computeProyectoRitmo(proj, entregables, resultados, hoy);
-      total += ritmo.ritmoRequerido ?? 0;
+      const entHechos = entregables.filter((e) => e.estado === "hecho").length;
+      const entEnCurso = entregables.filter((e) => e.estado === "en_proceso").length;
+
+      const warnings: string[] = [];
+      if (entregables.length === 0) warnings.push("Sin entregables");
+      if (entregables.some((e) => e.diasEstimados === 0 && e.estado !== "hecho" && e.estado !== "cancelada"))
+        warnings.push("Entregables sin duración estimada");
+      if (!proj.fechaLimite) warnings.push("Sin deadline");
+
+      summaries.push({
+        proyecto: proj,
+        resultados: resultados.map((r) => ({ id: r.id, nombre: r.nombre })),
+        entregablesTotal: entregables.length,
+        entregablesHechos: entHechos,
+        entregablesEnCurso: entEnCurso,
+        areaHex,
+        ritmo,
+        warnings,
+      });
     }
-    return total;
-  }, [proyectosMesIds, state, hoy]);
 
-  /* ---- Areas that have projects this month ---- */
-  const areasConProyectos = useMemo(() => {
-    const areas = new Set<string>();
-    for (const projId of proyectosMesIds) {
-      const proj = state.proyectos.find((p) => p.id === projId);
-      if (proj) areas.add(proj.area);
-    }
-    return areas;
-  }, [proyectosMesIds, state.proyectos]);
+    return summaries;
+  }, [state, selectedDate, filtro, respFilter, currentUser, showDone, hoy]);
 
-  /* ---- NotaSheet state ---- */
-  const [sheetData, setSheetData] = useState<NotaSheetData | null>(null);
-  const notaSheetCtx = useMemo(() => ({
-    open: (data: NotaSheetData) => {
-      if (typeof window !== "undefined" && window.innerWidth < 640) setSheetData(data);
-    },
-  }), []);
-
-  /* ---- Week view data (preserved) ---- */
+  /* ---- Week view data ---- */
   const { weekEntregables, unassigned } = useMemo(() => {
-    if (viewMode !== "semanas") return { weekEntregables: new Map<number, EntCard[]>(), unassigned: [] as EntCard[] };
     const selYear = selectedDate.getFullYear();
     const selMonth = selectedDate.getMonth();
     const monthStart = new Date(selYear, selMonth, 1).getTime();
@@ -262,6 +234,7 @@ export function PlanMes({ selectedDate }: Props) {
     const gridStart = weeks[0]?.mondayMs ?? monthStart;
     const gridEnd = weeks[weeks.length - 1]?.sundayMs ?? monthEnd;
 
+    const activeProjectIds = new Set(projectSummaries.map((s) => s.proyecto.id));
     const relevant: EntCard[] = [];
 
     for (const ent of state.entregables) {
@@ -271,30 +244,33 @@ export function PlanMes({ selectedDate }: Props) {
       const res = state.resultados.find((r) => r.id === ent.resultadoId);
       const proj = res ? state.proyectos.find((p) => p.id === res.proyectoId) : undefined;
       if (!proj) continue;
-      if (filtro !== "todo" && ambitoDeArea(proj.area) !== filtro) continue;
+      if (!activeProjectIds.has(proj.id)) continue;
       if (!matchesResponsable(ent.responsable, respFilter, currentUser)) continue;
 
       const areaHex = AREA_COLORS[proj.area]?.hex ?? "#888";
 
-      let inMonth = false;
+      let inRange = false;
 
       if (ent.fechaInicio) {
         const d = new Date(ent.fechaInicio + "T12:00:00");
-        if (!isNaN(d.getTime()) && d.getTime() >= gridStart && d.getTime() <= gridEnd) inMonth = true;
+        if (!isNaN(d.getTime()) && d.getTime() >= gridStart && d.getTime() <= gridEnd) inRange = true;
       }
-      if (!inMonth && ent.fechaLimite) {
+      if (!inRange && ent.fechaLimite) {
         const dl = new Date(ent.fechaLimite + "T12:00:00");
-        if (!isNaN(dl.getTime()) && dl.getTime() >= monthStart && dl.getTime() <= monthEnd) inMonth = true;
+        if (!isNaN(dl.getTime()) && dl.getTime() >= monthStart && dl.getTime() <= monthEnd) inRange = true;
       }
-      if (!inMonth && (ent.estado === "en_proceso" || ent.estado === "planificado") && !ent.fechaInicio) inMonth = true;
 
       let arrastrado = false;
-      if (!inMonth && ent.estado === "en_proceso" && ent.fechaInicio) {
+      if (!inRange && ent.estado === "en_proceso" && ent.fechaInicio) {
         const fi = new Date(ent.fechaInicio + "T12:00:00").getTime();
-        if (fi < monthStart) { inMonth = true; arrastrado = true; }
+        if (fi < monthStart) { inRange = true; arrastrado = true; }
       }
 
-      if (!inMonth) continue;
+      if (!inRange && (ent.estado === "en_proceso" || ent.estado === "planificado") && !ent.fechaInicio) {
+        inRange = true;
+      }
+
+      if (!inRange) continue;
 
       relevant.push({ entregable: ent, proyecto: proj, areaHex, rag: computeRAG(ent, nowMs), arrastrado });
     }
@@ -320,7 +296,7 @@ export function PlanMes({ selectedDate }: Props) {
     }
 
     return { weekEntregables: byWeek, unassigned: noWeek };
-  }, [state, selectedDate, filtro, respFilter, currentUser, showDone, weeks, nowMs, viewMode]);
+  }, [state, selectedDate, weeks, nowMs, showDone, respFilter, currentUser, projectSummaries]);
 
   function assignToWeek(entId: string, monday: string) {
     const today = toDateKey(new Date());
@@ -333,45 +309,34 @@ export function PlanMes({ selectedDate }: Props) {
   }
 
   const sopWeekSummaries = useMemo(() => {
-    if (viewMode !== "semanas") return [] as SOPWeekSummary[];
     const monthStartD = new Date(selectedDate.getFullYear(), selectedDate.getMonth(), 1);
     const monthEndD = new Date(selectedDate.getFullYear(), selectedDate.getMonth() + 1, 0);
     const sopMap = projectSOPsForRange(state, monthStartD, monthEndD, respFilter === "yo" ? currentUser : respFilter !== "todo" ? respFilter : undefined);
     return summarizeSOPsByWeek(sopMap, weeks, state.plantillas);
-  }, [state, selectedDate, weeks, respFilter, currentUser, viewMode]);
+  }, [state, selectedDate, weeks, respFilter, currentUser]);
 
-  const sopTotalWeekly = useMemo(() => {
-    if (sopWeekSummaries.length === 0) return { count: 0, mins: 0 };
-    const mid = sopWeekSummaries[Math.floor(sopWeekSummaries.length / 2)];
-    return { count: mid.totalOcurrencias, mins: mid.totalMinutos };
-  }, [sopWeekSummaries]);
+  const toggleExpand = (projId: string) => {
+    setExpandedProjects((prev) => {
+      const next = new Set(prev);
+      if (next.has(projId)) next.delete(projId); else next.add(projId);
+      return next;
+    });
+  };
 
-  const totalEntCount = viewMode === "semanas"
-    ? Array.from(weekEntregables.values()).reduce((s, arr) => s + arr.length, 0) + unassigned.length
-    : 0;
-
-  const empresaAreas = EMPRESA_ORDER.filter((a) => areasConProyectos.has(a));
-  const personalAreas = PERSONAL_ORDER.filter((a) => areasConProyectos.has(a));
+  const totalEntWeek = Array.from(weekEntregables.values()).reduce((s, arr) => s + arr.length, 0) + unassigned.length;
 
   return (
     <div className="flex-1">
+      {/* Header */}
       <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
         <div>
           <p className="text-sm font-medium capitalize text-muted">{mesLabel}</p>
           <p className="text-xs text-muted">
-            {viewMode === "mapa"
-              ? `${proyectosMesIds.size} proyecto${proyectosMesIds.size !== 1 ? "s" : ""} activo${proyectosMesIds.size !== 1 ? "s" : ""}`
-              : `${totalEntCount} entregable${totalEntCount !== 1 ? "s" : ""}`}
-            {viewMode === "semanas" && sopTotalWeekly.count > 0 && (
-              <span className="ml-2 text-blue-500">
-                + {sopTotalWeekly.count} SOP{sopTotalWeekly.count !== 1 ? "s" : ""}/sem
-                {sopTotalWeekly.mins > 0 && ` (~${Math.round(sopTotalWeekly.mins / 60)}h)`}
-              </span>
-            )}
+            {projectSummaries.length} proyecto{projectSummaries.length !== 1 ? "s" : ""} activo{projectSummaries.length !== 1 ? "s" : ""}
+            {totalEntWeek > 0 && ` · ${totalEntWeek} entregable${totalEntWeek !== 1 ? "s" : ""} asignado${totalEntWeek !== 1 ? "s" : ""}`}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-3">
-          <ViewModeToggle value={viewMode} onChange={setViewMode} />
           <label className="flex cursor-pointer items-center gap-1.5 text-[11px] text-muted">
             <input type="checkbox" checked={showDone} onChange={(e) => setShowDone(e.target.checked)}
               className="h-3.5 w-3.5 rounded border-border accent-accent" />
@@ -382,93 +347,172 @@ export function PlanMes({ selectedDate }: Props) {
         </div>
       </div>
 
-      {/* Carga total banner */}
-      {proyectosMesIds.size > 0 && cargaTotal > 0 && (
-        <div className={`mb-4 flex items-center gap-2 rounded-xl border px-4 py-2.5 ${cargaTotal > 1 ? "border-red-300 bg-red-50" : cargaTotal > 0.7 ? "border-amber-300 bg-amber-50" : "border-green-300 bg-green-50"}`}>
-          <span className={`text-sm font-semibold ${cargaTotal > 1 ? "text-red-700" : cargaTotal > 0.7 ? "text-amber-700" : "text-green-700"}`}>
-            Carga total: {Math.round(cargaTotal * 100)}% del día
-          </span>
-          {cargaTotal > 1 && (
-            <span className="text-xs text-red-600">
-              Sobrecarga: necesitas más de 1 día de trabajo por día calendario
-            </span>
-          )}
-        </div>
-      )}
+      {/* Section 1: Active projects this month */}
+      <section className="mb-8">
+        <h3 className="mb-3 text-xs font-bold uppercase tracking-widest text-muted">Proyectos del mes</h3>
 
-      {viewMode === "mapa" ? (
-        proyectosMesIds.size === 0 ? (
-          <div className="py-12 text-center">
+        {projectSummaries.length === 0 ? (
+          <div className="rounded-xl border border-dashed border-border bg-surface/30 py-8 text-center">
             <p className="text-sm text-muted">No hay proyectos activos este mes.</p>
             <p className="mt-1 text-xs text-muted">Planifica proyectos desde el Mapa o cambia los filtros.</p>
           </div>
         ) : (
-          <HighlightCtx.Provider value={null}>
-          <MapaFilterCtx.Provider value={mapaFilter}>
-          <NotaSheetCtx.Provider value={notaSheetCtx}>
-          <ShowTimelineCtx.Provider value={true}>
-          <HideFilteredCtx.Provider value={true}>
-          <ShowRitmoCtx.Provider value={true}>
-            <div className="space-y-6">
-              {empresaAreas.length > 0 && (
-                <>
-                  {empresaAreas.map((areaId) => (
-                    <AreaSection key={areaId} areaId={areaId} />
-                  ))}
-                </>
-              )}
-              {personalAreas.length > 0 && (
-                <>
-                  {empresaAreas.length > 0 && <div className="border-t border-border" />}
-                  {personalAreas.map((areaId) => (
-                    <AreaSection key={areaId} areaId={areaId} />
-                  ))}
-                </>
-              )}
-            </div>
-            {sheetData && <NotaSheet data={sheetData} onClose={() => setSheetData(null)} />}
-          </ShowRitmoCtx.Provider>
-          </HideFilteredCtx.Provider>
-          </ShowTimelineCtx.Provider>
-          </NotaSheetCtx.Provider>
-          </MapaFilterCtx.Provider>
-          </HighlightCtx.Provider>
-        )
-      ) : (
-        /* Week columns view (preserved) */
-        totalEntCount === 0 ? (
-          <div className="py-12 text-center">
-            <p className="text-sm text-muted">No hay entregables activos este mes.</p>
-            <p className="mt-1 text-xs text-muted">Asigna entregables desde el Mapa con el icono de calendario.</p>
-          </div>
-        ) : (
-          <div className="space-y-4">
-            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-              {weeks.map((w) => {
-                const cards = weekEntregables.get(w.index) ?? [];
-                const sopSummary = sopWeekSummaries.find((s) => s.weekIndex === w.index);
-                return (
-                  <WeekColumn key={w.index} week={w} cards={cards} weeks={weeks}
-                    onAssign={isMentor ? undefined : assignToWeek} sopSummary={sopSummary} />
-                );
-              })}
-            </div>
-            {unassigned.length > 0 && (
-              <div className="rounded-xl border border-dashed border-border bg-surface/30 p-4">
-                <h4 className="mb-3 text-xs font-bold uppercase tracking-wider text-muted">
-                  Sin asignar a semana ({unassigned.length})
-                </h4>
-                <div className="space-y-2">
-                  {unassigned.map((card) => (
-                    <EntregableCard key={card.entregable.id} card={card} weeks={weeks}
-                      onAssign={isMentor ? undefined : assignToWeek} />
-                  ))}
+          <div className="space-y-2">
+            {projectSummaries.map((s) => {
+              const pct = s.entregablesTotal > 0 ? Math.round((s.entregablesHechos / s.entregablesTotal) * 100) : 0;
+              const rColor = ritmoColor(s.ritmo.estadoRitmo);
+              const isExpanded = expandedProjects.has(s.proyecto.id);
+
+              return (
+                <div key={s.proyecto.id} className="rounded-xl border border-border bg-background overflow-hidden">
+                  {/* Compact project row */}
+                  <button onClick={() => toggleExpand(s.proyecto.id)}
+                    className="flex w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-surface/50">
+                    <span className="h-3 w-3 shrink-0 rounded-full" style={{ backgroundColor: s.areaHex }} />
+                    <span className="min-w-0 flex-1 truncate text-sm font-semibold text-foreground">{s.proyecto.nombre}</span>
+
+                    {/* Progress bar */}
+                    <div className="hidden sm:flex items-center gap-2">
+                      <div className="h-1.5 w-16 overflow-hidden rounded-full bg-surface">
+                        <div className="h-full rounded-full transition-all" style={{ width: `${pct}%`, backgroundColor: rColor }} />
+                      </div>
+                      <span className="text-[11px] font-semibold" style={{ color: rColor }}>{pct}%</span>
+                    </div>
+
+                    {/* Status badge */}
+                    <span className="shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold"
+                      style={{ backgroundColor: rColor + "18", color: rColor }}>
+                      {ritmoLabelCorto(s.ritmo.estadoRitmo)}
+                    </span>
+
+                    {/* Counts */}
+                    <span className="shrink-0 text-[11px] text-muted">
+                      {s.entregablesHechos}/{s.entregablesTotal}
+                    </span>
+
+                    {s.proyecto.fechaLimite && (
+                      <span className="hidden sm:inline shrink-0 text-[10px] text-muted">
+                        → {new Date(s.proyecto.fechaLimite + "T12:00:00").toLocaleDateString("es-ES", { day: "numeric", month: "short" })}
+                      </span>
+                    )}
+
+                    {/* Warnings */}
+                    {s.warnings.length > 0 && (
+                      <span className="shrink-0 text-amber-500" title={s.warnings.join(", ")}>
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                          <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
+                          <line x1="12" y1="9" x2="12" y2="13" /><line x1="12" y1="17" x2="12.01" y2="17" />
+                        </svg>
+                      </span>
+                    )}
+
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"
+                      className={`shrink-0 text-muted transition-transform ${isExpanded ? "rotate-90" : ""}`}>
+                      <polyline points="9 6 15 12 9 18" />
+                    </svg>
+                  </button>
+
+                  {/* Expanded detail */}
+                  {isExpanded && (
+                    <div className="border-t border-border px-4 py-3">
+                      {/* Warnings */}
+                      {s.warnings.length > 0 && (
+                        <div className="mb-3 rounded-lg bg-amber-50 px-3 py-2">
+                          {s.warnings.map((w, i) => (
+                            <p key={i} className="text-[11px] text-amber-700">⚠ {w}</p>
+                          ))}
+                        </div>
+                      )}
+
+                      {/* Results and deliverables */}
+                      {s.resultados.length > 0 ? (
+                        <div className="space-y-2">
+                          {s.resultados.map((res) => {
+                            const ents = state.entregables.filter((e) => e.resultadoId === res.id);
+                            if (ents.length === 0) return (
+                              <div key={res.id} className="text-xs text-muted italic pl-2">{res.nombre} — sin entregables</div>
+                            );
+                            return (
+                              <div key={res.id}>
+                                <p className="text-[11px] font-semibold text-muted mb-1">{res.nombre}</p>
+                                <div className="space-y-1 pl-2">
+                                  {ents.map((ent) => {
+                                    const isDone = ent.estado === "hecho";
+                                    const isCancelled = ent.estado === "cancelada";
+                                    if (!showDone && (isDone || isCancelled)) return null;
+                                    return (
+                                      <div key={ent.id} className="flex items-center gap-2 text-xs">
+                                        <span className={`h-1.5 w-1.5 rounded-full ${isDone ? "bg-emerald-500" : ent.estado === "en_proceso" ? "bg-amber-500" : "bg-gray-300"}`} />
+                                        <span className={isDone ? "text-muted line-through" : "text-foreground"}>{ent.nombre}</span>
+                                        {ent.diasEstimados > 0 && <span className="text-[10px] text-muted">{ent.diasEstimados}d</span>}
+                                        {ent.fechaInicio && (
+                                          <span className="text-[10px] text-accent">
+                                            {new Date(ent.fechaInicio + "T12:00:00").toLocaleDateString("es-ES", { day: "numeric", month: "short" })}
+                                          </span>
+                                        )}
+                                        <span className="rounded bg-surface px-1.5 py-0.5 text-[9px] text-muted">
+                                          {ent.estado === "hecho" ? "hecho" : ent.estado === "en_proceso" ? "en curso" : ent.estado === "planificado" ? "planif." : ent.estado === "a_futuro" ? "futuro" : ent.estado}
+                                        </span>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      ) : (
+                        <p className="text-xs text-muted italic">Sin resultados ni entregables</p>
+                      )}
+
+                      {/* Action buttons */}
+                      {!isMentor && (
+                        <div className="mt-3 flex gap-2">
+                          <button onClick={() => setPlannerProyectoId(s.proyecto.id)}
+                            className="rounded-lg border border-border px-3 py-1.5 text-[11px] font-medium text-foreground transition-colors hover:bg-surface">
+                            Planificar proyecto
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
-              </div>
-            )}
+              );
+            })}
           </div>
-        )
-      )}
+        )}
+      </section>
+
+      {/* Section 2: Weeks of the month */}
+      <section>
+        <h3 className="mb-3 text-xs font-bold uppercase tracking-widest text-muted">Semanas del mes</h3>
+
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+          {weeks.map((w) => {
+            const cards = weekEntregables.get(w.index) ?? [];
+            const sopSummary = sopWeekSummaries.find((s) => s.weekIndex === w.index);
+            return (
+              <WeekColumn key={w.index} week={w} cards={cards} weeks={weeks}
+                onAssign={isMentor ? undefined : assignToWeek} sopSummary={sopSummary}
+                onNavigateToWeek={onNavigateToWeek} />
+            );
+          })}
+        </div>
+
+        {unassigned.length > 0 && (
+          <div className="mt-4 rounded-xl border border-dashed border-border bg-surface/30 p-4">
+            <h4 className="mb-3 text-xs font-bold uppercase tracking-wider text-muted">
+              Sin asignar a semana ({unassigned.length})
+            </h4>
+            <div className="space-y-2">
+              {unassigned.map((card) => (
+                <EntregableCard key={card.entregable.id} card={card} weeks={weeks}
+                  onAssign={isMentor ? undefined : assignToWeek} />
+              ))}
+            </div>
+          </div>
+        )}
+      </section>
 
       {/* Planner overlay */}
       {plannerProyectoId && (
@@ -479,43 +523,30 @@ export function PlanMes({ selectedDate }: Props) {
 }
 
 /* ============================================================
-   View mode toggle
+   Week column
    ============================================================ */
 
-function ViewModeToggle({ value, onChange }: { value: ViewMode; onChange: (v: ViewMode) => void }) {
-  const opts: { id: ViewMode; label: string }[] = [
-    { id: "mapa", label: "Mapa" },
-    { id: "semanas", label: "Semanas" },
-  ];
-  return (
-    <div className="flex gap-1 rounded-lg bg-surface p-0.5">
-      {opts.map((o) => (
-        <button key={o.id} onClick={() => onChange(o.id)}
-          className={`rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
-            value === o.id ? "bg-background text-foreground shadow-sm" : "text-muted hover:text-foreground"
-          }`}>
-          {o.label}
-        </button>
-      ))}
-    </div>
-  );
-}
-
-/* ============================================================
-   Week view components (preserved)
-   ============================================================ */
-
-function WeekColumn({ week, cards, weeks, onAssign, sopSummary }: {
+function WeekColumn({ week, cards, weeks, onAssign, sopSummary, onNavigateToWeek }: {
   week: WeekDef;
   cards: EntCard[];
   weeks: WeekDef[];
   onAssign?: (entId: string, monday: string) => void;
   sopSummary?: SOPWeekSummary;
+  onNavigateToWeek?: (date: Date) => void;
 }) {
   const [nowMs] = useState<number>(() => Date.now());
   const isCurrentWeek = nowMs >= week.mondayMs && nowMs <= week.sundayMs;
-
   const [showSops, setShowSops] = useState(false);
+
+  const byProject = useMemo(() => {
+    const map = new Map<string, EntCard[]>();
+    for (const c of cards) {
+      const pid = c.proyecto.id;
+      if (!map.has(pid)) map.set(pid, []);
+      map.get(pid)!.push(c);
+    }
+    return map;
+  }, [cards]);
 
   return (
     <div className={`rounded-xl border p-4 ${isCurrentWeek ? "border-accent bg-accent/5" : "border-border bg-background"}`}>
@@ -534,6 +565,12 @@ function WeekColumn({ week, cards, weeks, onAssign, sopSummary }: {
           <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${isCurrentWeek ? "bg-accent/15 text-accent" : "bg-surface text-muted"}`}>
             {cards.length}
           </span>
+          {onNavigateToWeek && (
+            <button onClick={() => onNavigateToWeek(new Date(week.mondayMs))}
+              className="rounded-md px-1.5 py-0.5 text-[10px] text-muted transition-colors hover:bg-surface hover:text-foreground" title="Ver semana">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M5 12h14M12 5l7 7-7 7" /></svg>
+            </button>
+          )}
         </div>
       </div>
 
@@ -550,10 +587,19 @@ function WeekColumn({ week, cards, weeks, onAssign, sopSummary }: {
       {cards.length === 0 && (!sopSummary || sopSummary.totalOcurrencias === 0) ? (
         <p className="py-3 text-center text-xs text-muted/50">Vacía</p>
       ) : (
-        <div className="space-y-2">
-          {cards.map((card) => (
-            <EntregableCard key={card.entregable.id} card={card} weeks={weeks}
-              onAssign={onAssign} currentWeek={week.index} />
+        <div className="space-y-3">
+          {Array.from(byProject.entries()).map(([projId, projCards]) => (
+            <div key={projId}>
+              <p className="mb-1 truncate text-[10px] font-semibold uppercase tracking-wider" style={{ color: projCards[0].areaHex }}>
+                {projCards[0].proyecto.nombre}
+              </p>
+              <div className="space-y-1.5">
+                {projCards.map((card) => (
+                  <EntregableCard key={card.entregable.id} card={card} weeks={weeks}
+                    onAssign={onAssign} currentWeek={week.index} compact />
+                ))}
+              </div>
+            </div>
           ))}
         </div>
       )}
@@ -561,18 +607,24 @@ function WeekColumn({ week, cards, weeks, onAssign, sopSummary }: {
   );
 }
 
-function EntregableCard({ card, weeks, onAssign, currentWeek }: {
+/* ============================================================
+   Entregable card
+   ============================================================ */
+
+function EntregableCard({ card, weeks, onAssign, currentWeek, compact }: {
   card: EntCard;
   weeks: WeekDef[];
   onAssign?: (entId: string, monday: string) => void;
   currentWeek?: number;
+  compact?: boolean;
 }) {
   const { entregable, proyecto, areaHex, rag, arrastrado } = card;
   const [showWeeks, setShowWeeks] = useState(false);
   const isDone = entregable.estado === "hecho";
 
   return (
-    <div className={`rounded-lg border px-3 py-2.5${isDone ? " opacity-50" : ""}${arrastrado ? " border-dashed" : ""}`} style={{ borderColor: arrastrado ? "#f59e0b" : areaHex + "30", borderLeftWidth: "3px", borderLeftColor: isDone ? "#22c55e" : arrastrado ? "#f59e0b" : areaHex }}>
+    <div className={`rounded-lg border px-3 py-2${compact ? "" : ".5"}${isDone ? " opacity-50" : ""}${arrastrado ? " border-dashed" : ""}`}
+      style={{ borderColor: arrastrado ? "#f59e0b" : areaHex + "30", borderLeftWidth: "3px", borderLeftColor: isDone ? "#22c55e" : arrastrado ? "#f59e0b" : areaHex }}>
       <div className="flex items-center gap-2">
         {isDone
           ? <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-green-500 text-[8px] text-white">✓</span>
@@ -582,7 +634,7 @@ function EntregableCard({ card, weeks, onAssign, currentWeek }: {
             <p className={`truncate text-sm font-medium ${isDone ? "line-through text-muted" : "text-foreground"}`}>{entregable.nombre}</p>
             {arrastrado && <span className="shrink-0 rounded bg-amber-100 px-1.5 py-0.5 text-[9px] font-bold uppercase text-amber-700">Arrastrado</span>}
           </div>
-          <p className="truncate text-[11px] text-muted">{proyecto.nombre}</p>
+          {!compact && <p className="truncate text-[11px] text-muted">{proyecto.nombre}</p>}
         </div>
         {onAssign && (
           <button onClick={() => setShowWeeks(!showWeeks)}

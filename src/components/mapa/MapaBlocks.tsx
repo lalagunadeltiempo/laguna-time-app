@@ -462,7 +462,11 @@ export function AreaSection({ areaId, hideSops }: { areaId: Area; hideSops?: boo
   const label = areaLabel(areaId);
 
   const allProyectos = state.proyectos.filter((p) => p.area === areaId);
-  const filteredCount = filter ? allProyectos.filter((p) => filter.proyectos.has(p.id)).length : allProyectos.length;
+  const hideFiltered = useContext(HideFilteredCtx);
+  const [showInactive, setShowInactive] = useState(false);
+  const visibleProyectos = showInactive ? allProyectos : allProyectos.filter((p) => (p.estado ?? "activo") === "activo");
+  const hiddenCount = allProyectos.length - visibleProyectos.length;
+  const filteredCount = filter ? visibleProyectos.filter((p) => filter.proyectos.has(p.id)).length : visibleProyectos.length;
   const [open, setOpen] = useState(false);
   const [openProj, setOpenProj] = useState(false);
   const [openSOP, setOpenSOP] = useState(false);
@@ -502,9 +506,9 @@ export function AreaSection({ areaId, hideSops }: { areaId: Area; hideSops?: boo
             </button>
             {openProj && (
               <>
-                {allProyectos.length > 0 ? (
+                {visibleProyectos.length > 0 ? (
                   <div className="space-y-2">
-                    {[...allProyectos].sort((a, b) => {
+                    {[...visibleProyectos].sort((a, b) => {
                       const aOp = a.tipo === "operacion" ? 0 : 1;
                       const bOp = b.tipo === "operacion" ? 0 : 1;
                       if (aOp !== bOp) return aOp - bOp;
@@ -512,7 +516,7 @@ export function AreaSection({ areaId, hideSops }: { areaId: Area; hideSops?: boo
                       const bF = b.fechaInicio ?? "9999";
                       return aF.localeCompare(bF);
                     }).map((proj, i) => (
-                      <ProyectoBlock key={proj.id} proyecto={proj} index={i} total={allProyectos.length} />
+                      <ProyectoBlock key={proj.id} proyecto={proj} index={i} total={visibleProyectos.length} />
                     ))}
                   </div>
                 ) : (
@@ -520,8 +524,17 @@ export function AreaSection({ areaId, hideSops }: { areaId: Area; hideSops?: boo
                 )}
                 {!isMentor && (
                   <AddButton label="Proyecto" onAdd={(nombre) =>
-                    dispatch({ type: "ADD_PROYECTO", payload: { id: generateId(), nombre, descripcion: null, area: areaId, creado: new Date().toISOString(), fechaInicio: null } })
+                    dispatch({ type: "ADD_PROYECTO", payload: { id: generateId(), nombre, descripcion: null, area: areaId, creado: new Date().toISOString(), fechaInicio: null, estado: "activo" } })
                   } />
+                )}
+                {hiddenCount > 0 && (
+                  <button onClick={() => setShowInactive(!showInactive)}
+                    className="mt-2 flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-[11px] text-muted transition-colors hover:bg-surface hover:text-foreground">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                      {showInactive ? <><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" /><circle cx="12" cy="12" r="3" /></> : <><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94" /><path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19" /><line x1="1" y1="1" x2="23" y2="23" /></>}
+                    </svg>
+                    {showInactive ? "Ocultar" : `Mostrar ${hiddenCount}`} completado{hiddenCount !== 1 ? "s" : ""}/pausado{hiddenCount !== 1 ? "s" : ""}
+                  </button>
                 )}
               </>
             )}
@@ -632,6 +645,8 @@ function ProyectoBlock({ proyecto, index, total }: { proyecto: Proyecto; index: 
   const notasCount = (proyecto.notas ?? []).length;
   const isProgrammed = !!proyecto.fechaInicio;
   const hasDeadline = !!proyecto.fechaLimite;
+  const projEstado = proyecto.estado ?? "activo";
+  const isInactive = projEstado === "completado" || projEstado === "pausado";
 
   const ritmo = useMemo(() => showRitmo ? computeProyectoRitmo(proyecto, projEntregables, allResultados, new Date()) : null, [showRitmo, proyecto, projEntregables, allResultados]);
 
@@ -643,18 +658,24 @@ function ProyectoBlock({ proyecto, index, total }: { proyecto: Proyecto; index: 
   }
 
   return (
-    <div ref={hlRef} className={`rounded-xl border border-border bg-background transition-all duration-700${filter && !inFilter && !hideFiltered ? " opacity-40" : ""}${isTarget ? " ring-2 ring-accent ring-offset-2 animate-pulse" : ""}`}>
+    <div ref={hlRef} className={`rounded-xl border border-border bg-background transition-all duration-700${filter && !inFilter && !hideFiltered ? " opacity-40" : ""}${isInactive ? " opacity-50" : ""}${isTarget ? " ring-2 ring-accent ring-offset-2 animate-pulse" : ""}`}>
       <ToggleRow open={open} onToggle={() => setOpen(!open)}>
         {isMentor
-          ? <span className="text-lg font-semibold text-foreground">{proyecto.nombre}</span>
-          : <EditableText value={proyecto.nombre} onChange={(v) => dispatch({ type: "RENAME_PROYECTO", id: proyecto.id, nombre: v })} className="text-lg font-semibold text-foreground" />
+          ? <span className={`text-lg font-semibold ${isInactive ? "text-muted line-through" : "text-foreground"}`}>{proyecto.nombre}</span>
+          : <EditableText value={proyecto.nombre} onChange={(v) => dispatch({ type: "RENAME_PROYECTO", id: proyecto.id, nombre: v })} className={`text-lg font-semibold ${isInactive ? "text-muted" : "text-foreground"}`} />
         }
+        {projEstado === "completado" && (
+          <span className="rounded-md bg-emerald-100 px-2 py-0.5 text-[11px] font-semibold text-emerald-700">Completado</span>
+        )}
+        {projEstado === "pausado" && (
+          <span className="rounded-md bg-gray-200 px-2 py-0.5 text-[11px] font-semibold text-gray-600">Pausado</span>
+        )}
         <ReviewBadge review={proyecto.review} nivel="proyecto" targetId={proyecto.id} />
         {isEmpresa && <ResponsableBadge nombre={proyecto.responsable} editable={!isMentor} miembros={state.miembros} onChange={(v) => dispatch({ type: "UPDATE_PROYECTO", id: proyecto.id, changes: { responsable: v } })} />}
         <span className="rounded-full bg-surface px-3 py-1 text-xs font-medium text-muted">{allResultados.length} result.</span>
         {isOperacion ? (
           <span className="rounded-md bg-indigo-100 px-2 py-0.5 text-[11px] font-semibold text-indigo-700">Core</span>
-        ) : (
+        ) : projEstado === "activo" ? (
           <>
             {hasActiveWork && (
               <span className="rounded-md bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-700">En curso</span>
@@ -663,7 +684,7 @@ function ProyectoBlock({ proyecto, index, total }: { proyecto: Proyecto; index: 
               <span className="rounded-md bg-accent/10 px-2 py-0.5 text-[11px] font-medium text-accent">{formatFechaInicio(proyecto.fechaInicio!, proyecto.planNivel)}</span>
             )}
           </>
-        )}
+        ) : null}
         {isMentor
           ? <CommentIcon count={notasCount} onClick={() => toggleOrSheet(showNotas, setShowNotas, openSheet, { title: proyecto.nombre, nivel: "proyecto", targetId: proyecto.id })} />
           : <NotasIcon count={notasCount} onClick={() => toggleOrSheet(showNotas, setShowNotas, openSheet, { title: proyecto.nombre, nivel: "proyecto", targetId: proyecto.id })} />}
@@ -694,6 +715,24 @@ function ProyectoBlock({ proyecto, index, total }: { proyecto: Proyecto; index: 
           <button onClick={(e) => { e.stopPropagation(); setShowMoveArea(!showMoveArea); }}
             className="flex h-6 items-center gap-0.5 rounded px-1.5 text-[10px] text-muted transition-colors hover:bg-surface hover:text-foreground" title="Mover a otra área">
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M5 12h14M12 5l7 7-7 7" /></svg>
+          </button>
+        )}
+        {!isMentor && !isOperacion && projEstado === "activo" && (
+          <button onClick={(e) => { e.stopPropagation(); dispatch({ type: "UPDATE_PROYECTO", id: proyecto.id, changes: { estado: "completado" } }); }}
+            className="flex h-6 items-center gap-0.5 rounded px-1.5 text-[10px] text-muted transition-colors hover:bg-emerald-50 hover:text-emerald-600" title="Completar proyecto">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><polyline points="20 6 9 17 4 12" /></svg>
+          </button>
+        )}
+        {!isMentor && !isOperacion && projEstado === "activo" && (
+          <button onClick={(e) => { e.stopPropagation(); dispatch({ type: "UPDATE_PROYECTO", id: proyecto.id, changes: { estado: "pausado" } }); }}
+            className="flex h-6 items-center gap-0.5 rounded px-1.5 text-[10px] text-muted transition-colors hover:bg-gray-100 hover:text-gray-600" title="Pausar proyecto">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><rect x="6" y="4" width="4" height="16" /><rect x="14" y="4" width="4" height="16" /></svg>
+          </button>
+        )}
+        {!isMentor && !isOperacion && isInactive && (
+          <button onClick={(e) => { e.stopPropagation(); dispatch({ type: "UPDATE_PROYECTO", id: proyecto.id, changes: { estado: "activo" } }); }}
+            className="flex h-6 items-center gap-0.5 rounded px-1.5 text-[10px] text-emerald-600 transition-colors hover:bg-emerald-50" title="Reactivar proyecto">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><polygon points="5 3 19 12 5 21 5 3" /></svg>
           </button>
         )}
         {!isMentor && <MoveArrows canUp={index > 0} canDown={index < total - 1}
