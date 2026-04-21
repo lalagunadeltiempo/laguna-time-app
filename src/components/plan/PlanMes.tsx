@@ -361,7 +361,7 @@ export function PlanMes({ selectedDate, onNavigateToWeek }: Props) {
       {/* Gantt multi-proyecto */}
       {ganttProjects.length > 0 && (
         <section className="mb-8">
-          <GanttMultiProyecto projects={ganttProjects} hoy={hoy} />
+          <GanttMultiProyecto projects={ganttProjects} hoy={hoy} selectedDate={selectedDate} />
         </section>
       )}
 

@@ -67,11 +67,49 @@ function entClr(estado: string): string {
   }
 }
 
+/* ---- Range mode ---- */
+
+type RangeMode = "mes" | "trimestre" | "todo" | "custom";
+
+const MODE_LABELS: Record<RangeMode, string> = {
+  mes: "Mes",
+  trimestre: "Trimestre",
+  todo: "Todo",
+  custom: "Rango",
+};
+
+function computePresetRange(
+  mode: RangeMode,
+  selectedDate: Date,
+): { start: string | undefined; end: string | undefined } {
+  const y = selectedDate.getFullYear();
+  const m = selectedDate.getMonth();
+  switch (mode) {
+    case "mes":
+      return {
+        start: dk(new Date(y, m, 1)),
+        end: dk(new Date(y, m + 1, 0)),
+      };
+    case "trimestre": {
+      const qStart = Math.floor(m / 3) * 3;
+      return {
+        start: dk(new Date(y, qStart, 1)),
+        end: dk(new Date(y, qStart + 3, 0)),
+      };
+    }
+    case "todo":
+      return { start: undefined, end: undefined };
+    case "custom":
+      return { start: undefined, end: undefined };
+  }
+}
+
 /* ---- Component ---- */
 
 interface Props {
   projects: GanttProject[];
   hoy: Date;
+  selectedDate?: Date;
   rangeStart?: string;
   rangeEnd?: string;
 }
@@ -79,11 +117,25 @@ interface Props {
 export function GanttMultiProyecto({
   projects,
   hoy,
+  selectedDate,
   rangeStart: rsOvr,
   rangeEnd: reOvr,
 }: Props) {
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [rangeMode, setRangeMode] = useState<RangeMode>("trimestre");
+  const [customStart, setCustomStart] = useState("");
+  const [customEnd, setCustomEnd] = useState("");
   const hoyStr = dk(hoy);
+
+  const effectiveRange = useMemo(() => {
+    if (rangeMode === "custom" && customStart && customEnd) {
+      return { start: customStart, end: customEnd };
+    }
+    if (rangeMode !== "custom" && selectedDate) {
+      return computePresetRange(rangeMode, selectedDate);
+    }
+    return { start: rsOvr, end: reOvr };
+  }, [rangeMode, customStart, customEnd, selectedDate, rsOvr, reOvr]);
 
   const { weeks, pos, hoyPct } = useMemo(() => {
     const dd: string[] = [hoyStr];
@@ -100,8 +152,8 @@ export function GanttMultiProyecto({
       }
     }
     dd.sort();
-    const sStr = rsOvr || dd[0]!;
-    const eStr = reOvr || dd[dd.length - 1]!;
+    const sStr = effectiveRange.start || dd[0]!;
+    const eStr = effectiveRange.end || dd[dd.length - 1]!;
     const sD = new Date(sStr + "T00:00:00");
     const eD = new Date(eStr + "T23:59:59");
     if (eD.getTime() - sD.getTime() < 27 * 86400000) {
@@ -135,7 +187,7 @@ export function GanttMultiProyecto({
     }
 
     return { weeks: cols, pos: p, hoyPct: p(hoyStr) };
-  }, [projects, hoyStr, rsOvr, reOvr]);
+  }, [projects, hoyStr, effectiveRange]);
 
   if (projects.length === 0) {
     return (
@@ -164,14 +216,53 @@ export function GanttMultiProyecto({
     }
   };
 
+  const MODES: RangeMode[] = ["mes", "trimestre", "todo", "custom"];
+
   return (
     <div className="overflow-hidden rounded-xl border border-border bg-surface">
-      {/* Title */}
-      <div className="flex items-center justify-between border-b border-border/60 px-4 py-2">
+      {/* Title + range controls */}
+      <div className="flex flex-wrap items-center gap-3 border-b border-border/60 px-4 py-2">
         <h3 className="text-[11px] font-bold uppercase tracking-wider text-muted">
           Gantt de proyectos
         </h3>
-        <div className="flex items-center gap-3">
+
+        {/* Range mode selector */}
+        <div className="flex gap-0.5 rounded-md bg-background/60 p-0.5">
+          {MODES.map((m) => (
+            <button
+              key={m}
+              onClick={() => setRangeMode(m)}
+              className={`rounded px-2 py-1 text-[10px] font-medium transition-colors ${
+                rangeMode === m
+                  ? "bg-surface text-foreground shadow-sm"
+                  : "text-muted hover:text-foreground"
+              }`}
+            >
+              {MODE_LABELS[m]}
+            </button>
+          ))}
+        </div>
+
+        {/* Custom date inputs */}
+        {rangeMode === "custom" && (
+          <div className="flex items-center gap-1">
+            <input
+              type="date"
+              value={customStart}
+              onChange={(e) => setCustomStart(e.target.value)}
+              className="h-6 rounded border border-border bg-background px-1.5 text-[10px] text-foreground"
+            />
+            <span className="text-[10px] text-muted">–</span>
+            <input
+              type="date"
+              value={customEnd}
+              onChange={(e) => setCustomEnd(e.target.value)}
+              className="h-6 rounded border border-border bg-background px-1.5 text-[10px] text-foreground"
+            />
+          </div>
+        )}
+
+        <div className="ml-auto flex items-center gap-3">
           <button
             onClick={toggleAll}
             className="text-[10px] font-medium text-muted transition-colors hover:text-foreground"
