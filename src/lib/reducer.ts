@@ -154,7 +154,7 @@ export function reducer(state: AppState, action: Action): AppState {
       if (!state.entregables.some((e) => e.id === action.payload.entregableId)) return state;
       if (state.pasos.some((p) => p.id === action.payload.id)) return state;
       const today = toDateKey(new Date());
-      return {
+      let newState: AppState = {
         ...state,
         pasos: [...state.pasos, action.payload],
         entregables: state.entregables.map((e) =>
@@ -168,6 +168,8 @@ export function reducer(state: AppState, action: Action): AppState {
           ? state.pasosActivos
           : [...state.pasosActivos, action.payload.id],
       };
+      newState = autoTransitionToEnMarcha(newState, action.payload.entregableId);
+      return newState;
     }
 
     case "ADD_PASO":
@@ -177,7 +179,7 @@ export function reducer(state: AppState, action: Action): AppState {
       const paso = state.pasos.find((p) => p.id === action.id);
       if (!paso) return state;
       const todayAct = toDateKey(new Date());
-      return {
+      let newState: AppState = {
         ...state,
         pasos: state.pasos.map((p) => p.id === action.id ? { ...p, inicioTs: new Date().toISOString() } : p),
         entregables: state.entregables.map((e) =>
@@ -190,6 +192,8 @@ export function reducer(state: AppState, action: Action): AppState {
           ? state.pasosActivos
           : [...state.pasosActivos, action.id],
       };
+      newState = autoTransitionToEnMarcha(newState, paso.entregableId);
+      return newState;
     }
 
     case "REOPEN_PASO": {
@@ -421,6 +425,7 @@ export function reducer(state: AppState, action: Action): AppState {
         pasos: state.pasos.filter((p) => !eIds.has(p.entregableId)),
         pasosActivos: clearPasosActivos(state, eIds),
         ejecuciones: state.ejecuciones.filter((ej) => !ej.entregableId || !eIds.has(ej.entregableId)),
+        plantillas: state.plantillas.map((pl) => pl.resultadoId === action.id ? { ...pl, resultadoId: null } : pl),
       };
     }
 
@@ -442,6 +447,9 @@ export function reducer(state: AppState, action: Action): AppState {
         pasos: state.pasos.filter((p) => !eIds.has(p.entregableId)),
         pasosActivos: clearPasosActivos(state, eIds),
         ejecuciones: state.ejecuciones.filter((ej) => !ej.entregableId || !eIds.has(ej.entregableId)),
+        plantillas: state.plantillas.map((pl) =>
+          pl.proyectoId === action.id ? { ...pl, proyectoId: null, resultadoId: null } : pl
+        ),
       };
     }
 
@@ -776,6 +784,16 @@ export function reducer(state: AppState, action: Action): AppState {
           pasos: [...newState.pasos, paso],
           pasosActivos: [...newState.pasosActivos, paso.id],
         };
+      } else {
+        const batchPasos: Paso[] = plantilla.pasos.map((pp, idx) => ({
+          id: idx === 0 ? ids.paso : `${ids.paso}-${idx}`,
+          entregableId: ids.entregable,
+          nombre: pp.nombre,
+          inicioTs: null, finTs: null, estado: "pendiente",
+          contexto: { urls: [], apps: [], notas: "" },
+          implicados: [], pausas: [], siguientePaso: null,
+        }));
+        newState = { ...newState, pasos: [...newState.pasos, ...batchPasos] };
       }
 
       return newState;

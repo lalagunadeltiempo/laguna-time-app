@@ -1600,7 +1600,6 @@ function DaysInput({ value, onChange }: { value: number; onChange: (v: number) =
 }
 
 const MESES_BATCH = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"];
-const DIAS_SEMANA_BATCH = ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"];
 
 function getMonday(d: Date): Date {
   const day = d.getDay() || 7;
@@ -1618,11 +1617,11 @@ function weekNum(d: Date) {
 
 function SOPBatchDialog({ sop, onConfirm, onCancel }: { sop: PlantillaProceso; onConfirm: (items: { name: string; dateKey: string }[]) => void; onCancel: () => void }) {
   const tipo = sop.programacion?.tipo ?? "demanda";
-  const now = new Date();
+  const [now] = useState(() => new Date());
   const [count, setCount] = useState(tipo === "diario" ? 4 : tipo === "semanal" ? 4 : tipo === "mensual" ? 3 : tipo === "trimestral" ? 4 : 1);
 
   const items = useMemo(() => {
-    const result: { name: string; dateKey: string; editable: boolean }[] = [];
+    const result: { name: string; dateKey: string }[] = [];
 
     if (tipo === "semanal") {
       const baseDay = sop.programacion?.diaSemana ?? 1;
@@ -1631,7 +1630,7 @@ function SOPBatchDialog({ sop, onConfirm, onCancel }: { sop: PlantillaProceso; o
         const target = new Date(monday);
         target.setDate(monday.getDate() + (baseDay === 0 ? 6 : baseDay - 1));
         const wn = weekNum(target);
-        result.push({ name: `${sop.nombre} S${wn}`, dateKey: dateKeyBatch(target), editable: true });
+        result.push({ name: `${sop.nombre} S${wn}`, dateKey: dateKeyBatch(target) });
         monday = new Date(monday);
         monday.setDate(monday.getDate() + 7);
       }
@@ -1641,7 +1640,7 @@ function SOPBatchDialog({ sop, onConfirm, onCancel }: { sop: PlantillaProceso; o
         const m = new Date(now.getFullYear(), now.getMonth() + i, 1);
         const day = baseDay === -1 ? new Date(m.getFullYear(), m.getMonth() + 1, 0).getDate() : Math.min(baseDay, new Date(m.getFullYear(), m.getMonth() + 1, 0).getDate());
         const target = new Date(m.getFullYear(), m.getMonth(), day);
-        result.push({ name: `${sop.nombre} ${MESES_BATCH[target.getMonth()]}`, dateKey: dateKeyBatch(target), editable: true });
+        result.push({ name: `${sop.nombre} ${MESES_BATCH[target.getMonth()]}`, dateKey: dateKeyBatch(target) });
       }
     } else if (tipo === "trimestral") {
       const currentQ = Math.floor(now.getMonth() / 3);
@@ -1651,18 +1650,18 @@ function SOPBatchDialog({ sop, onConfirm, onCancel }: { sop: PlantillaProceso; o
         const qn = (q % 4) + 1;
         const firstMonth = (q % 4) * 3;
         const target = new Date(yr, firstMonth, 1);
-        result.push({ name: `${sop.nombre} Q${qn} ${yr}`, dateKey: dateKeyBatch(target), editable: true });
+        result.push({ name: `${sop.nombre} Q${qn} ${yr}`, dateKey: dateKeyBatch(target) });
       }
     } else if (tipo === "diario") {
       let monday = getMonday(now);
       for (let i = 0; i < count; i++) {
         const wn = weekNum(monday);
-        result.push({ name: `${sop.nombre} S${wn}`, dateKey: dateKeyBatch(monday), editable: true });
+        result.push({ name: `${sop.nombre} S${wn}`, dateKey: dateKeyBatch(monday) });
         monday = new Date(monday);
         monday.setDate(monday.getDate() + 7);
       }
     } else {
-      result.push({ name: sop.nombre, dateKey: dateKeyBatch(now), editable: true });
+      result.push({ name: sop.nombre, dateKey: dateKeyBatch(now) });
     }
     return result;
   }, [tipo, count, sop.nombre, sop.programacion, now]);
@@ -1673,7 +1672,7 @@ function SOPBatchDialog({ sop, onConfirm, onCancel }: { sop: PlantillaProceso; o
   useEffect(() => {
     setNames(items.map((i) => i.name));
     setDates(items.map((i) => i.dateKey));
-  }, [items.length]);
+  }, [items]);
 
   const linkedProj = sop.proyectoId ? `→ Proyecto configurado` : "";
 
