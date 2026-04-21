@@ -12,6 +12,7 @@ import { computeProyectoRitmo } from "@/lib/proyecto-stats";
 import { ProyectoPlanner } from "./ProyectoPlanner";
 import {
   MapaFilterCtx, HighlightCtx, NotaSheetCtx, ShowTimelineCtx,
+  HideFilteredCtx, ShowRitmoCtx,
   NotaSheet,
   AreaSection,
   EMPRESA_ORDER, PERSONAL_ORDER,
@@ -153,14 +154,20 @@ export function PlanMes({ selectedDate }: Props) {
 
       let inMonth = false;
 
-      if (proj.fechaInicio) {
+      // Project date range overlaps month
+      if (proj.fechaInicio && proj.fechaLimite) {
+        const fi = new Date(proj.fechaInicio + "T12:00:00").getTime();
+        const fl = new Date(proj.fechaLimite + "T12:00:00").getTime();
+        if (fi <= monthEnd && fl >= monthStart) inMonth = true;
+      } else if (proj.fechaInicio) {
         const fi = new Date(proj.fechaInicio + "T12:00:00").getTime();
         if (fi >= monthStart && fi <= monthEnd) inMonth = true;
-      }
-      if (!inMonth && proj.fechaLimite) {
+      } else if (proj.fechaLimite) {
         const fl = new Date(proj.fechaLimite + "T12:00:00").getTime();
         if (fl >= monthStart && fl <= monthEnd) inMonth = true;
       }
+
+      // Entregable dates fall in month
       if (!inMonth) {
         for (const ent of filtered) {
           if (ent.fechaInicio) {
@@ -171,9 +178,10 @@ export function PlanMes({ selectedDate }: Props) {
             const fl = new Date(ent.fechaLimite + "T12:00:00").getTime();
             if (fl >= monthStart && fl <= monthEnd) { inMonth = true; break; }
           }
-          if (ent.estado === "en_proceso" || ent.estado === "planificado") { inMonth = true; break; }
         }
       }
+
+      // Pasos with activity in month
       if (!inMonth) {
         const pasoEnMes = state.pasos.some((p) => {
           if (!p.inicioTs) return false;
@@ -399,6 +407,8 @@ export function PlanMes({ selectedDate }: Props) {
           <MapaFilterCtx.Provider value={mapaFilter}>
           <NotaSheetCtx.Provider value={notaSheetCtx}>
           <ShowTimelineCtx.Provider value={true}>
+          <HideFilteredCtx.Provider value={true}>
+          <ShowRitmoCtx.Provider value={true}>
             <div className="space-y-6">
               {empresaAreas.length > 0 && (
                 <>
@@ -417,6 +427,8 @@ export function PlanMes({ selectedDate }: Props) {
               )}
             </div>
             {sheetData && <NotaSheet data={sheetData} onClose={() => setSheetData(null)} />}
+          </ShowRitmoCtx.Provider>
+          </HideFilteredCtx.Provider>
           </ShowTimelineCtx.Provider>
           </NotaSheetCtx.Provider>
           </MapaFilterCtx.Provider>

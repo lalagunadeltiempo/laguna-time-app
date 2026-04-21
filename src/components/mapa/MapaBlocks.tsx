@@ -11,7 +11,7 @@ import ProgramacionPicker from "../shared/ProgramacionPicker";
 import HierarchyPicker from "../shared/HierarchyPicker";
 import { ProyectoPlanner } from "../plan/ProyectoPlanner";
 import { ProyectoTimeline } from "../plan/ProyectoTimeline";
-import { inferDateRange, type DateRange } from "@/lib/proyecto-stats";
+import { computeProyectoRitmo, ritmoColor, ritmoLabel, ritmoLabelCorto, inferDateRange, type DateRange } from "@/lib/proyecto-stats";
 import {
   AREAS_PERSONAL,
   AREAS_EMPRESA,
@@ -167,6 +167,8 @@ export const HighlightCtx = createContext<HighlightInfo | null>(null);
 export function useHighlight() { return useContext(HighlightCtx); }
 
 export const ShowTimelineCtx = createContext(false);
+export const HideFilteredCtx = createContext(false);
+export const ShowRitmoCtx = createContext(false);
 
 export interface NotaSheetData {
   title: string;
@@ -569,6 +571,32 @@ export function AreaSection({ areaId, hideSops }: { areaId: Area; hideSops?: boo
 }
 
 /* ============================================================
+   RITMO BANNER (compact, shown via ShowRitmoCtx)
+   ============================================================ */
+
+function RitmoBanner({ ritmo, deadline }: { ritmo: import("@/lib/proyecto-stats").ProyectoRitmo; deadline?: string | null }) {
+  const color = ritmoColor(ritmo.estadoRitmo);
+  const pct = Math.min(100, Math.round(ritmo.porcentaje * 100));
+  return (
+    <div className="mx-3 mb-2 flex items-center gap-3 rounded-lg px-3 py-1.5 sm:mx-5 sm:ml-8 md:ml-14" style={{ backgroundColor: color + "0a" }}>
+      <div className="h-1.5 w-20 shrink-0 overflow-hidden rounded-full bg-surface">
+        <div className="h-full rounded-full transition-all" style={{ width: `${pct}%`, backgroundColor: color }} />
+      </div>
+      <span className="text-[11px] font-semibold" style={{ color }}>{pct}%</span>
+      <span className="rounded-full px-2 py-0.5 text-[10px] font-bold" style={{ backgroundColor: color + "18", color }}>
+        {ritmoLabelCorto(ritmo.estadoRitmo)}
+      </span>
+      <span className="text-[10px] text-muted">{ritmoLabel(ritmo)}</span>
+      {deadline && (
+        <span className="ml-auto shrink-0 text-[10px] text-muted">
+          Deadline: {new Date(deadline + "T12:00:00").toLocaleDateString("es-ES", { day: "numeric", month: "short" })}
+        </span>
+      )}
+    </div>
+  );
+}
+
+/* ============================================================
    PROYECTO
    ============================================================ */
 
@@ -578,6 +606,8 @@ function ProyectoBlock({ proyecto, index, total }: { proyecto: Proyecto; index: 
   const isMentor = useIsMentor();
   const filter = useMapaFilter();
   const highlight = useHighlight();
+  const hideFiltered = useContext(HideFilteredCtx);
+  const showRitmo = useContext(ShowRitmoCtx);
   const { open: openSheet } = useNotaSheet();
   const isAncestor = !!highlight?.ancestors.has(proyecto.id);
   const isTarget = highlight?.targetId === proyecto.id;
@@ -609,13 +639,17 @@ function ProyectoBlock({ proyecto, index, total }: { proyecto: Proyecto; index: 
   const isProgrammed = !!proyecto.fechaInicio;
   const hasDeadline = !!proyecto.fechaLimite;
 
+  const ritmo = useMemo(() => showRitmo ? computeProyectoRitmo(proyecto, projEntregables, allResultados, new Date()) : null, [showRitmo, proyecto, projEntregables, allResultados]);
+
+  if (hideFiltered && !inFilter) return null;
+
   function handlePlanSelect(fechaInicio: string, planNivel: PlanNivel) {
     dispatch({ type: "UPDATE_PROYECTO", id: proyecto.id, changes: { fechaInicio, planNivel } });
     setShowDatePicker(false);
   }
 
   return (
-    <div ref={hlRef} className={`rounded-xl border border-border bg-background transition-all duration-700${filter && !inFilter ? " opacity-40" : ""}${isTarget ? " ring-2 ring-accent ring-offset-2 animate-pulse" : ""}`}>
+    <div ref={hlRef} className={`rounded-xl border border-border bg-background transition-all duration-700${filter && !inFilter && !hideFiltered ? " opacity-40" : ""}${isTarget ? " ring-2 ring-accent ring-offset-2 animate-pulse" : ""}`}>
       <ToggleRow open={open} onToggle={() => setOpen(!open)}>
         {isMentor
           ? <span className="text-lg font-semibold text-foreground">{proyecto.nombre}</span>
@@ -676,6 +710,10 @@ function ProyectoBlock({ proyecto, index, total }: { proyecto: Proyecto; index: 
 
       {proyecto.descripcion && !open && (
         <p className="truncate px-5 pl-8 sm:pl-14 -mt-1 pb-1.5 text-xs italic text-muted">{proyecto.descripcion}</p>
+      )}
+
+      {ritmo && !isOperacion && (
+        <RitmoBanner ritmo={ritmo} deadline={proyecto.fechaLimite} />
       )}
 
       {showMoveArea && (
@@ -795,6 +833,7 @@ function ResultadoBlock({ resultado, index, total }: { resultado: Resultado; ind
   const isMentor = useIsMentor();
   const filter = useMapaFilter();
   const highlight = useHighlight();
+  const hideFiltered = useContext(HideFilteredCtx);
   const { open: openSheet } = useNotaSheet();
   const isAncestor = !!highlight?.ancestors.has(resultado.id);
   const isTarget = highlight?.targetId === resultado.id;
@@ -823,13 +862,15 @@ function ResultadoBlock({ resultado, index, total }: { resultado: Resultado; ind
   const isProgrammed = !!resultado.fechaInicio;
   const hasDeadline = !!resultado.fechaLimite;
 
+  if (hideFiltered && !inFilter) return null;
+
   function handlePlanSelect(fechaInicio: string, planNivel: PlanNivel) {
     dispatch({ type: "UPDATE_RESULTADO", id: resultado.id, changes: { fechaInicio, planNivel } });
     setShowDatePicker(false);
   }
 
   return (
-    <div ref={hlRef} className={`rounded-xl border border-border/50 bg-surface/30 transition-all duration-700${filter && !inFilter ? " opacity-40" : ""}${isTarget ? " ring-2 ring-accent ring-offset-2 animate-pulse" : ""}`}>
+    <div ref={hlRef} className={`rounded-xl border border-border/50 bg-surface/30 transition-all duration-700${filter && !inFilter && !hideFiltered ? " opacity-40" : ""}${isTarget ? " ring-2 ring-accent ring-offset-2 animate-pulse" : ""}`}>
       <ToggleRow open={open} onToggle={() => setOpen(!open)}>
         {isMentor
           ? <span className="text-base font-medium text-foreground">{resultado.nombre}</span>
@@ -974,6 +1015,7 @@ function EntregableBlock({ entregable, index, total }: { entregable: Entregable;
   const isMentor = useIsMentor();
   const filter = useMapaFilter();
   const highlight = useHighlight();
+  const hideFiltered = useContext(HideFilteredCtx);
   const { open: openSheet } = useNotaSheet();
   const isAncestor = !!highlight?.ancestors.has(entregable.id);
   const isTarget = highlight?.targetId === entregable.id;
@@ -1005,6 +1047,8 @@ function EntregableBlock({ entregable, index, total }: { entregable: Entregable;
 
   const [showNotas, setShowNotas] = useState(false);
 
+  if (hideFiltered && !inFilter) return null;
+
   const tipoTag = entregable.tipo !== "raw" ? entregable.tipo.toUpperCase() : null;
   const dotColor = entregable.estado === "hecho" ? "bg-green-500" : entregable.estado === "en_proceso" ? "bg-amber-500" : entregable.estado === "planificado" ? "bg-blue-400" : "bg-border";
   const parentRes = state.resultados.find((r) => r.id === entregable.resultadoId);
@@ -1027,7 +1071,7 @@ function EntregableBlock({ entregable, index, total }: { entregable: Entregable;
   }
 
   return (
-    <div ref={hlRef} className={`transition-all duration-700${filter && !inFilter ? " opacity-40" : ""}${isTarget ? " rounded-lg ring-2 ring-accent ring-offset-2 animate-pulse" : ""}`}>
+    <div ref={hlRef} className={`transition-all duration-700${filter && !inFilter && !hideFiltered ? " opacity-40" : ""}${isTarget ? " rounded-lg ring-2 ring-accent ring-offset-2 animate-pulse" : ""}`}>
       <ToggleRow open={open} onToggle={() => setOpen(!open)}>
         <span className={`h-3 w-3 shrink-0 rounded-full ${dotColor}`} />
         {isMentor
@@ -1228,6 +1272,7 @@ function PasoLine({ paso, index, total, isEmpresa, entResponsable }: { paso: Pas
   const isMentor = useIsMentor();
   const filter = useMapaFilter();
   const highlight = useHighlight();
+  const hideFiltered = useContext(HideFilteredCtx);
   const { open: openSheet } = useNotaSheet();
   const isTarget = highlight?.targetId === paso.id;
   const inFilter = !filter || filter.pasos.has(paso.id);
@@ -1247,6 +1292,8 @@ function PasoLine({ paso, index, total, isEmpresa, entResponsable }: { paso: Pas
     if (isTarget && hlRef.current) hlRef.current.scrollIntoView({ behavior: "smooth", block: "center" });
   }, [isTarget]);
 
+  if (hideFiltered && !inFilter) return null;
+
   function toggleNotas() {
     toggleOrSheet(showNotas, setShowNotas, openSheet, {
       title: paso.nombre, nivel: "paso", targetId: paso.id,
@@ -1256,7 +1303,7 @@ function PasoLine({ paso, index, total, isEmpresa, entResponsable }: { paso: Pas
   }
 
   return (
-    <div ref={hlRef} className={`mb-1 transition-all duration-700${filter && !inFilter ? " opacity-40" : ""}${isTarget ? " rounded-lg ring-2 ring-accent ring-offset-2 animate-pulse" : ""}`}>
+    <div ref={hlRef} className={`mb-1 transition-all duration-700${filter && !inFilter && !hideFiltered ? " opacity-40" : ""}${isTarget ? " rounded-lg ring-2 ring-accent ring-offset-2 animate-pulse" : ""}`}>
       <div className="group/row flex min-h-[44px] items-center gap-2 rounded-lg px-3 py-2 hover:bg-surface">
         <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${done ? "bg-green-500" : "bg-border"}`} />
         {isMentor
