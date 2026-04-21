@@ -7,6 +7,8 @@ import { ambitoDeArea, AREA_COLORS, type Area, type Entregable } from "@/lib/typ
 import { projectSOPsForDate, type ProjectedSOP } from "@/lib/sop-projector";
 import SOPLaunchDialog from "@/components/shared/SOPLaunchDialog";
 import { AmbitoToggle, type AmbitoFilter } from "./PlanMes";
+import { WeekBlockSheet, type WeekBlockInfo } from "./WeekBlockSheet";
+import { ProyectoPlanner } from "./ProyectoPlanner";
 
 const DAYS = ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"];
 
@@ -34,6 +36,11 @@ interface WeekBlock {
   responsable: string;
   dateKey: string;
   type: "done" | "active" | "programado" | "sop";
+  origen: "ent" | "paso-next" | "paso";
+  entregableId?: string;
+  pasoId?: string;
+  proyectoId?: string;
+  tieneActivePaso?: boolean;
 }
 
 interface Props {
@@ -81,6 +88,7 @@ export function PlanSemana({ selectedDate }: Props) {
       const isDone = !!paso.finTs;
       if (isDone && !showDone) continue;
 
+      const isActive = state.pasosActivos.includes(paso.id);
       result.push({
         id: paso.id,
         area: proj?.area ?? "operativa",
@@ -88,7 +96,12 @@ export function PlanSemana({ selectedDate }: Props) {
         subtitle: proj?.nombre ?? "",
         responsable: ent.responsable ?? "",
         dateKey: pasoDate,
-        type: isDone ? "done" : state.pasosActivos.includes(paso.id) ? "active" : "programado",
+        type: isDone ? "done" : isActive ? "active" : "programado",
+        origen: "paso",
+        entregableId: ent.id,
+        pasoId: paso.id,
+        proyectoId: proj?.id,
+        tieneActivePaso: isActive,
       });
     }
 
@@ -124,6 +137,10 @@ export function PlanSemana({ selectedDate }: Props) {
         responsable: ent.responsable ?? "",
         dateKey: fp,
         type: "programado",
+        origen: "paso-next",
+        entregableId: ent.id,
+        pasoId: paso.id,
+        proyectoId: proj?.id,
       });
     }
 
@@ -144,6 +161,8 @@ export function PlanSemana({ selectedDate }: Props) {
       const proj = res ? state.proyectos.find((p) => p.id === res.proyectoId) : undefined;
       if (filtro !== "todo" && proj && ambitoDeArea(proj.area) !== filtro) continue;
 
+      const hasActive = state.pasos.some((p) => p.entregableId === ent.id && state.pasosActivos.includes(p.id));
+
       result.push({
         id: `ent-${ent.id}`,
         area: proj?.area ?? "operativa",
@@ -152,6 +171,10 @@ export function PlanSemana({ selectedDate }: Props) {
         responsable: ent.responsable ?? "",
         dateKey: ent.fechaInicio,
         type: ent.estado === "hecho" ? "done" : "programado",
+        origen: "ent",
+        entregableId: ent.id,
+        proyectoId: proj?.id,
+        tieneActivePaso: hasActive,
       });
     }
 
@@ -203,7 +226,56 @@ export function PlanSemana({ selectedDate }: Props) {
 
   const totalHoursAvailable = 8;
 
-  // materializeSOP is now handled by SOPLaunchDialog
+  const [selectedBlock, setSelectedBlock] = useState<WeekBlock | null>(null);
+  const [plannerProyectoId, setPlannerProyectoId] = useState<string | null>(null);
+
+  function handleBlockClick(block: WeekBlock) {
+    if (isMentor) return;
+    setSelectedBlock(block);
+  }
+
+  function handleMove(b: WeekBlock, newDate: string) {
+    if (b.origen === "ent" && b.entregableId) {
+      const isPastOrToday = newDate <= todayKey;
+      dispatch({ type: "UPDATE_ENTREGABLE", id: b.entregableId,
+        changes: { fechaInicio: newDate, planNivel: "dia", estado: isPastOrToday ? "en_proceso" : "planificado" } });
+    } else if (b.origen === "paso-next" && b.pasoId) {
+      dispatch({ type: "RESCHEDULE_NEXT_PASO", pasoId: b.pasoId, newDate });
+    }
+    setSelectedBlock(null);
+  }
+
+  function handleUnschedule(b: WeekBlock) {
+    if (b.origen === "ent" && b.entregableId) {
+      dispatch({ type: "UPDATE_ENTREGABLE", id: b.entregableId,
+        changes: { fechaInicio: null, planNivel: undefined, estado: b.type === "done" ? "hecho" : "a_futuro" } });
+    } else if (b.origen === "paso-next" && b.pasoId) {
+      dispatch({ type: "RESCHEDULE_NEXT_PASO", pasoId: b.pasoId, newDate: null });
+    }
+    setSelectedBlock(null);
+  }
+
+  function handleSetResp(b: WeekBlock, nombre: string) {
+    if (b.entregableId) {
+      dispatch({ type: "UPDATE_ENTREGABLE", id: b.entregableId, changes: { responsable: nombre || undefined } });
+    }
+  }
+
+  function handleMarkDone(b: WeekBlock) {
+    if (b.entregableId) {
+      dispatch({ type: "UPDATE_ENTREGABLE", id: b.entregableId, changes: { estado: "hecho" } });
+    }
+    setSelectedBlock(null);
+  }
+
+  function buildBlockInfo(b: WeekBlock): WeekBlockInfo {
+    return {
+      id: b.id, title: b.title, subtitle: b.subtitle, area: b.area,
+      responsable: b.responsable, dateKey: b.dateKey, origen: b.origen,
+      entregableId: b.entregableId, pasoId: b.pasoId, proyectoId: b.proyectoId,
+      tieneActivePaso: b.tieneActivePaso, weekDates, miembros: state.miembros,
+    };
+  }
 
   return (
     <div className="flex-1">
@@ -250,7 +322,9 @@ export function PlanSemana({ selectedDate }: Props) {
                 {dayBlocks.map((block) => {
                   const hex = AREA_COLORS[block.area]?.hex ?? "#888";
                   return (
-                    <div key={block.id} className="rounded-lg border-l-[3px] px-2 py-1.5 transition-colors hover:brightness-95"
+                    <button key={block.id} type="button"
+                      onClick={() => handleBlockClick(block)}
+                      className="w-full rounded-lg border-l-[3px] px-2 py-1.5 text-left transition-colors hover:brightness-95"
                       style={{ borderLeftColor: hex, backgroundColor: hex + "0c" }}>
                       <div className="flex items-center gap-1">
                         {block.type === "active" && (
@@ -270,7 +344,7 @@ export function PlanSemana({ selectedDate }: Props) {
                       {viewMode === "equipo" && block.responsable && (
                         <p className="text-[10px] font-semibold" style={{ color: hex }}>{block.responsable}</p>
                       )}
-                    </div>
+                    </button>
                   );
                 })}
                 {(sopsByDay.get(key) ?? []).map((sop) => {
@@ -345,6 +419,22 @@ export function PlanSemana({ selectedDate }: Props) {
           dateKey={confirmSOP.dateKey}
           onClose={() => setConfirmSOP(null)}
         />
+      )}
+
+      {selectedBlock && (
+        <WeekBlockSheet
+          block={buildBlockInfo(selectedBlock)}
+          onClose={() => setSelectedBlock(null)}
+          onMove={(d) => handleMove(selectedBlock, d)}
+          onUnschedule={() => handleUnschedule(selectedBlock)}
+          onSetResponsable={(n) => handleSetResp(selectedBlock, n)}
+          onMarkDone={() => handleMarkDone(selectedBlock)}
+          onOpenProject={() => { setPlannerProyectoId(selectedBlock.proyectoId ?? null); setSelectedBlock(null); }}
+        />
+      )}
+
+      {plannerProyectoId && (
+        <ProyectoPlanner proyectoId={plannerProyectoId} onClose={() => setPlannerProyectoId(null)} />
       )}
     </div>
   );
