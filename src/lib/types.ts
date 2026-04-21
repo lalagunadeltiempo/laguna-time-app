@@ -208,6 +208,7 @@ export interface PasoPlantilla {
   condicion?: string;
   advertencia?: string;
   notas?: string;
+  urls?: UrlRef[];
 }
 
 export interface PlantillaProceso {

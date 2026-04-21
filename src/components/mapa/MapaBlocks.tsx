@@ -1506,6 +1506,13 @@ function SOPPasoRow({ sop, paso, index }: { sop: PlantillaProceso; paso: Plantil
   const dispatch = useAppDispatch();
   const isMentor = useIsMentor();
   const [confirmDel, setConfirmDel] = useState(false);
+  const [showDetail, setShowDetail] = useState(false);
+  const [urlDraft, setUrlDraft] = useState({ nombre: "", url: "" });
+
+  const urls = paso.urls ?? [];
+  const hasNotas = !!paso.descripcion;
+  const hasUrls = urls.length > 0;
+  const detailCount = (hasNotas ? 1 : 0) + urls.length;
 
   function updatePaso(changes: Partial<PlantillaProceso["pasos"][number]>) {
     dispatch({ type: "UPDATE_PASO_PLANTILLA", plantillaId: sop.id, pasoId: paso.id, changes });
@@ -1513,6 +1520,17 @@ function SOPPasoRow({ sop, paso, index }: { sop: PlantillaProceso; paso: Plantil
 
   function removePaso() {
     dispatch({ type: "DELETE_PASO_PLANTILLA", plantillaId: sop.id, pasoId: paso.id });
+  }
+
+  function addUrl() {
+    if (!urlDraft.url.trim()) return;
+    const newUrls = [...urls, { nombre: urlDraft.nombre.trim() || urlDraft.url.trim(), descripcion: "", url: urlDraft.url.trim() }];
+    updatePaso({ urls: newUrls });
+    setUrlDraft({ nombre: "", url: "" });
+  }
+
+  function removeUrl(i: number) {
+    updatePaso({ urls: urls.filter((_, idx) => idx !== i) });
   }
 
   return (
@@ -1524,8 +1542,72 @@ function SOPPasoRow({ sop, paso, index }: { sop: PlantillaProceso; paso: Plantil
           : <EditableText value={paso.nombre} onChange={(v) => updatePaso({ nombre: v })} className="flex-1 text-sm text-foreground" />}
         {!isMentor && <DurationInput value={paso.minutosEstimados} onChange={(v) => updatePaso({ minutosEstimados: v })} />}
         {isMentor && paso.minutosEstimados && <span className="text-xs text-muted">{paso.minutosEstimados}min</span>}
+        <button onClick={(e) => { e.stopPropagation(); setShowDetail(!showDetail); }}
+          className={`flex h-7 items-center gap-0.5 rounded-md px-1.5 text-xs transition-all hover:bg-accent-soft ${detailCount > 0 ? "text-accent" : "text-muted opacity-50 hover:opacity-100"}`}
+          title="Notas y enlaces">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+            <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" /><polyline points="14 2 14 8 20 8" /><line x1="16" y1="13" x2="8" y2="13" /><line x1="16" y1="17" x2="8" y2="17" />
+          </svg>
+          {detailCount > 0 && <span className="font-medium">{detailCount}</span>}
+        </button>
         {!isMentor && <DeleteBtn onDelete={() => setConfirmDel(true)} />}
       </div>
+
+      {showDetail && (
+        <div className="ml-8 mr-3 mb-2 space-y-2 rounded-lg border border-border/50 bg-surface/30 px-3 py-2">
+          {!isMentor ? (
+            <EditableText
+              value={paso.descripcion || ""}
+              onChange={(v) => updatePaso({ descripcion: v })}
+              className="block text-sm text-muted"
+              placeholder="Notas del paso..."
+              multiline
+            />
+          ) : paso.descripcion ? (
+            <p className="text-sm text-muted whitespace-pre-wrap">{paso.descripcion}</p>
+          ) : null}
+
+          {hasUrls && (
+            <div className="space-y-1">
+              <p className="text-[10px] font-semibold uppercase tracking-wider text-muted">Enlaces</p>
+              {urls.map((u, i) => (
+                <div key={i} className="flex items-center gap-2">
+                  <a href={u.url} target="_blank" rel="noopener noreferrer"
+                    className="flex-1 truncate text-xs text-accent underline hover:text-accent/80">
+                    {u.nombre || u.url}
+                  </a>
+                  {!isMentor && (
+                    <button onClick={() => removeUrl(i)} className="text-[10px] text-red-400 hover:text-red-600">×</button>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+
+          {!isMentor && (
+            <div className="flex items-center gap-1.5">
+              <input
+                value={urlDraft.nombre}
+                onChange={(e) => setUrlDraft((d) => ({ ...d, nombre: e.target.value }))}
+                placeholder="Nombre..."
+                className="w-24 rounded border border-border bg-background px-2 py-1 text-[11px] outline-none focus:border-accent"
+              />
+              <input
+                value={urlDraft.url}
+                onChange={(e) => setUrlDraft((d) => ({ ...d, url: e.target.value }))}
+                onKeyDown={(e) => { if (e.key === "Enter") addUrl(); }}
+                placeholder="https://..."
+                className="flex-1 rounded border border-border bg-background px-2 py-1 text-[11px] outline-none focus:border-accent"
+              />
+              <button onClick={addUrl} disabled={!urlDraft.url.trim()}
+                className="rounded bg-accent/10 px-2 py-1 text-[10px] font-semibold text-accent hover:bg-accent/20 disabled:opacity-30">
+                +
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+
       {confirmDel && (
         <ConfirmDelete label={paso.nombre} onConfirm={() => { removePaso(); setConfirmDel(false); }} onCancel={() => setConfirmDel(false)} />
       )}

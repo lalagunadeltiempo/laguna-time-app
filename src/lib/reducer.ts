@@ -775,7 +775,7 @@ export function reducer(state: AppState, action: Action): AppState {
         const paso: Paso = {
           id: ids.paso, entregableId: ids.entregable, nombre: firstStep.nombre,
           inicioTs: new Date().toISOString(), finTs: null, estado: "",
-          contexto: { urls: [], apps: [], notas: "" },
+          contexto: { urls: (firstStep.urls ?? []).map((u) => ({ ...u })), apps: [], notas: firstStep.descripcion || "" },
           implicados: [{ tipo: "equipo", nombre: currentUser }],
           pausas: [], siguientePaso: null,
         };
@@ -790,7 +790,7 @@ export function reducer(state: AppState, action: Action): AppState {
           entregableId: ids.entregable,
           nombre: pp.nombre,
           inicioTs: null, finTs: null, estado: "pendiente",
-          contexto: { urls: [], apps: [], notas: "" },
+          contexto: { urls: (pp.urls ?? []).map((u) => ({ ...u })), apps: [], notas: pp.descripcion || "" },
           implicados: [], pausas: [], siguientePaso: null,
         }));
         newState = { ...newState, pasos: [...newState.pasos, ...batchPasos] };
