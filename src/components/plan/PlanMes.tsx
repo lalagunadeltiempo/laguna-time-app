@@ -8,7 +8,7 @@ import {
   type Entregable, type Proyecto, type Resultado, type Ambito, type MiembroInfo,
 } from "@/lib/types";
 import { projectSOPsForRange, summarizeSOPsByWeek, type SOPWeekSummary } from "@/lib/sop-projector";
-import { computeProyectoRitmo, ritmoColor, ritmoLabel, type ProyectoRitmo } from "@/lib/proyecto-stats";
+import { computeProyectoRitmo, ritmoColor, ritmoLabel, ritmoLabelCorto, type ProyectoRitmo } from "@/lib/proyecto-stats";
 import { ProyectoPlanner } from "./ProyectoPlanner";
 
 export type AmbitoFilter = "todo" | Ambito;
@@ -130,8 +130,8 @@ export function PlanMes({ selectedDate }: Props) {
   [selectedDate]);
 
   const weeks = useMemo(() => getWeeksOfMonth(selectedDate), [selectedDate]);
-  const nowMs = useMemo(() => Date.now(), []);
-  const hoy = useMemo(() => new Date(), []);
+  const [nowMs] = useState<number>(() => Date.now());
+  const [hoy] = useState<Date>(() => new Date());
 
   /* ---- Project view data ---- */
   const proyectosMes: ProyectoMesData[] = useMemo(() => {
@@ -197,7 +197,9 @@ export function PlanMes({ selectedDate }: Props) {
     }
 
     result.sort((a, b) => {
-      const order = { imposible: 0, rojo: 1, amarillo: 2, verde: 3, "sin-deadline": 4, completado: 5 };
+      const order: Record<ProyectoRitmo["estadoRitmo"], number> = {
+        vencido: 0, imposible: 1, rojo: 2, amarillo: 3, verde: 4, "sin-deadline": 5, vacio: 6, completado: 7,
+      };
       const diff = order[a.ritmo.estadoRitmo] - order[b.ritmo.estadoRitmo];
       if (diff !== 0) return diff;
       return a.proyecto.nombre.localeCompare(b.proyecto.nombre);
@@ -435,7 +437,7 @@ function ProyectoMesCard({ data, onOpenPlanner }: { data: ProyectoMesData; onOpe
         </div>
         <div className="flex shrink-0 items-center gap-2">
           <span className="rounded-full px-2 py-0.5 text-[11px] font-bold" style={{ backgroundColor: color + "18", color }}>
-            {ritmo.estadoRitmo === "imposible" ? "No llegas" : ritmo.estadoRitmo === "sin-deadline" ? "Sin deadline" : ritmo.estadoRitmo === "completado" ? "Listo" : ritmo.estadoRitmo}
+            {ritmoLabelCorto(ritmo.estadoRitmo)}
           </span>
           {!proyecto.fechaLimite && ritmo.estadoRitmo === "sin-deadline" && (
             <button
@@ -515,10 +517,8 @@ function WeekColumn({ week, cards, weeks, onAssign, sopSummary }: {
   onAssign?: (entId: string, monday: string) => void;
   sopSummary?: SOPWeekSummary;
 }) {
-  const isCurrentWeek = useMemo(() => {
-    const now = Date.now();
-    return now >= week.mondayMs && now <= week.sundayMs;
-  }, [week]);
+  const [nowMs] = useState<number>(() => Date.now());
+  const isCurrentWeek = nowMs >= week.mondayMs && nowMs <= week.sundayMs;
 
   const [showSops, setShowSops] = useState(false);
 
