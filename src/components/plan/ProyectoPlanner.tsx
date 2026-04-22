@@ -7,9 +7,11 @@ import { generateId } from "@/lib/store";
 import { AREA_COLORS, type Entregable, type TipoEntregable } from "@/lib/types";
 import {
   computeProyectoRitmo, computeResultadoRitmo, inferDateRange, validateRange,
-  ritmoColor, ritmoLabel, ritmoLabelCorto,
+  ritmoColor, ritmoLabel, ritmoLabelCorto, ritmoTooltip,
   type ProyectoRitmo, type DateRange,
 } from "@/lib/proyecto-stats";
+import { planificarProyecto } from "@/lib/auto-planner";
+import { sesionesEfectivasEntregable } from "@/lib/fechas-efectivas";
 import { ProyectoTimeline } from "./ProyectoTimeline";
 import MoveInlinePanel from "../shared/MoveInlinePanel";
 
@@ -38,9 +40,14 @@ export function ProyectoPlanner({ proyectoId, onClose }: Props) {
   );
 
   const ritmo: ProyectoRitmo | null = useMemo(
-    () => proyecto ? computeProyectoRitmo(proyecto, allEntregables, allResultados, hoy) : null,
-    [proyecto, allEntregables, allResultados, hoy],
+    () => proyecto ? computeProyectoRitmo(proyecto, allEntregables, allResultados, hoy, state.miembros, state.pasos, state.planConfig) : null,
+    [proyecto, allEntregables, allResultados, hoy, state.miembros, state.pasos, state.planConfig],
   );
+
+  const planSugerido = useMemo(() => {
+    if (!proyecto) return null;
+    return planificarProyecto(proyecto, allResultados, allEntregables, state.pasos, state.miembros, state.planConfig, hoy);
+  }, [proyecto, allResultados, allEntregables, state.pasos, state.miembros, state.planConfig, hoy]);
 
   const proyectoRange: DateRange = useMemo(() => {
     if (!proyecto) return { inicio: null, fin: null };
@@ -126,6 +133,16 @@ export function ProyectoPlanner({ proyectoId, onClose }: Props) {
         {/* Ritmo summary */}
         <RitmoBar ritmo={ritmo} />
 
+        {/* Aviso de overflow */}
+        {planSugerido && (planSugerido.overflow.length > 0 || ritmo.estadoRitmo === "imposible") && (
+          <OverflowBanner
+            overflowCount={planSugerido.overflow.length}
+            sesionesTotales={planSugerido.sesionesTotales}
+            ritmo={ritmo}
+            proyectoId={proyecto.id}
+          />
+        )}
+
         {/* Mini timeline */}
         {allResultados.length > 0 && (
           <ProyectoTimeline
@@ -146,7 +163,10 @@ export function ProyectoPlanner({ proyectoId, onClose }: Props) {
               {allResultados.map((res) => {
                 const resEnts = allEntregables.filter((e) => e.resultadoId === res.id);
                 const isOpen = expandedRes.has(res.id);
-                const ritmoRes = computeResultadoRitmo(res, resEnts, hoy);
+                const ritmoRes = computeResultadoRitmo(res, resEnts, hoy, state.miembros, state.pasos, state.planConfig);
+                const ventanaAuto = planSugerido?.ventanas[res.id];
+                const ventanaSugerida = (!res.fechaInicio && !res.fechaLimite && ventanaAuto && !ventanaAuto.fija)
+                  ? ventanaAuto : null;
                 const inferredRes = inferDateRange(resEnts);
                 const resRange: DateRange = {
                   inicio: res.fechaInicio ?? inferredRes.inicio,
@@ -203,22 +223,24 @@ export function ProyectoPlanner({ proyectoId, onClose }: Props) {
                             label="Inicio"
                             size="sm"
                             value={res.fechaInicio}
-                            placeholder={res.fechaInicio ? undefined : inferredRes.inicio ?? undefined}
+                            placeholder={res.fechaInicio ? undefined : (ventanaSugerida?.inicio ?? inferredRes.inicio) ?? undefined}
                             onChange={(v) => dispatch({ type: "UPDATE_RESULTADO", id: res.id, changes: { fechaInicio: v } })}
                           />
                           <DateField
                             label="Límite"
                             size="sm"
                             value={res.fechaLimite}
-                            placeholder={res.fechaLimite ? undefined : inferredRes.fin ?? undefined}
+                            placeholder={res.fechaLimite ? undefined : (ventanaSugerida?.fin ?? inferredRes.fin) ?? undefined}
                             onChange={(v) => dispatch({ type: "UPDATE_RESULTADO", id: res.id, changes: { fechaLimite: v } })}
                           />
-                          <label className="flex items-center gap-1.5 text-xs text-muted">
-                            <span className="text-[10px] font-semibold uppercase">Días est.</span>
-                            <input type="number" min={0} value={res.diasEstimados ?? ""}
-                              onChange={(e) => dispatch({ type: "UPDATE_RESULTADO", id: res.id, changes: { diasEstimados: e.target.value ? Number(e.target.value) : null } })}
-                              className="w-16 rounded border border-border bg-background px-1.5 py-0.5 text-xs text-foreground" />
-                          </label>
+                          {ventanaSugerida && (
+                            <span
+                              className="rounded bg-accent/10 px-1.5 py-0.5 text-[10px] text-accent"
+                              title={`Auto-plan: ${ventanaSugerida.semanas} semana${ventanaSugerida.semanas !== 1 ? "s" : ""} para ${resEnts.length} entregable${resEnts.length !== 1 ? "s" : ""}`}
+                            >
+                              auto · {ventanaSugerida.semanas}sem
+                            </span>
+                          )}
                           <button onClick={() => setMovingResId(movingResId === res.id ? null : res.id)}
                             className="ml-auto flex items-center gap-1 rounded-md border border-border px-2 py-1 text-[10px] text-muted hover:border-accent hover:text-accent"
                             title="Mover a otro proyecto">
@@ -296,10 +318,15 @@ function DateField({ label, value, placeholder, onChange, size = "md" }: {
 /* ---------- EntregableRow ---------- */
 function EntregableRow({ entregable, parentRange }: { entregable: Entregable; parentRange: DateRange }) {
   const dispatch = useAppDispatch();
+  const state = useAppState();
   const [showMove, setShowMove] = useState(false);
   const isDone = entregable.estado === "hecho" || entregable.estado === "cancelada";
-  const pending = Math.max(0, entregable.diasEstimados - entregable.diasHechos);
-  const pct = entregable.diasEstimados > 0 ? Math.min(100, Math.round((entregable.diasHechos / entregable.diasEstimados) * 100)) : 0;
+  const pasosDe = state.pasos.filter((p) => p.entregableId === entregable.id);
+  const sesionesAuto = sesionesEfectivasEntregable(entregable, pasosDe, state.planConfig);
+  const sesionesEf = entregable.diasEstimados > 0 ? entregable.diasEstimados : sesionesAuto;
+  const isAuto = entregable.diasEstimados <= 0;
+  const pending = Math.max(0, sesionesEf - entregable.diasHechos);
+  const pct = sesionesEf > 0 ? Math.min(100, Math.round((entregable.diasHechos / sesionesEf) * 100)) : 0;
   const validation = validateRange(
     { fechaInicio: entregable.fechaInicio, fechaLimite: entregable.fechaLimite },
     parentRange,
@@ -319,14 +346,22 @@ function EntregableRow({ entregable, parentRange }: { entregable: Entregable; pa
           </span>
         )}
 
-        <label className="flex shrink-0 items-center gap-1 text-[10px] text-muted" title="Días estimados">
-          <input type="number" min={0} value={entregable.diasEstimados}
-            onChange={(e) => dispatch({ type: "UPDATE_ENTREGABLE", id: entregable.id, changes: { diasEstimados: Number(e.target.value) || 0 } })}
-            className="w-12 rounded border border-border bg-background px-1 py-0.5 text-xs text-foreground" />
-          <span>est</span>
+        <label
+          className="flex shrink-0 items-center gap-1 text-[10px] text-muted"
+          title={isAuto ? `Auto (${pasosDe.length} pasos / ${state.planConfig?.pasosPorSesion ?? 5} = ${sesionesAuto} sesiones). Pon un número para fijar.` : "Sesiones estimadas (puedes vaciar para volver a auto)"}
+        >
+          <input
+            type="number"
+            min={0}
+            value={entregable.diasEstimados || ""}
+            placeholder={isAuto ? String(sesionesAuto) : ""}
+            onChange={(e) => dispatch({ type: "UPDATE_ENTREGABLE", id: entregable.id, changes: { diasEstimados: e.target.value ? Number(e.target.value) : 0 } })}
+            className={`w-12 rounded border border-border bg-background px-1 py-0.5 text-xs ${isAuto ? "text-accent italic" : "text-foreground"}`}
+          />
+          <span>{isAuto ? "auto" : "ses"}</span>
         </label>
 
-        <span className="shrink-0 text-[10px] text-muted" title="Días hechos">{entregable.diasHechos}h</span>
+        <span className="shrink-0 text-[10px] text-muted" title="Sesiones hechas">{entregable.diasHechos}h</span>
 
         <div className="flex w-12 shrink-0 items-center gap-1" title={`${pct}%`}>
           <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-surface">
@@ -367,25 +402,100 @@ function EntregableRow({ entregable, parentRange }: { entregable: Entregable; pa
 function RitmoBar({ ritmo }: { ritmo: ProyectoRitmo }) {
   const color = ritmoColor(ritmo.estadoRitmo);
   const label = ritmoLabel(ritmo);
+  const tooltip = ritmoTooltip(ritmo);
   const pct = Math.min(100, Math.round(ritmo.porcentaje * 100));
 
   return (
     <div className="border-b border-border px-5 py-3">
       <div className="mb-2 flex items-center justify-between">
         <span className="text-xs font-semibold text-muted">Avance: {pct}%</span>
-        <span className="rounded-full px-2 py-0.5 text-[11px] font-bold" style={{ backgroundColor: color + "18", color }}>
+        <span className="rounded-full px-2 py-0.5 text-[11px] font-bold" style={{ backgroundColor: color + "18", color }} title={tooltip}>
           {ritmoLabelCorto(ritmo.estadoRitmo)}
         </span>
       </div>
       <div className="mb-1.5 h-2 overflow-hidden rounded-full bg-surface">
         <div className="h-full rounded-full transition-all" style={{ width: `${pct}%`, backgroundColor: color }} />
       </div>
-      <p className="text-xs text-muted">{label}</p>
-      {ritmo.estadoRitmo === "imposible" && (
-        <p className="mt-1 text-xs font-medium text-red-600">
-          Necesitas {ritmo.ritmoRequerido != null ? ritmo.ritmoRequerido.toFixed(1) : "?"} días de trabajo por cada día calendario. Amplía el deadline o reduce alcance.
-        </p>
+      <p className="text-xs text-muted" title={tooltip}>{label}</p>
+      {ritmo.desglose.length > 1 && (
+        <details className="mt-1.5">
+          <summary className="cursor-pointer text-[10px] text-muted hover:text-foreground">Desglose por persona</summary>
+          <ul className="mt-1 space-y-0.5">
+            {ritmo.desglose.map((p) => (
+              <li key={p.miembro} className="text-[11px] text-muted">
+                <span className="font-semibold text-foreground">{p.miembro}:</span> {p.carga} sesiones / {p.laborables} días lab → {p.sesionesPorDia.toFixed(1)}/día (cap {p.capacidadDiaria.toFixed(1)})
+              </li>
+            ))}
+          </ul>
+        </details>
       )}
+    </div>
+  );
+}
+
+/* ---------- OverflowBanner ---------- */
+function OverflowBanner({
+  overflowCount,
+  sesionesTotales,
+  ritmo,
+  proyectoId,
+}: {
+  overflowCount: number;
+  sesionesTotales: number;
+  ritmo: ProyectoRitmo;
+  proyectoId: string;
+}) {
+  const dispatch = useAppDispatch();
+  const peor = ritmo.peor;
+
+  function extenderDeadline() {
+    if (!peor || peor.carga <= 0) return;
+    const cap = Math.max(0.1, peor.capacidadDiaria);
+    const diasNecesarios = Math.ceil(peor.carga / cap);
+    const factor = peor.laborables > 0 ? peor.carga / peor.laborables / cap : 2;
+    const calendarioNecesario = Math.ceil(diasNecesarios * Math.max(1.4, factor + 0.4));
+    const nueva = new Date();
+    nueva.setDate(nueva.getDate() + calendarioNecesario);
+    const yyyy = nueva.getFullYear();
+    const mm = String(nueva.getMonth() + 1).padStart(2, "0");
+    const dd = String(nueva.getDate()).padStart(2, "0");
+    dispatch({ type: "UPDATE_PROYECTO", id: proyectoId, changes: { fechaLimite: `${yyyy}-${mm}-${dd}` } });
+  }
+
+  return (
+    <div className="border-b border-border bg-red-50 px-5 py-3 dark:bg-red-950/30">
+      <div className="mb-2 flex items-start gap-2">
+        <span className="mt-0.5 text-base">⚠</span>
+        <div className="flex-1">
+          <p className="text-xs font-bold text-red-700 dark:text-red-300">
+            El plan no cabe en la ventana del proyecto
+          </p>
+          <p className="mt-0.5 text-[11px] text-red-700/80 dark:text-red-300/80">
+            {overflowCount > 0 && `${overflowCount} resultado${overflowCount > 1 ? "s" : ""} desborda${overflowCount > 1 ? "n" : ""} el deadline. `}
+            {peor && `${peor.miembro} necesita ${peor.sesionesPorDia.toFixed(1)} sesiones/día y su capacidad es ${peor.capacidadDiaria.toFixed(1)}. `}
+            Total: {sesionesTotales} sesiones.
+          </p>
+        </div>
+      </div>
+      <div className="flex flex-wrap gap-2">
+        <button
+          onClick={extenderDeadline}
+          className="rounded-md bg-red-600 px-2.5 py-1 text-[11px] font-semibold text-white hover:bg-red-700"
+          title="Mueve la fecha límite del proyecto a una fecha realista para tu capacidad"
+        >
+          Extender deadline
+        </button>
+        <a
+          href="#"
+          onClick={(e) => { e.preventDefault(); window.alert("Ve a la sección Equipo y ajusta tu capacidad diaria (sesiones/día)."); }}
+          className="rounded-md border border-red-300 bg-white px-2.5 py-1 text-[11px] font-semibold text-red-700 hover:bg-red-50 dark:bg-transparent dark:text-red-300"
+        >
+          Subir capacidad
+        </a>
+        <span className="rounded-md border border-red-200 bg-white/50 px-2.5 py-1 text-[11px] text-red-700 dark:bg-transparent dark:text-red-300">
+          O recorta entregables/resultados abajo ↓
+        </span>
+      </div>
     </div>
   );
 }

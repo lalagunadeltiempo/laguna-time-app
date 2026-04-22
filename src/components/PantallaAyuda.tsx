@@ -2,8 +2,8 @@
 
 import { useState } from "react";
 
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
-  const [open, setOpen] = useState(false);
+function Section({ title, children, defaultOpen = false }: { title: string; children: React.ReactNode; defaultOpen?: boolean }) {
+  const [open, setOpen] = useState(defaultOpen);
   return (
     <div className="rounded-xl border border-border bg-surface overflow-hidden">
       <button
@@ -49,157 +49,213 @@ function Tip({ children }: { children: React.ReactNode }) {
   );
 }
 
+function Mini({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-lg border border-border bg-background px-3 py-2">
+      <p className="text-[10px] font-semibold uppercase tracking-wider text-muted">{label}</p>
+      <p className="mt-0.5 text-sm font-semibold text-foreground">{value}</p>
+    </div>
+  );
+}
+
 export function PantallaAyuda() {
   return (
     <div className="space-y-4 pb-20">
       <h2 className="text-lg font-bold text-foreground">Guía de uso</h2>
       <p className="text-sm text-muted">
-        Instrucciones paso a paso para sacar el máximo partido a la app.
+        Cómo funciona la app y cómo sacarle el máximo partido.
       </p>
 
-      <Section title="1. Estructurar un proyecto">
-        <p>Los proyectos se organizan en una jerarquía: <strong>Proyecto → Resultado → Entregable → Paso</strong>.</p>
-        <Step n={1}>
-          <p>Abre la vista <strong>Mapa</strong> y pulsa el botón <strong>+ Proyecto</strong> en la sección del área correspondiente.</p>
-        </Step>
-        <Step n={2}>
-          <p>Dale un nombre y asigna fechas de inicio y fin. El proyecto se crea en estado <strong>Plan</strong>.</p>
-        </Step>
-        <Step n={3}>
-          <p>Dentro del proyecto, pulsa <strong>+ Resultado</strong> para crear un resultado. Un resultado agrupa entregables que persiguen un mismo objetivo.</p>
-        </Step>
-        <Step n={4}>
-          <p>Dentro de cada resultado, pulsa <strong>+ Entregable</strong>. Cada entregable es una pieza concreta de trabajo con días estimados.</p>
-        </Step>
-        <Step n={5}>
-          <p>Para asignar pasos a un entregable, ábrelo y añade los pasos necesarios. Al iniciar el primer paso de cualquier entregable del proyecto, el estado del proyecto cambia automáticamente a <strong>En marcha</strong>.</p>
-        </Step>
-        <Tip>Usa los campos de días estimados directamente en la vista Mapa para planificar la duración de cada entregable.</Tip>
-      </Section>
-
-      <Section title="2. Estados de proyecto">
-        <p>Un proyecto puede estar en uno de estos estados:</p>
-        <ul className="ml-4 list-disc space-y-1">
-          <li><strong>Plan</strong>: Proyecto definido pero sin trabajo iniciado.</li>
-          <li><strong>En marcha</strong>: Al menos un paso de un entregable ha sido iniciado. La transición es automática.</li>
-          <li><strong>Pausado</strong>: Puedes pausar un proyecto manualmente desde el selector de estado.</li>
-          <li><strong>Completado</strong>: Todos los entregables están marcados como &quot;hecho&quot;, o lo marcas manualmente.</li>
+      <Section title="¿Para qué sirve Laguna del Tiempo?" defaultOpen>
+        <p>
+          Laguna del Tiempo es una app de planificación pensada para <strong>trabajo enfocado</strong>:
+          ayudar a una persona o equipo pequeño a decidir <em>qué hacer hoy, esta semana y este mes</em>
+          respetando su capacidad real, sus tiempos de descanso y sus prioridades.
+        </p>
+        <p>
+          A diferencia de un gestor de tareas clásico, aquí cada cosa que haces vive dentro de un{" "}
+          <strong>proyecto con un objetivo y una fecha límite</strong>, y la app calcula
+          si <em>te da el tiempo</em> con tu capacidad declarada.
+        </p>
+        <ul className="ml-4 list-disc space-y-1 text-[13px]">
+          <li><strong>Trabajas en sesiones</strong>, no en jornadas completas.</li>
+          <li>La app <strong>asigna fechas y esfuerzo automáticamente</strong> según unas proporciones simples.</li>
+          <li>Marcas tus <strong>vacaciones y festivos</strong> para que no se planifique sobre ellos.</li>
+          <li>Las decisiones manuales <strong>siempre mandan</strong>; la app solo avisa si rompes algo.</li>
         </ul>
-        <Tip>El estado de un resultado se calcula automáticamente a partir de sus entregables. Si todos los entregables están &quot;hecho&quot;, el resultado se marca como completado.</Tip>
       </Section>
 
-      <Section title="3. Usar SOPs (Procesos recurrentes)">
-        <p>Los SOPs son plantillas de procesos que se repiten (diarios, semanales, mensuales, etc.).</p>
-        <Step n={1}>
-          <p>En la vista <strong>Mapa</strong>, busca la sección de SOPs al final de cada área. Pulsa <strong>+ SOP</strong> para crear uno nuevo.</p>
-        </Step>
-        <Step n={2}>
-          <p>Define los pasos del SOP. Cada paso puede tener notas y URLs de referencia.</p>
-        </Step>
-        <Step n={3}>
-          <p>Configura la <strong>frecuencia</strong> (diario, semanal, mensual, etc.) y la programación (días de la semana, hora).</p>
-        </Step>
-        <Step n={4}>
-          <p>Vincula el SOP a un <strong>proyecto y resultado destino</strong> usando la sección &quot;Destino&quot;. Esto es imprescindible para la materialización en lote.</p>
-        </Step>
-        <Tip>Si intentas programar un SOP que tiene proyecto pero no resultado, la app te guiará para vincular uno antes de continuar.</Tip>
+      <Section title="El modelo: Ámbito → Área → Proyecto → Resultado → Entregable → Paso" defaultOpen>
+        <p>Toda la app gira alrededor de esta jerarquía. Cada nivel responde a una pregunta:</p>
+        <ul className="ml-4 list-disc space-y-1 text-[13px]">
+          <li><strong>Ámbito</strong>: ¿personal o empresa?</li>
+          <li><strong>Área</strong>: ¿en qué dimensión de tu vida o negocio? (físico, emocional, mental, espiritual / financiera, operativa, comercial, administrativa).</li>
+          <li><strong>Proyecto</strong>: ¿cuál es el resultado mayor que persigues, con fecha de inicio y deadline?</li>
+          <li><strong>Resultado</strong>: ¿qué hito intermedio del proyecto?</li>
+          <li><strong>Entregable</strong>: ¿qué pieza concreta de trabajo produce ese resultado?</li>
+          <li><strong>Paso</strong>: ¿qué micro-acción ejecutas para sacar el entregable?</li>
+        </ul>
+        <Tip>Cuando empiezas el primer paso de cualquier entregable, el proyecto pasa automáticamente a estado <strong>En marcha</strong>.</Tip>
       </Section>
 
-      <Section title="4. Materializar SOPs en lote">
-        <p>Materializar un SOP significa crear entregables concretos a partir de la plantilla para un periodo determinado.</p>
+      <Section title="Sesiones, no jornadas">
+        <p>
+          La unidad de trabajo en la app es la <strong>sesión</strong>: un bloque enfocado de
+          aproximadamente <strong>1 a 3 horas</strong>. No una jornada completa de 8h.
+        </p>
+        <p>Esto importa porque:</p>
+        <ul className="ml-4 list-disc space-y-1 text-[13px]">
+          <li>En un día normal puedes hacer <strong>2-5 sesiones</strong>.</li>
+          <li>Un entregable de &quot;3 sesiones&quot; significa 3 bloques de 1-3h, no 3 días enteros.</li>
+          <li>Tu capacidad diaria (sesiones/día) la declaras tú en <strong>Equipo</strong>.</li>
+        </ul>
+        <Tip>Si trabajas en varios proyectos a la vez, reparte tu capacidad mentalmente. Ej: 4 sesiones/día y 4 proyectos activos = 1 sesión/día por proyecto.</Tip>
+      </Section>
+
+      <Section title="Auto-plan: cómo la app calcula fechas y esfuerzo">
+        <p>Para que no tengas que estimar todo a mano, la app aplica dos proporciones automáticas:</p>
+        <div className="grid gap-2 sm:grid-cols-2">
+          <Mini label="Resultado" value="1 semana / 3 entregables" />
+          <Mini label="Entregable" value="1 sesión / 5 pasos" />
+        </div>
+        <p className="text-[13px]">
+          Ejemplo: un resultado con <strong>7 entregables</strong> ocupa ⌈7÷3⌉ = <strong>3 semanas</strong>.
+          Un entregable con <strong>12 pasos</strong> son ⌈12÷5⌉ = <strong>3 sesiones</strong>.
+        </p>
+        <p className="text-[13px]">
+          Estas proporciones son <strong>configurables</strong> desde la sección <strong>Equipo → Configuración de planificación</strong>.
+          Empieza con los valores por defecto (3 y 5) y ajústalos cuando en la revisión semanal veas que la realidad es otra.
+        </p>
+        <Tip>
+          Cuando añades, quitas o mueves un paso/entregable/resultado, la app <strong>recalcula automáticamente</strong> las
+          fechas y sesiones sugeridas. No tienes que hacer nada.
+        </Tip>
+      </Section>
+
+      <Section title="Override manual: tus decisiones mandan">
+        <p>
+          La auto-asignación es un punto de partida. Tú puedes <strong>fijar manualmente</strong>:
+        </p>
+        <ul className="ml-4 list-disc space-y-1 text-[13px]">
+          <li>Fechas de inicio y fin de un resultado o entregable.</li>
+          <li>Sesiones estimadas concretas de un entregable (sustituye la estimación automática).</li>
+        </ul>
+        <p>
+          Cuando fijas algo a mano, la app lo respeta y reorganiza el resto alrededor.
+          Si tu decisión <strong>rompe el plan</strong> (no cabe en el deadline, se solapa con vacaciones, etc.)
+          aparece un aviso con <strong>tres opciones</strong>: extender deadline, subir capacidad o recortar.
+        </p>
+        <Tip>Para volver al cálculo automático en un entregable, deja vacío el campo de sesiones; verás &quot;auto&quot; en su lugar.</Tip>
+      </Section>
+
+      <Section title="Días no disponibles (vacaciones y festivos)">
+        <p>
+          Cada miembro del equipo declara sus <strong>días no disponibles</strong> desde la sección
+          <strong> Equipo</strong> (haz clic en tu nombre y abajo verás el panel).
+        </p>
+        <p>La app:</p>
+        <ul className="ml-4 list-disc space-y-1 text-[13px]">
+          <li>Salta esos días al distribuir resultados automáticamente.</li>
+          <li>Los excluye al calcular tu capacidad real entre hoy y el deadline.</li>
+          <li>Te avisa si has fijado manualmente algo que cae dentro de un periodo no disponible.</li>
+        </ul>
+        <Tip>Marca también los días laborables de la semana en ese mismo panel (por defecto L-V).</Tip>
+      </Section>
+
+      <Section title="El semáforo de ritmo: A tiempo, Ajustado, Crítico, No llegas">
+        <p>
+          Cada proyecto y resultado muestra un <strong>indicador de ritmo</strong> que compara
+          el trabajo pendiente con tu capacidad real entre hoy y el deadline.
+        </p>
+        <ul className="ml-4 list-disc space-y-1 text-[13px]">
+          <li><strong>A tiempo</strong>: necesitas menos del 30% de tu capacidad diaria.</li>
+          <li><strong>Ajustado</strong>: entre 30% y 70%.</li>
+          <li><strong>Crítico</strong>: entre 70% y 100%.</li>
+          <li><strong>No llegas</strong>: necesitarías más del 100% (no es viable sin acción).</li>
+        </ul>
+        <p className="text-[13px]">
+          Pasa el ratón sobre el indicador para ver el <strong>desglose por persona</strong>
+          (cuántas sesiones le tocan a cada responsable y a qué ritmo necesita ir).
+        </p>
+      </Section>
+
+      <Section title="Cuando no cabe: extender, subir capacidad o recortar">
+        <p>Si el plan no cabe, en el detalle del proyecto aparece un banner rojo con tres alternativas:</p>
+        <ol className="ml-4 list-decimal space-y-1 text-[13px]">
+          <li><strong>Extender deadline</strong>: la app calcula la fecha donde sí cabe y la propone.</li>
+          <li><strong>Subir capacidad</strong>: ve a Equipo y aumenta tu &quot;sesiones/día&quot; (si es realista).</li>
+          <li><strong>Recortar</strong>: quita resultados, entregables o pasos no imprescindibles.</li>
+        </ol>
+        <Tip>La opción recomendada es siempre la más honesta con la realidad. No subas tu capacidad si sabes que no la vas a tener.</Tip>
+      </Section>
+
+      <Section title="Cómo crear y estructurar un proyecto">
         <Step n={1}>
-          <p>Asegúrate de que el SOP tiene <strong>proyecto y resultado</strong> vinculados (ver sección anterior).</p>
+          <p>En la vista <strong>Mapa</strong>, abre el área correspondiente y pulsa <strong>+ Proyecto</strong>.</p>
         </Step>
         <Step n={2}>
-          <p>Pulsa el icono de <strong>calendario</strong> en el SOP y selecciona un periodo.</p>
+          <p>Asigna nombre, fecha de inicio y deadline. Estos dos definen la <strong>ventana</strong> del proyecto.</p>
         </Step>
         <Step n={3}>
-          <p>Se abrirá el <strong>diálogo de lote</strong> donde puedes elegir cuántas repeticiones crear, editar el nombre de cada entregable y ajustar las fechas.</p>
+          <p>Crea <strong>Resultados</strong> (hitos intermedios). No hace falta darles fechas: las recibirán automáticamente del proyecto y del auto-plan.</p>
         </Step>
         <Step n={4}>
-          <p>Los nombres se generan automáticamente con el formato &quot;Nombre del SOP - Periodo&quot; (ej: &quot;Ciclo de Pagos - Abril 2026&quot;).</p>
+          <p>Dentro de cada resultado, crea <strong>Entregables</strong>. Tampoco hace falta darles fechas ni estimar sesiones; la app lo hace por ti.</p>
         </Step>
         <Step n={5}>
-          <p>Confirma para crear todos los entregables de una vez. Cada uno incluirá todos los pasos del SOP como pasos pendientes.</p>
+          <p>Cuando vayas a ejecutar un entregable, abre la vista <strong>Hoy</strong> o <strong>Plan</strong> y dale a <strong>Iniciar</strong> al primer paso.</p>
         </Step>
-        <Tip>Los SOPs diarios se materializan como entregables semanales o mensuales para evitar saturar la planificación.</Tip>
       </Section>
 
-      <Section title="5. Planificación semanal">
-        <p>La vista <strong>Plan → Semana</strong> te permite organizar el trabajo día a día.</p>
-        <Step n={1}>
-          <p>Navega a <strong>Plan</strong> y selecciona la semana que quieres planificar.</p>
-        </Step>
-        <Step n={2}>
-          <p>Verás los entregables asignados a cada día. Puedes mover entregables entre días usando el menú contextual (mantén pulsado o haz clic derecho).</p>
-        </Step>
-        <Step n={3}>
-          <p>Desde el menú contextual también puedes: cambiar responsable, marcar como hecho, o abrir el proyecto para planificación detallada.</p>
-        </Step>
-        <Tip>Asigna entregables a días desde la vista Mapa usando el icono de calendario en cada entregable.</Tip>
+      <Section title="Las cuatro vistas principales">
+        <ul className="ml-4 list-disc space-y-1.5 text-[13px]">
+          <li><strong>Hoy</strong>: pasos activos del día. Punto de partida cada mañana.</li>
+          <li><strong>Plan</strong>: organización por día / semana / mes / trimestre. Aquí planificas.</li>
+          <li><strong>Mapa</strong>: vista jerárquica completa de todos tus proyectos y áreas.</li>
+          <li><strong>Equipo</strong>: miembros, capacidades, días no disponibles y configuración de planificación.</li>
+        </ul>
       </Section>
 
-      <Section title="6. Planificación mensual">
-        <p>La vista <strong>Plan → Mes</strong> muestra un resumen del mes con Gantt y proyectos activos.</p>
+      <Section title="SOPs: procesos recurrentes">
+        <p>Los SOPs son <strong>plantillas de procesos</strong> que se repiten (diarios, semanales, mensuales...).</p>
         <Step n={1}>
-          <p>Selecciona el mes en la parte superior. Solo se muestran proyectos con trabajo en ese mes (no completados ni pausados).</p>
+          <p>En <strong>Mapa</strong>, baja a la sección de SOPs de cada área y pulsa <strong>+ SOP</strong>.</p>
         </Step>
         <Step n={2}>
-          <p>El <strong>Gantt multi-proyecto</strong> te muestra todos los proyectos con sus barras de progreso. Puedes expandirlo para ver resultados y entregables.</p>
+          <p>Define los pasos de la plantilla. Cada paso puede tener notas y URLs de referencia.</p>
         </Step>
         <Step n={3}>
-          <p>Usa los presets de rango (Mes, Trimestre, Todo) o define un rango personalizado para ajustar la escala del Gantt.</p>
+          <p>Configura la <strong>frecuencia</strong> y vincula el SOP a un <strong>proyecto y resultado destino</strong>.</p>
         </Step>
         <Step n={4}>
-          <p>Debajo del Gantt, cada proyecto muestra un resumen con ritmo de avance, entregables pendientes y carga de trabajo.</p>
+          <p>Pulsa el icono de calendario en el SOP para <strong>materializarlo en lote</strong>: la app crea todos los entregables de una vez.</p>
+        </Step>
+        <Tip>Los SOPs no aparecen en la vista Hoy. Aparecen como entregables planificables una vez los materializas.</Tip>
+      </Section>
+
+      <Section title="Mover cosas entre niveles">
+        <p>Puedes <strong>reasignar</strong> un paso a otro entregable, un entregable a otro resultado, o un resultado a otro proyecto.</p>
+        <Step n={1}>
+          <p>Busca el botón <strong>Mover</strong> (flecha →) junto al elemento.</p>
+        </Step>
+        <Step n={2}>
+          <p>Selecciona la nueva ubicación paso a paso (área → proyecto → resultado → entregable según corresponda).</p>
+        </Step>
+        <Step n={3}>
+          <p>El elemento conserva su historial y notas.</p>
         </Step>
       </Section>
 
-      <Section title="7. Ejecución del trabajo diario">
-        <p>La vista <strong>Hoy</strong> es tu punto de partida cada día.</p>
-        <Step n={1}>
-          <p>Revisa los pasos activos del día. Si hay SOPs programados para hoy, aparecerán como sugerencias.</p>
-        </Step>
-        <Step n={2}>
-          <p>Para iniciar un paso, ábrelo y pulsa <strong>Iniciar</strong>. Se registra la hora de inicio.</p>
-        </Step>
-        <Step n={3}>
-          <p>Al terminar, pulsa <strong>Completar</strong>. Se registra la hora de fin y se activa el siguiente paso.</p>
-        </Step>
-        <Step n={4}>
-          <p>Cuando completas el último paso de un entregable, éste se marca como <strong>hecho</strong> automáticamente.</p>
-        </Step>
-        <Tip>Si un entregable viene de un SOP y has modificado los pasos, al marcarlo como hecho la app te preguntará si quieres actualizar el SOP con los cambios.</Tip>
-      </Section>
-
-      <Section title="8. Marcar entregables como completados">
-        <p>Puedes marcar entregables como &quot;hecho&quot; directamente desde la vista <strong>Mapa</strong>.</p>
-        <Step n={1}>
-          <p>Expande el proyecto y resultado hasta ver los entregables.</p>
-        </Step>
-        <Step n={2}>
-          <p>Marca el checkbox junto al nombre del entregable. El estado cambiará a <strong>hecho</strong>.</p>
-        </Step>
-        <Step n={3}>
-          <p>Si necesitas desmarcar, vuelve a pulsar el checkbox. El estado volverá a <strong>en_curso</strong> o <strong>pendiente</strong>.</p>
-        </Step>
-        <Tip>Esto es útil para registrar trabajo histórico que ya completaste antes de empezar a usar la app.</Tip>
-      </Section>
-
-      <Section title="9. Gantt multi-proyecto">
-        <p>El Gantt es una herramienta visual para ver el avance de todos tus proyectos.</p>
-        <Step n={1}>
-          <p>Accede al Gantt desde <strong>Plan → Mes</strong> (aparece automáticamente) o desde <strong>Plan → Trimestre</strong>.</p>
-        </Step>
-        <Step n={2}>
-          <p>Usa los controles de rango: <strong>Mes</strong>, <strong>Trimestre</strong>, <strong>Todo</strong> o <strong>Rango personalizado</strong> para ajustar el periodo visible.</p>
-        </Step>
-        <Step n={3}>
-          <p>Expande cada proyecto para ver resultados y entregables con sus barras de progreso coloreadas por estado.</p>
-        </Step>
-        <Step n={4}>
-          <p>La línea vertical indica el día de <strong>hoy</strong>. Las barras a la izquierda son trabajo pasado, las de la derecha son futuro.</p>
-        </Step>
+      <Section title="Resumen visual del flujo">
+        <ol className="ml-4 list-decimal space-y-1 text-[13px]">
+          <li>Defines un <strong>proyecto</strong> con deadline.</li>
+          <li>Lo descompones en <strong>resultados</strong> y <strong>entregables</strong>.</li>
+          <li>La app <strong>auto-plan</strong> distribuye fechas y sesiones.</li>
+          <li>El <strong>semáforo de ritmo</strong> te dice si te da el tiempo.</li>
+          <li>Si no cabe, eliges entre <strong>extender / subir capacidad / recortar</strong>.</li>
+          <li>Ejecutas paso a paso desde <strong>Hoy</strong>.</li>
+          <li>En la <strong>revisión semanal</strong> ajustas las proporciones si la realidad pide.</li>
+        </ol>
       </Section>
     </div>
   );

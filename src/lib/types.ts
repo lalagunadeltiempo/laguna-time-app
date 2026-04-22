@@ -26,6 +26,12 @@ export function ambitoDeArea(area: Area): Ambito {
 
 export type RolUsuario = "admin" | "miembro" | "mentor";
 
+export interface DiaNoDisponible {
+  desde: string;
+  hasta: string;
+  motivo?: string;
+}
+
 export interface MiembroInfo {
   id: string;
   nombre: string;
@@ -33,7 +39,18 @@ export interface MiembroInfo {
   color: string;
   capacidadDiaria: number;
   diasLaborables: number[];
+  diasNoDisponibles?: DiaNoDisponible[];
 }
+
+export interface PlanConfig {
+  entregablesPorSemana: number;
+  pasosPorSesion: number;
+}
+
+export const PLAN_CONFIG_DEFAULT: PlanConfig = {
+  entregablesPorSemana: 3,
+  pasosPorSesion: 5,
+};
 
 export type MiembroEquipo = string;
 
@@ -302,6 +319,7 @@ export interface AppState {
   activityLog: ActivityEntry[];
   objetivos: Objetivo[];
   deleted?: DeletedTombstones;
+  planConfig?: PlanConfig;
   mtp?: string;
   _migrationVersion?: number;
 }

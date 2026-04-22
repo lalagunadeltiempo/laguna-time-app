@@ -1,6 +1,6 @@
 "use client";
 
-import { AppState, EQUIPO_DEFAULT } from "./types";
+import { AppState, EQUIPO_DEFAULT, PLAN_CONFIG_DEFAULT } from "./types";
 import { buildSeedSOPs } from "./seed-sops";
 import { getSupabase } from "./supabase";
 
@@ -29,6 +29,7 @@ export const INITIAL_STATE: AppState = {
   activityLog: [],
   objetivos: [],
   deleted: EMPTY_DELETED,
+  planConfig: PLAN_CONFIG_DEFAULT,
 };
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -125,11 +126,17 @@ function migrateV1(raw: any): AppState {
     ejecuciones: raw.ejecuciones ?? [],
     pasosActivos: raw.pasosActivos ?? (raw.pasoActivo ? [raw.pasoActivo] : []),
     miembros: raw.miembros?.length
-      ? raw.miembros.map((m: any) => ({ ...m, capacidadDiaria: m.capacidadDiaria ?? 1, diasLaborables: m.diasLaborables ?? [1, 2, 3, 4, 5] }))
+      ? raw.miembros.map((m: any) => ({
+          ...m,
+          capacidadDiaria: m.capacidadDiaria ?? 1,
+          diasLaborables: m.diasLaborables ?? [1, 2, 3, 4, 5],
+          diasNoDisponibles: m.diasNoDisponibles ?? [],
+        }))
       : EQUIPO_DEFAULT,
     activityLog: raw.activityLog ?? [],
     objetivos: raw.objetivos ?? [],
     deleted: raw.deleted ?? { proyectos: [], resultados: [], entregables: [], pasos: [], plantillas: [] },
+    planConfig: raw.planConfig ?? PLAN_CONFIG_DEFAULT,
   } as AppState;
 }
 /* eslint-enable @typescript-eslint/no-explicit-any */

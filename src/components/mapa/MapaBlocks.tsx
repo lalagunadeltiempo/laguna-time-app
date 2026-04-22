@@ -669,7 +669,7 @@ function ProyectoBlock({ proyecto, index, total }: { proyecto: Proyecto; index: 
   const projEstado = proyecto.estado ?? "plan";
   const isInactive = projEstado === "completado" || projEstado === "pausado";
 
-  const ritmo = useMemo(() => showRitmo ? computeProyectoRitmo(proyecto, projEntregables, allResultados, new Date()) : null, [showRitmo, proyecto, projEntregables, allResultados]);
+  const ritmo = useMemo(() => showRitmo ? computeProyectoRitmo(proyecto, projEntregables, allResultados, new Date(), state.miembros, state.pasos, state.planConfig) : null, [showRitmo, proyecto, projEntregables, allResultados, state.miembros, state.pasos, state.planConfig]);
 
   if (hideFiltered && !inFilter) return null;
 
@@ -1621,8 +1621,8 @@ function DaysInput({ value, onChange }: { value: number; onChange: (v: number) =
   return (
     <button onClick={(e) => { e.stopPropagation(); setDraft(String(value)); setEditing(true); }}
       className="flex shrink-0 items-center gap-0.5 rounded px-1.5 py-0.5 text-[10px] text-muted opacity-60 transition-all hover:bg-surface-hover hover:text-foreground hover:opacity-100"
-      title="Días estimados">
-      {value > 0 ? <>{value}d</> : <>+d</>}
+      title="Sesiones estimadas (1 sesión ≈ 1-3h)">
+      {value > 0 ? <>{value}s</> : <>+s</>}
     </button>
   );
 }

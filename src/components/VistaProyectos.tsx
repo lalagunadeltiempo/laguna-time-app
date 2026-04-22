@@ -403,7 +403,7 @@ function ResultadoItem({ resultado, onDelete, onPromote, onMove, onOpenDetalle }
             </div>
             <span className="text-[10px] text-zinc-400">o</span>
             <div className="flex items-center gap-1">
-              <span className="text-[10px] text-zinc-500">Días estimados:</span>
+              <span className="text-[10px] text-zinc-500">Sesiones estimadas:</span>
               <input type="number" min="1" value={durCantidad} onChange={(e) => setDurCantidad(e.target.value)} placeholder="—"
                 className="w-10 rounded border border-zinc-200 bg-white px-1 py-1 text-center text-[10px] text-zinc-700 focus:border-blue-400 focus:outline-none" />
             </div>

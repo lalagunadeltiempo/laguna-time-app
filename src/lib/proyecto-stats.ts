@@ -1,6 +1,18 @@
-import type { Proyecto, Entregable, Resultado } from "./types";
+import type { Proyecto, Entregable, Resultado, MiembroInfo, Paso, PlanConfig } from "./types";
+import { PLAN_CONFIG_DEFAULT } from "./types";
+import { laborablesEntre, resolverMiembro } from "./auto-planner";
+import { sesionesEfectivasEntregable } from "./fechas-efectivas";
 
 export type EstadoRitmo = "verde" | "amarillo" | "rojo" | "imposible" | "sin-deadline" | "completado" | "vacio" | "vencido";
+
+export interface RitmoPersona {
+  miembro: string;
+  carga: number;
+  laborables: number;
+  capacidadDiaria: number;
+  sesionesPorDia: number;
+  ratio: number;
+}
 
 export interface ProyectoRitmo {
   diasTrabajoPendientes: number;
@@ -11,6 +23,8 @@ export interface ProyectoRitmo {
   estadoRitmo: EstadoRitmo;
   deadline: string | null;
   porcentaje: number;
+  desglose: RitmoPersona[];
+  peor: RitmoPersona | null;
 }
 
 function daysBetween(a: Date, b: Date): number {
@@ -32,16 +46,28 @@ export function inferDateRange(items: { fechaInicio: string | null; fechaLimite:
   return { inicio: minI, fin: maxF };
 }
 
+interface ComputeOpts {
+  miembros: MiembroInfo[];
+  pasos: Paso[];
+  config: PlanConfig;
+}
+
 function computeRitmo(
   deadlineStr: string | null,
   entregables: Entregable[],
   hoy: Date,
+  opts: ComputeOpts,
 ): ProyectoRitmo {
+  const { miembros, pasos, config } = opts;
   const activos = entregables.filter((e) => e.estado !== "cancelada");
-  const diasTrabajoTotal = activos.reduce((s, e) => s + e.diasEstimados, 0);
-  const diasTrabajoHechos = activos.reduce((s, e) => s + e.diasHechos, 0);
+
+  const sesionesPorEnt: Record<string, number> = {};
+  for (const e of activos) sesionesPorEnt[e.id] = sesionesEfectivasEntregable(e, pasos, config);
+
+  const diasTrabajoTotal = activos.reduce((s, e) => s + sesionesPorEnt[e.id], 0);
+  const diasTrabajoHechos = activos.reduce((s, e) => s + Math.min(sesionesPorEnt[e.id], e.diasHechos), 0);
   const diasTrabajoPendientes = activos.reduce(
-    (s, e) => s + Math.max(0, e.diasEstimados - e.diasHechos),
+    (s, e) => s + Math.max(0, sesionesPorEnt[e.id] - e.diasHechos),
     0,
   );
   const porcentaje = diasTrabajoTotal > 0 ? diasTrabajoHechos / diasTrabajoTotal : 0;
@@ -59,6 +85,8 @@ function computeRitmo(
       estadoRitmo: "vacio",
       deadline,
       porcentaje: 0,
+      desglose: [],
+      peor: null,
     };
   }
 
@@ -73,6 +101,8 @@ function computeRitmo(
       estadoRitmo: "completado",
       deadline,
       porcentaje: 1,
+      desglose: [],
+      peor: null,
     };
   }
 
@@ -86,6 +116,8 @@ function computeRitmo(
       estadoRitmo: "sin-deadline",
       deadline: null,
       porcentaje,
+      desglose: [],
+      peor: null,
     };
   }
 
@@ -99,17 +131,50 @@ function computeRitmo(
       estadoRitmo: "vencido",
       deadline,
       porcentaje,
+      desglose: [],
+      peor: null,
     };
   }
 
-  const diasCalendarioRestantes = Math.max(1, deadlineDiasRaw ?? 1);
-  const ritmoRequerido = diasTrabajoPendientes / diasCalendarioRestantes;
+  const deadlineDate = new Date(deadline + "T23:59:59");
+  const desde = new Date(hoy);
+  desde.setHours(0, 0, 0, 0);
+
+  const cargaPorPersona = new Map<string, number>();
+  for (const e of activos) {
+    const pendiente = Math.max(0, sesionesPorEnt[e.id] - e.diasHechos);
+    if (pendiente <= 0) continue;
+    const key = e.responsable || "Sin asignar";
+    cargaPorPersona.set(key, (cargaPorPersona.get(key) ?? 0) + pendiente);
+  }
+
+  const desglose: RitmoPersona[] = [];
+  for (const [nombre, carga] of cargaPorPersona.entries()) {
+    const m = resolverMiembro(miembros, nombre);
+    const laborables = laborablesEntre(desde, deadlineDate, m.diasLaborables, m.diasNoDisponibles);
+    const capacidad = Math.max(0.1, m.capacidadDiaria);
+    const sesionesPorDia = laborables > 0 ? carga / laborables : Infinity;
+    const ratio = sesionesPorDia / capacidad;
+    desglose.push({
+      miembro: nombre,
+      carga,
+      laborables,
+      capacidadDiaria: capacidad,
+      sesionesPorDia,
+      ratio: Number.isFinite(ratio) ? ratio : 999,
+    });
+  }
+  desglose.sort((a, b) => b.ratio - a.ratio);
+  const peor = desglose[0] ?? null;
+  const ritmoRequerido = peor ? peor.ratio : 0;
 
   let estadoRitmo: EstadoRitmo;
   if (ritmoRequerido > 1) estadoRitmo = "imposible";
   else if (ritmoRequerido > 0.7) estadoRitmo = "rojo";
   else if (ritmoRequerido > 0.3) estadoRitmo = "amarillo";
   else estadoRitmo = "verde";
+
+  const diasCalendarioRestantes = Math.max(1, deadlineDiasRaw ?? 1);
 
   return {
     diasTrabajoPendientes,
@@ -120,6 +185,8 @@ function computeRitmo(
     estadoRitmo,
     deadline,
     porcentaje,
+    desglose,
+    peor,
   };
 }
 
@@ -128,18 +195,24 @@ export function computeProyectoRitmo(
   entregables: Entregable[],
   _resultados: Resultado[],
   hoy: Date,
+  miembros: MiembroInfo[] = [],
+  pasos: Paso[] = [],
+  config: PlanConfig = PLAN_CONFIG_DEFAULT,
 ): ProyectoRitmo {
-  return computeRitmo(proyecto.fechaLimite ?? null, entregables, hoy);
+  return computeRitmo(proyecto.fechaLimite ?? null, entregables, hoy, { miembros, pasos, config });
 }
 
 export function computeResultadoRitmo(
   resultado: Resultado,
   entregables: Entregable[],
   hoy: Date,
+  miembros: MiembroInfo[] = [],
+  pasos: Paso[] = [],
+  config: PlanConfig = PLAN_CONFIG_DEFAULT,
 ): ProyectoRitmo {
   const propia = entregables.filter((e) => e.resultadoId === resultado.id);
   const deadline = resultado.fechaLimite ?? inferDateRange(propia).fin;
-  return computeRitmo(deadline, propia, hoy);
+  return computeRitmo(deadline, propia, hoy, { miembros, pasos, config });
 }
 
 export interface RangeValidation {
@@ -178,13 +251,28 @@ export function ritmoColor(estado: EstadoRitmo): string {
   return RITMO_COLORS[estado];
 }
 
+function fmt(n: number): string {
+  if (!Number.isFinite(n)) return "∞";
+  return n >= 10 ? n.toFixed(0) : n.toFixed(1);
+}
+
 export function ritmoLabel(ritmo: ProyectoRitmo): string {
   if (ritmo.estadoRitmo === "completado") return "Completado";
   if (ritmo.estadoRitmo === "vacio") return "Sin entregables planificados";
-  if (ritmo.estadoRitmo === "vencido") return `${ritmo.diasTrabajoPendientes}d pendientes · deadline vencido`;
-  if (ritmo.estadoRitmo === "sin-deadline") return `${ritmo.diasTrabajoPendientes}d pendientes · sin fecha límite`;
-  const pct = ritmo.ritmoRequerido != null ? Math.round(ritmo.ritmoRequerido * 100) : 0;
-  return `${ritmo.diasTrabajoPendientes}d pendientes · ${ritmo.diasCalendarioRestantes}d calendario · ${pct}% diario`;
+  if (ritmo.estadoRitmo === "vencido") return `${ritmo.diasTrabajoPendientes} sesiones pendientes · deadline vencido`;
+  if (ritmo.estadoRitmo === "sin-deadline") return `${ritmo.diasTrabajoPendientes} sesiones pendientes · sin fecha límite`;
+  if (ritmo.peor) {
+    return `${ritmo.diasTrabajoPendientes} sesiones · peor: ${ritmo.peor.miembro} ${fmt(ritmo.peor.sesionesPorDia)}/día (cap ${fmt(ritmo.peor.capacidadDiaria)})`;
+  }
+  return `${ritmo.diasTrabajoPendientes} sesiones · ${ritmo.diasCalendarioRestantes}d calendario`;
+}
+
+export function ritmoTooltip(ritmo: ProyectoRitmo): string {
+  if (ritmo.desglose.length === 0) return ritmoLabel(ritmo);
+  const lines = ritmo.desglose.map(
+    (p) => `${p.miembro}: ${p.carga} sesiones / ${p.laborables} días lab → ${fmt(p.sesionesPorDia)}/día (cap ${fmt(p.capacidadDiaria)})`,
+  );
+  return lines.join("\n");
 }
 
 export function ritmoLabelCorto(estado: EstadoRitmo): string {

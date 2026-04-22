@@ -201,7 +201,7 @@ export function PlanMes({ selectedDate, onNavigateToWeek }: Props) {
       if (!inMonth) continue;
 
       const areaHex = AREA_COLORS[proj.area]?.hex ?? "#888";
-      const ritmo = computeProyectoRitmo(proj, entregables, resultados, hoy);
+      const ritmo = computeProyectoRitmo(proj, entregables, resultados, hoy, state.miembros, state.pasos, state.planConfig);
       const entHechos = entregables.filter((e) => e.estado === "hecho").length;
       const entEnCurso = entregables.filter((e) => e.estado === "en_proceso").length;
 

@@ -17,7 +17,9 @@ import type {
   Objetivo,
   ReviewMark,
   DeletedTombstones,
+  PlanConfig,
 } from "./types";
+import { PLAN_CONFIG_DEFAULT } from "./types";
 import { minutosEfectivos } from "./duration";
 import { toDateKey } from "./date-utils";
 
@@ -62,8 +64,9 @@ export type Action =
   | { type: "DELETE_PLANTILLA"; id: string }
   | { type: "UPDATE_PLANTILLA"; id: string; changes: Partial<Pick<PlantillaProceso, "nombre" | "area" | "objetivo" | "disparador" | "programacion" | "excepciones" | "responsableDefault" | "pasos" | "herramientas" | "dependeDeIds" | "proyectoId" | "resultadoId">> }
   | { type: "ADD_MIEMBRO"; payload: MiembroInfo }
-  | { type: "UPDATE_MIEMBRO"; id: string; changes: Partial<Pick<MiembroInfo, "nombre" | "rol" | "color" | "capacidadDiaria" | "diasLaborables">> }
+  | { type: "UPDATE_MIEMBRO"; id: string; changes: Partial<Pick<MiembroInfo, "nombre" | "rol" | "color" | "capacidadDiaria" | "diasLaborables" | "diasNoDisponibles">> }
   | { type: "DELETE_MIEMBRO"; id: string }
+  | { type: "UPDATE_PLAN_CONFIG"; changes: Partial<PlanConfig> }
   | { type: "ADD_EJECUCION"; payload: EjecucionSOP }
   | { type: "UPDATE_EJECUCION"; id: string; changes: Partial<Pick<EjecucionSOP, "entregableId" | "pasosLanzados" | "estado">> }
   | { type: "TOGGLE_PASO_EJECUCION"; ejecucionId: string; pasoId: string }
@@ -858,6 +861,16 @@ export function reducer(state: AppState, action: Action): AppState {
 
     case "SET_MTP":
       return { ...state, mtp: action.mtp };
+
+    case "UPDATE_PLAN_CONFIG": {
+      const current = state.planConfig ?? PLAN_CONFIG_DEFAULT;
+      const merged: PlanConfig = { ...current, ...action.changes };
+      const safe: PlanConfig = {
+        entregablesPorSemana: Math.max(1, Math.round(merged.entregablesPorSemana || 1)),
+        pasosPorSesion: Math.max(1, Math.round(merged.pasosPorSesion || 1)),
+      };
+      return { ...state, planConfig: safe };
+    }
 
     default:
       return state;
