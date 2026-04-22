@@ -2,12 +2,11 @@
 
 import { useState, useMemo, useEffect } from "react";
 import { useAppState, useAppDispatch } from "@/lib/context";
-import { usePasosActivos, useSOPsHoy, useDependenciasEntrantes, useEsperandoRespuesta, usePlannedBlocks, buildClosedPaso } from "@/lib/hooks";
+import { usePasosActivos, useDependenciasEntrantes, useEsperandoRespuesta, usePlannedBlocks, buildClosedPaso } from "@/lib/hooks";
 import { generateId } from "@/lib/store";
 import { useUsuario, useIsMentor } from "@/lib/usuario";
 import { toDateKey } from "@/lib/date-utils";
 import type { InboxItem, Paso } from "@/lib/types";
-import { AREA_COLORS } from "@/lib/types";
 import { PasoActivoCard } from "./PasoActivo";
 import { NuevoPaso } from "./NuevoPaso";
 import { VistaInbox } from "./VistaInbox";
@@ -25,7 +24,6 @@ export function PantallaHoy() {
   const [showRetro, setShowRetro] = useState(false);
   const [quickCapture, setQuickCapture] = useState("");
 
-  const { mios: sopsMios } = useSOPsHoy();
   const depsEntrantes = useDependenciasEntrantes();
   const esperando = useEsperandoRespuesta();
   const pendingInbox = useMemo(() => state.inbox.filter((i) => !i.procesado).length, [state.inbox]);
@@ -38,20 +36,10 @@ export function PantallaHoy() {
 
   const plannedBlocks = usePlannedBlocks(todayKey);
 
-  const [sopDestPicker, setSopDestPicker] = useState<string | null>(null);
-  const [sopDestCache, setSopDestCache] = useState<Map<string, string>>(new Map());
   const [orphanBlock, setOrphanBlock] = useState<{ entregableId: string; title: string } | null>(null);
 
   if (isMentor) return <div className="p-8 text-center text-muted">Vista no disponible para mentor.</div>;
 
-  const sopsPendientes = sopsMios.filter((s) => {
-    if (s.completadoHoy || s.ejecucion) return false;
-    const yaEnCurso = state.entregables.some(
-      (e) => e.plantillaId === s.plantilla.id
-        && state.pasosActivos.some((pid) => state.pasos.find((p) => p.id === pid)?.entregableId === e.id),
-    );
-    return !yaEnCurso;
-  });
   const isEmpty = pasosActivos.length === 0 && plannedBlocks.length === 0;
   const hasOpenWork = pasosActivos.length > 0 || pendingInbox > 0;
 
@@ -100,50 +88,6 @@ export function PantallaHoy() {
     }
   }
 
-  function startSOPStep(plantilla: import("@/lib/types").PlantillaProceso, pasoNombre: string) {
-    const proj = plantilla.proyectoId ? state.proyectos.find((p) => p.id === plantilla.proyectoId) : undefined;
-    const cachedResId = sopDestCache.get(plantilla.id);
-    const res = cachedResId
-      ? state.resultados.find((r) => r.id === cachedResId)
-      : proj ? state.resultados.find((r) => r.proyectoId === proj.id) : undefined;
-
-    if (!res) {
-      setSopDestPicker(plantilla.id);
-      return;
-    }
-
-    const existingEnt = state.entregables.find((e) => e.plantillaId === plantilla.id && e.fechaInicio === todayKey);
-    let entregableId: string;
-
-    if (existingEnt) {
-      entregableId = existingEnt.id;
-    } else {
-      entregableId = generateId();
-      dispatch({
-        type: "MATERIALIZE_SOP",
-        plantillaId: plantilla.id,
-        area: plantilla.area,
-        responsable: plantilla.responsableDefault ?? currentUser,
-        currentUser,
-        dateKey: todayKey,
-        ids: { resultado: generateId(), entregable: entregableId, paso: generateId(), proyecto: generateId() },
-        resultadoId: res.id,
-        autoStart: false,
-      });
-    }
-
-    dispatch({
-      type: "START_PASO",
-      payload: {
-        id: generateId(), entregableId, nombre: pasoNombre,
-        inicioTs: new Date().toISOString(), finTs: null, estado: "",
-        contexto: { urls: [], apps: [], notas: "" },
-        implicados: [{ tipo: "equipo", nombre: currentUser }],
-        pausas: [], siguientePaso: null,
-      },
-    });
-  }
-
   return (
     <div className="flex flex-1 flex-col px-6 py-8">
       {/* Header */}
@@ -171,7 +115,7 @@ export function PantallaHoy() {
       )}
 
       {/* Empty state */}
-      {isEmpty && !showNuevoPaso && sopsPendientes.length === 0 && (
+      {isEmpty && !showNuevoPaso && (
         <div className="mb-8 flex flex-1 flex-col items-center justify-center text-center">
           <div className="mb-4 text-5xl opacity-20">☀️</div>
           <p className="text-base text-muted">Tu día empieza vacío.</p>
@@ -277,21 +221,6 @@ export function PantallaHoy() {
         </section>
       )}
 
-      {/* SOPs pendientes hoy — expandable cards */}
-      {sopsPendientes.length > 0 && (
-        <section className="mb-5 space-y-2">
-          <h2 className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-blue-600">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><polyline points="14 2 14 8 20 8" /><line x1="16" y1="13" x2="8" y2="13" /><line x1="16" y1="17" x2="8" y2="17" />
-            </svg>
-            SOPs programados ({sopsPendientes.length})
-          </h2>
-          {sopsPendientes.map((sop) => (
-            <SOPExpandableCard key={sop.plantilla.id} sop={sop} onStartStep={(pasoNombre) => startSOPStep(sop.plantilla, pasoNombre)} onPickDest={() => setSopDestPicker(sop.plantilla.id)} />
-          ))}
-        </section>
-      )}
-
       {/* Esperando respuesta (tracking para remitente) */}
       {esperando.length > 0 && (
         <section className="mb-5 space-y-2">
@@ -340,23 +269,6 @@ export function PantallaHoy() {
       {showNuevoPaso && <NuevoPaso onClose={() => setShowNuevoPaso(false)} />}
       {showInbox && <VistaInbox onClose={() => setShowInbox(false)} />}
       {showRetro && <RegistrarPasoPasado onClose={() => setShowRetro(false)} />}
-      {sopDestPicker && (() => {
-        const pl = state.plantillas.find((p) => p.id === sopDestPicker);
-        if (!pl) return null;
-        return (
-          <HierarchyPicker
-            depth="resultado"
-            initialArea={pl.area}
-            title={`Destino para "${pl.nombre}"`}
-            onSelect={(sel) => {
-              if (sel.proyectoId) dispatch({ type: "UPDATE_PLANTILLA", id: pl.id, changes: { proyectoId: sel.proyectoId } });
-              if (sel.resultadoId) setSopDestCache((prev) => new Map(prev).set(pl.id, sel.resultadoId!));
-              setSopDestPicker(null);
-            }}
-            onCancel={() => setSopDestPicker(null)}
-          />
-        );
-      })()}
       {orphanBlock && (
         <HierarchyPicker
           depth="resultado"
@@ -369,76 +281,6 @@ export function PantallaHoy() {
           }}
           onCancel={() => setOrphanBlock(null)}
         />
-      )}
-    </div>
-  );
-}
-
-/* ============================================================
-   SOP EXPANDABLE CARD
-   ============================================================ */
-
-function SOPExpandableCard({ sop, onStartStep, onPickDest }: {
-  sop: import("@/lib/sop-scheduler").SOPHoy;
-  onStartStep: (pasoNombre: string) => void;
-  onPickDest: () => void;
-}) {
-  const state = useAppState();
-  const [open, setOpen] = useState(false);
-  const pl = sop.plantilla;
-  const hex = AREA_COLORS[pl.area]?.hex ?? "#6d28d9";
-
-  const proj = pl.proyectoId ? state.proyectos.find((p) => p.id === pl.proyectoId) : undefined;
-  const res = proj ? state.resultados.find((r) => r.proyectoId === proj.id) : undefined;
-  const hasDest = !!proj && !!res;
-
-  return (
-    <div className="overflow-hidden rounded-xl border" style={{ borderColor: hex + "40" }}>
-      <button onClick={() => setOpen(!open)}
-        className="flex w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-surface/50"
-        style={{ backgroundColor: hex + "08" }}>
-        <span className="h-3 w-3 shrink-0 rounded-full" style={{ backgroundColor: hex }} />
-        <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-semibold" style={{ color: hex }}>{pl.nombre}</p>
-          {hasDest ? (
-            <p className="truncate text-[11px] text-muted">{proj!.nombre} → {res!.nombre}</p>
-          ) : (
-            <p className="text-[11px] font-medium text-amber-600">Sin destino asignado</p>
-          )}
-        </div>
-        <span className="shrink-0 rounded-md px-2 py-0.5 text-[10px] font-bold" style={{ backgroundColor: hex + "15", color: hex }}>
-          {pl.pasos.length}p
-        </span>
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"
-          className={`shrink-0 text-muted transition-transform ${open ? "rotate-90" : ""}`}>
-          <polyline points="9 6 15 12 9 18" />
-        </svg>
-      </button>
-
-      {open && (
-        <div className="border-t px-4 py-2 space-y-1" style={{ borderColor: hex + "20" }}>
-          {!hasDest && (
-            <button onClick={onPickDest}
-              className="mb-2 w-full rounded-lg border border-dashed border-amber-300 bg-amber-50 py-2 text-xs font-medium text-amber-700 hover:bg-amber-100">
-              Asignar proyecto y resultado
-            </button>
-          )}
-          {pl.pasos.map((paso, i) => (
-            <div key={paso.id} className="flex items-center gap-2 rounded-lg px-2 py-1.5 transition-colors hover:bg-surface">
-              <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[10px] font-bold text-white" style={{ backgroundColor: hex + "80" }}>
-                {i + 1}
-              </span>
-              <span className="flex-1 truncate text-sm text-foreground">{paso.nombre}</span>
-              {hasDest && (
-                <button onClick={() => onStartStep(paso.nombre)}
-                  className="shrink-0 rounded-md px-2.5 py-1 text-[10px] font-semibold text-white transition-colors hover:brightness-110"
-                  style={{ backgroundColor: hex }}>
-                  Iniciar
-                </button>
-              )}
-            </div>
-          ))}
-        </div>
       )}
     </div>
   );

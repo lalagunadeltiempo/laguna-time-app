@@ -7,7 +7,7 @@ import { useStaleStepCleanup, buildClosedPasoFin, type StaleSopStep } from "@/li
 import { UsuarioContext, useUsuario } from "@/lib/usuario";
 import { getSupabase } from "@/lib/supabase";
 import { flushPendingCloudSave } from "@/lib/store";
-import { getSOPsHoy } from "@/lib/sop-scheduler";
+import { toDateKey } from "@/lib/date-utils";
 import type { RolUsuario } from "@/lib/types";
 import { PantallaHoy } from "@/components/PantallaHoy";
 import { PantallaPlan } from "@/components/PantallaPlan";
@@ -368,13 +368,17 @@ function UserFooter({ collapsed }: { collapsed: boolean }) {
 function HoyBadge() {
   const state = useAppState();
   const count = useMemo(() => {
-    const sops = getSOPsHoy(state);
-    return sops.filter((s) => !s.completadoHoy && !s.ejecucion).length;
+    const hoyKey = toDateKey(new Date());
+    const activos = state.pasosActivos.length;
+    const planificados = state.entregables.filter(
+      (e) => e.fechaInicio === hoyKey && e.estado !== "hecho",
+    ).length;
+    return activos + planificados;
   }, [state]);
 
   if (count === 0) return null;
   return (
-    <span className="ml-auto flex h-5 min-w-[20px] items-center justify-center rounded-full bg-blue-600 px-1.5 text-[10px] font-bold text-white">
+    <span className="ml-auto flex h-5 min-w-[20px] items-center justify-center rounded-full bg-accent px-1.5 text-[10px] font-bold text-white">
       {count}
     </span>
   );
