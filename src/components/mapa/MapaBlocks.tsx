@@ -12,7 +12,7 @@ import HierarchyPicker from "../shared/HierarchyPicker";
 import MoveInlinePanel from "../shared/MoveInlinePanel";
 import { ProyectoPlanner } from "../plan/ProyectoPlanner";
 import { ProyectoTimeline } from "../plan/ProyectoTimeline";
-import { computeProyectoRitmo, ritmoColor, ritmoLabel, ritmoLabelCorto, inferDateRange, type DateRange } from "@/lib/proyecto-stats";
+import { computeProyectoRitmo, ritmoColor, ritmoLabel, ritmoLabelCorto, ritmoExplicacion, inferDateRange, type DateRange } from "@/lib/proyecto-stats";
 import {
   AREAS_PERSONAL,
   AREAS_EMPRESA,
@@ -606,20 +606,28 @@ export function AreaSection({ areaId, hideSops }: { areaId: Area; hideSops?: boo
 function RitmoBanner({ ritmo, deadline }: { ritmo: import("@/lib/proyecto-stats").ProyectoRitmo; deadline?: string | null }) {
   const color = ritmoColor(ritmo.estadoRitmo);
   const pct = Math.min(100, Math.round(ritmo.porcentaje * 100));
+  const mostrarMotivo = ritmo.estadoRitmo === "rojo" || ritmo.estadoRitmo === "imposible";
   return (
-    <div className="mx-3 mb-2 flex items-center gap-3 rounded-lg px-3 py-1.5 sm:mx-5 sm:ml-8 md:ml-14" style={{ backgroundColor: color + "0a" }}>
-      <div className="h-1.5 w-20 shrink-0 overflow-hidden rounded-full bg-surface">
-        <div className="h-full rounded-full transition-all" style={{ width: `${pct}%`, backgroundColor: color }} />
-      </div>
-      <span className="text-[11px] font-semibold" style={{ color }}>{pct}%</span>
-      <span className="rounded-full px-2 py-0.5 text-[10px] font-bold" style={{ backgroundColor: color + "18", color }}>
-        {ritmoLabelCorto(ritmo.estadoRitmo)}
-      </span>
-      <span className="text-[10px] text-muted">{ritmoLabel(ritmo)}</span>
-      {deadline && (
-        <span className="ml-auto shrink-0 text-[10px] text-muted">
-          Deadline: {new Date(deadline + "T12:00:00").toLocaleDateString("es-ES", { day: "numeric", month: "short" })}
+    <div className="mx-3 mb-2 rounded-lg px-3 py-1.5 sm:mx-5 sm:ml-8 md:ml-14" style={{ backgroundColor: color + "0a" }}>
+      <div className="flex items-center gap-3">
+        <div className="h-1.5 w-20 shrink-0 overflow-hidden rounded-full bg-surface">
+          <div className="h-full rounded-full transition-all" style={{ width: `${pct}%`, backgroundColor: color }} />
+        </div>
+        <span className="text-[11px] font-semibold" style={{ color }}>{pct}%</span>
+        <span className="rounded-full px-2 py-0.5 text-[10px] font-bold" style={{ backgroundColor: color + "18", color }}>
+          {ritmoLabelCorto(ritmo.estadoRitmo)}
         </span>
+        <span className="text-[10px] text-muted">{ritmoLabel(ritmo)}</span>
+        {deadline && (
+          <span className="ml-auto shrink-0 text-[10px] text-muted">
+            Deadline: {new Date(deadline + "T12:00:00").toLocaleDateString("es-ES", { day: "numeric", month: "short" })}
+          </span>
+        )}
+      </div>
+      {mostrarMotivo && (
+        <p className="mt-1 text-[10px] leading-snug" style={{ color }}>
+          {ritmoExplicacion(ritmo)}
+        </p>
       )}
     </div>
   );

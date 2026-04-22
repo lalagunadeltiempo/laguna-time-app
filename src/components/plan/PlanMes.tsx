@@ -7,7 +7,7 @@ import {
   ambitoDeArea, AREA_COLORS,
   type Entregable, type Proyecto, type Ambito, type MiembroInfo,
 } from "@/lib/types";
-import { computeProyectoRitmo, ritmoColor, ritmoLabelCorto } from "@/lib/proyecto-stats";
+import { computeProyectoRitmo, ritmoColor, ritmoLabelCorto, ritmoExplicacion } from "@/lib/proyecto-stats";
 import { projectSOPsForRange, summarizeSOPsByWeek, type SOPWeekSummary } from "@/lib/sop-projector";
 import { ProyectoPlanner } from "./ProyectoPlanner";
 import { GanttMultiProyecto, type GanttProject } from "./GanttMultiProyecto";
@@ -207,8 +207,6 @@ export function PlanMes({ selectedDate, onNavigateToWeek }: Props) {
 
       const warnings: string[] = [];
       if (entregables.length === 0) warnings.push("Sin entregables");
-      if (entregables.some((e) => e.diasEstimados === 0 && e.estado !== "hecho" && e.estado !== "cancelada"))
-        warnings.push("Entregables sin duración estimada");
       if (!proj.fechaLimite) warnings.push("Sin deadline");
 
       summaries.push({
@@ -433,6 +431,16 @@ export function PlanMes({ selectedDate, onNavigateToWeek }: Props) {
                   {/* Expanded detail */}
                   {isExpanded && (
                     <div className="border-t border-border px-4 py-3">
+                      {/* Motivo del ritmo cuando está en rojo/imposible */}
+                      {(s.ritmo.estadoRitmo === "rojo" || s.ritmo.estadoRitmo === "imposible") && (
+                        <div className="mb-3 rounded-lg px-3 py-2"
+                          style={{ backgroundColor: rColor + "14", color: rColor }}>
+                          <p className="text-[11px] font-semibold">
+                            ⚠ {ritmoExplicacion(s.ritmo)}
+                          </p>
+                        </div>
+                      )}
+
                       {/* Warnings */}
                       {s.warnings.length > 0 && (
                         <div className="mb-3 rounded-lg bg-amber-50 px-3 py-2">

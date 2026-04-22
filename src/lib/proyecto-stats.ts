@@ -287,3 +287,35 @@ export function ritmoLabelCorto(estado: EstadoRitmo): string {
     case "sin-deadline": return "Sin deadline";
   }
 }
+
+export function ritmoExplicacion(ritmo: ProyectoRitmo): string {
+  const peor = ritmo.peor;
+  const pct = peor ? Math.round(peor.ratio * 100) : 0;
+
+  switch (ritmo.estadoRitmo) {
+    case "completado":
+      return "Todos los entregables están hechos.";
+    case "vacio":
+      return "Este proyecto aún no tiene entregables planificados.";
+    case "vencido":
+      return `El deadline ya pasó y quedan ${ritmo.diasTrabajoPendientes} sesiones pendientes.`;
+    case "sin-deadline":
+      return `Hay ${ritmo.diasTrabajoPendientes} sesiones pendientes, pero no tiene fecha límite, así que no se puede calcular ritmo.`;
+    case "verde":
+      if (!peor) return "Vas cómoda: carga muy baja para el tiempo disponible.";
+      return `Vas cómoda: ${pct}% de tu capacidad (${peor.miembro} ${fmt(peor.sesionesPorDia)}/día sobre ${fmt(peor.capacidadDiaria)}).`;
+    case "amarillo":
+      if (!peor) return "Ajustado, pero aún manejable.";
+      return `Ajustado: ${pct}% de tu capacidad (${peor.miembro} ${fmt(peor.sesionesPorDia)}/día sobre ${fmt(peor.capacidadDiaria)}). Mientras sigas por debajo del 70%, es manejable.`;
+    case "rojo":
+      if (!peor) return "Crítico: la carga supera el 70% de la capacidad disponible.";
+      return `Crítico: ${pct}% de tu capacidad. ${peor.miembro} necesita ${fmt(peor.sesionesPorDia)} sesiones/día (cap ${fmt(peor.capacidadDiaria)}) para cubrir ${peor.carga} sesiones en ${peor.laborables} días laborables. Umbral crítico: 70%.`;
+    case "imposible": {
+      if (!peor) return "No llegas: la carga supera tu capacidad.";
+      const maxCarga = peor.laborables * peor.capacidadDiaria;
+      const sesionesExtra = Math.max(0, Math.ceil(peor.carga - maxCarga));
+      const diasExtra = peor.capacidadDiaria > 0 ? Math.ceil(sesionesExtra / peor.capacidadDiaria) : 0;
+      return `No llegas: ${peor.miembro} necesita ${fmt(peor.sesionesPorDia)} sesiones/día y su capacidad máxima es ${fmt(peor.capacidadDiaria)}. Te faltan ~${sesionesExtra} sesiones o ~${diasExtra} días laborables más.`;
+    }
+  }
+}

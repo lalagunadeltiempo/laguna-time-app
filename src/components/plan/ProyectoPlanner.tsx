@@ -7,7 +7,7 @@ import { generateId } from "@/lib/store";
 import { AREA_COLORS, type Entregable, type TipoEntregable } from "@/lib/types";
 import {
   computeProyectoRitmo, computeResultadoRitmo, inferDateRange, validateRange,
-  ritmoColor, ritmoLabel, ritmoLabelCorto, ritmoTooltip,
+  ritmoColor, ritmoLabel, ritmoLabelCorto, ritmoTooltip, ritmoExplicacion,
   type ProyectoRitmo, type DateRange,
 } from "@/lib/proyecto-stats";
 import { planificarProyecto } from "@/lib/auto-planner";
@@ -133,9 +133,9 @@ export function ProyectoPlanner({ proyectoId, onClose }: Props) {
         {/* Ritmo summary */}
         <RitmoBar ritmo={ritmo} />
 
-        {/* Aviso de overflow */}
-        {planSugerido && (planSugerido.overflow.length > 0 || ritmo.estadoRitmo === "imposible") && (
-          <OverflowBanner
+        {/* Aviso de ritmo (overflow, imposible o crítico) */}
+        {planSugerido && (planSugerido.overflow.length > 0 || ritmo.estadoRitmo === "imposible" || ritmo.estadoRitmo === "rojo") && (
+          <RitmoAvisoBanner
             overflowCount={planSugerido.overflow.length}
             sesionesTotales={planSugerido.sesionesTotales}
             ritmo={ritmo}
@@ -403,7 +403,9 @@ function RitmoBar({ ritmo }: { ritmo: ProyectoRitmo }) {
   const color = ritmoColor(ritmo.estadoRitmo);
   const label = ritmoLabel(ritmo);
   const tooltip = ritmoTooltip(ritmo);
+  const explicacion = ritmoExplicacion(ritmo);
   const pct = Math.min(100, Math.round(ritmo.porcentaje * 100));
+  const mostrarExplicacion = ["amarillo", "rojo", "imposible", "vencido"].includes(ritmo.estadoRitmo);
 
   return (
     <div className="border-b border-border px-5 py-3">
@@ -417,7 +419,12 @@ function RitmoBar({ ritmo }: { ritmo: ProyectoRitmo }) {
         <div className="h-full rounded-full transition-all" style={{ width: `${pct}%`, backgroundColor: color }} />
       </div>
       <p className="text-xs text-muted" title={tooltip}>{label}</p>
-      {ritmo.desglose.length > 1 && (
+      {mostrarExplicacion && (
+        <p className="mt-1 text-[11px] leading-snug" style={{ color }}>
+          {explicacion}
+        </p>
+      )}
+      {ritmo.desglose.length >= 1 && (
         <details className="mt-1.5">
           <summary className="cursor-pointer text-[10px] text-muted hover:text-foreground">Desglose por persona</summary>
           <ul className="mt-1 space-y-0.5">
@@ -433,8 +440,8 @@ function RitmoBar({ ritmo }: { ritmo: ProyectoRitmo }) {
   );
 }
 
-/* ---------- OverflowBanner ---------- */
-function OverflowBanner({
+/* ---------- RitmoAvisoBanner ---------- */
+function RitmoAvisoBanner({
   overflowCount,
   sesionesTotales,
   ritmo,
@@ -447,6 +454,14 @@ function OverflowBanner({
 }) {
   const dispatch = useAppDispatch();
   const peor = ritmo.peor;
+  const severo = ritmo.estadoRitmo === "imposible" || overflowCount > 0;
+
+  const tituloSevero = overflowCount > 0
+    ? "El plan no cabe en la ventana del proyecto"
+    : "No llegas con tu capacidad actual";
+  const titulo = severo ? tituloSevero : "Plan en zona crítica";
+
+  const explicacion = ritmoExplicacion(ritmo);
 
   function extenderDeadline() {
     if (!peor || peor.carga <= 0) return;
@@ -462,25 +477,34 @@ function OverflowBanner({
     dispatch({ type: "UPDATE_PROYECTO", id: proyectoId, changes: { fechaLimite: `${yyyy}-${mm}-${dd}` } });
   }
 
+  const bg = severo ? "bg-red-50 dark:bg-red-950/30" : "bg-amber-50 dark:bg-amber-950/30";
+  const titleCol = severo ? "text-red-700 dark:text-red-300" : "text-amber-800 dark:text-amber-200";
+  const bodyCol = severo ? "text-red-700/80 dark:text-red-300/80" : "text-amber-800/80 dark:text-amber-200/80";
+  const btnPrimary = severo ? "bg-red-600 hover:bg-red-700" : "bg-amber-600 hover:bg-amber-700";
+  const btnBorder = severo
+    ? "border-red-300 text-red-700 hover:bg-red-50 dark:text-red-300"
+    : "border-amber-300 text-amber-800 hover:bg-amber-50 dark:text-amber-200";
+  const hintBorder = severo
+    ? "border-red-200 bg-white/50 text-red-700 dark:text-red-300"
+    : "border-amber-200 bg-white/50 text-amber-800 dark:text-amber-200";
+
   return (
-    <div className="border-b border-border bg-red-50 px-5 py-3 dark:bg-red-950/30">
+    <div className={`border-b border-border px-5 py-3 ${bg}`}>
       <div className="mb-2 flex items-start gap-2">
         <span className="mt-0.5 text-base">⚠</span>
         <div className="flex-1">
-          <p className="text-xs font-bold text-red-700 dark:text-red-300">
-            El plan no cabe en la ventana del proyecto
-          </p>
-          <p className="mt-0.5 text-[11px] text-red-700/80 dark:text-red-300/80">
-            {overflowCount > 0 && `${overflowCount} resultado${overflowCount > 1 ? "s" : ""} desborda${overflowCount > 1 ? "n" : ""} el deadline. `}
-            {peor && `${peor.miembro} necesita ${peor.sesionesPorDia.toFixed(1)} sesiones/día y su capacidad es ${peor.capacidadDiaria.toFixed(1)}. `}
-            Total: {sesionesTotales} sesiones.
+          <p className={`text-xs font-bold ${titleCol}`}>{titulo}</p>
+          <p className={`mt-0.5 text-[11px] ${bodyCol}`}>
+            {explicacion}
+            {overflowCount > 0 && ` · ${overflowCount} resultado${overflowCount > 1 ? "s" : ""} desborda${overflowCount > 1 ? "n" : ""} el deadline.`}
+            {sesionesTotales > 0 && ` · Total: ${sesionesTotales} sesiones.`}
           </p>
         </div>
       </div>
       <div className="flex flex-wrap gap-2">
         <button
           onClick={extenderDeadline}
-          className="rounded-md bg-red-600 px-2.5 py-1 text-[11px] font-semibold text-white hover:bg-red-700"
+          className={`rounded-md px-2.5 py-1 text-[11px] font-semibold text-white ${btnPrimary}`}
           title="Mueve la fecha límite del proyecto a una fecha realista para tu capacidad"
         >
           Extender deadline
@@ -488,11 +512,11 @@ function OverflowBanner({
         <a
           href="#"
           onClick={(e) => { e.preventDefault(); window.alert("Ve a la sección Equipo y ajusta tu capacidad diaria (sesiones/día)."); }}
-          className="rounded-md border border-red-300 bg-white px-2.5 py-1 text-[11px] font-semibold text-red-700 hover:bg-red-50 dark:bg-transparent dark:text-red-300"
+          className={`rounded-md border bg-white px-2.5 py-1 text-[11px] font-semibold hover:bg-opacity-50 dark:bg-transparent ${btnBorder}`}
         >
           Subir capacidad
         </a>
-        <span className="rounded-md border border-red-200 bg-white/50 px-2.5 py-1 text-[11px] text-red-700 dark:bg-transparent dark:text-red-300">
+        <span className={`rounded-md border px-2.5 py-1 text-[11px] dark:bg-transparent ${hintBorder}`}>
           O recorta entregables/resultados abajo ↓
         </span>
       </div>
