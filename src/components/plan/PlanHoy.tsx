@@ -9,8 +9,6 @@ import {
   AREA_COLORS, AREAS_PERSONAL, AREAS_EMPRESA,
   type Area, type Entregable, type Ambito, type Paso,
 } from "@/lib/types";
-import { projectSOPsForDate, type ProjectedSOP } from "@/lib/sop-projector";
-import SOPLaunchDialog from "@/components/shared/SOPLaunchDialog";
 import HierarchyPicker from "@/components/shared/HierarchyPicker";
 
 function addDays(d: Date, n: number) { const r = new Date(d); r.setDate(r.getDate() + n); return r; }
@@ -43,7 +41,7 @@ const HOURS = Array.from({ length: 24 }, (_, i) => i);
 
 interface Block {
   id: string;
-  type: "active" | "done" | "programado" | "sop";
+  type: "active" | "done" | "programado";
   area: Area;
   title: string;
   subtitle: string;
@@ -70,7 +68,6 @@ export function PlanHoy({ selectedDate }: Props) {
   const state = useAppState();
   const dispatch = useAppDispatch();
   const [confirmBlock, setConfirmBlock] = useState<Block | null>(null);
-  const [confirmSOP, setConfirmSOP] = useState<ProjectedSOP | null>(null);
   const [showDrillDown, setShowDrillDown] = useState(false);
   const [orphanBlock, setOrphanBlock] = useState<Block | null>(null);
   const [editingBlock, setEditingBlock] = useState<Block | null>(null);
@@ -162,13 +159,6 @@ export function PlanHoy({ selectedDate }: Props) {
     return blocks;
   }, [hookPlanned, isPast, isToday]);
 
-  const projectedSOPs = useMemo(() => projectSOPsForDate(state, selectedDate, currentUser), [state, selectedDate, currentUser]);
-  const virtualSOPs = useMemo(() => {
-    return projectedSOPs.filter((sop) => !state.entregables.some(
-      (e) => e.tipo === "sop" && e.plantillaId === sop.plantillaId && e.fechaInicio === dateKey
-    ));
-  }, [projectedSOPs, state.entregables, dateKey]);
-
   function tryStartBlock(block: Block) {
     if (!block.entregableId) return;
     const ent = state.entregables.find((e) => e.id === block.entregableId);
@@ -214,10 +204,8 @@ export function PlanHoy({ selectedDate }: Props) {
     setConfirmBlock(null);
   }
 
-  // materializeSOP is now handled by SOPLaunchDialog
-
-  const hasPlanned = plannedBlocks.length > 0 || virtualSOPs.length > 0;
-  const plannedCount = plannedBlocks.length + virtualSOPs.length;
+  const hasPlanned = plannedBlocks.length > 0;
+  const plannedCount = plannedBlocks.length;
   const [planOpen, setPlanOpen] = useState(true);
 
   return (
@@ -284,21 +272,6 @@ export function PlanHoy({ selectedDate }: Props) {
               );
             })}
 
-            {!isMentor && virtualSOPs.map((sop) => {
-              const sopHex = AREA_COLORS[sop.area]?.hex ?? "#888";
-              return (
-                <button key={sop.plantillaId} type="button" onClick={() => setConfirmSOP(sop)}
-                  className="flex w-full items-center gap-3 rounded-lg border border-dashed px-3 py-2.5 text-left transition-all hover:brightness-95"
-                  style={{ borderColor: sopHex + "40", backgroundColor: sopHex + "0c" }}>
-                  <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: sopHex }} />
-                  <div className="flex-1 min-w-0">
-                    <p className="truncate text-sm font-medium text-foreground">{sop.nombre}</p>
-                    <p className="truncate text-xs text-muted">{sop.pasosTotal}p · SOP · {sop.responsable}</p>
-                  </div>
-                  <span className="shrink-0 rounded-md px-2 py-0.5 text-[10px] font-bold" style={{ backgroundColor: sopHex + "15", color: sopHex }}>SOP</span>
-                </button>
-              );
-            })}
           </div>}
         </div>
       )}
@@ -357,18 +330,6 @@ export function PlanHoy({ selectedDate }: Props) {
       {/* Drill-down dialog */}
       {showDrillDown && <DrillDownDialog dateKey={dateKey} onClose={() => setShowDrillDown(false)} />}
 
-      {/* Confirm SOP → HierarchyPicker */}
-      {confirmSOP && (
-        <SOPLaunchDialog
-          plantillaId={confirmSOP.plantillaId}
-          plantillaNombre={confirmSOP.nombre}
-          area={confirmSOP.area}
-          responsable={confirmSOP.responsable}
-          dateKey={dateKey}
-          onClose={() => setConfirmSOP(null)}
-        />
-      )}
-
       {/* Orphan entregable → pick destination first */}
       {orphanBlock && orphanBlock.entregableId && (
         <HierarchyPicker
@@ -386,21 +347,33 @@ export function PlanHoy({ selectedDate }: Props) {
       )}
 
       {/* Confirm start */}
-      {confirmBlock && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/20 px-6 backdrop-blur-sm"
-          role="dialog" aria-modal="true" tabIndex={-1}
-          onClick={(e) => { if (e.target === e.currentTarget) setConfirmBlock(null); }}
-          onKeyDown={(e) => { if (e.key === "Escape") setConfirmBlock(null); }}>
-          <div className="w-full max-w-sm rounded-2xl bg-background p-5 shadow-xl">
-            <h3 className="text-sm font-semibold text-foreground">Empezar paso</h3>
-            <p className="mt-1 text-xs text-muted">{`¿Empezar "${confirmBlock.title}"?`}</p>
-            <div className="mt-4 flex gap-2">
-              <button onClick={() => setConfirmBlock(null)} className="flex-1 rounded-lg border border-border py-2.5 text-xs font-medium text-muted hover:bg-surface">Cancelar</button>
-              <button onClick={() => tryStartBlock(confirmBlock)} className="flex-1 rounded-lg py-2.5 text-xs font-medium text-white" style={{ backgroundColor: "#16a34a" }}>Empezar</button>
+      {confirmBlock && (() => {
+        const cbHex = AREA_COLORS[confirmBlock.area]?.hex ?? "#888";
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/20 px-6 backdrop-blur-sm"
+            role="dialog" aria-modal="true" tabIndex={-1}
+            onClick={(e) => { if (e.target === e.currentTarget) setConfirmBlock(null); }}
+            onKeyDown={(e) => { if (e.key === "Escape") setConfirmBlock(null); }}>
+            <div className="w-full max-w-sm rounded-2xl bg-background p-5 shadow-xl">
+              <h3 className="text-sm font-semibold text-foreground">Empezar paso</h3>
+              {confirmBlock.proyectoNombre && (
+                <div className="mt-2 flex items-center gap-2">
+                  <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: cbHex }} />
+                  <span className="text-[11px] font-semibold" style={{ color: cbHex }}>{confirmBlock.proyectoNombre}</span>
+                </div>
+              )}
+              {confirmBlock.entregableNombre && (
+                <p className="mt-1 text-xs text-muted">Entregable: <span className="font-medium text-foreground">{confirmBlock.entregableNombre}</span></p>
+              )}
+              <p className="mt-2 rounded-lg border border-border bg-surface/50 px-3 py-2 text-sm font-medium text-foreground">{confirmBlock.title}</p>
+              <div className="mt-4 flex gap-2">
+                <button onClick={() => setConfirmBlock(null)} className="flex-1 rounded-lg border border-border py-2.5 text-xs font-medium text-muted hover:bg-surface">Cancelar</button>
+                <button onClick={() => tryStartBlock(confirmBlock)} className="flex-1 rounded-lg py-2.5 text-xs font-medium text-white" style={{ backgroundColor: "#16a34a" }}>Empezar</button>
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* Edit time of done block */}
       {editingBlock && editingBlock.pasoId && (
