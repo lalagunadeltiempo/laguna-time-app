@@ -1637,7 +1637,7 @@ function weekNum(d: Date) {
 function SOPBatchDialog({ sop, onConfirm, onCancel }: { sop: PlantillaProceso; onConfirm: (items: { name: string; dateKey: string }[]) => void; onCancel: () => void }) {
   const tipo = sop.programacion?.tipo ?? "demanda";
   const [now] = useState(() => new Date());
-  const [count, setCount] = useState(tipo === "diario" ? 4 : tipo === "semanal" ? 4 : tipo === "mensual" ? 3 : tipo === "trimestral" ? 4 : 1);
+  const [count, setCount] = useState(tipo === "diario" ? 7 : tipo === "semanal" ? 4 : tipo === "mensual" ? 3 : tipo === "trimestral" ? 4 : 1);
 
   const items = useMemo(() => {
     const result: { name: string; dateKey: string }[] = [];
@@ -1672,12 +1672,12 @@ function SOPBatchDialog({ sop, onConfirm, onCancel }: { sop: PlantillaProceso; o
         result.push({ name: `${sop.nombre} Q${qn} ${yr}`, dateKey: dateKeyBatch(target) });
       }
     } else if (tipo === "diario") {
-      let monday = getMonday(now);
+      const start = new Date(now.getFullYear(), now.getMonth(), now.getDate());
       for (let i = 0; i < count; i++) {
-        const wn = weekNum(monday);
-        result.push({ name: `${sop.nombre} S${wn}`, dateKey: dateKeyBatch(monday) });
-        monday = new Date(monday);
-        monday.setDate(monday.getDate() + 7);
+        const target = new Date(start);
+        target.setDate(start.getDate() + i);
+        const dayLabel = `${padBatch(target.getDate())}/${padBatch(target.getMonth() + 1)}`;
+        result.push({ name: `${sop.nombre} ${dayLabel}`, dateKey: dateKeyBatch(target) });
       }
     } else {
       result.push({ name: sop.nombre, dateKey: dateKeyBatch(now) });
@@ -1707,7 +1707,7 @@ function SOPBatchDialog({ sop, onConfirm, onCancel }: { sop: PlantillaProceso; o
         <input type="number" min="1" max="52" value={count} onChange={(e) => setCount(Math.max(1, parseInt(e.target.value) || 1))}
           className="w-14 rounded border border-border bg-background px-2 py-1 text-sm text-foreground" />
         <span className="text-[11px] text-muted">
-          {tipo === "semanal" ? "semanas" : tipo === "mensual" ? "meses" : tipo === "trimestral" ? "trimestres" : tipo === "diario" ? "semanas (1 por semana)" : "veces"}
+          {tipo === "semanal" ? "semanas (1 por semana)" : tipo === "mensual" ? "meses (1 por mes)" : tipo === "trimestral" ? "trimestres (1 por trimestre)" : tipo === "diario" ? "días (1 por día)" : "veces"}
         </span>
       </div>
 
