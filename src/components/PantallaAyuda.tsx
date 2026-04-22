@@ -168,9 +168,9 @@ export function PantallaAyuda() {
           el trabajo pendiente con tu capacidad real entre hoy y el deadline.
         </p>
         <ul className="ml-4 list-disc space-y-1 text-[13px]">
-          <li><strong>A tiempo</strong>: necesitas menos del 30% de tu capacidad diaria.</li>
-          <li><strong>Ajustado</strong>: entre 30% y 70%.</li>
-          <li><strong>Crítico</strong>: entre 70% y 100%.</li>
+          <li><strong>A tiempo</strong>: necesitas hasta el 60% de tu capacidad diaria.</li>
+          <li><strong>Ajustado</strong>: entre 60% y 90%. Es manejable pero con poco margen.</li>
+          <li><strong>Crítico</strong>: entre 90% y 100%. Apenas hay colchón para imprevistos.</li>
           <li><strong>No llegas</strong>: necesitarías más del 100% (no es viable sin acción).</li>
         </ul>
         <p className="text-[13px]">

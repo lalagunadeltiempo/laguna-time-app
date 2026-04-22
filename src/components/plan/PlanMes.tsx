@@ -8,7 +8,7 @@ import {
   type Entregable, type Proyecto, type Ambito, type MiembroInfo,
 } from "@/lib/types";
 import { computeProyectoRitmo, ritmoColor, ritmoLabelCorto, ritmoExplicacion } from "@/lib/proyecto-stats";
-import { projectSOPsForRange, summarizeSOPsByWeek, type SOPWeekSummary } from "@/lib/sop-projector";
+import { fechaEfectivaEntregable } from "@/lib/fechas-efectivas";
 import { ProyectoPlanner } from "./ProyectoPlanner";
 import { GanttMultiProyecto, type GanttProject } from "./GanttMultiProyecto";
 
@@ -35,6 +35,7 @@ interface EntCard {
   areaHex: string;
   rag: RAG;
   arrastrado?: boolean;
+  anclaMs: number | null; // fecha efectiva anclada (fin > inicio) en ms, usada para ubicar en semana
 }
 
 function getWeeksOfMonth(date: Date): WeekDef[] {
@@ -234,17 +235,24 @@ export function PlanMes({ selectedDate, onNavigateToWeek }: Props) {
     });
   }, [projectSummaries, state.resultados, state.entregables]);
 
-  /* ---- Week view data ---- */
+  /* ---- Week view data ----
+     Regla: cada entregable se ancla en la SEMANA DE SU FECHA FIN efectiva.
+     Si no hay fecha fin, se usa la fecha de inicio. Si no hay ninguna → "Sin asignar".
+     Usa fechaEfectivaEntregable para respetar herencia de resultado/proyecto. */
   const { weekEntregables, unassigned } = useMemo(() => {
     const selYear = selectedDate.getFullYear();
     const selMonth = selectedDate.getMonth();
     const monthStart = new Date(selYear, selMonth, 1).getTime();
     const monthEnd = new Date(selYear, selMonth + 1, 0, 23, 59, 59).getTime();
-    const gridStart = weeks[0]?.mondayMs ?? monthStart;
-    const gridEnd = weeks[weeks.length - 1]?.sundayMs ?? monthEnd;
 
     const activeProjectIds = new Set(projectSummaries.map((s) => s.proyecto.id));
     const relevant: EntCard[] = [];
+
+    const toMs = (dStr: string | null): number | null => {
+      if (!dStr) return null;
+      const d = new Date(dStr + "T12:00:00").getTime();
+      return Number.isFinite(d) ? d : null;
+    };
 
     for (const ent of state.entregables) {
       if (ent.estado === "cancelada") continue;
@@ -258,43 +266,55 @@ export function PlanMes({ selectedDate, onNavigateToWeek }: Props) {
 
       const areaHex = AREA_COLORS[proj.area]?.hex ?? "#888";
 
-      let inRange = false;
+      // Fecha efectiva: propia > heredada del resultado > heredada del proyecto
+      const efectiva = fechaEfectivaEntregable(ent, res ?? null, proj);
+      const finMs = toMs(efectiva.fin);
+      const iniMs = toMs(efectiva.inicio);
+      // Ancla = fin preferido; si no, inicio
+      const anclaMs = finMs ?? iniMs;
 
-      if (ent.fechaInicio) {
-        const d = new Date(ent.fechaInicio + "T12:00:00");
-        if (!isNaN(d.getTime()) && d.getTime() >= gridStart && d.getTime() <= gridEnd) inRange = true;
-      }
-      if (!inRange && ent.fechaLimite) {
-        const dl = new Date(ent.fechaLimite + "T12:00:00");
-        if (!isNaN(dl.getTime()) && dl.getTime() >= monthStart && dl.getTime() <= monthEnd) inRange = true;
+      // ¿Toca este mes? El ancla cae en el mes, o alguno de los extremos propios cae,
+      // o está en_proceso/planificado sin fechas (queda para planificar en "Sin asignar").
+      let inMonth = false;
+      if (anclaMs != null && anclaMs >= monthStart && anclaMs <= monthEnd) inMonth = true;
+      if (!inMonth && iniMs != null && finMs != null) {
+        // Rango que atraviesa el mes completo
+        if (iniMs <= monthEnd && finMs >= monthStart) inMonth = true;
       }
 
       let arrastrado = false;
-      if (!inRange && ent.estado === "en_proceso" && ent.fechaInicio) {
-        const fi = new Date(ent.fechaInicio + "T12:00:00").getTime();
-        if (fi < monthStart) { inRange = true; arrastrado = true; }
+      if (!inMonth && ent.estado === "en_proceso" && iniMs != null && iniMs < monthStart) {
+        inMonth = true;
+        arrastrado = true;
       }
 
-      if (!inRange && (ent.estado === "en_proceso" || ent.estado === "planificado") && !ent.fechaInicio) {
-        inRange = true;
+      // En curso/planificado sin ninguna fecha → a "Sin asignar" del mes
+      if (!inMonth && (ent.estado === "en_proceso" || ent.estado === "planificado") && anclaMs == null) {
+        inMonth = true;
       }
 
-      if (!inRange) continue;
+      if (!inMonth) continue;
 
-      relevant.push({ entregable: ent, proyecto: proj, areaHex, rag: computeRAG(ent, nowMs), arrastrado });
+      relevant.push({
+        entregable: ent,
+        proyecto: proj,
+        areaHex,
+        rag: computeRAG(ent, nowMs),
+        arrastrado,
+        anclaMs,
+      });
     }
 
     const byWeek = new Map<number, EntCard[]>();
     const noWeek: EntCard[] = [];
 
     for (const card of relevant) {
-      if (!card.entregable.fechaInicio) { noWeek.push(card); continue; }
       const nivel = card.entregable.planNivel;
       if (nivel === "mes" || nivel === "trimestre") { noWeek.push(card); continue; }
-      const fMs = new Date(card.entregable.fechaInicio + "T12:00:00").getTime();
+      if (card.anclaMs == null) { noWeek.push(card); continue; }
       let placed = false;
       for (const w of weeks) {
-        if (fMs >= w.mondayMs && fMs <= w.sundayMs) {
+        if (card.anclaMs >= w.mondayMs && card.anclaMs <= w.sundayMs) {
           if (!byWeek.has(w.index)) byWeek.set(w.index, []);
           byWeek.get(w.index)!.push(card);
           placed = true;
@@ -316,13 +336,6 @@ export function PlanMes({ selectedDate, onNavigateToWeek }: Props) {
       ? ent.estado : isCurrentWeek ? "en_proceso" : "planificado";
     dispatch({ type: "UPDATE_ENTREGABLE", id: entId, changes: { fechaInicio: monday, planNivel: "semana", estado: newEstado } });
   }
-
-  const sopWeekSummaries = useMemo(() => {
-    const monthStartD = new Date(selectedDate.getFullYear(), selectedDate.getMonth(), 1);
-    const monthEndD = new Date(selectedDate.getFullYear(), selectedDate.getMonth() + 1, 0);
-    const sopMap = projectSOPsForRange(state, monthStartD, monthEndD, respFilter === "yo" ? currentUser : respFilter !== "todo" ? respFilter : undefined);
-    return summarizeSOPsByWeek(sopMap, weeks, state.plantillas);
-  }, [state, selectedDate, weeks, respFilter, currentUser]);
 
   const toggleExpand = (projId: string) => {
     setExpandedProjects((prev) => {
@@ -516,10 +529,9 @@ export function PlanMes({ selectedDate, onNavigateToWeek }: Props) {
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
           {weeks.map((w) => {
             const cards = weekEntregables.get(w.index) ?? [];
-            const sopSummary = sopWeekSummaries.find((s) => s.weekIndex === w.index);
             return (
               <WeekColumn key={w.index} week={w} cards={cards} weeks={weeks}
-                onAssign={isMentor ? undefined : assignToWeek} sopSummary={sopSummary}
+                onAssign={isMentor ? undefined : assignToWeek}
                 onNavigateToWeek={onNavigateToWeek} />
             );
           })}
@@ -552,27 +564,36 @@ export function PlanMes({ selectedDate, onNavigateToWeek }: Props) {
    Week column
    ============================================================ */
 
-function WeekColumn({ week, cards, weeks, onAssign, sopSummary, onNavigateToWeek }: {
+function WeekColumn({ week, cards, weeks, onAssign, onNavigateToWeek }: {
   week: WeekDef;
   cards: EntCard[];
   weeks: WeekDef[];
   onAssign?: (entId: string, monday: string) => void;
-  sopSummary?: SOPWeekSummary;
   onNavigateToWeek?: (date: Date) => void;
 }) {
   const [nowMs] = useState<number>(() => Date.now());
   const isCurrentWeek = nowMs >= week.mondayMs && nowMs <= week.sundayMs;
-  const [showSops, setShowSops] = useState(false);
+
+  // Separar entregables "normales" de los materializados desde SOP para poder plegarlos
+  const { normalCards, sopCards } = useMemo(() => {
+    const normal: EntCard[] = [];
+    const sop: EntCard[] = [];
+    for (const c of cards) {
+      const esSOP = c.entregable.tipo === "sop" || c.entregable.plantillaId != null;
+      if (esSOP) sop.push(c); else normal.push(c);
+    }
+    return { normalCards: normal, sopCards: sop };
+  }, [cards]);
 
   const byProject = useMemo(() => {
     const map = new Map<string, EntCard[]>();
-    for (const c of cards) {
+    for (const c of normalCards) {
       const pid = c.proyecto.id;
       if (!map.has(pid)) map.set(pid, []);
       map.get(pid)!.push(c);
     }
     return map;
-  }, [cards]);
+  }, [normalCards]);
 
   return (
     <div className={`rounded-xl border p-4 ${isCurrentWeek ? "border-accent bg-accent/5" : "border-border bg-background"}`}>
@@ -581,13 +602,6 @@ function WeekColumn({ week, cards, weeks, onAssign, sopSummary, onNavigateToWeek
           {week.label}
         </h4>
         <div className="flex items-center gap-1.5">
-          {sopSummary && sopSummary.totalOcurrencias > 0 && (
-            <button onClick={() => setShowSops(!showSops)}
-              className="rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-bold text-blue-600 transition-colors hover:bg-blue-200"
-              title={sopSummary.sops.map((s) => `${s.nombre} (${s.count}×)`).join(", ")}>
-              {sopSummary.totalOcurrencias} SOP
-            </button>
-          )}
           <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${isCurrentWeek ? "bg-accent/15 text-accent" : "bg-surface text-muted"}`}>
             {cards.length}
           </span>
@@ -600,17 +614,7 @@ function WeekColumn({ week, cards, weeks, onAssign, sopSummary, onNavigateToWeek
         </div>
       </div>
 
-      {showSops && sopSummary && sopSummary.sops.length > 0 && (
-        <div className="mb-2 rounded-lg bg-blue-50 p-2">
-          {sopSummary.sops.map((s) => (
-            <p key={s.nombre} className="text-[11px] text-blue-700">
-              {s.nombre} <span className="text-blue-400">({s.count}× · {s.minEstimados} min)</span>
-            </p>
-          ))}
-        </div>
-      )}
-
-      {cards.length === 0 && (!sopSummary || sopSummary.totalOcurrencias === 0) ? (
+      {cards.length === 0 ? (
         <p className="py-3 text-center text-xs text-muted/50">Vacía</p>
       ) : (
         <div className="space-y-3">
@@ -627,6 +631,20 @@ function WeekColumn({ week, cards, weeks, onAssign, sopSummary, onNavigateToWeek
               </div>
             </div>
           ))}
+
+          {sopCards.length > 0 && (
+            <details className="rounded-lg border border-border/60 bg-surface/40">
+              <summary className="cursor-pointer select-none px-2 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted hover:text-foreground">
+                SOPs de la semana ({sopCards.length})
+              </summary>
+              <div className="space-y-1.5 px-2 pb-2 pt-1">
+                {sopCards.map((card) => (
+                  <EntregableCard key={card.entregable.id} card={card} weeks={weeks}
+                    onAssign={onAssign} currentWeek={week.index} compact />
+                ))}
+              </div>
+            </details>
+          )}
         </div>
       )}
     </div>

@@ -11,6 +11,26 @@ import {
   type ProyectoRitmo,
 } from "@/lib/proyecto-stats";
 
+interface EffectiveRange {
+  start: string | undefined;
+  end: string | undefined;
+}
+
+function rangesOverlap(
+  aStart: string | null | undefined,
+  aEnd: string | null | undefined,
+  rangeStart: string | undefined,
+  rangeEnd: string | undefined,
+): boolean {
+  if (!rangeStart || !rangeEnd) return true;
+  const s = aStart ?? aEnd ?? null;
+  const e = aEnd ?? aStart ?? null;
+  if (!s && !e) return false;
+  const itemStart = s ?? rangeStart;
+  const itemEnd = e ?? rangeEnd;
+  return itemStart <= rangeEnd && itemEnd >= rangeStart;
+}
+
 /* ---- Public types ---- */
 
 export interface GanttProject {
@@ -331,6 +351,7 @@ export function GanttMultiProyecto({
               open={expanded.has(gp.proyecto.id)}
               onToggle={toggle}
               pos={pos}
+              rango={effectiveRange}
             />
           ))}
         </div>
@@ -346,17 +367,38 @@ function ProjectRow({
   open,
   onToggle,
   pos,
+  rango,
 }: {
   gp: GanttProject;
   open: boolean;
   onToggle: (id: string) => void;
   pos: (d: string) => number;
+  rango: EffectiveRange;
 }) {
   const p = gp.proyecto;
   const hex = AREA_COLORS[p.area]?.hex ?? "#888";
   const inf = inferDateRange([...gp.resultados, ...gp.entregables]);
   const pS = p.fechaInicio || inf.inicio;
   const pE = p.fechaLimite || inf.fin;
+
+  // Filtrar entregables/resultados al rango visible (salvo modo "Todo" = sin start/end)
+  const entregablesFiltrados = useMemo(() => {
+    if (!rango.start || !rango.end) return gp.entregables;
+    return gp.entregables.filter((e) =>
+      rangesOverlap(e.fechaInicio, e.fechaLimite, rango.start, rango.end),
+    );
+  }, [gp.entregables, rango.start, rango.end]);
+
+  const resultadosFiltrados = useMemo(() => {
+    if (!rango.start || !rango.end) return gp.resultados;
+    const entIds = new Set(entregablesFiltrados.map((e) => e.resultadoId));
+    return gp.resultados.filter((r) => {
+      if (entIds.has(r.id)) return true;
+      return rangesOverlap(r.fechaInicio, r.fechaLimite, rango.start, rango.end);
+    });
+  }, [gp.resultados, entregablesFiltrados, rango.start, rango.end]);
+
+  const enRango = entregablesFiltrados.length + resultadosFiltrados.length;
 
   return (
     <div className="border-b border-border/30 last:border-b-0">
@@ -443,17 +485,27 @@ function ProjectRow({
         </div>
       </div>
 
-      {/* Expanded: results + deliverables */}
+      {/* Expanded: results + deliverables (filtrados por rango) */}
+      {open && resultadosFiltrados.length === 0 && (
+        <div className="py-2 pl-12 text-[10px] italic text-muted/50">
+          Sin elementos en el rango visible.
+        </div>
+      )}
       {open &&
-        gp.resultados.map((r) => (
+        resultadosFiltrados.map((r) => (
           <ResultRow
             key={r.id}
             resultado={r}
-            entregables={gp.entregables.filter((e) => e.resultadoId === r.id)}
+            entregables={entregablesFiltrados.filter((e) => e.resultadoId === r.id)}
             hex={hex}
             pos={pos}
           />
         ))}
+      {open && enRango > 0 && rango.start && rango.end && entregablesFiltrados.length < gp.entregables.length && (
+        <div className="py-1 pl-12 text-[9px] italic text-muted/40">
+          Mostrando {entregablesFiltrados.length} de {gp.entregables.length} entregables (rango visible). Cambia a "Todo" para verlos todos.
+        </div>
+      )}
     </div>
   );
 }

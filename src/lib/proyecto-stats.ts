@@ -168,10 +168,15 @@ function computeRitmo(
   const peor = desglose[0] ?? null;
   const ritmoRequerido = peor ? peor.ratio : 0;
 
+  // Umbrales (pactados con usuaria):
+  //   verde    A tiempo   ≤ 60%
+  //   amarillo Ajustado   60-90%
+  //   rojo     Crítico    90-100%
+  //   imposible No llegas > 100%
   let estadoRitmo: EstadoRitmo;
   if (ritmoRequerido > 1) estadoRitmo = "imposible";
-  else if (ritmoRequerido > 0.7) estadoRitmo = "rojo";
-  else if (ritmoRequerido > 0.3) estadoRitmo = "amarillo";
+  else if (ritmoRequerido > 0.9) estadoRitmo = "rojo";
+  else if (ritmoRequerido > 0.6) estadoRitmo = "amarillo";
   else estadoRitmo = "verde";
 
   const diasCalendarioRestantes = Math.max(1, deadlineDiasRaw ?? 1);
@@ -306,10 +311,10 @@ export function ritmoExplicacion(ritmo: ProyectoRitmo): string {
       return `Vas cómoda: ${pct}% de tu capacidad (${peor.miembro} ${fmt(peor.sesionesPorDia)}/día sobre ${fmt(peor.capacidadDiaria)}).`;
     case "amarillo":
       if (!peor) return "Ajustado, pero aún manejable.";
-      return `Ajustado: ${pct}% de tu capacidad (${peor.miembro} ${fmt(peor.sesionesPorDia)}/día sobre ${fmt(peor.capacidadDiaria)}). Mientras sigas por debajo del 70%, es manejable.`;
+      return `Ajustado: ${pct}% de tu capacidad (${peor.miembro} ${fmt(peor.sesionesPorDia)}/día sobre ${fmt(peor.capacidadDiaria)}). Mientras sigas por debajo del 90%, es manejable.`;
     case "rojo":
-      if (!peor) return "Crítico: la carga supera el 70% de la capacidad disponible.";
-      return `Crítico: ${pct}% de tu capacidad. ${peor.miembro} necesita ${fmt(peor.sesionesPorDia)} sesiones/día (cap ${fmt(peor.capacidadDiaria)}) para cubrir ${peor.carga} sesiones en ${peor.laborables} días laborables. Umbral crítico: 70%.`;
+      if (!peor) return "Crítico: la carga supera el 90% de la capacidad disponible.";
+      return `Crítico: ${pct}% de tu capacidad. ${peor.miembro} necesita ${fmt(peor.sesionesPorDia)} sesiones/día (cap ${fmt(peor.capacidadDiaria)}) para cubrir ${peor.carga} sesiones en ${peor.laborables} días laborables. Apenas te queda colchón (umbral crítico: 90%).`;
     case "imposible": {
       if (!peor) return "No llegas: la carga supera tu capacidad.";
       const maxCarga = peor.laborables * peor.capacidadDiaria;
