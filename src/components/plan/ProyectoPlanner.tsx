@@ -11,6 +11,7 @@ import {
   type ProyectoRitmo, type DateRange,
 } from "@/lib/proyecto-stats";
 import { ProyectoTimeline } from "./ProyectoTimeline";
+import MoveInlinePanel from "../shared/MoveInlinePanel";
 
 interface Props {
   proyectoId: string;
@@ -53,6 +54,7 @@ export function ProyectoPlanner({ proyectoId, onClose }: Props) {
     };
   }, [proyecto, allResultados, allEntregables]);
 
+  const [movingResId, setMovingResId] = useState<string | null>(null);
   const [expandedRes, setExpandedRes] = useState<Set<string>>(
     () => new Set(allResultados.map((r) => r.id)),
   );
@@ -217,7 +219,21 @@ export function ProyectoPlanner({ proyectoId, onClose }: Props) {
                               onChange={(e) => dispatch({ type: "UPDATE_RESULTADO", id: res.id, changes: { diasEstimados: e.target.value ? Number(e.target.value) : null } })}
                               className="w-16 rounded border border-border bg-background px-1.5 py-0.5 text-xs text-foreground" />
                           </label>
+                          <button onClick={() => setMovingResId(movingResId === res.id ? null : res.id)}
+                            className="ml-auto flex items-center gap-1 rounded-md border border-border px-2 py-1 text-[10px] text-muted hover:border-accent hover:text-accent"
+                            title="Mover a otro proyecto">
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M5 12h14M12 5l7 7-7 7" /></svg>
+                            Mover
+                          </button>
                         </div>
+
+                        {movingResId === res.id && (
+                          <MoveInlinePanel
+                            target={{ kind: "resultado", id: res.id, currentProyectoId: res.proyectoId }}
+                            onDone={() => setMovingResId(null)}
+                            className="mb-3"
+                          />
+                        )}
 
                         {/* Entregables table */}
                         {resEnts.length > 0 && (
@@ -280,6 +296,7 @@ function DateField({ label, value, placeholder, onChange, size = "md" }: {
 /* ---------- EntregableRow ---------- */
 function EntregableRow({ entregable, parentRange }: { entregable: Entregable; parentRange: DateRange }) {
   const dispatch = useAppDispatch();
+  const [showMove, setShowMove] = useState(false);
   const isDone = entregable.estado === "hecho" || entregable.estado === "cancelada";
   const pending = Math.max(0, entregable.diasEstimados - entregable.diasHechos);
   const pct = entregable.diasEstimados > 0 ? Math.min(100, Math.round((entregable.diasHechos / entregable.diasEstimados) * 100)) : 0;
@@ -289,41 +306,59 @@ function EntregableRow({ entregable, parentRange }: { entregable: Entregable; pa
   );
 
   return (
-    <div className={`flex flex-wrap items-center gap-2 rounded-lg border px-3 py-2${isDone ? " opacity-50" : ""} ${validation.inRange ? "border-border/50" : "border-amber-400"} bg-background`}>
-      <span className={`h-2 w-2 shrink-0 rounded-full ${isDone ? "bg-green-500" : "bg-amber-400"}`} />
-      <span className={`min-w-0 flex-1 basis-[40%] truncate text-xs font-medium ${isDone ? "line-through text-muted" : "text-foreground"}`} title={entregable.nombre}>
-        {entregable.nombre}
-      </span>
-
-      {!validation.inRange && (
-        <span className="shrink-0 rounded bg-amber-100 px-1.5 py-0.5 text-[9px] font-bold text-amber-700" title={validation.reason ?? ""}>
-          ⚠
+    <div>
+      <div className={`flex flex-wrap items-center gap-2 rounded-lg border px-3 py-2${isDone ? " opacity-50" : ""} ${validation.inRange ? "border-border/50" : "border-amber-400"} bg-background`}>
+        <span className={`h-2 w-2 shrink-0 rounded-full ${isDone ? "bg-green-500" : "bg-amber-400"}`} />
+        <span className={`min-w-0 flex-1 basis-[40%] truncate text-xs font-medium ${isDone ? "line-through text-muted" : "text-foreground"}`} title={entregable.nombre}>
+          {entregable.nombre}
         </span>
-      )}
 
-      <label className="flex shrink-0 items-center gap-1 text-[10px] text-muted" title="Días estimados">
-        <input type="number" min={0} value={entregable.diasEstimados}
-          onChange={(e) => dispatch({ type: "UPDATE_ENTREGABLE", id: entregable.id, changes: { diasEstimados: Number(e.target.value) || 0 } })}
-          className="w-12 rounded border border-border bg-background px-1 py-0.5 text-xs text-foreground" />
-        <span>est</span>
-      </label>
+        {!validation.inRange && (
+          <span className="shrink-0 rounded bg-amber-100 px-1.5 py-0.5 text-[9px] font-bold text-amber-700" title={validation.reason ?? ""}>
+            ⚠
+          </span>
+        )}
 
-      <span className="shrink-0 text-[10px] text-muted" title="Días hechos">{entregable.diasHechos}h</span>
+        <label className="flex shrink-0 items-center gap-1 text-[10px] text-muted" title="Días estimados">
+          <input type="number" min={0} value={entregable.diasEstimados}
+            onChange={(e) => dispatch({ type: "UPDATE_ENTREGABLE", id: entregable.id, changes: { diasEstimados: Number(e.target.value) || 0 } })}
+            className="w-12 rounded border border-border bg-background px-1 py-0.5 text-xs text-foreground" />
+          <span>est</span>
+        </label>
 
-      <div className="flex w-12 shrink-0 items-center gap-1" title={`${pct}%`}>
-        <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-surface">
-          <div className="h-full rounded-full bg-accent transition-all" style={{ width: `${pct}%` }} />
+        <span className="shrink-0 text-[10px] text-muted" title="Días hechos">{entregable.diasHechos}h</span>
+
+        <div className="flex w-12 shrink-0 items-center gap-1" title={`${pct}%`}>
+          <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-surface">
+            <div className="h-full rounded-full bg-accent transition-all" style={{ width: `${pct}%` }} />
+          </div>
         </div>
+
+        <span className="shrink-0 text-[10px] font-medium text-muted">{pending}d</span>
+
+        <input type="date" value={entregable.fechaInicio ?? ""} title="Fecha inicio"
+          onChange={(e) => dispatch({ type: "UPDATE_ENTREGABLE", id: entregable.id, changes: { fechaInicio: e.target.value || null } })}
+          className="w-[108px] shrink-0 rounded border border-border bg-background px-1 py-0.5 text-[10px] text-foreground" />
+        <input type="date" value={entregable.fechaLimite ?? ""} title="Fecha límite"
+          onChange={(e) => dispatch({ type: "UPDATE_ENTREGABLE", id: entregable.id, changes: { fechaLimite: e.target.value || null } })}
+          className="w-[108px] shrink-0 rounded border border-border bg-background px-1 py-0.5 text-[10px] text-foreground" />
+
+        <button onClick={() => setShowMove((v) => !v)}
+          className="flex h-6 w-6 shrink-0 items-center justify-center rounded text-muted hover:bg-surface hover:text-foreground"
+          title="Mover a otro resultado">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M5 12h14M12 5l7 7-7 7" /></svg>
+        </button>
       </div>
 
-      <span className="shrink-0 text-[10px] font-medium text-muted">{pending}d</span>
-
-      <input type="date" value={entregable.fechaInicio ?? ""} title="Fecha inicio"
-        onChange={(e) => dispatch({ type: "UPDATE_ENTREGABLE", id: entregable.id, changes: { fechaInicio: e.target.value || null } })}
-        className="w-[108px] shrink-0 rounded border border-border bg-background px-1 py-0.5 text-[10px] text-foreground" />
-      <input type="date" value={entregable.fechaLimite ?? ""} title="Fecha límite"
-        onChange={(e) => dispatch({ type: "UPDATE_ENTREGABLE", id: entregable.id, changes: { fechaLimite: e.target.value || null } })}
-        className="w-[108px] shrink-0 rounded border border-border bg-background px-1 py-0.5 text-[10px] text-foreground" />
+      {showMove && (
+        <div className="mt-1">
+          <MoveInlinePanel
+            target={{ kind: "entregable", id: entregable.id, currentResultadoId: entregable.resultadoId }}
+            onDone={() => setShowMove(false)}
+            className=""
+          />
+        </div>
+      )}
     </div>
   );
 }

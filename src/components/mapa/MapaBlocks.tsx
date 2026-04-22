@@ -9,6 +9,7 @@ import { EditableText } from "../shared/EditableText";
 import { ReviewBadge } from "../shared/ReviewBadge";
 import ProgramacionPicker from "../shared/ProgramacionPicker";
 import HierarchyPicker from "../shared/HierarchyPicker";
+import MoveInlinePanel from "../shared/MoveInlinePanel";
 import { ProyectoPlanner } from "../plan/ProyectoPlanner";
 import { ProyectoTimeline } from "../plan/ProyectoTimeline";
 import { computeProyectoRitmo, ritmoColor, ritmoLabel, ritmoLabelCorto, inferDateRange, type DateRange } from "@/lib/proyecto-stats";
@@ -891,8 +892,6 @@ function ResultadoBlock({ resultado, index, total }: { resultado: Resultado; ind
   const [confirm, setConfirm] = useState(false);
   const [showNotas, setShowNotas] = useState(false);
   const [showMove, setShowMove] = useState(false);
-  const [moveStep, setMoveStep] = useState<1 | 2>(1);
-  const [moveAreaId, setMoveAreaId] = useState<string | null>(null);
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [showDeadlinePicker, setShowDeadlinePicker] = useState(false);
   const hlRef = useRef<HTMLDivElement>(null);
@@ -965,7 +964,7 @@ function ResultadoBlock({ resultado, index, total }: { resultado: Resultado; ind
           </button>
         )}
         {!isMentor && (
-          <button onClick={(e) => { e.stopPropagation(); setShowMove(!showMove); setMoveStep(1); setMoveAreaId(null); }}
+          <button onClick={(e) => { e.stopPropagation(); setShowMove((v) => !v); }}
             className="flex h-6 items-center gap-0.5 rounded px-1.5 text-[10px] text-muted transition-colors hover:bg-surface hover:text-foreground" title="Mover a otro proyecto">
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M5 12h14M12 5l7 7-7 7" /></svg>
           </button>
@@ -975,6 +974,13 @@ function ResultadoBlock({ resultado, index, total }: { resultado: Resultado; ind
           onDown={() => dispatch({ type: "REORDER_RESULTADO", id: resultado.id, direction: "down" })} />}
         {!isMentor && <DeleteBtn onDelete={() => setConfirm(true)} />}
       </ToggleRow>
+
+      {showMove && (
+        <MoveInlinePanel
+          target={{ kind: "resultado", id: resultado.id, currentProyectoId: resultado.proyectoId }}
+          onDone={() => setShowMove(false)}
+        />
+      )}
 
       {showDatePicker && (
         <PlanPicker onSelect={handlePlanSelect} onCancel={() => setShowDatePicker(false)} showDayLevel={false} />
@@ -995,42 +1001,6 @@ function ResultadoBlock({ resultado, index, total }: { resultado: Resultado; ind
             )}
             <button onClick={() => setShowDeadlinePicker(false)} className="text-[10px] text-muted hover:text-foreground">Cerrar</button>
           </div>
-        </div>
-      )}
-
-      {showMove && (
-        <div className="mx-2 mb-3 ml-3 sm:mx-5 sm:ml-8 md:ml-14 rounded-lg border border-border bg-surface/50 p-3">
-          {moveStep === 1 ? (
-            <>
-              <p className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-muted">1. Elegir área:</p>
-              <div className="flex flex-wrap gap-1.5">
-                {[...AREAS_EMPRESA, ...AREAS_PERSONAL].map((a) => {
-                  const hex = AREA_COLORS[a.id]?.hex ?? "#888";
-                  return (
-                    <button key={a.id} onClick={() => { setMoveAreaId(a.id); setMoveStep(2); }}
-                      className="rounded-md border px-2.5 py-1 text-[11px] font-medium transition-colors hover:brightness-95"
-                      style={{ borderColor: hex, color: hex }}>{a.label}</button>
-                  );
-                })}
-              </div>
-            </>
-          ) : (
-            <>
-              <div className="mb-2 flex items-center gap-2">
-                <button onClick={() => setMoveStep(1)} className="text-[10px] text-accent hover:underline">← Atrás</button>
-                <p className="text-[10px] font-semibold uppercase tracking-wider text-muted">2. Elegir proyecto:</p>
-              </div>
-              <div className="flex flex-wrap gap-1">
-                {state.proyectos.filter((p) => p.area === moveAreaId && p.id !== resultado.proyectoId).map((p) => (
-                  <button key={p.id} onClick={() => { dispatch({ type: "MOVE_RESULTADO", resultadoId: resultado.id, nuevoProyectoId: p.id }); setShowMove(false); setMoveStep(1); setMoveAreaId(null); }}
-                    className="rounded-md border border-border px-2 py-1 text-[10px] text-foreground hover:border-accent hover:bg-accent-soft">{p.nombre}</button>
-                ))}
-                {state.proyectos.filter((p) => p.area === moveAreaId && p.id !== resultado.proyectoId).length === 0 && (
-                  <p className="text-[10px] italic text-muted">Sin proyectos en esta área</p>
-                )}
-              </div>
-            </>
-          )}
         </div>
       )}
 
@@ -1086,9 +1056,6 @@ function EntregableBlock({ entregable, index, total }: { entregable: Entregable;
   const [showDeadlinePicker, setShowDeadlinePicker] = useState(false);
   const [justAssigned, setJustAssigned] = useState(false);
   const [showMove, setShowMove] = useState(false);
-  const [moveStep, setMoveStep] = useState<1 | 2 | 3>(1);
-  const [moveAreaId, setMoveAreaId] = useState<string | null>(null);
-  const [moveProyectoId, setMoveProyectoId] = useState<string | null>(null);
   const [synced, setSynced] = useState(false);
   const [showSyncPrompt, setShowSyncPrompt] = useState(false);
   const justAssignedTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
@@ -1204,7 +1171,7 @@ function EntregableBlock({ entregable, index, total }: { entregable: Entregable;
         )}
 
         {!isMentor && (
-          <button onClick={(e) => { e.stopPropagation(); setShowMove(!showMove); setMoveStep(1); setMoveAreaId(null); setMoveProyectoId(null); }}
+          <button onClick={(e) => { e.stopPropagation(); setShowMove((v) => !v); }}
             className="flex h-6 items-center gap-0.5 rounded px-1.5 text-[10px] text-muted transition-colors hover:bg-surface hover:text-foreground" title="Mover a otro resultado">
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M5 12h14M12 5l7 7-7 7" /></svg>
           </button>
@@ -1246,55 +1213,10 @@ function EntregableBlock({ entregable, index, total }: { entregable: Entregable;
       </ToggleRow>
 
       {showMove && (
-        <div className="mx-2 mb-3 ml-3 sm:mx-5 sm:ml-8 md:ml-14 rounded-lg border border-border bg-surface/50 p-3">
-          {moveStep === 1 ? (
-            <>
-              <p className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-muted">1. Elegir área:</p>
-              <div className="flex flex-wrap gap-1.5">
-                {[...AREAS_EMPRESA, ...AREAS_PERSONAL].map((a) => {
-                  const hex = AREA_COLORS[a.id]?.hex ?? "#888";
-                  return (
-                    <button key={a.id} onClick={() => { setMoveAreaId(a.id); setMoveStep(2); }}
-                      className="rounded-md border px-2.5 py-1 text-[11px] font-medium transition-colors hover:brightness-95"
-                      style={{ borderColor: hex, color: hex }}>{a.label}</button>
-                  );
-                })}
-              </div>
-            </>
-          ) : moveStep === 2 ? (
-            <>
-              <div className="mb-2 flex items-center gap-2">
-                <button onClick={() => { setMoveStep(1); setMoveAreaId(null); }} className="text-[10px] text-accent hover:underline">← Atrás</button>
-                <p className="text-[10px] font-semibold uppercase tracking-wider text-muted">2. Elegir proyecto:</p>
-              </div>
-              <div className="flex flex-wrap gap-1">
-                {state.proyectos.filter((p) => p.area === moveAreaId).map((p) => (
-                  <button key={p.id} onClick={() => { setMoveProyectoId(p.id); setMoveStep(3); }}
-                    className="rounded-md border border-border px-2 py-1 text-[10px] text-foreground hover:border-accent hover:bg-accent-soft">{p.nombre}</button>
-                ))}
-                {state.proyectos.filter((p) => p.area === moveAreaId).length === 0 && (
-                  <p className="text-[10px] italic text-muted">Sin proyectos en esta área</p>
-                )}
-              </div>
-            </>
-          ) : (
-            <>
-              <div className="mb-2 flex items-center gap-2">
-                <button onClick={() => { setMoveStep(2); setMoveProyectoId(null); }} className="text-[10px] text-accent hover:underline">← Atrás</button>
-                <p className="text-[10px] font-semibold uppercase tracking-wider text-muted">3. Elegir resultado:</p>
-              </div>
-              <div className="flex flex-wrap gap-1">
-                {state.resultados.filter((r) => r.proyectoId === moveProyectoId && r.id !== entregable.resultadoId).map((r) => (
-                  <button key={r.id} onClick={() => { dispatch({ type: "MOVE_ENTREGABLE", entregableId: entregable.id, nuevoResultadoId: r.id }); setShowMove(false); setMoveStep(1); setMoveAreaId(null); setMoveProyectoId(null); }}
-                    className="rounded-md border border-border px-2 py-1 text-[10px] text-foreground hover:border-accent hover:bg-accent-soft">{r.nombre}</button>
-                ))}
-                {state.resultados.filter((r) => r.proyectoId === moveProyectoId && r.id !== entregable.resultadoId).length === 0 && (
-                  <p className="text-[10px] italic text-muted">Sin resultados en este proyecto</p>
-                )}
-              </div>
-            </>
-          )}
-        </div>
+        <MoveInlinePanel
+          target={{ kind: "entregable", id: entregable.id, currentResultadoId: entregable.resultadoId }}
+          onDone={() => setShowMove(false)}
+        />
       )}
 
       {showDatePicker && (
@@ -1385,6 +1307,7 @@ function PasoLine({ paso, index, total, isEmpresa, entResponsable }: { paso: Pas
   const [showNotas, setShowNotas] = useState(false);
   const [confirmDel, setConfirmDel] = useState(false);
   const [showDonePicker, setShowDonePicker] = useState(false);
+  const [showMove, setShowMove] = useState(false);
   const [doneDate, setDoneDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [doneTime, setDoneTime] = useState(() => new Date().toTimeString().slice(0, 5));
   const done = !!paso.finTs;
@@ -1441,11 +1364,25 @@ function PasoLine({ paso, index, total, isEmpresa, entResponsable }: { paso: Pas
             </svg>
           </button>
         )}
+        {!isMentor && (
+          <button onClick={() => setShowMove((v) => !v)}
+            className="flex h-6 items-center gap-0.5 rounded px-1.5 text-[10px] text-muted opacity-0 transition-all group-hover/row:opacity-100 hover:bg-surface hover:text-foreground" title="Mover a otro entregable">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M5 12h14M12 5l7 7-7 7" /></svg>
+          </button>
+        )}
         {!isMentor && <MoveArrows canUp={index > 0} canDown={index < total - 1}
           onUp={() => dispatch({ type: "REORDER_PASO", id: paso.id, direction: "up" })}
           onDown={() => dispatch({ type: "REORDER_PASO", id: paso.id, direction: "down" })} />}
         {!isMentor && <DeleteBtn onDelete={() => setConfirmDel(true)} />}
       </div>
+
+      {showMove && (
+        <MoveInlinePanel
+          target={{ kind: "paso", id: paso.id, currentEntregableId: paso.entregableId }}
+          onDone={() => setShowMove(false)}
+          className="ml-2 mb-2 sm:ml-6 md:ml-12"
+        />
+      )}
 
       {showDonePicker && (
         <div className="ml-2 mb-2 flex flex-wrap items-center gap-2 rounded-lg border border-green-200 dark:border-green-900 bg-green-50/50 dark:bg-green-900/10 px-3 py-2 sm:ml-4 md:ml-8">

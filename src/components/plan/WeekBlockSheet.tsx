@@ -2,6 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { AREA_COLORS, type Area, type MiembroInfo } from "@/lib/types";
+import MoveInlinePanel from "../shared/MoveInlinePanel";
+import { useAppState } from "@/lib/context";
 
 const DAYS_SHORT = ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"];
 
@@ -33,7 +35,7 @@ interface Props {
   onOpenProject: () => void;
 }
 
-type SubView = "main" | "move" | "responsable";
+type SubView = "main" | "move" | "responsable" | "moveParent";
 
 function toDateKey(d: Date) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
@@ -60,7 +62,10 @@ export function WeekBlockSheet({
   const canChangeResp = block.origen === "ent" && !!block.entregableId;
   const canMarkDone = block.origen === "ent" && !!block.entregableId && !block.tieneActivePaso;
   const canOpenProject = !!block.proyectoId;
+  const canMoveParent = block.origen === "ent" && !!block.entregableId;
   const hex = AREA_COLORS[block.area]?.hex ?? "#888";
+  const appState = useAppState();
+  const currentEntregable = block.entregableId ? appState.entregables.find((e) => e.id === block.entregableId) : undefined;
 
   return (
     <div
@@ -91,12 +96,14 @@ export function WeekBlockSheet({
               canMove={canMove} canUnschedule={canUnschedule}
               canChangeResp={canChangeResp} canMarkDone={canMarkDone}
               canOpenProject={canOpenProject}
+              canMoveParent={canMoveParent}
               tieneActivePaso={block.tieneActivePaso}
               onMoveClick={() => setView("move")}
               onUnschedule={onUnschedule}
               onRespClick={() => setView("responsable")}
               onMarkDone={onMarkDone}
               onOpenProject={onOpenProject}
+              onMoveParentClick={() => setView("moveParent")}
             />
           )}
           {view === "move" && (
@@ -115,6 +122,20 @@ export function WeekBlockSheet({
               onBack={() => setView("main")}
             />
           )}
+          {view === "moveParent" && currentEntregable && (
+            <div>
+              <button onClick={() => setView("main")} className="mb-2 flex items-center gap-1.5 px-1 text-xs font-medium text-muted transition-colors hover:text-foreground">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="15 18 9 12 15 6" /></svg>
+                Volver
+              </button>
+              <p className="mb-2 px-1 text-xs font-semibold text-muted">Mover a otro resultado:</p>
+              <MoveInlinePanel
+                target={{ kind: "entregable", id: currentEntregable.id, currentResultadoId: currentEntregable.resultadoId }}
+                onDone={() => { setView("main"); onClose(); }}
+                className=""
+              />
+            </div>
+          )}
         </div>
       </div>
     </div>
@@ -123,15 +144,15 @@ export function WeekBlockSheet({
 
 /* ---------- MainMenu ---------- */
 function MainMenu({
-  canMove, canUnschedule, canChangeResp, canMarkDone, canOpenProject,
+  canMove, canUnschedule, canChangeResp, canMarkDone, canOpenProject, canMoveParent,
   tieneActivePaso,
-  onMoveClick, onUnschedule, onRespClick, onMarkDone, onOpenProject,
+  onMoveClick, onUnschedule, onRespClick, onMarkDone, onOpenProject, onMoveParentClick,
 }: {
   canMove: boolean; canUnschedule: boolean; canChangeResp: boolean;
-  canMarkDone: boolean; canOpenProject: boolean;
+  canMarkDone: boolean; canOpenProject: boolean; canMoveParent: boolean;
   tieneActivePaso?: boolean;
   onMoveClick: () => void; onUnschedule: () => void; onRespClick: () => void;
-  onMarkDone: () => void; onOpenProject: () => void;
+  onMarkDone: () => void; onOpenProject: () => void; onMoveParentClick: () => void;
 }) {
   return (
     <div className="space-y-0.5">
@@ -154,10 +175,21 @@ function MainMenu({
           <span className="ml-auto text-[10px] italic text-muted">Cierra el paso activo primero</span>
         </div>
       )}
+      {canMoveParent && (
+        <ActionRow icon={<MoveIcon />} label="Mover a otro resultado" chevron onClick={onMoveParentClick} />
+      )}
       {canOpenProject && (
         <ActionRow icon={<FolderIcon />} label="Abrir en proyecto" onClick={onOpenProject} />
       )}
     </div>
+  );
+}
+
+function MoveIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+      <path d="M5 12h14M12 5l7 7-7 7" />
+    </svg>
   );
 }
 
