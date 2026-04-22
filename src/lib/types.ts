@@ -279,6 +279,14 @@ export interface Objetivo {
   creado: string;
 }
 
+export interface DeletedTombstones {
+  proyectos: string[];
+  resultados: string[];
+  entregables: string[];
+  pasos: string[];
+  plantillas: string[];
+}
+
 export interface AppState {
   ambitoLabels: AmbitoLabels;
   proyectos: Proyecto[];
@@ -293,6 +301,7 @@ export interface AppState {
   miembros: MiembroInfo[];
   activityLog: ActivityEntry[];
   objetivos: Objetivo[];
+  deleted?: DeletedTombstones;
   mtp?: string;
   _migrationVersion?: number;
 }

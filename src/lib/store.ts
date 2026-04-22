@@ -12,6 +12,8 @@ const SAVED_AT_KEY = "laguna-time-app-saved-at";
 let _loadedSuccessfully = false;
 let _cloudLoadedOk = false;
 
+const EMPTY_DELETED = { proyectos: [], resultados: [], entregables: [], pasos: [], plantillas: [] };
+
 export const INITIAL_STATE: AppState = {
   ambitoLabels: { personal: "Ganesha 🐘", empresa: "La Laguna del Tiempo ⛰️☀️" },
   proyectos: [],
@@ -26,6 +28,7 @@ export const INITIAL_STATE: AppState = {
   miembros: EQUIPO_DEFAULT,
   activityLog: [],
   objetivos: [],
+  deleted: EMPTY_DELETED,
 };
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -126,6 +129,7 @@ function migrateV1(raw: any): AppState {
       : EQUIPO_DEFAULT,
     activityLog: raw.activityLog ?? [],
     objetivos: raw.objetivos ?? [],
+    deleted: raw.deleted ?? { proyectos: [], resultados: [], entregables: [], pasos: [], plantillas: [] },
   } as AppState;
 }
 /* eslint-enable @typescript-eslint/no-explicit-any */

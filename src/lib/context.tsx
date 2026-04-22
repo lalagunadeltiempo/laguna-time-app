@@ -184,20 +184,38 @@ function mergeStates(a: AppState, b: AppState): AppState {
     return x;
   };
 
+  const emptyDel = { proyectos: [] as string[], resultados: [] as string[], entregables: [] as string[], pasos: [] as string[], plantillas: [] as string[] };
+  const delA = a.deleted ?? emptyDel;
+  const delB = b.deleted ?? emptyDel;
+  const deleted = {
+    proyectos: Array.from(new Set([...delA.proyectos, ...delB.proyectos])),
+    resultados: Array.from(new Set([...delA.resultados, ...delB.resultados])),
+    entregables: Array.from(new Set([...delA.entregables, ...delB.entregables])),
+    pasos: Array.from(new Set([...delA.pasos, ...delB.pasos])),
+    plantillas: Array.from(new Set([...delA.plantillas, ...delB.plantillas])),
+  };
+
+  const delProj = new Set(deleted.proyectos);
+  const delRes = new Set(deleted.resultados);
+  const delEnt = new Set(deleted.entregables);
+  const delPas = new Set(deleted.pasos);
+  const delPl = new Set(deleted.plantillas);
+
   const merged: AppState = {
     ...a,
-    proyectos: unionById(a.proyectos, b.proyectos),
-    resultados: unionById(a.resultados, b.resultados),
-    entregables: unionById(a.entregables, b.entregables, preferMore),
-    pasos: unionById(a.pasos, b.pasos, preferPaso),
+    proyectos: unionById(a.proyectos, b.proyectos).filter((p) => !delProj.has(p.id)),
+    resultados: unionById(a.resultados, b.resultados).filter((r) => !delRes.has(r.id)),
+    entregables: unionById(a.entregables, b.entregables, preferMore).filter((e) => !delEnt.has(e.id)),
+    pasos: unionById(a.pasos, b.pasos, preferPaso).filter((p) => !delPas.has(p.id)),
     contactos: unionById(a.contactos ?? [], b.contactos ?? []),
     inbox: unionById(a.inbox ?? [], b.inbox ?? []),
-    plantillas: unionById(a.plantillas, b.plantillas),
+    plantillas: unionById(a.plantillas, b.plantillas).filter((p) => !delPl.has(p.id)),
     ejecuciones: unionById(a.ejecuciones ?? [], b.ejecuciones ?? []),
     miembros: unionById(a.miembros ?? [], b.miembros ?? []),
     activityLog: unionById(a.activityLog ?? [], b.activityLog ?? []),
     objetivos: unionById(a.objetivos ?? [], b.objetivos ?? []),
-    pasosActivos: Array.from(new Set([...a.pasosActivos, ...b.pasosActivos])),
+    pasosActivos: Array.from(new Set([...a.pasosActivos, ...b.pasosActivos])).filter((id) => !delPas.has(id)),
+    deleted,
     _migrationVersion: Math.max(a._migrationVersion ?? 0, b._migrationVersion ?? 0),
   };
   return merged;
@@ -314,13 +332,23 @@ export function AppProvider({ userId, displayName, children }: ProviderProps) {
         if (!result.data) return;
         const merged = mergeStates(stateRef.current, result.data);
         const cur = stateRef.current;
+        const delCur = cur.deleted;
+        const delMer = merged.deleted;
+        const tombstonesChanged = delCur && delMer
+          ? (delMer.proyectos.length !== delCur.proyectos.length
+            || delMer.resultados.length !== delCur.resultados.length
+            || delMer.entregables.length !== delCur.entregables.length
+            || delMer.pasos.length !== delCur.pasos.length
+            || delMer.plantillas.length !== delCur.plantillas.length)
+          : (!!delMer && !delCur);
         const changed = merged.pasos.length !== cur.pasos.length
           || merged.entregables.length !== cur.entregables.length
           || merged.proyectos.length !== cur.proyectos.length
           || merged.resultados.length !== cur.resultados.length
           || merged.plantillas.length !== cur.plantillas.length
           || merged.contactos.length !== cur.contactos.length
-          || merged.inbox.length !== cur.inbox.length;
+          || merged.inbox.length !== cur.inbox.length
+          || tombstonesChanged;
         if (changed) dispatch({ type: "INIT", state: merged });
       });
     }

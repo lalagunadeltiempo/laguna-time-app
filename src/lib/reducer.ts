@@ -16,6 +16,7 @@ import type {
   ActivityEntry,
   Objetivo,
   ReviewMark,
+  DeletedTombstones,
 } from "./types";
 import { minutosEfectivos } from "./duration";
 import { toDateKey } from "./date-utils";
@@ -122,6 +123,21 @@ function clearPasosActivos(state: AppState, entregableIds: Set<string>): string[
     const paso = state.pasos.find((p) => p.id === id);
     return !paso || !entregableIds.has(paso.entregableId);
   });
+}
+
+const EMPTY_DELETED: DeletedTombstones = { proyectos: [], resultados: [], entregables: [], pasos: [], plantillas: [] };
+
+function addTombstones(
+  existing: DeletedTombstones | undefined,
+  additions: Partial<Record<keyof DeletedTombstones, string[]>>,
+): DeletedTombstones {
+  const base = existing ?? EMPTY_DELETED;
+  const result = { ...base };
+  for (const key of Object.keys(additions) as (keyof DeletedTombstones)[]) {
+    const ids = additions[key];
+    if (ids?.length) result[key] = [...base[key], ...ids];
+  }
+  return result;
 }
 
 function autoTransitionToEnMarcha(s: AppState, entregableId: string): AppState {
@@ -302,6 +318,7 @@ export function reducer(state: AppState, action: Action): AppState {
           if (entries.length === Object.keys(ej.pasosLanzados).length) return ej;
           return { ...ej, pasosLanzados: Object.fromEntries(entries) };
         }),
+        deleted: addTombstones(state.deleted, { pasos: [action.id] }),
       };
 
     case "RESCHEDULE_NEXT_PASO": {
@@ -345,12 +362,14 @@ export function reducer(state: AppState, action: Action): AppState {
 
     case "DELETE_ENTREGABLE": {
       const eIds = new Set([action.id]);
+      const cascadedPasos = state.pasos.filter((p) => p.entregableId === action.id).map((p) => p.id);
       return {
         ...state,
         entregables: state.entregables.filter((e) => e.id !== action.id),
         pasos: state.pasos.filter((p) => p.entregableId !== action.id),
         pasosActivos: clearPasosActivos(state, eIds),
         ejecuciones: state.ejecuciones.filter((ej) => ej.entregableId !== action.id),
+        deleted: addTombstones(state.deleted, { entregables: [action.id], pasos: cascadedPasos }),
       };
     }
 
@@ -426,6 +445,7 @@ export function reducer(state: AppState, action: Action): AppState {
 
     case "DELETE_RESULTADO": {
       const eIds = new Set(state.entregables.filter((e) => e.resultadoId === action.id).map((e) => e.id));
+      const cascadedPasos = state.pasos.filter((p) => eIds.has(p.entregableId)).map((p) => p.id);
       return {
         ...state,
         resultados: state.resultados.filter((r) => r.id !== action.id),
@@ -434,6 +454,7 @@ export function reducer(state: AppState, action: Action): AppState {
         pasosActivos: clearPasosActivos(state, eIds),
         ejecuciones: state.ejecuciones.filter((ej) => !ej.entregableId || !eIds.has(ej.entregableId)),
         plantillas: state.plantillas.map((pl) => pl.resultadoId === action.id ? { ...pl, resultadoId: null } : pl),
+        deleted: addTombstones(state.deleted, { resultados: [action.id], entregables: [...eIds], pasos: cascadedPasos }),
       };
     }
 
@@ -447,6 +468,7 @@ export function reducer(state: AppState, action: Action): AppState {
     case "DELETE_PROYECTO": {
       const rIds = new Set(state.resultados.filter((r) => r.proyectoId === action.id).map((r) => r.id));
       const eIds = entregableIdsDe(state, rIds);
+      const cascadedPasos = state.pasos.filter((p) => eIds.has(p.entregableId)).map((p) => p.id);
       return {
         ...state,
         proyectos: state.proyectos.filter((p) => p.id !== action.id),
@@ -458,6 +480,7 @@ export function reducer(state: AppState, action: Action): AppState {
         plantillas: state.plantillas.map((pl) =>
           pl.proyectoId === action.id ? { ...pl, proyectoId: null, resultadoId: null } : pl
         ),
+        deleted: addTombstones(state.deleted, { proyectos: [action.id], resultados: [...rIds], entregables: [...eIds], pasos: cascadedPasos }),
       };
     }
 
@@ -498,6 +521,7 @@ export function reducer(state: AppState, action: Action): AppState {
           e.plantillaId === action.id ? { ...e, plantillaId: null, tipo: e.tipo === "sop" ? "raw" as const : e.tipo } : e,
         ),
         ejecuciones: state.ejecuciones.filter((ej) => ej.plantillaId !== action.id),
+        deleted: addTombstones(state.deleted, { plantillas: [action.id] }),
       };
 
     case "UPDATE_PLANTILLA":
