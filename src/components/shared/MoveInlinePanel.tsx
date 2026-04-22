@@ -38,13 +38,13 @@ export default function MoveInlinePanel({ target, onDone, className }: Props) {
 
   const step = stepsNeeded[stepIdx];
 
-  function commit(entId?: string) {
-    if (target.kind === "resultado" && proyectoId) {
-      dispatch({ type: "MOVE_RESULTADO", resultadoId: target.id, nuevoProyectoId: proyectoId });
-    } else if (target.kind === "entregable" && resultadoId) {
-      dispatch({ type: "MOVE_ENTREGABLE", entregableId: target.id, nuevoResultadoId: resultadoId });
-    } else if (target.kind === "paso" && entId) {
-      dispatch({ type: "MOVE_PASO", pasoId: target.id, nuevoEntregableId: entId });
+  function commit(selectedId: string) {
+    if (target.kind === "resultado") {
+      dispatch({ type: "MOVE_RESULTADO", resultadoId: target.id, nuevoProyectoId: selectedId });
+    } else if (target.kind === "entregable") {
+      dispatch({ type: "MOVE_ENTREGABLE", entregableId: target.id, nuevoResultadoId: selectedId });
+    } else if (target.kind === "paso") {
+      dispatch({ type: "MOVE_PASO", pasoId: target.id, nuevoEntregableId: selectedId });
     }
     onDone();
   }
@@ -113,7 +113,7 @@ export default function MoveInlinePanel({ target, onDone, className }: Props) {
                   key={p.id}
                   disabled={disabled}
                   onClick={() => {
-                    if (target.kind === "resultado") { setProyectoId(p.id); commit(); return; }
+                    if (target.kind === "resultado") { commit(p.id); return; }
                     setProyectoId(p.id);
                     setStepIdx(stepIdx + 1);
                   }}
@@ -136,7 +136,7 @@ export default function MoveInlinePanel({ target, onDone, className }: Props) {
               <button
                 key={r.id}
                 onClick={() => {
-                  if (target.kind === "entregable") { setResultadoId(r.id); commit(); return; }
+                  if (target.kind === "entregable") { commit(r.id); return; }
                   setResultadoId(r.id);
                   setStepIdx(stepIdx + 1);
                 }}
