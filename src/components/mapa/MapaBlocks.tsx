@@ -143,14 +143,23 @@ function PlanPicker({ onSelect, onCancel, showDayLevel = true }: {
           ))}
         </div>
       </div>
-      <div className="flex gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         {showDayLevel && (
-          <>
-            <button onClick={() => customDateRef.current?.showPicker()}
-              className="rounded-lg border border-accent/50 bg-accent-soft px-3 py-1.5 text-xs font-medium text-accent hover:bg-accent/20">Fecha exacta...</button>
-            <input ref={customDateRef} type="date" onChange={(e) => selectExactDate(e.target.value)}
-              className="sr-only" tabIndex={-1} aria-hidden="true" />
-          </>
+          <label className="inline-flex cursor-pointer items-center gap-1.5 rounded-lg border border-accent/50 bg-accent-soft px-3 py-1.5 text-xs font-medium text-accent hover:bg-accent/20">
+            <span>Fecha exacta:</span>
+            <input
+              ref={customDateRef}
+              type="date"
+              onChange={(e) => selectExactDate(e.target.value)}
+              onClick={(e) => {
+                const el = e.currentTarget as HTMLInputElement & { showPicker?: () => void };
+                if (typeof el.showPicker === "function") {
+                  try { el.showPicker(); } catch { /* fallback to default click */ }
+                }
+              }}
+              className="bg-transparent text-xs text-accent outline-none"
+            />
+          </label>
         )}
         <button onClick={onCancel} className="rounded-lg px-3 py-1.5 text-xs text-muted hover:text-foreground">Cancelar</button>
       </div>
