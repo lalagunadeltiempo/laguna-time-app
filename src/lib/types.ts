@@ -148,6 +148,9 @@ export interface Entregable {
   planNivel?: PlanNivel;
   notas?: Nota[];
   review?: ReviewMark;
+  /** Si está definido, el entregable se oculta de HOY operativo hasta que `dateKey` actual > este valor.
+   *  Formato "YYYY-MM-DD". Permite "Cerrar por hoy" (setea dateKey de hoy) sin marcar el entregable como en_espera. */
+  ocultoHasta?: string | null;
 }
 
 export interface UrlRef {

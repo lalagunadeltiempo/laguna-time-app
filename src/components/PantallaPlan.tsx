@@ -80,7 +80,7 @@ function isCurrentPeriod(d: Date, tab: Tab): boolean {
   }
 }
 
-export function PantallaPlan() {
+export function PantallaPlan({ onOpenInMapa }: { onOpenInMapa?: (proyectoId: string) => void } = {}) {
   const [tab, setTab] = useState<Tab>("hoy");
   const [selectedDate, setSelectedDate] = useState(() => new Date());
   const dateRef = useRef<HTMLInputElement>(null);
@@ -160,7 +160,7 @@ export function PantallaPlan() {
 
       {/* Tab content */}
       {tab === "hoy" && <PlanHoy selectedDate={selectedDate} />}
-      {tab === "semana" && <PlanSemana selectedDate={selectedDate} />}
+      {tab === "semana" && <PlanSemana selectedDate={selectedDate} onOpenInMapa={onOpenInMapa} />}
       {tab === "mes" && <PlanMes selectedDate={selectedDate} onNavigateToWeek={(d) => { setSelectedDate(d); setTab("semana"); }} />}
       {tab === "trimestre" && <PlanTrimestre selectedDate={selectedDate} />}
       {tab === "anio" && <PlanAnio selectedDate={selectedDate} />}

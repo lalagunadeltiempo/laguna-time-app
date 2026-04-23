@@ -113,6 +113,10 @@ function AppShell({ userId, displayName }: { userId: string; displayName: string
   const [detalleResultadoId, setDetalleResultadoId] = useState<string | null>(null);
   const [highlightId, setHighlightId] = useState<string | null>(null);
   const clearHighlight = useCallback(() => setHighlightId(null), []);
+  const openInMapa = useCallback((id: string) => {
+    setVista("mapa");
+    setHighlightId(id);
+  }, []);
   const navItems = isMentorUser ? NAV_ITEMS.filter((i) => MENTOR_VIEWS.includes(i.id)) : NAV_ITEMS;
 
 
@@ -237,7 +241,7 @@ function AppShell({ userId, displayName }: { userId: string; displayName: string
               </div>
             )}
             {vista === "plan" && (
-              <PantallaPlan />
+              <PantallaPlan onOpenInMapa={openInMapa} />
             )}
             {vista === "mapa" && (
               <PantallaMapa onOpenDetalle={openDetalle} highlightId={highlightId} onClearHighlight={clearHighlight} />

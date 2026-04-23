@@ -8,7 +8,6 @@ import type { ProjectedSOP } from "@/lib/sop-projector";
 import SOPLaunchDialog from "@/components/shared/SOPLaunchDialog";
 import { AmbitoToggle, type AmbitoFilter } from "./PlanMes";
 import { WeekBlockSheet, type WeekBlockInfo } from "./WeekBlockSheet";
-import { ProyectoPlanner } from "./ProyectoPlanner";
 import { fechaEfectivaEntregable } from "@/lib/fechas-efectivas";
 import { subtituloCorto } from "@/lib/display";
 
@@ -47,9 +46,10 @@ interface WeekBlock {
 
 interface Props {
   selectedDate: Date;
+  onOpenInMapa?: (proyectoId: string) => void;
 }
 
-export function PlanSemana({ selectedDate }: Props) {
+export function PlanSemana({ selectedDate, onOpenInMapa }: Props) {
   const { nombre: currentUser } = useUsuario();
   const isMentor = useIsMentor();
   const state = useAppState();
@@ -240,7 +240,6 @@ export function PlanSemana({ selectedDate }: Props) {
   const totalHoursAvailable = 8;
 
   const [selectedBlock, setSelectedBlock] = useState<WeekBlock | null>(null);
-  const [plannerProyectoId, setPlannerProyectoId] = useState<string | null>(null);
 
   function handleBlockClick(block: WeekBlock) {
     if (isMentor) return;
@@ -449,12 +448,11 @@ export function PlanSemana({ selectedDate }: Props) {
           onUnschedule={() => handleUnschedule(selectedBlock)}
           onSetResponsable={(n) => handleSetResp(selectedBlock, n)}
           onMarkDone={() => handleMarkDone(selectedBlock)}
-          onOpenProject={() => { setPlannerProyectoId(selectedBlock.proyectoId ?? null); setSelectedBlock(null); }}
+          onOpenProject={() => {
+            if (selectedBlock.proyectoId && onOpenInMapa) onOpenInMapa(selectedBlock.proyectoId);
+            setSelectedBlock(null);
+          }}
         />
-      )}
-
-      {plannerProyectoId && (
-        <ProyectoPlanner proyectoId={plannerProyectoId} onClose={() => setPlannerProyectoId(null)} />
       )}
     </div>
   );

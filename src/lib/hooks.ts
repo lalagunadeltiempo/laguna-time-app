@@ -396,6 +396,10 @@ export function usePlannedBlocks(dateKey: string): PlannedBlock[] {
     const result: PlannedBlock[] = [];
     const entIdsWithPasos = new Set<string>();
 
+    /** Un entregable está oculto hoy si `ocultoHasta` cubre la fecha actual ("Cerrar por hoy"). */
+    const estaOcultoHoy = (ent: { ocultoHasta?: string | null }): boolean =>
+      !!ent.ocultoHasta && ent.ocultoHasta >= dateKey;
+
     for (const p of pasos) {
       if (p.inicioTs && p.inicioTs.slice(0, 10) === dateKey) {
         entIdsWithPasos.add(p.entregableId);
@@ -421,6 +425,7 @@ export function usePlannedBlocks(dateKey: string): PlannedBlock[] {
       const ent = entregables.find((e) => e.id === paso.entregableId);
       if (!ent) continue;
       if (ent.estado === "hecho" || ent.estado === "cancelada" || ent.estado === "en_espera") continue;
+      if (estaOcultoHoy(ent)) continue;
       if (ent.responsable && ent.responsable !== currentUser) continue;
       entIdsWithPasos.add(ent.id);
       const res = resultados.find((r) => r.id === ent.resultadoId);
@@ -445,6 +450,7 @@ export function usePlannedBlocks(dateKey: string): PlannedBlock[] {
     for (const ent of entregables) {
       if (!ent.fechaInicio || ent.fechaInicio > dateKey) continue;
       if (ent.estado === "hecho" || ent.estado === "cancelada" || ent.estado === "en_espera") continue;
+      if (estaOcultoHoy(ent)) continue;
       if (entIdsWithPasos.has(ent.id)) continue;
       if (ent.responsable && ent.responsable !== currentUser) continue;
       const res = resultados.find((r) => r.id === ent.resultadoId);
@@ -469,9 +475,12 @@ export function usePlannedBlocks(dateKey: string): PlannedBlock[] {
       if (result.some((b) => b.id.startsWith("pending-") && b.entregableId === entId)) continue;
       const ent = entregables.find((e) => e.id === entId);
       if (!ent || ent.estado !== "en_proceso") continue;
+      if (estaOcultoHoy(ent)) continue;
       if (ent.responsable && ent.responsable !== currentUser) continue;
       const pendingPaso = pasos.find((p) => p.entregableId === entId && !p.inicioTs && !p.finTs);
       if (!pendingPaso) continue;
+      // Si el paso pending está programado para un día futuro, no lo mostramos hoy.
+      if (pendingPaso.planInicioTs && pendingPaso.planInicioTs.slice(0, 10) > dateKey) continue;
       const res = resultados.find((r) => r.id === ent.resultadoId);
       const proj = res ? proyectos.find((pr) => pr.id === res.proyectoId) : undefined;
       result.push({

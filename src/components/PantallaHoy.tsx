@@ -84,6 +84,11 @@ export function PantallaHoy() {
 
   const [orphanBlock, setOrphanBlock] = useState<{ entregableId: string; title: string } | null>(null);
 
+  function cerrarEntregablePorHoy(block: PlannedBlock) {
+    if (!block.entregableId) return;
+    dispatch({ type: "OCULTAR_ENTREGABLE_HASTA", id: block.entregableId, hasta: todayKey });
+  }
+
   if (isMentor) return <div className="p-8 text-center text-muted">Vista no disponible para mentor.</div>;
 
   const isEmpty = pasosActivos.length === 0 && blocksPrincipalesAll.length === 0 && blocksArrastrado.length === 0;
@@ -239,13 +244,13 @@ export function PantallaHoy() {
                   <p className="mt-1 text-[10px] font-semibold uppercase tracking-wider text-muted/70">Por hora</p>
                 )}
                 {conHora.map((block) => (
-                  <PlannedRow key={block.id} block={block} onStart={() => startPlannedBlock(block)} />
+                  <PlannedRow key={block.id} block={block} onStart={() => startPlannedBlock(block)} onCerrarPorHoy={cerrarEntregablePorHoy} />
                 ))}
                 {sinHora.length > 0 && (
                   <p className="mt-2 text-[10px] font-semibold uppercase tracking-wider text-muted/70">Sin hora</p>
                 )}
                 {sinHora.map((block) => (
-                  <PlannedRow key={block.id} block={block} onStart={() => startPlannedBlock(block)} />
+                  <PlannedRow key={block.id} block={block} onStart={() => startPlannedBlock(block)} onCerrarPorHoy={cerrarEntregablePorHoy} />
                 ))}
               </>
             );
@@ -272,7 +277,7 @@ export function PantallaHoy() {
           {otrosOpen && (
             <div className="mt-2 space-y-1.5">
               {blocksOtros.map((block) => (
-                <PlannedRow key={block.id} block={block} onStart={() => startPlannedBlock(block)} />
+                <PlannedRow key={block.id} block={block} onStart={() => startPlannedBlock(block)} onCerrarPorHoy={cerrarEntregablePorHoy} />
               ))}
             </div>
           )}
@@ -725,7 +730,7 @@ function EndOfDayFlow({
    PlannedRow / ArrastradoSection — UI para "Planificados para hoy"
    ============================================================ */
 
-function PlannedRow({ block, onStart }: { block: PlannedBlock; onStart: () => void }) {
+function PlannedRow({ block, onStart, onCerrarPorHoy }: { block: PlannedBlock; onStart: () => void; onCerrarPorHoy?: (block: PlannedBlock) => void }) {
   const hora = block.planInicioTs ? (() => {
     const d = new Date(block.planInicioTs!);
     return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
@@ -741,6 +746,15 @@ function PlannedRow({ block, onStart }: { block: PlannedBlock; onStart: () => vo
         <p className="truncate text-sm font-medium text-foreground">{block.title}</p>
         <p className="truncate text-[11px] text-muted">{block.subtitle}</p>
       </div>
+      {onCerrarPorHoy && block.entregableId && (
+        <button
+          onClick={() => onCerrarPorHoy(block)}
+          title="Ocultar este entregable de Hoy hasta mañana"
+          className="shrink-0 rounded-lg border border-border px-2 py-1.5 text-[10px] font-semibold text-muted transition-colors hover:border-amber-400 hover:text-amber-600"
+        >
+          Cerrar por hoy
+        </button>
+      )}
       <button
         onClick={onStart}
         className="shrink-0 rounded-lg px-3 py-1.5 text-[11px] font-semibold text-white hover:brightness-110"

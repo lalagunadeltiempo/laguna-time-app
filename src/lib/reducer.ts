@@ -43,6 +43,7 @@ export type Action =
   | { type: "DELETE_PASO"; id: string }
   | { type: "RENAME_ENTREGABLE"; id: string; nombre: string }
   | { type: "UPDATE_ENTREGABLE"; id: string; changes: Partial<Pick<Entregable, "nombre" | "responsable" | "tipo" | "plantillaId" | "diasEstimados" | "estado" | "fechaLimite" | "fechaInicio" | "planNivel" | "semana">> }
+  | { type: "OCULTAR_ENTREGABLE_HASTA"; id: string; hasta: string | null }
   | { type: "SET_ENTREGABLE_SEMANA"; id: string; semana: string | null }
   | { type: "SET_RESULTADO_SEMANA"; id: string; semana: string | null }
   | { type: "TOGGLE_PROYECTO_MES"; id: string; mes: string }
@@ -374,6 +375,13 @@ export function reducer(state: AppState, action: Action): AppState {
         newState.pasosActivos = clearPasosActivos(state, new Set([action.id]));
       }
       return newState;
+    }
+
+    case "OCULTAR_ENTREGABLE_HASTA": {
+      return {
+        ...state,
+        entregables: state.entregables.map((e) => e.id === action.id ? { ...e, ocultoHasta: action.hasta } : e),
+      };
     }
 
     case "DELETE_ENTREGABLE": {
