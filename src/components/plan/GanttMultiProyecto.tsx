@@ -1,8 +1,8 @@
 "use client";
 
 import { useState, useMemo } from "react";
-import type { Proyecto, Resultado, Entregable } from "@/lib/types";
-import { AREA_COLORS } from "@/lib/types";
+import type { Area, Proyecto, Resultado, Entregable } from "@/lib/types";
+import { AREA_COLORS, AREAS_EMPRESA, AREAS_PERSONAL } from "@/lib/types";
 import {
   inferDateRange,
   ritmoColor,
@@ -343,21 +343,59 @@ export function GanttMultiProyecto({
             </div>
           </div>
 
-          {/* ---- Project rows ---- */}
-          {projects.map((gp) => (
-            <ProjectRow
-              key={gp.proyecto.id}
-              gp={gp}
-              open={expanded.has(gp.proyecto.id)}
-              onToggle={toggle}
-              pos={pos}
-              rango={effectiveRange}
-            />
+          {/* ---- Project rows agrupados por área ---- */}
+          {groupByArea(projects).map(({ area, label, items }) => (
+            <div key={area}>
+              <div className="flex items-stretch border-y border-border/40 bg-surface/60">
+                <div className="shrink-0 px-3 py-1.5" style={{ width: LABEL_W }}>
+                  <span className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-muted">
+                    <span className="h-2 w-2 shrink-0 rounded-full"
+                      style={{ backgroundColor: AREA_COLORS[area]?.hex ?? "#888" }} />
+                    {label}
+                  </span>
+                </div>
+                <div className="flex-1" />
+              </div>
+              {items.map((gp) => (
+                <ProjectRow
+                  key={gp.proyecto.id}
+                  gp={gp}
+                  open={expanded.has(gp.proyecto.id)}
+                  onToggle={toggle}
+                  pos={pos}
+                  rango={effectiveRange}
+                />
+              ))}
+            </div>
           ))}
         </div>
       </div>
     </div>
   );
+}
+
+/* ---- Agrupación por área ---- */
+
+const AREA_ORDER: Area[] = [
+  ...AREAS_EMPRESA.map((a) => a.id),
+  ...AREAS_PERSONAL.map((a) => a.id),
+] as Area[];
+
+const AREA_LABELS: Record<Area, string> = {
+  ...Object.fromEntries(AREAS_EMPRESA.map((a) => [a.id, a.label])),
+  ...Object.fromEntries(AREAS_PERSONAL.map((a) => [a.id, a.label])),
+} as Record<Area, string>;
+
+function groupByArea(projects: GanttProject[]): { area: Area; label: string; items: GanttProject[] }[] {
+  const byArea = new Map<Area, GanttProject[]>();
+  for (const gp of projects) {
+    const a = gp.proyecto.area as Area;
+    if (!byArea.has(a)) byArea.set(a, []);
+    byArea.get(a)!.push(gp);
+  }
+  return AREA_ORDER
+    .filter((a) => byArea.has(a))
+    .map((a) => ({ area: a, label: AREA_LABELS[a] ?? a, items: byArea.get(a)! }));
 }
 
 /* ---- Sub-components ---- */

@@ -55,7 +55,7 @@ export function PlanSemana({ selectedDate }: Props) {
   const state = useAppState();
   const dispatch = useAppDispatch();
   const [viewMode, setViewMode] = useState<"yo" | "equipo">("yo");
-  const [filtro, setFiltro] = useState<AmbitoFilter>(isMentor ? "empresa" : "todo");
+  const [filtro, setFiltro] = useState<AmbitoFilter>("empresa");
   const [showDone, setShowDone] = useState(true);
   const [pickDay, setPickDay] = useState<string | null>(null);
   const [confirmSOP, setConfirmSOP] = useState<{ sop: ProjectedSOP; dateKey: string } | null>(null);

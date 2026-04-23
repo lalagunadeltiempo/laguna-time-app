@@ -17,8 +17,32 @@ import {
 } from "@/lib/types";
 import { AmbitoToggle, ResponsableToggle, matchesResponsable, type AmbitoFilter, type ResponsableFilter } from "./PlanMes";
 import { mesKey, etiquetaMesCorta, mesesDeTrimestre } from "@/lib/semana-utils";
+import { InlineNombre, ResponsableSelect } from "./InlineEditors";
+import type { MiembroInfo } from "@/lib/types";
 
 const MONTHS_ES = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"];
+
+const AREA_ORDER: Area[] = [
+  ...AREAS_EMPRESA.map((a) => a.id),
+  ...AREAS_PERSONAL.map((a) => a.id),
+] as Area[];
+
+const AREA_LABELS: Record<Area, string> = {
+  ...Object.fromEntries(AREAS_EMPRESA.map((a) => [a.id, a.label])),
+  ...Object.fromEntries(AREAS_PERSONAL.map((a) => [a.id, a.label])),
+} as Record<Area, string>;
+
+function groupProjectsByArea(nodes: ProjNode[]): { area: Area; label: string; items: ProjNode[] }[] {
+  const byArea = new Map<Area, ProjNode[]>();
+  for (const n of nodes) {
+    const a = n.proyecto.area as Area;
+    if (!byArea.has(a)) byArea.set(a, []);
+    byArea.get(a)!.push(n);
+  }
+  return AREA_ORDER
+    .filter((a) => byArea.has(a))
+    .map((a) => ({ area: a, label: AREA_LABELS[a] ?? a, items: byArea.get(a)! }));
+}
 
 function quarterLabel(q: number, y: number) { return `Q${q + 1} ${y}`; }
 function quarterMonths(q: number) { return [q * 3, q * 3 + 1, q * 3 + 2]; }
@@ -41,7 +65,7 @@ export function PlanTrimestre({ selectedDate }: Props) {
   const dispatch = useAppDispatch();
   const isMentor = useIsMentor();
   const { nombre: currentUser } = useUsuario();
-  const [filtro, setFiltro] = useState<AmbitoFilter>(isMentor ? "empresa" : "todo");
+  const [filtro, setFiltro] = useState<AmbitoFilter>("empresa");
   const [respFilter, setRespFilter] = useState<ResponsableFilter>("todo");
   const [showDone, setShowDone] = useState(true);
   const [newObjText, setNewObjText] = useState("");
@@ -239,10 +263,21 @@ function MonthColumn({ month, year, mesKey: mesK, projects, qMonthKeys, isMentor
       {projects.length === 0 ? (
         <p className="py-4 text-center text-xs text-muted">—</p>
       ) : (
-        <div className="space-y-1.5">
-          {projects.map((pn) => (
-            <ProjectCard key={pn.proyecto.id} node={pn} qMonthKeys={qMonthKeys}
-              currentMesKey={mesK} isMentor={isMentor} />
+        <div className="space-y-3">
+          {groupProjectsByArea(projects).map(({ area, label, items }) => (
+            <div key={area}>
+              <div className="mb-1 flex items-center gap-1.5">
+                <span className="h-1.5 w-1.5 shrink-0 rounded-full"
+                  style={{ backgroundColor: AREA_COLORS[area]?.hex ?? "#888" }} />
+                <span className="text-[9px] font-bold uppercase tracking-wider text-muted">{label}</span>
+              </div>
+              <div className="space-y-1.5">
+                {items.map((pn) => (
+                  <ProjectCard key={pn.proyecto.id} node={pn} qMonthKeys={qMonthKeys}
+                    currentMesKey={mesK} isMentor={isMentor} />
+                ))}
+              </div>
+            </div>
           ))}
         </div>
       )}
@@ -258,6 +293,7 @@ function ProjectCard({ node, qMonthKeys, currentMesKey, isMentor, backlogStyle }
   node: ProjNode; qMonthKeys: string[]; currentMesKey: string | null;
   isMentor: boolean; backlogStyle?: boolean;
 }) {
+  const state = useAppState();
   const dispatch = useAppDispatch();
   const { nombre: currentUser } = useUsuario();
   const [open, setOpen] = useState(false);
@@ -300,20 +336,30 @@ function ProjectCard({ node, qMonthKeys, currentMesKey, isMentor, backlogStyle }
       ? "rounded-xl border border-dashed border-border bg-surface/20"
       : "rounded-lg border-2 bg-background"
     } style={backlogStyle ? undefined : { borderColor: node.hex + "50" }}>
-      <button onClick={() => setOpen(!open)} className="flex w-full items-center gap-1.5 p-2 text-left">
-        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round"
-          className={`shrink-0 text-muted transition-transform ${open ? "rotate-90" : ""}`}>
-          <polyline points="9 18 15 12 9 6" />
-        </svg>
-        <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: node.hex }} />
-        <span className="flex-1 truncate text-xs font-semibold text-foreground">{node.proyecto.nombre}</span>
+      <div className="flex w-full items-center gap-1.5 p-2">
+        <button onClick={() => setOpen(!open)} className="flex shrink-0 items-center gap-1.5" title={open ? "Contraer" : "Expandir"}>
+          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round"
+            className={`shrink-0 text-muted transition-transform ${open ? "rotate-90" : ""}`}>
+            <polyline points="9 18 15 12 9 6" />
+          </svg>
+          <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: node.hex }} />
+        </button>
+        <div className="min-w-0 flex-1">
+          <InlineNombre
+            value={node.proyecto.nombre}
+            onSave={(nombre) => dispatch({ type: "UPDATE_PROYECTO", id: node.proyecto.id, changes: { nombre } })}
+            disabled={isMentor}
+            className="truncate text-xs font-semibold text-foreground"
+            inputClassName="text-xs font-semibold text-foreground"
+          />
+        </div>
         <div className="flex items-center gap-1.5">
           <div className="h-1.5 w-12 overflow-hidden rounded-full bg-surface">
             <div className="h-full rounded-full transition-all" style={{ width: `${node.percent}%`, backgroundColor: node.hex }} />
           </div>
           <span className="text-[9px] font-bold text-muted">{node.done}/{node.total}</span>
         </div>
-      </button>
+      </div>
 
       {open && (
         <div className="space-y-2 px-2 pb-2">
@@ -347,7 +393,7 @@ function ProjectCard({ node, qMonthKeys, currentMesKey, isMentor, backlogStyle }
             <div className="space-y-1">
               {node.resultados.map((r) => (
                 <ResultadoRow key={r.id} resultado={r} entregables={node.entregables.filter((e) => e.resultadoId === r.id)}
-                  qMonthKeys={qMonthKeys} isMentor={isMentor} hex={node.hex} />
+                  qMonthKeys={qMonthKeys} isMentor={isMentor} hex={node.hex} miembros={state.miembros} />
               ))}
             </div>
           )}
@@ -388,8 +434,9 @@ function ProjectCard({ node, qMonthKeys, currentMesKey, isMentor, backlogStyle }
    ResultadoRow: nombre + chips ABR/MAY/JUN + entregables informativos
    ================================================================ */
 
-function ResultadoRow({ resultado, entregables, qMonthKeys, isMentor, hex }: {
+function ResultadoRow({ resultado, entregables, qMonthKeys, isMentor, hex, miembros }: {
   resultado: Resultado; entregables: Entregable[]; qMonthKeys: string[]; isMentor: boolean; hex: string;
+  miembros: MiembroInfo[];
 }) {
   const dispatch = useAppDispatch();
   const mesesRes = resultado.mesesActivos ?? [];
@@ -402,7 +449,22 @@ function ResultadoRow({ resultado, entregables, qMonthKeys, isMentor, hex }: {
     <div className="rounded border border-border/60 bg-surface/40 p-1.5">
       <div className="flex flex-wrap items-center gap-1.5">
         <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ backgroundColor: hex }} />
-        <span className="flex-1 truncate text-[11px] font-semibold text-foreground">{resultado.nombre}</span>
+        <div className="min-w-0 flex-1">
+          <InlineNombre
+            value={resultado.nombre}
+            onSave={(nombre) => dispatch({ type: "UPDATE_RESULTADO", id: resultado.id, changes: { nombre } })}
+            disabled={isMentor}
+            className="truncate text-[11px] font-semibold text-foreground"
+            inputClassName="text-[11px] font-semibold text-foreground"
+          />
+        </div>
+        {!isMentor && (
+          <ResponsableSelect
+            value={resultado.responsable}
+            miembros={miembros}
+            onChange={(v) => dispatch({ type: "UPDATE_RESULTADO", id: resultado.id, changes: { responsable: v || undefined } })}
+          />
+        )}
         {!isMentor && (
           <div className="flex items-center gap-0.5">
             {qMonthKeys.map((mk) => {

@@ -34,7 +34,7 @@ export function PlanAnio({ selectedDate }: Props) {
   const state = useAppState();
   const dispatch = useAppDispatch();
   const isMentor = useIsMentor();
-  const [filtro, setFiltro] = useState<AmbitoFilter>(isMentor ? "empresa" : "todo");
+  const [filtro, setFiltro] = useState<AmbitoFilter>("empresa");
   const [newObjText, setNewObjText] = useState("");
   const [newObjArea, setNewObjArea] = useState<Area | "">("");
 

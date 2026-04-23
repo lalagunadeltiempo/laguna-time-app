@@ -4,17 +4,31 @@ import { useMemo, useState } from "react";
 import { useAppState, useAppDispatch } from "@/lib/context";
 import { useUsuario, useIsMentor } from "@/lib/usuario";
 import {
-  ambitoDeArea, AREA_COLORS,
-  type Entregable, type Resultado, type Proyecto, type Ambito, type MiembroInfo,
+  ambitoDeArea, AREA_COLORS, AREAS_EMPRESA, AREAS_PERSONAL,
+  type Area, type Entregable, type Resultado, type Proyecto, type Ambito, type MiembroInfo,
+  type TipoEntregable,
 } from "@/lib/types";
-import { computeProyectoRitmo, ritmoColor, ritmoLabelCorto, ritmoExplicacion } from "@/lib/proyecto-stats";
+import { computeProyectoRitmo } from "@/lib/proyecto-stats";
 import { mesKey as mesKeyOf, weeksOfMonth, type WeekInfo } from "@/lib/semana-utils";
+import { GanttMultiProyecto, type GanttProject } from "./GanttMultiProyecto";
+import { InlineNombre, ResponsableSelect } from "./InlineEditors";
+import { generateId } from "@/lib/store";
 
 export type AmbitoFilter = "todo" | Ambito;
 
 /* ============================================================
    Helpers
    ============================================================ */
+
+const AREA_ORDER: Area[] = [
+  ...AREAS_EMPRESA.map((a) => a.id),
+  ...AREAS_PERSONAL.map((a) => a.id),
+] as Area[];
+
+const AREA_LABELS: Record<Area, string> = {
+  ...Object.fromEntries(AREAS_EMPRESA.map((a) => [a.id, a.label])),
+  ...Object.fromEntries(AREAS_PERSONAL.map((a) => [a.id, a.label])),
+} as Record<Area, string>;
 
 /** Para un resultado, calcula si está "activo" en el mes actual
  *  (según semanasActivas, mesesActivos, o semana legada). */
@@ -35,25 +49,23 @@ interface Props {
   onNavigateToWeek?: (date: Date) => void;
 }
 
-interface ProjSummary {
+interface ResultadoCardData {
+  resultado: Resultado;
   proyecto: Proyecto;
-  resultadosActivos: Resultado[];
+  area: Area;
+  areaHex: string;
+  entregables: Entregable[];
   entregablesTotal: number;
   entregablesHechos: number;
-  entregablesEnCurso: number;
-  areaHex: string;
-  ritmo: ReturnType<typeof computeProyectoRitmo>;
-  warnings: string[];
 }
 
 export function PlanMes({ selectedDate }: Props) {
   const state = useAppState();
   const isMentor = useIsMentor();
   const { nombre: currentUser } = useUsuario();
-  const [filtro, setFiltro] = useState<AmbitoFilter>(isMentor ? "empresa" : "todo");
+  const [filtro, setFiltro] = useState<AmbitoFilter>("empresa");
   const [respFilter, setRespFilter] = useState<ResponsableFilter>("todo");
   const [showDone, setShowDone] = useState(false);
-  const [expandedProjects, setExpandedProjects] = useState<Set<string>>(new Set());
 
   const mesLabel = useMemo(() =>
     selectedDate.toLocaleDateString("es-ES", { month: "long", year: "numeric" }),
@@ -66,9 +78,13 @@ export function PlanMes({ selectedDate }: Props) {
   const weekMondays = useMemo(() => new Set(weeks.map((w) => w.monday)), [weeks]);
   const [hoy] = useState<Date>(() => new Date());
 
-  /* ---- Proyectos visibles este mes ---- */
-  const projectSummaries = useMemo<ProjSummary[]>(() => {
-    const summaries: ProjSummary[] = [];
+  /* ---- Resultados visibles este mes ---- */
+  const { cards, ganttProjects } = useMemo<{
+    cards: ResultadoCardData[];
+    ganttProjects: GanttProject[];
+  }>(() => {
+    const cards: ResultadoCardData[] = [];
+    const ganttProjects: GanttProject[] = [];
 
     for (const proj of state.proyectos) {
       const projEstado = proj.estado ?? "plan";
@@ -79,60 +95,83 @@ export function PlanMes({ selectedDate }: Props) {
       const resIds = new Set(resultados.map((r) => r.id));
       const entregables = state.entregables.filter((e) => resIds.has(e.resultadoId));
 
-      if (!showDone && entregables.length > 0 && entregables.every((e) => e.estado === "hecho" || e.estado === "cancelada")) continue;
-
       const filtered = respFilter === "todo"
         ? entregables
         : entregables.filter((e) => matchesResponsable(e.responsable, respFilter, currentUser));
       if (filtered.length === 0 && entregables.length > 0) continue;
 
-      // Visibilidad en el mes: mesesActivos del proyecto o de algún resultado, o alguna
-      // semana activa/entregable con semana caiga en el mes.
+      // Proyecto visible en el mes si el proyecto tiene ese mes activo o algún resultado está activo.
       let inMonth = (proj.mesesActivos ?? []).includes(mesK);
-      if (!inMonth) {
-        for (const r of resultados) {
-          const entsRes = entregables.filter((e) => e.resultadoId === r.id);
-          if (resultadoActivoEnMes(r, entsRes, mesK, weekMondays)) { inMonth = true; break; }
+      const resultadosActivos: Resultado[] = [];
+      for (const r of resultados) {
+        const entsRes = entregables.filter((e) => e.resultadoId === r.id);
+        if (resultadoActivoEnMes(r, entsRes, mesK, weekMondays) || (proj.mesesActivos ?? []).includes(mesK)) {
+          inMonth = true;
+          resultadosActivos.push(r);
         }
       }
       if (!inMonth) continue;
 
-      const resultadosActivos = resultados.filter((r) => {
-        const entsRes = entregables.filter((e) => e.resultadoId === r.id);
-        return resultadoActivoEnMes(r, entsRes, mesK, weekMondays)
-          || (proj.mesesActivos ?? []).includes(mesK);
-      });
-
       const areaHex = AREA_COLORS[proj.area]?.hex ?? "#888";
+
+      for (const res of (resultadosActivos.length > 0 ? resultadosActivos : resultados)) {
+        const entsRes = entregables.filter((e) => e.resultadoId === res.id);
+        const entHechos = entsRes.filter((e) => e.estado === "hecho").length;
+        cards.push({
+          resultado: res,
+          proyecto: proj,
+          area: proj.area as Area,
+          areaHex,
+          entregables: entsRes,
+          entregablesTotal: entsRes.length,
+          entregablesHechos: entHechos,
+        });
+      }
+
       const ritmo = computeProyectoRitmo(proj, entregables, resultados, hoy, state.miembros, state.pasos, state.planConfig);
-      const entHechos = entregables.filter((e) => e.estado === "hecho").length;
-      const entEnCurso = entregables.filter((e) => e.estado === "en_proceso").length;
-
-      const warnings: string[] = [];
-      if (entregables.length === 0) warnings.push("Sin entregables");
-
-      summaries.push({
-        proyecto: proj,
-        resultadosActivos: resultadosActivos.length > 0 ? resultadosActivos : resultados,
-        entregablesTotal: entregables.length,
-        entregablesHechos: entHechos,
-        entregablesEnCurso: entEnCurso,
-        areaHex,
-        ritmo,
-        warnings,
-      });
+      ganttProjects.push({ proyecto: proj, resultados, entregables, ritmo });
     }
 
-    return summaries;
-  }, [state, filtro, respFilter, currentUser, showDone, hoy, mesK, weekMondays]);
+    return { cards, ganttProjects };
+  }, [state, filtro, respFilter, currentUser, hoy, mesK, weekMondays]);
 
-  const toggleExpand = (projId: string) => {
-    setExpandedProjects((prev) => {
-      const next = new Set(prev);
-      if (next.has(projId)) next.delete(projId); else next.add(projId);
-      return next;
-    });
-  };
+  /* ---- Agrupación por semana y área ---- */
+  interface WeekBucket {
+    week: WeekInfo;
+    byArea: Map<Area, ResultadoCardData[]>;
+  }
+
+  const weekBuckets: WeekBucket[] = useMemo(() => {
+    const buckets = weeks.map((w) => ({ week: w, byArea: new Map<Area, ResultadoCardData[]>() }));
+    for (const card of cards) {
+      const semanas = (card.resultado.semanasActivas ?? (card.resultado.semana ? [card.resultado.semana] : []))
+        .filter((sk) => weekMondays.has(sk));
+      for (const sk of semanas) {
+        const bucket = buckets.find((b) => b.week.monday === sk);
+        if (!bucket) continue;
+        if (!bucket.byArea.has(card.area)) bucket.byArea.set(card.area, []);
+        bucket.byArea.get(card.area)!.push(card);
+      }
+    }
+    return buckets;
+  }, [cards, weeks, weekMondays]);
+
+  /* ---- "Sin semana": resultados activos en el mes sin semana asignada en el mes ---- */
+  const sinSemanaCards = useMemo(() => {
+    const out: ResultadoCardData[] = [];
+    for (const card of cards) {
+      const semanas = (card.resultado.semanasActivas ?? (card.resultado.semana ? [card.resultado.semana] : []))
+        .filter((sk) => weekMondays.has(sk));
+      if (semanas.length > 0) continue;
+      // Tampoco hay entregables con semana de este mes ya asignados.
+      const tieneEntregableDelMes = card.entregables.some((e) => e.semana && (weekMondays.has(e.semana) || mesKeyOf(e.semana) === mesK));
+      if (tieneEntregableDelMes) continue;
+      out.push(card);
+    }
+    return out;
+  }, [cards, weekMondays, mesK]);
+
+  const totalResultados = cards.length;
 
   return (
     <div className="flex-1">
@@ -141,7 +180,7 @@ export function PlanMes({ selectedDate }: Props) {
         <div>
           <p className="text-sm font-medium capitalize text-muted">{mesLabel}</p>
           <p className="text-xs text-muted">
-            {projectSummaries.length} proyecto{projectSummaries.length !== 1 ? "s" : ""} activo{projectSummaries.length !== 1 ? "s" : ""}
+            {totalResultados} resultado{totalResultados !== 1 ? "s" : ""} activo{totalResultados !== 1 ? "s" : ""}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-3">
@@ -155,152 +194,70 @@ export function PlanMes({ selectedDate }: Props) {
         </div>
       </div>
 
-      {/* Leyenda de semanas */}
-      <section className="mb-6 rounded-xl border border-border bg-surface/40 p-3">
-        <p className="mb-2 text-[10px] font-bold uppercase tracking-widest text-muted">Semanas del mes</p>
-        <div className="flex flex-wrap gap-x-4 gap-y-1">
-          {weeks.map((w) => (
-            <div key={w.idx} className="flex items-center gap-1.5 text-[11px]">
-              <span className="rounded bg-background px-1.5 py-0.5 font-bold text-foreground">{w.label}</span>
-              <span className="text-muted">{w.rangeLabel}</span>
-            </div>
-          ))}
-        </div>
-      </section>
+      {/* Gantt del mes */}
+      {ganttProjects.length > 0 && (
+        <section className="mb-6">
+          <h3 className="mb-2 text-xs font-bold uppercase tracking-widest text-muted">Gantt</h3>
+          <GanttMultiProyecto projects={ganttProjects} hoy={hoy} selectedDate={selectedDate} />
+        </section>
+      )}
 
-      {/* Proyectos del mes */}
+      {/* Semanas del mes */}
       <section>
-        <h3 className="mb-3 text-xs font-bold uppercase tracking-widest text-muted">Proyectos del mes</h3>
+        <h3 className="mb-3 text-xs font-bold uppercase tracking-widest text-muted">Semanas del mes</h3>
 
-        {projectSummaries.length === 0 ? (
+        {totalResultados === 0 ? (
           <div className="rounded-xl border border-dashed border-border bg-surface/30 py-8 text-center">
-            <p className="text-sm text-muted">No hay proyectos activos este mes.</p>
+            <p className="text-sm text-muted">No hay resultados activos este mes.</p>
             <p className="mt-1 text-xs text-muted">Marca el mes al proyecto o a un resultado desde Plan Trimestre.</p>
           </div>
         ) : (
-          <div className="space-y-2">
-            {projectSummaries.map((s) => {
-              const pct = s.entregablesTotal > 0 ? Math.round((s.entregablesHechos / s.entregablesTotal) * 100) : 0;
-              const rColor = ritmoColor(s.ritmo.estadoRitmo);
-              const isExpanded = expandedProjects.has(s.proyecto.id);
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-3">
+            {weekBuckets.map((bucket) => (
+              <WeekColumn key={bucket.week.monday}
+                week={bucket.week}
+                byArea={bucket.byArea}
+                showDone={showDone}
+                respFilter={respFilter}
+                currentUser={currentUser}
+                isMentor={isMentor}
+                miembros={state.miembros}
+                weeks={weeks}
+              />
+            ))}
+          </div>
+        )}
 
-              return (
-                <div key={s.proyecto.id} className="rounded-xl border border-border bg-background overflow-hidden">
-                  <button onClick={() => toggleExpand(s.proyecto.id)}
-                    className="flex w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-surface/50">
-                    <span className="h-3 w-3 shrink-0 rounded-full" style={{ backgroundColor: s.areaHex }} />
-                    <span className="min-w-0 flex-1 truncate text-sm font-semibold text-foreground">{s.proyecto.nombre}</span>
-
-                    <div className="hidden sm:flex items-center gap-2">
-                      <div className="h-1.5 w-16 overflow-hidden rounded-full bg-surface">
-                        <div className="h-full rounded-full transition-all" style={{ width: `${pct}%`, backgroundColor: rColor }} />
-                      </div>
-                      <span className="text-[11px] font-semibold" style={{ color: rColor }}>{pct}%</span>
-                    </div>
-
-                    <span className="shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold"
-                      style={{ backgroundColor: rColor + "18", color: rColor }}>
-                      {ritmoLabelCorto(s.ritmo.estadoRitmo)}
-                    </span>
-
-                    <span className="shrink-0 text-[11px] text-muted">
-                      {s.entregablesHechos}/{s.entregablesTotal}
-                    </span>
-
-                    {s.warnings.length > 0 && (
-                      <span className="shrink-0 text-amber-500" title={s.warnings.join(", ")}>
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-                          <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
-                          <line x1="12" y1="9" x2="12" y2="13" /><line x1="12" y1="17" x2="12.01" y2="17" />
-                        </svg>
-                      </span>
-                    )}
-
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"
-                      className={`shrink-0 text-muted transition-transform ${isExpanded ? "rotate-90" : ""}`}>
-                      <polyline points="9 6 15 12 9 18" />
-                    </svg>
-                  </button>
-
-                  {isExpanded && (
-                    <div className="border-t border-border px-4 py-3">
-                      {(s.ritmo.estadoRitmo === "rojo" || s.ritmo.estadoRitmo === "imposible") && (
-                        <div className="mb-3 rounded-lg px-3 py-2"
-                          style={{ backgroundColor: rColor + "14", color: rColor }}>
-                          <p className="text-[11px] font-semibold">
-                            ⚠ {ritmoExplicacion(s.ritmo)}
-                          </p>
-                        </div>
-                      )}
-
-                      {s.warnings.length > 0 && (
-                        <div className="mb-3 rounded-lg bg-amber-50 px-3 py-2">
-                          {s.warnings.map((w, i) => (
-                            <p key={i} className="text-[11px] text-amber-700">⚠ {w}</p>
-                          ))}
-                        </div>
-                      )}
-
-                      {s.resultadosActivos.length > 0 ? (
-                        <div className="space-y-3">
-                          {s.resultadosActivos.map((res) => {
-                            const entsTodos = state.entregables.filter((e) => e.resultadoId === res.id);
-                            // entregables del mes: ent.semana en el mes, o sin semana (para planificar)
-                            const entsMes = entsTodos.filter((e) => {
-                              if (!e.semana) return true;
-                              return weekMondays.has(e.semana) || mesKeyOf(e.semana) === mesK;
-                            });
-                            const entsVisibles = entsMes.filter((e) => {
-                              if (!showDone && (e.estado === "hecho" || e.estado === "cancelada")) return false;
-                              if (!matchesResponsable(e.responsable, respFilter, currentUser)) return false;
-                              return true;
-                            });
-                            return (
-                              <div key={res.id} className="rounded-lg border border-border/60 bg-surface/20 p-2">
-                                <div className="flex flex-wrap items-center gap-2">
-                                  <div className="min-w-0 flex-1">
-                                    <InlineResultadoNombre resId={res.id} nombre={res.nombre} editable={!isMentor} />
-                                  </div>
-                                  {!isMentor && (
-                                    <ResultadoWeekChips
-                                      resId={res.id}
-                                      weeks={weeks}
-                                      semanasActivas={res.semanasActivas ?? (res.semana ? [res.semana] : [])}
-                                    />
-                                  )}
-                                </div>
-                                {entsVisibles.length === 0 ? (
-                                  <p className="mt-1 pl-2 text-[11px] italic text-muted/70">— sin entregables este mes</p>
-                                ) : (
-                                  <div className="mt-1 space-y-1 pl-2">
-                                    {entsVisibles.map((ent) => (
-                                      <div key={ent.id} className="flex flex-wrap items-center gap-1.5">
-                                        <div className="min-w-0 flex-1">
-                                          <EntregableInlineRow ent={ent} miembros={state.miembros} editable={!isMentor} />
-                                        </div>
-                                        {!isMentor && (
-                                          <EntregableWeekChips
-                                            entId={ent.id}
-                                            weeks={weeks}
-                                            current={ent.semana ?? null}
-                                          />
-                                        )}
-                                      </div>
-                                    ))}
-                                  </div>
-                                )}
-                              </div>
-                            );
-                          })}
-                        </div>
-                      ) : (
-                        <p className="text-xs text-muted italic">Sin resultados</p>
-                      )}
-                    </div>
-                  )}
+        {sinSemanaCards.length > 0 && (
+          <div className="mt-4 rounded-xl border border-dashed border-amber-400/50 bg-amber-50/30 p-3">
+            <p className="mb-2 text-[11px] font-bold uppercase tracking-wider text-amber-700">Sin semana · {sinSemanaCards.length}</p>
+            <p className="mb-3 text-[10px] text-amber-700/80">
+              Resultados con mes activo pero sin ninguna semana asignada este mes. Asígnales semanas con los chips.
+            </p>
+            <div className="space-y-2">
+              {groupCardsByArea(sinSemanaCards).map(({ area, label, items }) => (
+                <div key={area}>
+                  <div className="mb-1 flex items-center gap-1.5">
+                    <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ backgroundColor: AREA_COLORS[area]?.hex ?? "#888" }} />
+                    <span className="text-[9px] font-bold uppercase tracking-wider text-amber-700/80">{label}</span>
+                  </div>
+                  <div className="space-y-1.5">
+                    {items.map((card) => (
+                      <ResultadoCard key={card.resultado.id}
+                        card={card}
+                        week={null}
+                        weeks={weeks}
+                        showDone={showDone}
+                        respFilter={respFilter}
+                        currentUser={currentUser}
+                        isMentor={isMentor}
+                        miembros={state.miembros}
+                      />
+                    ))}
+                  </div>
                 </div>
-              );
-            })}
+              ))}
+            </div>
           </div>
         )}
       </section>
@@ -309,30 +266,221 @@ export function PlanMes({ selectedDate }: Props) {
 }
 
 /* ============================================================
-   Week chips: multi-toggle para resultados (semanasActivas)
+   Agrupación por área
    ============================================================ */
 
-function ResultadoWeekChips({ resId, weeks, semanasActivas }: {
-  resId: string; weeks: WeekInfo[]; semanasActivas: string[];
+function groupCardsByArea(cards: ResultadoCardData[]): { area: Area; label: string; items: ResultadoCardData[] }[] {
+  const byArea = new Map<Area, ResultadoCardData[]>();
+  for (const c of cards) {
+    if (!byArea.has(c.area)) byArea.set(c.area, []);
+    byArea.get(c.area)!.push(c);
+  }
+  return AREA_ORDER
+    .filter((a) => byArea.has(a))
+    .map((a) => ({ area: a, label: AREA_LABELS[a] ?? a, items: byArea.get(a)! }));
+}
+
+/* ============================================================
+   WeekColumn: columna de una semana con resultados por área
+   ============================================================ */
+
+function WeekColumn({ week, byArea, showDone, respFilter, currentUser, isMentor, miembros, weeks }: {
+  week: WeekInfo;
+  byArea: Map<Area, ResultadoCardData[]>;
+  showDone: boolean;
+  respFilter: ResponsableFilter;
+  currentUser: string;
+  isMentor: boolean;
+  miembros: MiembroInfo[];
+  weeks: WeekInfo[];
+}) {
+  const now = new Date();
+  const nowMs = now.getTime();
+  const isCurrent = nowMs >= week.mondayMs && nowMs <= week.sundayMs;
+  const allCards = [...byArea.values()].flat();
+  const count = allCards.length;
+
+  const ordered = AREA_ORDER
+    .filter((a) => byArea.has(a))
+    .map((a) => ({ area: a, label: AREA_LABELS[a] ?? a, items: byArea.get(a)! }));
+
+  return (
+    <div className={`rounded-xl border p-3 ${isCurrent ? "border-accent/40 bg-accent/5" : "border-border bg-background"}`}>
+      <div className="mb-2 flex items-center justify-between gap-2">
+        <div className="flex items-baseline gap-1.5">
+          <h4 className={`text-xs font-bold uppercase ${isCurrent ? "text-accent" : "text-muted"}`}>{week.label}</h4>
+          <span className="text-[10px] text-muted">{week.rangeLabel}</span>
+        </div>
+        <span className="rounded-full bg-surface px-2 py-0.5 text-[10px] font-bold text-muted">{count}</span>
+      </div>
+
+      {count === 0 ? (
+        <p className="py-4 text-center text-xs text-muted">—</p>
+      ) : (
+        <div className="space-y-3">
+          {ordered.map(({ area, label, items }) => (
+            <div key={area}>
+              <div className="mb-1 flex items-center gap-1.5">
+                <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ backgroundColor: AREA_COLORS[area]?.hex ?? "#888" }} />
+                <span className="text-[9px] font-bold uppercase tracking-wider text-muted">{label}</span>
+              </div>
+              <div className="space-y-1.5">
+                {items.map((card) => (
+                  <ResultadoCard key={card.resultado.id}
+                    card={card}
+                    week={week}
+                    weeks={weeks}
+                    showDone={showDone}
+                    respFilter={respFilter}
+                    currentUser={currentUser}
+                    isMentor={isMentor}
+                    miembros={miembros}
+                  />
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ============================================================
+   ResultadoCard: colapsable con entregables de la semana
+   ============================================================ */
+
+function ResultadoCard({ card, week, weeks, showDone, respFilter, currentUser, isMentor, miembros }: {
+  card: ResultadoCardData;
+  /** null si se muestra en la sección "Sin semana" */
+  week: WeekInfo | null;
+  weeks: WeekInfo[];
+  showDone: boolean;
+  respFilter: ResponsableFilter;
+  currentUser: string;
+  isMentor: boolean;
+  miembros: MiembroInfo[];
 }) {
   const dispatch = useAppDispatch();
-  const activas = new Set(semanasActivas);
+  const [open, setOpen] = useState(false);
+  const { resultado, proyecto, areaHex } = card;
+
+  // Entregables a mostrar dentro de este card:
+  // - Si está en una semana: los que tengan ent.semana === week.monday + los sin semana (para planificar)
+  // - Si está en "Sin semana": todos los entregables del resultado sin semana (o sin semana del mes)
+  const entsVisibles = card.entregables.filter((e) => {
+    if (!showDone && (e.estado === "hecho" || e.estado === "cancelada")) return false;
+    if (!matchesResponsable(e.responsable, respFilter, currentUser)) return false;
+    if (week) {
+      return e.semana === week.monday || !e.semana;
+    }
+    return !e.semana;
+  });
+
+  const semanasActivas = resultado.semanasActivas ?? (resultado.semana ? [resultado.semana] : []);
+
+  function handleAddEntregable() {
+    const nombre = window.prompt("Nombre del entregable");
+    if (!nombre || !nombre.trim()) return;
+    const nuevo: Entregable = {
+      id: generateId(),
+      nombre: nombre.trim(),
+      resultadoId: resultado.id,
+      tipo: "raw" as TipoEntregable,
+      plantillaId: null,
+      diasEstimados: 1,
+      diasHechos: 0,
+      esDiaria: false,
+      responsable: currentUser,
+      estado: "a_futuro",
+      creado: new Date().toISOString(),
+      semana: week ? week.monday : null,
+      fechaLimite: null,
+      fechaInicio: null,
+    };
+    dispatch({ type: "ADD_ENTREGABLE", payload: nuevo });
+  }
+
   return (
-    <div className="flex shrink-0 items-center gap-0.5">
-      {weeks.map((w) => {
-        const active = activas.has(w.monday);
-        return (
-          <button key={w.idx}
-            onClick={() => dispatch({ type: "TOGGLE_RESULTADO_SEMANA_ACTIVA", id: resId, semana: w.monday })}
-            title={`${w.label} · ${w.rangeLabel}`}
-            className={`rounded px-1.5 py-0.5 text-[9px] font-semibold transition-colors ${
-              active ? "bg-accent text-white" : "border border-border text-muted hover:border-accent hover:text-accent"
-            }`}
-          >
-            {w.label}
-          </button>
-        );
-      })}
+    <div className="rounded-lg border-2 bg-background" style={{ borderColor: areaHex + "40" }}>
+      <div className="flex w-full items-center gap-1.5 p-2">
+        <button onClick={() => setOpen(!open)}
+          className="flex shrink-0 items-center gap-1.5"
+          title={open ? "Contraer" : "Expandir"}>
+          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round"
+            className={`shrink-0 text-muted transition-transform ${open ? "rotate-90" : ""}`}>
+            <polyline points="9 18 15 12 9 6" />
+          </svg>
+          <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: areaHex }} />
+        </button>
+        <div className="min-w-0 flex-1">
+          <InlineNombre
+            value={resultado.nombre}
+            onSave={(nombre) => dispatch({ type: "UPDATE_RESULTADO", id: resultado.id, changes: { nombre } })}
+            disabled={isMentor}
+            className="truncate text-[11px] font-semibold text-foreground"
+            inputClassName="text-[11px] font-semibold text-foreground"
+          />
+          <p className="truncate text-[9px] uppercase tracking-wider text-muted">{proyecto.nombre}</p>
+        </div>
+        {!isMentor && (
+          <ResponsableSelect
+            value={resultado.responsable}
+            miembros={miembros}
+            onChange={(v) => dispatch({ type: "UPDATE_RESULTADO", id: resultado.id, changes: { responsable: v || undefined } })}
+          />
+        )}
+      </div>
+
+      {/* Chips de semana siempre visibles (para asignar/quitar en cualquier momento) */}
+      {!isMentor && (
+        <div className="flex flex-wrap items-center gap-1 px-2 pb-2">
+          <span className="mr-0.5 text-[8px] uppercase tracking-wider text-muted">Sem:</span>
+          {weeks.map((w) => {
+            const active = semanasActivas.includes(w.monday);
+            return (
+              <button key={w.idx}
+                onClick={() => dispatch({ type: "TOGGLE_RESULTADO_SEMANA_ACTIVA", id: resultado.id, semana: w.monday })}
+                title={`${w.label} · ${w.rangeLabel}`}
+                className={`rounded px-1 py-0.5 text-[8px] font-semibold transition-colors ${
+                  active ? "bg-accent text-white" : "border border-border text-muted hover:border-accent hover:text-accent"
+                }`}
+              >
+                {w.label}
+              </button>
+            );
+          })}
+        </div>
+      )}
+
+      {open && (
+        <div className="space-y-1 border-t border-border/60 p-2">
+          {entsVisibles.length === 0 ? (
+            <p className="pl-1 text-[10px] italic text-muted/70">— sin entregables</p>
+          ) : (
+            entsVisibles.map((ent) => (
+              <div key={ent.id} className="flex flex-wrap items-center gap-1">
+                <div className="min-w-0 flex-1">
+                  <EntregableInlineRow ent={ent} miembros={miembros} editable={!isMentor} />
+                </div>
+                {!isMentor && (
+                  <EntregableWeekChips
+                    entId={ent.id}
+                    weeks={weeks}
+                    current={ent.semana ?? null}
+                  />
+                )}
+              </div>
+            ))
+          )}
+          {!isMentor && (
+            <button onClick={handleAddEntregable}
+              className="mt-1 w-full rounded border border-dashed border-border py-1 text-[10px] font-medium text-muted hover:border-accent hover:text-accent">
+              + Entregable
+            </button>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -375,51 +523,8 @@ function EntregableWeekChips({ entId, weeks, current }: {
 }
 
 /* ============================================================
-   Inline editors (nombre resultado, entregable, días, responsable)
+   Inline editor del entregable (nombre, días, responsable, estado)
    ============================================================ */
-
-function InlineResultadoNombre({ resId, nombre, editable }: { resId: string; nombre: string; editable: boolean }) {
-  const dispatch = useAppDispatch();
-  const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState(nombre);
-
-  if (!editable) {
-    return <p className="text-[11px] font-semibold text-muted">{nombre}</p>;
-  }
-
-  function save() {
-    const trimmed = draft.trim();
-    if (trimmed && trimmed !== nombre) {
-      dispatch({ type: "UPDATE_RESULTADO", id: resId, changes: { nombre: trimmed } });
-    } else {
-      setDraft(nombre);
-    }
-    setEditing(false);
-  }
-
-  if (!editing) {
-    return (
-      <button onClick={() => { setDraft(nombre); setEditing(true); }}
-        className="block w-full truncate rounded text-left text-[11px] font-semibold text-muted hover:bg-surface/60 hover:text-foreground"
-        title="Editar nombre del resultado">
-        {nombre}
-      </button>
-    );
-  }
-  return (
-    <input
-      autoFocus
-      value={draft}
-      onChange={(e) => setDraft(e.target.value)}
-      onBlur={save}
-      onKeyDown={(e) => {
-        if (e.key === "Enter") { e.preventDefault(); save(); }
-        if (e.key === "Escape") { setDraft(nombre); setEditing(false); }
-      }}
-      className="w-full rounded border border-accent/40 bg-background px-1.5 py-0.5 text-[11px] font-semibold text-foreground outline-none focus:border-accent"
-    />
-  );
-}
 
 function EntregableInlineRow({ ent, miembros, editable }: { ent: Entregable; miembros: MiembroInfo[]; editable: boolean }) {
   const dispatch = useAppDispatch();
