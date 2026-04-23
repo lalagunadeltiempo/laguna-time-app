@@ -22,7 +22,7 @@ import type {
 import { PLAN_CONFIG_DEFAULT } from "./types";
 import { minutosEfectivos } from "./duration";
 import { toDateKey } from "./date-utils";
-import { fechasDesdeTrimestres } from "./trimestre-utils";
+import { mesKey, mesesDeTrimestre } from "./semana-utils";
 
 export type Action =
   | { type: "INIT"; state: AppState }
@@ -59,8 +59,10 @@ export type Action =
   | { type: "PROMOTE_RESULTADO"; resultadoId: string; area: Proyecto["area"]; nuevoProyectoId: string }
   | { type: "DELETE_RESULTADO"; id: string }
   | { type: "RENAME_RESULTADO"; id: string; nombre: string }
-  | { type: "UPDATE_RESULTADO"; id: string; changes: Partial<Pick<Resultado, "nombre" | "descripcion" | "semana" | "fechaLimite" | "fechaInicio" | "diasEstimados" | "planNivel" | "responsable" | "semanasExplicitas" | "mesesActivos">> }
+  | { type: "UPDATE_RESULTADO"; id: string; changes: Partial<Pick<Resultado, "nombre" | "descripcion" | "semana" | "fechaLimite" | "fechaInicio" | "diasEstimados" | "planNivel" | "responsable" | "semanasExplicitas" | "mesesActivos" | "semanasActivas">> }
   | { type: "TOGGLE_RESULTADO_SEMANA"; id: string; semana: string }
+  | { type: "TOGGLE_RESULTADO_SEMANA_ACTIVA"; id: string; semana: string }
+  | { type: "SET_RESULTADO_SEMANAS"; id: string; semanas: string[] }
   | { type: "DELETE_PROYECTO"; id: string }
   | { type: "RENAME_PROYECTO"; id: string; nombre: string }
   | { type: "UPDATE_PROYECTO"; id: string; changes: Partial<Pick<Proyecto, "nombre" | "descripcion" | "area" | "fechaInicio" | "fechaLimite" | "planNivel" | "tipo" | "estado" | "responsable" | "trimestresActivos" | "semanasExplicitas" | "mesesActivos">> }
@@ -873,20 +875,13 @@ export function reducer(state: AppState, action: Action): AppState {
     // --- Planificación: trimestres y semanas explícitas ---
     case "SET_PROYECTO_TRIMESTRES": {
       const trimestres = [...new Set(action.trimestres)].sort();
-      const rango = fechasDesdeTrimestres(trimestres);
       return {
         ...state,
         proyectos: state.proyectos.map((p) => {
           if (p.id !== action.id) return p;
-          if (trimestres.length === 0) {
-            return { ...p, trimestresActivos: [] };
-          }
-          return {
-            ...p,
-            trimestresActivos: trimestres,
-            fechaInicio: rango.fechaInicio ?? p.fechaInicio,
-            fechaLimite: rango.fechaLimite ?? p.fechaLimite,
-          };
+          const mesesFromTrimestres = trimestres.flatMap((t) => mesesDeTrimestre(t));
+          const mesesActivos = [...new Set([...(p.mesesActivos ?? []), ...mesesFromTrimestres])].sort();
+          return { ...p, trimestresActivos: trimestres, mesesActivos };
         }),
       };
     }
@@ -920,36 +915,99 @@ export function reducer(state: AppState, action: Action): AppState {
     }
 
     case "TOGGLE_PROYECTO_MES": {
-      return {
+      const proyecto = state.proyectos.find((p) => p.id === action.id);
+      if (!proyecto) return state;
+      const curr = proyecto.mesesActivos ?? [];
+      const removing = curr.includes(action.mes);
+      const nextMeses = removing
+        ? curr.filter((m) => m !== action.mes)
+        : [...curr, action.mes].sort();
+
+      let nextState: AppState = {
         ...state,
-        proyectos: state.proyectos.map((p) => {
-          if (p.id !== action.id) return p;
-          const curr = p.mesesActivos ?? [];
-          const next = curr.includes(action.mes)
-            ? curr.filter((m) => m !== action.mes)
-            : [...curr, action.mes].sort();
-          return { ...p, mesesActivos: next };
-        }),
+        proyectos: state.proyectos.map((p) => p.id === action.id ? { ...p, mesesActivos: nextMeses } : p),
       };
+
+      if (removing) {
+        const resIds = new Set(state.resultados.filter((r) => r.proyectoId === action.id).map((r) => r.id));
+        nextState = {
+          ...nextState,
+          entregables: nextState.entregables.map((e) => {
+            if (!resIds.has(e.resultadoId)) return e;
+            if (!e.semana) return e;
+            return mesKey(e.semana) === action.mes ? { ...e, semana: null } : e;
+          }),
+          resultados: nextState.resultados.map((r) => {
+            if (r.proyectoId !== action.id) return r;
+            const semanasActivas = (r.semanasActivas ?? []).filter((sk) => mesKey(sk) !== action.mes);
+            const mesesActivos = (r.mesesActivos ?? []).filter((m) => m !== action.mes);
+            return { ...r, semanasActivas, mesesActivos };
+          }),
+        };
+      }
+
+      return nextState;
     }
 
     case "TOGGLE_RESULTADO_MES": {
-      return {
+      const resultado = state.resultados.find((r) => r.id === action.id);
+      if (!resultado) return state;
+      const curr = resultado.mesesActivos ?? [];
+      const removing = curr.includes(action.mes);
+      const nextMeses = removing
+        ? curr.filter((m) => m !== action.mes)
+        : [...curr, action.mes].sort();
+
+      let nextState: AppState = {
         ...state,
         resultados: state.resultados.map((r) => {
           if (r.id !== action.id) return r;
-          const curr = r.mesesActivos ?? [];
-          const next = curr.includes(action.mes)
-            ? curr.filter((m) => m !== action.mes)
-            : [...curr, action.mes].sort();
-          return { ...r, mesesActivos: next };
+          let semanasActivas = r.semanasActivas ?? [];
+          if (removing) semanasActivas = semanasActivas.filter((sk) => mesKey(sk) !== action.mes);
+          return { ...r, mesesActivos: nextMeses, semanasActivas };
         }),
       };
+
+      if (removing) {
+        nextState = {
+          ...nextState,
+          entregables: nextState.entregables.map((e) => {
+            if (e.resultadoId !== action.id) return e;
+            if (!e.semana) return e;
+            return mesKey(e.semana) === action.mes ? { ...e, semana: null } : e;
+          }),
+        };
+      }
+
+      return nextState;
     }
 
     case "SET_ENTREGABLE_SEMANA": {
+      const ent = state.entregables.find((e) => e.id === action.id);
+      if (!ent) return state;
+      const res = state.resultados.find((r) => r.id === ent.resultadoId);
+      const proj = res ? state.proyectos.find((p) => p.id === res.proyectoId) : null;
+      const mesNuevo = action.semana ? mesKey(action.semana) : null;
+
+      let newProyectos = state.proyectos;
+      let newResultados = state.resultados;
+      if (mesNuevo && res && proj) {
+        if (!(proj.mesesActivos ?? []).includes(mesNuevo)) {
+          newProyectos = state.proyectos.map((p) =>
+            p.id === proj.id ? { ...p, mesesActivos: [...(p.mesesActivos ?? []), mesNuevo].sort() } : p
+          );
+        }
+        if (!(res.mesesActivos ?? []).includes(mesNuevo)) {
+          newResultados = state.resultados.map((r) =>
+            r.id === res.id ? { ...r, mesesActivos: [...(r.mesesActivos ?? []), mesNuevo].sort() } : r
+          );
+        }
+      }
+
       return {
         ...state,
+        proyectos: newProyectos,
+        resultados: newResultados,
         entregables: state.entregables.map((e) => {
           if (e.id !== action.id) return e;
           const newEstado = (e.estado === "hecho" || e.estado === "cancelada" || e.estado === "en_espera")
@@ -964,6 +1022,48 @@ export function reducer(state: AppState, action: Action): AppState {
       return {
         ...state,
         resultados: state.resultados.map((r) => r.id === action.id ? { ...r, semana: action.semana } : r),
+      };
+    }
+
+    case "TOGGLE_RESULTADO_SEMANA_ACTIVA": {
+      const resultado = state.resultados.find((r) => r.id === action.id);
+      if (!resultado) return state;
+      const curr = resultado.semanasActivas ?? [];
+      const removing = curr.includes(action.semana);
+      const nextSemanas = removing
+        ? curr.filter((s) => s !== action.semana)
+        : [...curr, action.semana].sort();
+
+      let newProyectos = state.proyectos;
+      const newResultados = state.resultados.map((r) => {
+        if (r.id !== action.id) return r;
+        let mesesActivos = r.mesesActivos ?? [];
+        if (!removing) {
+          const m = mesKey(action.semana);
+          if (m && !mesesActivos.includes(m)) mesesActivos = [...mesesActivos, m].sort();
+        }
+        return { ...r, semanasActivas: nextSemanas, mesesActivos };
+      });
+
+      if (!removing) {
+        const m = mesKey(action.semana);
+        if (m) {
+          newProyectos = state.proyectos.map((p) => {
+            if (p.id !== resultado.proyectoId) return p;
+            if ((p.mesesActivos ?? []).includes(m)) return p;
+            return { ...p, mesesActivos: [...(p.mesesActivos ?? []), m].sort() };
+          });
+        }
+      }
+
+      return { ...state, proyectos: newProyectos, resultados: newResultados };
+    }
+
+    case "SET_RESULTADO_SEMANAS": {
+      const semanas = [...new Set(action.semanas)].sort();
+      return {
+        ...state,
+        resultados: state.resultados.map((r) => r.id === action.id ? { ...r, semanasActivas: semanas } : r),
       };
     }
 

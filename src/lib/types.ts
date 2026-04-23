@@ -122,7 +122,9 @@ export interface Resultado {
   review?: ReviewMark;
   /** Claves tipo "2026-04" de los meses en los que el resultado está activo. */
   mesesActivos?: string[];
-  /** Claves de lunes ISO ("YYYY-MM-DD") de semanas marcadas explícitamente aunque no haya entregables con fecha. */
+  /** Claves de lunes ISO ("YYYY-MM-DD") de semanas en las que el resultado está activo (plural; fuente de verdad). */
+  semanasActivas?: string[];
+  /** Claves de lunes ISO ("YYYY-MM-DD") de semanas marcadas explícitamente aunque no haya entregables con fecha. DEPRECATED. */
   semanasExplicitas?: string[];
 }
 

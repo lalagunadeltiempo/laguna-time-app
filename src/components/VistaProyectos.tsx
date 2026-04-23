@@ -3,7 +3,8 @@
 import { useState, useMemo } from "react";
 import { useAppState, useAppDispatch } from "@/lib/context";
 import { generateId } from "@/lib/store";
-import { formatMin, getISOWeek } from "@/lib/utils";
+import { formatMin } from "@/lib/utils";
+import { mondayKey } from "@/lib/semana-utils";
 import { buildProyectos, type ResultadoView } from "@/lib/build-proyectos";
 import { MenuAcciones } from "./MenuAcciones";
 import { ModalConfirm } from "./ModalConfirm";
@@ -284,11 +285,12 @@ function ResultadoItem({ resultado, onDelete, onPromote, onMove, onOpenDetalle }
   const [confirmAction, setConfirmAction] = useState<"promover" | "mover" | null>(null);
 
   const pct = resultado.diasTotal > 0 ? Math.round((resultado.diasDone / resultado.diasTotal) * 100) : null;
-  const currentWeek = useMemo(() => getISOWeek(), []);
-  const isThisWeek = resultado.semana === currentWeek;
+  const currentMonday = useMemo(() => mondayKey(new Date()), []);
+  const isThisWeek = currentMonday != null && resultado.semanasActivas.includes(currentMonday);
 
   function toggleSemana() {
-    dispatch({ type: "UPDATE_RESULTADO", id: resultado.id, changes: { semana: isThisWeek ? null : currentWeek } });
+    if (!currentMonday) return;
+    dispatch({ type: "TOGGLE_RESULTADO_SEMANA_ACTIVA", id: resultado.id, semana: currentMonday });
   }
 
   function saveName() {

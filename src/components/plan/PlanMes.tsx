@@ -5,106 +5,25 @@ import { useAppState, useAppDispatch } from "@/lib/context";
 import { useUsuario, useIsMentor } from "@/lib/usuario";
 import {
   ambitoDeArea, AREA_COLORS,
-  type Entregable, type Proyecto, type Ambito, type MiembroInfo,
+  type Entregable, type Resultado, type Proyecto, type Ambito, type MiembroInfo,
 } from "@/lib/types";
 import { computeProyectoRitmo, ritmoColor, ritmoLabelCorto, ritmoExplicacion } from "@/lib/proyecto-stats";
-import { mesKey as mesKeyOf } from "@/lib/semana-utils";
-import { ProyectoPlanner } from "./ProyectoPlanner";
-import { GanttMultiProyecto, type GanttProject } from "./GanttMultiProyecto";
+import { mesKey as mesKeyOf, weeksOfMonth, type WeekInfo } from "@/lib/semana-utils";
 
 export type AmbitoFilter = "todo" | Ambito;
-type RAG = "green" | "amber" | "red";
-
-const RAG_HEX: Record<RAG, string> = { green: "#22c55e", amber: "#f59e0b", red: "#ef4444" };
 
 /* ============================================================
-   Shared helpers
+   Helpers
    ============================================================ */
 
-interface WeekDef {
-  index: number;
-  label: string;
-  monday: string;
-  mondayMs: number;
-  sundayMs: number;
-}
-
-interface EntCard {
-  entregable: Entregable;
-  proyecto: Proyecto;
-  areaHex: string;
-  rag: RAG;
-  arrastrado?: boolean;
-  /** mondayKey ("YYYY-MM-DD") o null si no tiene semana asignada. */
-  semanaKey: string | null;
-}
-
-function getWeeksOfMonth(date: Date): WeekDef[] {
-  const year = date.getFullYear();
-  const month = date.getMonth();
-  const firstDay = new Date(year, month, 1);
-  const lastDay = new Date(year, month + 1, 0);
-
-  const dayOfWeek = firstDay.getDay() || 7;
-  const firstMonday = new Date(firstDay);
-  firstMonday.setDate(firstDay.getDate() - dayOfWeek + 1);
-
-  const weeks: WeekDef[] = [];
-  const current = new Date(firstMonday);
-  let idx = 1;
-
-  while (current.getTime() <= lastDay.getTime()) {
-    const mon = new Date(current);
-    const sun = new Date(current);
-    sun.setDate(sun.getDate() + 6);
-
-    const monStr = mon.toLocaleDateString("es-ES", { day: "numeric", month: "short" });
-    const sunStr = sun.toLocaleDateString("es-ES", { day: "numeric", month: "short" });
-
-    const mondayKey = `${mon.getFullYear()}-${String(mon.getMonth() + 1).padStart(2, "0")}-${String(mon.getDate()).padStart(2, "0")}`;
-
-    weeks.push({
-      index: idx,
-      label: `S${idx} · ${monStr} – ${sunStr}`,
-      monday: mondayKey,
-      mondayMs: mon.getTime(),
-      sundayMs: sun.getTime() + 86400000 - 1,
-    });
-
-    current.setDate(current.getDate() + 7);
-    idx++;
-  }
-  return weeks;
-}
-
-function computeRAG(ent: Entregable, nowMs: number): RAG {
-  if (ent.estado === "hecho") return "green";
-  if (ent.estado === "cancelada") return "green";
-  if (ent.fechaLimite) {
-    const dl = new Date(ent.fechaLimite + "T23:59:59").getTime();
-    if (dl < nowMs) return "red";
-    const daysLeft = Math.ceil((dl - nowMs) / 86400000);
-    if (daysLeft <= 7) return "amber";
-  }
-  if (ent.estado === "en_proceso") return "green";
-  if (ent.estado === "planificado") return "green";
-  if (ent.estado === "a_futuro") return "amber";
-  return "green";
-}
-
-/* ============================================================
-   Proyecto summary card for dashboard
-   ============================================================ */
-
-interface ProjSummary {
-  proyecto: Proyecto;
-  resultados: { id: string; nombre: string }[];
-  entregablesTotal: number;
-  entregablesHechos: number;
-  entregablesEnCurso: number;
-  areaHex: string;
-  ritmo: ReturnType<typeof computeProyectoRitmo>;
-  warnings: string[];
+/** Para un resultado, calcula si está "activo" en el mes actual
+ *  (según semanasActivas, mesesActivos, o semana legada). */
+function resultadoActivoEnMes(r: Resultado, entregables: Entregable[], mesK: string, weekMondays: Set<string>): boolean {
+  if ((r.mesesActivos ?? []).includes(mesK)) return true;
+  if ((r.semanasActivas ?? []).some((sk) => weekMondays.has(sk) || mesKeyOf(sk) === mesK)) return true;
+  if (r.semana && (weekMondays.has(r.semana) || mesKeyOf(r.semana) === mesK)) return true;
+  if (entregables.some((e) => e.semana && (weekMondays.has(e.semana) || mesKeyOf(e.semana) === mesK))) return true;
+  return false;
 }
 
 /* ============================================================
@@ -116,33 +35,39 @@ interface Props {
   onNavigateToWeek?: (date: Date) => void;
 }
 
-export function PlanMes({ selectedDate, onNavigateToWeek }: Props) {
+interface ProjSummary {
+  proyecto: Proyecto;
+  resultadosActivos: Resultado[];
+  entregablesTotal: number;
+  entregablesHechos: number;
+  entregablesEnCurso: number;
+  areaHex: string;
+  ritmo: ReturnType<typeof computeProyectoRitmo>;
+  warnings: string[];
+}
+
+export function PlanMes({ selectedDate }: Props) {
   const state = useAppState();
-  const dispatch = useAppDispatch();
   const isMentor = useIsMentor();
   const { nombre: currentUser } = useUsuario();
   const [filtro, setFiltro] = useState<AmbitoFilter>(isMentor ? "empresa" : "todo");
   const [respFilter, setRespFilter] = useState<ResponsableFilter>("todo");
   const [showDone, setShowDone] = useState(false);
-  const [plannerProyectoId, setPlannerProyectoId] = useState<string | null>(null);
   const [expandedProjects, setExpandedProjects] = useState<Set<string>>(new Set());
 
   const mesLabel = useMemo(() =>
     selectedDate.toLocaleDateString("es-ES", { month: "long", year: "numeric" }),
   [selectedDate]);
 
-  const weeks = useMemo(() => getWeeksOfMonth(selectedDate), [selectedDate]);
-  const [nowMs] = useState<number>(() => Date.now());
+  const year = selectedDate.getFullYear();
+  const month = selectedDate.getMonth();
+  const mesK = `${year}-${String(month + 1).padStart(2, "0")}`;
+  const weeks = useMemo(() => weeksOfMonth(year, month), [year, month]);
+  const weekMondays = useMemo(() => new Set(weeks.map((w) => w.monday)), [weeks]);
   const [hoy] = useState<Date>(() => new Date());
 
-  /* ---- Compute active projects for this month ---- */
+  /* ---- Proyectos visibles este mes ---- */
   const projectSummaries = useMemo<ProjSummary[]>(() => {
-    const selYear = selectedDate.getFullYear();
-    const selMonth = selectedDate.getMonth();
-    const mesK = `${selYear}-${String(selMonth + 1).padStart(2, "0")}`;
-    const monthStart = new Date(selYear, selMonth, 1).getTime();
-    const monthEnd = new Date(selYear, selMonth + 1, 0, 23, 59, 59).getTime();
-
     const summaries: ProjSummary[] = [];
 
     for (const proj of state.proyectos) {
@@ -161,32 +86,22 @@ export function PlanMes({ selectedDate, onNavigateToWeek }: Props) {
         : entregables.filter((e) => matchesResponsable(e.responsable, respFilter, currentUser));
       if (filtered.length === 0 && entregables.length > 0) continue;
 
-      // Regla principal: proyecto activo este mes si mesKey ∈ mesesActivos del proyecto
-      // o de alguno de sus resultados, o si tiene algún entregable con semana de este mes.
-      let inMonth = false;
-      if ((proj.mesesActivos ?? []).includes(mesK)) inMonth = true;
-      if (!inMonth && resultados.some((r) => (r.mesesActivos ?? []).includes(mesK))) inMonth = true;
-      if (!inMonth) {
-        for (const ent of entregables) {
-          if (ent.semana && mesKeyOf(ent.semana) === mesK) { inMonth = true; break; }
-        }
-      }
+      // Visibilidad en el mes: mesesActivos del proyecto o de algún resultado, o alguna
+      // semana activa/entregable con semana caiga en el mes.
+      let inMonth = (proj.mesesActivos ?? []).includes(mesK);
       if (!inMonth) {
         for (const r of resultados) {
-          if (r.semana && mesKeyOf(r.semana) === mesK) { inMonth = true; break; }
+          const entsRes = entregables.filter((e) => e.resultadoId === r.id);
+          if (resultadoActivoEnMes(r, entsRes, mesK, weekMondays)) { inMonth = true; break; }
         }
       }
-      // Fallback: actividad real (pasos) dentro del mes
-      if (!inMonth) {
-        const pasoEnMes = state.pasos.some((p) => {
-          if (!p.inicioTs) return false;
-          const pMs = new Date(p.inicioTs).getTime();
-          return pMs >= monthStart && pMs <= monthEnd && resIds.has(state.entregables.find((e) => e.id === p.entregableId)?.resultadoId ?? "");
-        });
-        if (pasoEnMes) inMonth = true;
-      }
-
       if (!inMonth) continue;
+
+      const resultadosActivos = resultados.filter((r) => {
+        const entsRes = entregables.filter((e) => e.resultadoId === r.id);
+        return resultadoActivoEnMes(r, entsRes, mesK, weekMondays)
+          || (proj.mesesActivos ?? []).includes(mesK);
+      });
 
       const areaHex = AREA_COLORS[proj.area]?.hex ?? "#888";
       const ritmo = computeProyectoRitmo(proj, entregables, resultados, hoy, state.miembros, state.pasos, state.planConfig);
@@ -195,11 +110,10 @@ export function PlanMes({ selectedDate, onNavigateToWeek }: Props) {
 
       const warnings: string[] = [];
       if (entregables.length === 0) warnings.push("Sin entregables");
-      if (!proj.fechaLimite) warnings.push("Sin deadline");
 
       summaries.push({
         proyecto: proj,
-        resultados: resultados.map((r) => ({ id: r.id, nombre: r.nombre })),
+        resultadosActivos: resultadosActivos.length > 0 ? resultadosActivos : resultados,
         entregablesTotal: entregables.length,
         entregablesHechos: entHechos,
         entregablesEnCurso: entEnCurso,
@@ -210,91 +124,7 @@ export function PlanMes({ selectedDate, onNavigateToWeek }: Props) {
     }
 
     return summaries;
-  }, [state, selectedDate, filtro, respFilter, currentUser, showDone, hoy]);
-
-  /* ---- Gantt data ---- */
-  const ganttProjects = useMemo<GanttProject[]>(() => {
-    return projectSummaries.map((s) => {
-      const resultados = state.resultados.filter((r) => r.proyectoId === s.proyecto.id);
-      const resIds = new Set(resultados.map((r) => r.id));
-      const entregables = state.entregables.filter((e) => resIds.has(e.resultadoId));
-      return { proyecto: s.proyecto, resultados, entregables, ritmo: s.ritmo };
-    });
-  }, [projectSummaries, state.resultados, state.entregables]);
-
-  /* ---- Week view data ----
-     Fuente de verdad: ent.semana (mondayKey). Un entregable se sitúa en la semana
-     cuya monday coincida. Si no tiene semana pero su proyecto/resultado está activo
-     en este mes → "Sin asignar a semana". */
-  const { weekEntregables, unassigned } = useMemo(() => {
-    const selYear = selectedDate.getFullYear();
-    const selMonth = selectedDate.getMonth();
-    const mesK = `${selYear}-${String(selMonth + 1).padStart(2, "0")}`;
-    const activeProjectIds = new Set(projectSummaries.map((s) => s.proyecto.id));
-    const weekMondays = new Set(weeks.map((w) => w.monday));
-    const relevant: EntCard[] = [];
-
-    for (const ent of state.entregables) {
-      if (ent.estado === "cancelada") continue;
-      if (ent.estado === "hecho" && !showDone) continue;
-
-      const res = state.resultados.find((r) => r.id === ent.resultadoId);
-      const proj = res ? state.proyectos.find((p) => p.id === res.proyectoId) : undefined;
-      if (!proj) continue;
-      if (!activeProjectIds.has(proj.id)) continue;
-      if (!matchesResponsable(ent.responsable, respFilter, currentUser)) continue;
-
-      const areaHex = AREA_COLORS[proj.area]?.hex ?? "#888";
-
-      let semanaKey: string | null = null;
-      let inMonth = false;
-
-      if (ent.semana && weekMondays.has(ent.semana)) {
-        semanaKey = ent.semana;
-        inMonth = true;
-      } else if (ent.semana && mesKeyOf(ent.semana) === mesK) {
-        // semana fuera de la cuadrícula (por ejemplo domingo), pero del mes lógico
-        semanaKey = ent.semana;
-        inMonth = true;
-      } else if (!ent.semana) {
-        // Sin semana asignada; incluir si el proyecto/resultado está activo en el mes
-        const projActivoMes = (proj.mesesActivos ?? []).includes(mesK)
-          || (res?.mesesActivos ?? []).includes(mesK);
-        if (projActivoMes) inMonth = true;
-      }
-
-      if (!inMonth) continue;
-
-      relevant.push({
-        entregable: ent,
-        proyecto: proj,
-        areaHex,
-        rag: computeRAG(ent, nowMs),
-        semanaKey,
-      });
-    }
-
-    const byWeek = new Map<number, EntCard[]>();
-    const noWeek: EntCard[] = [];
-
-    for (const card of relevant) {
-      if (card.semanaKey) {
-        const w = weeks.find((w) => w.monday === card.semanaKey);
-        if (w) {
-          if (!byWeek.has(w.index)) byWeek.set(w.index, []);
-          byWeek.get(w.index)!.push(card);
-          continue;
-        }
-      }
-      noWeek.push(card);
-    }
-
-    return { weekEntregables: byWeek, unassigned: noWeek };
-  }, [state, selectedDate, weeks, nowMs, showDone, respFilter, currentUser, projectSummaries]);
-
-  function assignToWeek(entId: string, monday: string | null) {
-    dispatch({ type: "SET_ENTREGABLE_SEMANA", id: entId, semana: monday });
-  }
+  }, [state, filtro, respFilter, currentUser, showDone, hoy, mesK, weekMondays]);
 
   const toggleExpand = (projId: string) => {
     setExpandedProjects((prev) => {
@@ -304,17 +134,14 @@ export function PlanMes({ selectedDate, onNavigateToWeek }: Props) {
     });
   };
 
-  const totalEntWeek = Array.from(weekEntregables.values()).reduce((s, arr) => s + arr.length, 0) + unassigned.length;
-
   return (
     <div className="flex-1">
       {/* Header */}
-      <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <div>
           <p className="text-sm font-medium capitalize text-muted">{mesLabel}</p>
           <p className="text-xs text-muted">
             {projectSummaries.length} proyecto{projectSummaries.length !== 1 ? "s" : ""} activo{projectSummaries.length !== 1 ? "s" : ""}
-            {totalEntWeek > 0 && ` · ${totalEntWeek} entregable${totalEntWeek !== 1 ? "s" : ""} asignado${totalEntWeek !== 1 ? "s" : ""}`}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-3">
@@ -328,21 +155,27 @@ export function PlanMes({ selectedDate, onNavigateToWeek }: Props) {
         </div>
       </div>
 
-      {/* Gantt multi-proyecto */}
-      {ganttProjects.length > 0 && (
-        <section className="mb-8">
-          <GanttMultiProyecto projects={ganttProjects} hoy={hoy} selectedDate={selectedDate} />
-        </section>
-      )}
+      {/* Leyenda de semanas */}
+      <section className="mb-6 rounded-xl border border-border bg-surface/40 p-3">
+        <p className="mb-2 text-[10px] font-bold uppercase tracking-widest text-muted">Semanas del mes</p>
+        <div className="flex flex-wrap gap-x-4 gap-y-1">
+          {weeks.map((w) => (
+            <div key={w.idx} className="flex items-center gap-1.5 text-[11px]">
+              <span className="rounded bg-background px-1.5 py-0.5 font-bold text-foreground">{w.label}</span>
+              <span className="text-muted">{w.rangeLabel}</span>
+            </div>
+          ))}
+        </div>
+      </section>
 
-      {/* Section 1: Active projects this month */}
-      <section className="mb-8">
+      {/* Proyectos del mes */}
+      <section>
         <h3 className="mb-3 text-xs font-bold uppercase tracking-widest text-muted">Proyectos del mes</h3>
 
         {projectSummaries.length === 0 ? (
           <div className="rounded-xl border border-dashed border-border bg-surface/30 py-8 text-center">
             <p className="text-sm text-muted">No hay proyectos activos este mes.</p>
-            <p className="mt-1 text-xs text-muted">Planifica proyectos desde el Mapa o cambia los filtros.</p>
+            <p className="mt-1 text-xs text-muted">Marca el mes al proyecto o a un resultado desde Plan Trimestre.</p>
           </div>
         ) : (
           <div className="space-y-2">
@@ -353,13 +186,11 @@ export function PlanMes({ selectedDate, onNavigateToWeek }: Props) {
 
               return (
                 <div key={s.proyecto.id} className="rounded-xl border border-border bg-background overflow-hidden">
-                  {/* Compact project row */}
                   <button onClick={() => toggleExpand(s.proyecto.id)}
                     className="flex w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-surface/50">
                     <span className="h-3 w-3 shrink-0 rounded-full" style={{ backgroundColor: s.areaHex }} />
                     <span className="min-w-0 flex-1 truncate text-sm font-semibold text-foreground">{s.proyecto.nombre}</span>
 
-                    {/* Progress bar */}
                     <div className="hidden sm:flex items-center gap-2">
                       <div className="h-1.5 w-16 overflow-hidden rounded-full bg-surface">
                         <div className="h-full rounded-full transition-all" style={{ width: `${pct}%`, backgroundColor: rColor }} />
@@ -367,24 +198,15 @@ export function PlanMes({ selectedDate, onNavigateToWeek }: Props) {
                       <span className="text-[11px] font-semibold" style={{ color: rColor }}>{pct}%</span>
                     </div>
 
-                    {/* Status badge */}
                     <span className="shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold"
                       style={{ backgroundColor: rColor + "18", color: rColor }}>
                       {ritmoLabelCorto(s.ritmo.estadoRitmo)}
                     </span>
 
-                    {/* Counts */}
                     <span className="shrink-0 text-[11px] text-muted">
                       {s.entregablesHechos}/{s.entregablesTotal}
                     </span>
 
-                    {s.proyecto.fechaLimite && (
-                      <span className="hidden sm:inline shrink-0 text-[10px] text-muted">
-                        → {new Date(s.proyecto.fechaLimite + "T12:00:00").toLocaleDateString("es-ES", { day: "numeric", month: "short" })}
-                      </span>
-                    )}
-
-                    {/* Warnings */}
                     {s.warnings.length > 0 && (
                       <span className="shrink-0 text-amber-500" title={s.warnings.join(", ")}>
                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
@@ -400,10 +222,8 @@ export function PlanMes({ selectedDate, onNavigateToWeek }: Props) {
                     </svg>
                   </button>
 
-                  {/* Expanded detail */}
                   {isExpanded && (
                     <div className="border-t border-border px-4 py-3">
-                      {/* Motivo del ritmo cuando está en rojo/imposible */}
                       {(s.ritmo.estadoRitmo === "rojo" || s.ritmo.estadoRitmo === "imposible") && (
                         <div className="mb-3 rounded-lg px-3 py-2"
                           style={{ backgroundColor: rColor + "14", color: rColor }}>
@@ -413,7 +233,6 @@ export function PlanMes({ selectedDate, onNavigateToWeek }: Props) {
                         </div>
                       )}
 
-                      {/* Warnings */}
                       {s.warnings.length > 0 && (
                         <div className="mb-3 rounded-lg bg-amber-50 px-3 py-2">
                           {s.warnings.map((w, i) => (
@@ -422,49 +241,52 @@ export function PlanMes({ selectedDate, onNavigateToWeek }: Props) {
                         </div>
                       )}
 
-                      {/* Results and deliverables */}
-                      {s.resultados.length > 0 ? (
-                        <div className="space-y-2">
-                          {s.resultados.map((res) => {
-                            const resFull = state.resultados.find((r) => r.id === res.id);
-                            const ents = state.entregables.filter((e) => e.resultadoId === res.id);
+                      {s.resultadosActivos.length > 0 ? (
+                        <div className="space-y-3">
+                          {s.resultadosActivos.map((res) => {
+                            const entsTodos = state.entregables.filter((e) => e.resultadoId === res.id);
+                            // entregables del mes: ent.semana en el mes, o sin semana (para planificar)
+                            const entsMes = entsTodos.filter((e) => {
+                              if (!e.semana) return true;
+                              return weekMondays.has(e.semana) || mesKeyOf(e.semana) === mesK;
+                            });
+                            const entsVisibles = entsMes.filter((e) => {
+                              if (!showDone && (e.estado === "hecho" || e.estado === "cancelada")) return false;
+                              if (!matchesResponsable(e.responsable, respFilter, currentUser)) return false;
+                              return true;
+                            });
                             return (
-                              <div key={res.id}>
-                                <div className="flex flex-wrap items-center gap-1.5">
+                              <div key={res.id} className="rounded-lg border border-border/60 bg-surface/20 p-2">
+                                <div className="flex flex-wrap items-center gap-2">
                                   <div className="min-w-0 flex-1">
                                     <InlineResultadoNombre resId={res.id} nombre={res.nombre} editable={!isMentor} />
                                   </div>
                                   {!isMentor && (
-                                    <WeekChips
+                                    <ResultadoWeekChips
+                                      resId={res.id}
                                       weeks={weeks}
-                                      current={resFull?.semana ?? null}
-                                      onPick={(monday) => dispatch({ type: "SET_RESULTADO_SEMANA", id: res.id, semana: monday })}
+                                      semanasActivas={res.semanasActivas ?? (res.semana ? [res.semana] : [])}
                                     />
                                   )}
                                 </div>
-                                {ents.length === 0 ? (
-                                  <p className="pl-2 text-[11px] italic text-muted/70">— sin entregables</p>
+                                {entsVisibles.length === 0 ? (
+                                  <p className="mt-1 pl-2 text-[11px] italic text-muted/70">— sin entregables este mes</p>
                                 ) : (
-                                  <div className="space-y-1 pl-2">
-                                    {ents.map((ent) => {
-                                      const isDone = ent.estado === "hecho";
-                                      const isCancelled = ent.estado === "cancelada";
-                                      if (!showDone && (isDone || isCancelled)) return null;
-                                      return (
-                                        <div key={ent.id} className="flex flex-wrap items-center gap-1.5">
-                                          <div className="min-w-0 flex-1">
-                                            <EntregableInlineRow ent={ent} miembros={state.miembros} editable={!isMentor} />
-                                          </div>
-                                          {!isMentor && (
-                                            <WeekChips
-                                              weeks={weeks}
-                                              current={ent.semana ?? null}
-                                              onPick={(monday) => dispatch({ type: "SET_ENTREGABLE_SEMANA", id: ent.id, semana: monday })}
-                                            />
-                                          )}
+                                  <div className="mt-1 space-y-1 pl-2">
+                                    {entsVisibles.map((ent) => (
+                                      <div key={ent.id} className="flex flex-wrap items-center gap-1.5">
+                                        <div className="min-w-0 flex-1">
+                                          <EntregableInlineRow ent={ent} miembros={state.miembros} editable={!isMentor} />
                                         </div>
-                                      );
-                                    })}
+                                        {!isMentor && (
+                                          <EntregableWeekChips
+                                            entId={ent.id}
+                                            weeks={weeks}
+                                            current={ent.semana ?? null}
+                                          />
+                                        )}
+                                      </div>
+                                    ))}
                                   </div>
                                 )}
                               </div>
@@ -472,17 +294,7 @@ export function PlanMes({ selectedDate, onNavigateToWeek }: Props) {
                           })}
                         </div>
                       ) : (
-                        <p className="text-xs text-muted italic">Sin resultados ni entregables</p>
-                      )}
-
-                      {/* Action buttons */}
-                      {!isMentor && (
-                        <div className="mt-3 flex gap-2">
-                          <button onClick={() => setPlannerProyectoId(s.proyecto.id)}
-                            className="rounded-lg border border-border px-3 py-1.5 text-[11px] font-medium text-foreground transition-colors hover:bg-surface">
-                            Planificar proyecto
-                          </button>
-                        </div>
+                        <p className="text-xs text-muted italic">Sin resultados</p>
                       )}
                     </div>
                   )}
@@ -492,228 +304,71 @@ export function PlanMes({ selectedDate, onNavigateToWeek }: Props) {
           </div>
         )}
       </section>
-
-      {/* Section 2: Weeks of the month */}
-      <section>
-        <h3 className="mb-3 text-xs font-bold uppercase tracking-widest text-muted">Semanas del mes</h3>
-
-        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-          {weeks.map((w) => {
-            const cards = weekEntregables.get(w.index) ?? [];
-            return (
-              <WeekColumn key={w.index} week={w} cards={cards} weeks={weeks}
-                onAssign={isMentor ? undefined : assignToWeek}
-                onNavigateToWeek={onNavigateToWeek} />
-            );
-          })}
-        </div>
-
-        {unassigned.length > 0 && (
-          <div className="mt-4 rounded-xl border border-dashed border-border bg-surface/30 p-4">
-            <h4 className="mb-3 text-xs font-bold uppercase tracking-wider text-muted">
-              Sin asignar a semana ({unassigned.length})
-            </h4>
-            <div className="space-y-2">
-              {unassigned.map((card) => (
-                <EntregableCard key={card.entregable.id} card={card} weeks={weeks}
-                  onAssign={isMentor ? undefined : assignToWeek} />
-              ))}
-            </div>
-          </div>
-        )}
-      </section>
-
-      {/* Planner overlay */}
-      {plannerProyectoId && (
-        <ProyectoPlanner proyectoId={plannerProyectoId} onClose={() => setPlannerProyectoId(null)} />
-      )}
     </div>
   );
 }
 
 /* ============================================================
-   Week column
+   Week chips: multi-toggle para resultados (semanasActivas)
    ============================================================ */
 
-function WeekColumn({ week, cards, weeks, onAssign, onNavigateToWeek }: {
-  week: WeekDef;
-  cards: EntCard[];
-  weeks: WeekDef[];
-  onAssign?: (entId: string, monday: string | null) => void;
-  onNavigateToWeek?: (date: Date) => void;
+function ResultadoWeekChips({ resId, weeks, semanasActivas }: {
+  resId: string; weeks: WeekInfo[]; semanasActivas: string[];
 }) {
-  const [nowMs] = useState<number>(() => Date.now());
-  const isCurrentWeek = nowMs >= week.mondayMs && nowMs <= week.sundayMs;
-
-  // Separar entregables "normales" de los materializados desde SOP para poder plegarlos
-  const { normalCards, sopCards } = useMemo(() => {
-    const normal: EntCard[] = [];
-    const sop: EntCard[] = [];
-    for (const c of cards) {
-      const esSOP = c.entregable.tipo === "sop" || c.entregable.plantillaId != null;
-      if (esSOP) sop.push(c); else normal.push(c);
-    }
-    return { normalCards: normal, sopCards: sop };
-  }, [cards]);
-
-  const byProject = useMemo(() => {
-    const map = new Map<string, EntCard[]>();
-    for (const c of normalCards) {
-      const pid = c.proyecto.id;
-      if (!map.has(pid)) map.set(pid, []);
-      map.get(pid)!.push(c);
-    }
-    return map;
-  }, [normalCards]);
-
+  const dispatch = useAppDispatch();
+  const activas = new Set(semanasActivas);
   return (
-    <div className={`rounded-xl border p-4 ${isCurrentWeek ? "border-accent bg-accent/5" : "border-border bg-background"}`}>
-      <div className="mb-3 flex items-center justify-between">
-        <h4 className={`text-xs font-bold uppercase tracking-wider ${isCurrentWeek ? "text-accent" : "text-muted"}`}>
-          {week.label}
-        </h4>
-        <div className="flex items-center gap-1.5">
-          <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${isCurrentWeek ? "bg-accent/15 text-accent" : "bg-surface text-muted"}`}>
-            {cards.length}
-          </span>
-          {onNavigateToWeek && (
-            <button onClick={() => onNavigateToWeek(new Date(week.mondayMs))}
-              className="rounded-md px-1.5 py-0.5 text-[10px] text-muted transition-colors hover:bg-surface hover:text-foreground" title="Ver semana">
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M5 12h14M12 5l7 7-7 7" /></svg>
-            </button>
-          )}
-        </div>
-      </div>
-
-      {cards.length === 0 ? (
-        <p className="py-3 text-center text-xs text-muted/50">Vacía</p>
-      ) : (
-        <div className="space-y-3">
-          {Array.from(byProject.entries()).map(([projId, projCards]) => (
-            <div key={projId}>
-              <p className="mb-1 truncate text-[10px] font-semibold uppercase tracking-wider" style={{ color: projCards[0].areaHex }}>
-                {projCards[0].proyecto.nombre}
-              </p>
-              <div className="space-y-1.5">
-                {projCards.map((card) => (
-                  <EntregableCard key={card.entregable.id} card={card} weeks={weeks}
-                    onAssign={onAssign} currentWeek={week.index} compact />
-                ))}
-              </div>
-            </div>
-          ))}
-
-          {sopCards.length > 0 && (
-            <details className="rounded-lg border border-border/60 bg-surface/40">
-              <summary className="cursor-pointer select-none px-2 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted hover:text-foreground">
-                SOPs de la semana ({sopCards.length})
-              </summary>
-              <div className="space-y-1.5 px-2 pb-2 pt-1">
-                {sopCards.map((card) => (
-                  <EntregableCard key={card.entregable.id} card={card} weeks={weeks}
-                    onAssign={onAssign} currentWeek={week.index} compact />
-                ))}
-              </div>
-            </details>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
-
-/* ============================================================
-   Entregable card
-   ============================================================ */
-
-function EntregableCard({ card, weeks, onAssign, currentWeek, compact }: {
-  card: EntCard;
-  weeks: WeekDef[];
-  onAssign?: (entId: string, monday: string | null) => void;
-  currentWeek?: number;
-  compact?: boolean;
-}) {
-  const { entregable, proyecto, areaHex, rag } = card;
-  const [showWeeks, setShowWeeks] = useState(false);
-  const isDone = entregable.estado === "hecho";
-
-  return (
-    <div className={`rounded-lg border px-3 py-2${compact ? "" : ".5"}${isDone ? " opacity-50" : ""}`}
-      style={{ borderColor: areaHex + "30", borderLeftWidth: "3px", borderLeftColor: isDone ? "#22c55e" : areaHex }}>
-      <div className="flex items-center gap-2">
-        {isDone
-          ? <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-green-500 text-[8px] text-white">✓</span>
-          : <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: RAG_HEX[rag] }} />}
-        <div className="min-w-0 flex-1">
-          <p className={`truncate text-sm font-medium ${isDone ? "line-through text-muted" : "text-foreground"}`}>{entregable.nombre}</p>
-          {!compact && <p className="truncate text-[11px] text-muted">{proyecto.nombre}</p>}
-        </div>
-        {onAssign && (
-          <button onClick={() => setShowWeeks(!showWeeks)}
-            className="shrink-0 rounded-md px-2 py-1 text-[10px] font-bold text-muted transition-colors hover:bg-surface hover:text-foreground"
-            title="Asignar a semana">
-            {currentWeek ? `S${currentWeek}` : "···"}
-          </button>
-        )}
-      </div>
-
-      {showWeeks && onAssign && (
-        <div className="mt-2 flex flex-wrap gap-1">
-          {weeks.map((w) => (
-            <button key={w.index}
-              onClick={() => { onAssign(entregable.id, w.monday); setShowWeeks(false); }}
-              className={`rounded-md border px-2.5 py-1 text-[11px] font-medium transition-colors ${
-                w.index === currentWeek
-                  ? "border-accent bg-accent/10 text-accent"
-                  : "border-border text-foreground hover:border-accent hover:bg-accent-soft"
-              }`}>
-              S{w.index}
-            </button>
-          ))}
-          <button
-            onClick={() => { onAssign(entregable.id, null); setShowWeeks(false); }}
-            className="rounded-md border border-border px-2.5 py-1 text-[11px] font-medium text-muted hover:border-red-300 hover:text-red-500"
-            title="Quitar semana"
+    <div className="flex shrink-0 items-center gap-0.5">
+      {weeks.map((w) => {
+        const active = activas.has(w.monday);
+        return (
+          <button key={w.idx}
+            onClick={() => dispatch({ type: "TOGGLE_RESULTADO_SEMANA_ACTIVA", id: resId, semana: w.monday })}
+            title={`${w.label} · ${w.rangeLabel}`}
+            className={`rounded px-1.5 py-0.5 text-[9px] font-semibold transition-colors ${
+              active ? "bg-accent text-white" : "border border-border text-muted hover:border-accent hover:text-accent"
+            }`}
           >
-            Sin
+            {w.label}
           </button>
-        </div>
-      )}
+        );
+      })}
     </div>
   );
 }
 
 /* ============================================================
-   Week chips compact: S1..S5 + "–"
+   Week chips: single-toggle para entregables (ent.semana)
    ============================================================ */
 
-function WeekChips({ weeks, current, onPick }: {
-  weeks: WeekDef[]; current: string | null; onPick: (monday: string | null) => void;
+function EntregableWeekChips({ entId, weeks, current }: {
+  entId: string; weeks: WeekInfo[]; current: string | null;
 }) {
+  const dispatch = useAppDispatch();
   return (
     <div className="flex shrink-0 items-center gap-0.5">
       {weeks.map((w) => {
         const active = current === w.monday;
         return (
-          <button key={w.index}
-            onClick={() => onPick(w.monday)}
-            title={w.label}
-            className={`rounded px-1 py-0.5 text-[9px] font-semibold transition-colors ${
+          <button key={w.idx}
+            onClick={() => dispatch({ type: "SET_ENTREGABLE_SEMANA", id: entId, semana: w.monday })}
+            title={`${w.label} · ${w.rangeLabel}`}
+            className={`rounded px-1.5 py-0.5 text-[9px] font-semibold transition-colors ${
               active ? "bg-accent text-white" : "border border-border text-muted hover:border-accent hover:text-accent"
             }`}
           >
-            S{w.index}
+            {w.label}
           </button>
         );
       })}
       <button
-        onClick={() => onPick(null)}
+        onClick={() => dispatch({ type: "SET_ENTREGABLE_SEMANA", id: entId, semana: null })}
         title="Sin semana"
-        className={`rounded px-1 py-0.5 text-[9px] font-semibold transition-colors ${
+        className={`rounded px-1.5 py-0.5 text-[9px] font-semibold transition-colors ${
           current == null ? "bg-surface text-foreground" : "border border-border text-muted hover:border-red-300 hover:text-red-500"
         }`}
       >
-        –
+        −
       </button>
     </div>
   );
@@ -729,7 +384,7 @@ function InlineResultadoNombre({ resId, nombre, editable }: { resId: string; nom
   const [draft, setDraft] = useState(nombre);
 
   if (!editable) {
-    return <p className="mb-1 text-[11px] font-semibold text-muted">{nombre}</p>;
+    return <p className="text-[11px] font-semibold text-muted">{nombre}</p>;
   }
 
   function save() {
@@ -745,7 +400,7 @@ function InlineResultadoNombre({ resId, nombre, editable }: { resId: string; nom
   if (!editing) {
     return (
       <button onClick={() => { setDraft(nombre); setEditing(true); }}
-        className="mb-1 block w-full truncate rounded text-left text-[11px] font-semibold text-muted hover:bg-surface/60 hover:text-foreground"
+        className="block w-full truncate rounded text-left text-[11px] font-semibold text-muted hover:bg-surface/60 hover:text-foreground"
         title="Editar nombre del resultado">
         {nombre}
       </button>
@@ -761,7 +416,7 @@ function InlineResultadoNombre({ resId, nombre, editable }: { resId: string; nom
         if (e.key === "Enter") { e.preventDefault(); save(); }
         if (e.key === "Escape") { setDraft(nombre); setEditing(false); }
       }}
-      className="mb-1 w-full rounded border border-accent/40 bg-background px-1.5 py-0.5 text-[11px] font-semibold text-foreground outline-none focus:border-accent"
+      className="w-full rounded border border-accent/40 bg-background px-1.5 py-0.5 text-[11px] font-semibold text-foreground outline-none focus:border-accent"
     />
   );
 }
@@ -843,12 +498,6 @@ function EntregableInlineRow({ ent, miembros, editable }: { ent: Entregable; mie
         >
           {(ent.diasEstimados ?? 0)}d
         </button>
-      )}
-
-      {ent.fechaInicio && (
-        <span className="shrink-0 text-[10px] text-accent">
-          {new Date(ent.fechaInicio + "T12:00:00").toLocaleDateString("es-ES", { day: "numeric", month: "short" })}
-        </span>
       )}
 
       {editable ? (

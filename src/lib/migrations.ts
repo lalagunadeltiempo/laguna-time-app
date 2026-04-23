@@ -5,7 +5,7 @@ import { buildPersonalSeedData } from "./seed-personal";
 import { buildEmpresaSeedProyectos } from "./seed-proyectos-empresa";
 import { mondayKey, mesKey, mesesDeTrimestre } from "./semana-utils";
 
-export const CURRENT_MIGRATION = 16;
+export const CURRENT_MIGRATION = 17;
 
 type Dispatch = (action: Action) => void;
 
@@ -39,6 +39,10 @@ export function runMigrations(state: AppState, dispatch: Dispatch): void {
 
   if (version < 16) {
     migrateSemanasYMeses(state, dispatch);
+  }
+
+  if (version < 17) {
+    migrateSemanasActivasYTrimestreAMeses(state, dispatch);
   }
 
   if (version < CURRENT_MIGRATION) {
@@ -128,6 +132,39 @@ function migratePlanNivelAndObjetivos(_state: AppState, _dispatch: Dispatch): vo
       const day = parseInt(ent.fechaInicio.slice(8, 10), 10);
       const nivel = day === 1 ? "mes" : "dia";
       _dispatch({ type: "UPDATE_ENTREGABLE", id: ent.id, changes: { planNivel: nivel } });
+    }
+  }
+}
+
+/**
+ * Migración v17:
+ *  - Resultados con semanasActivas vacío: derivar de las semanas de sus entregables
+ *    (o de resultado.semana si no hay entregables con semana).
+ *  - Proyectos con trimestresActivos: mesesActivos ← union(mesesActivos, meses de esos trimestres).
+ */
+function migrateSemanasActivasYTrimestreAMeses(state: AppState, dispatch: Dispatch): void {
+  for (const res of state.resultados) {
+    if ((res.semanasActivas ?? []).length > 0) continue;
+    const entregables = state.entregables.filter((e) => e.resultadoId === res.id);
+    const semanas = new Set<string>();
+    for (const e of entregables) {
+      if (e.semana) semanas.add(e.semana);
+    }
+    if (semanas.size === 0 && res.semana) semanas.add(res.semana);
+    if (semanas.size > 0) {
+      dispatch({ type: "SET_RESULTADO_SEMANAS", id: res.id, semanas: [...semanas].sort() });
+    }
+  }
+
+  for (const proj of state.proyectos) {
+    const trimestres = proj.trimestresActivos ?? [];
+    if (trimestres.length === 0) continue;
+    const derivados = new Set<string>(proj.mesesActivos ?? []);
+    for (const t of trimestres) for (const m of mesesDeTrimestre(t)) derivados.add(m);
+    const next = [...derivados].sort();
+    const prev = [...(proj.mesesActivos ?? [])].sort();
+    if (next.length !== prev.length || next.some((m, i) => m !== prev[i])) {
+      dispatch({ type: "UPDATE_PROYECTO", id: proj.id, changes: { mesesActivos: next } });
     }
   }
 }

@@ -20,11 +20,9 @@ import { mesKey, etiquetaMesCorta, mesesDeTrimestre } from "@/lib/semana-utils";
 
 const MONTHS_ES = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"];
 
-function pad(n: number) { return String(n).padStart(2, "0"); }
 function quarterLabel(q: number, y: number) { return `Q${q + 1} ${y}`; }
 function quarterMonths(q: number) { return [q * 3, q * 3 + 1, q * 3 + 2]; }
 function periodoQ(q: number, y: number) { return `${y}-Q${q + 1}`; }
-function monthToKey(year: number, month: number) { return `${year}-${pad(month + 1)}`; }
 
 interface ProjNode {
   proyecto: Proyecto;
@@ -56,16 +54,12 @@ export function PlanTrimestre({ selectedDate }: Props) {
   const qMonthKeys = useMemo(() => mesesDeTrimestre(qPeriodo), [qPeriodo]);
 
   /**
-   * Un proyecto aparece en el mes `m` si:
-   *  - `mesKey(m)` está en `proyecto.mesesActivos`, o
-   *  - el trimestre de `m` está en `proyecto.trimestresActivos` Y el proyecto no tiene
-   *    ningún mes del trimestre marcado explícitamente (fallback: trimestre manda).
+   * Un proyecto aparece en el mes `m` si `m ∈ proyecto.mesesActivos`.
+   * (Al marcar trimestre, el reducer ya añade los 3 meses y la migración v17
+   * sincroniza retroactivamente.)
    */
   function proyectoEnMes(p: Proyecto, mes: string): boolean {
-    const mesesProj = p.mesesActivos ?? [];
-    if (mesesProj.includes(mes)) return true;
-    if (!(p.trimestresActivos ?? []).includes(qPeriodo)) return false;
-    return !qMonthKeys.some((qm) => mesesProj.includes(qm));
+    return (p.mesesActivos ?? []).includes(mes);
   }
 
   function buildProjNode(p: Proyecto): ProjNode {

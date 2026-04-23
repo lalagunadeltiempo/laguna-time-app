@@ -21,6 +21,7 @@ export interface ResultadoView {
   descripcion: string | null;
   proyectoId: string;
   semana: string | null;
+  semanasActivas: string[];
   fechaLimite: string | null;
   fechaInicio: string | null;
   fechaInicioReal: string | null;
@@ -100,7 +101,10 @@ export function buildProyectos(state: AppState): ProyectoView[] {
             nombre: res.nombre,
             descripcion: res.descripcion ?? null,
             proyectoId: proj.id,
-            semana: res.semana,
+            semana: (res.semanasActivas && res.semanasActivas.length > 0)
+              ? res.semanasActivas[0]
+              : res.semana,
+            semanasActivas: res.semanasActivas ?? (res.semana ? [res.semana] : []),
             fechaLimite: res.fechaLimite,
             fechaInicio: res.fechaInicio,
             fechaInicioReal: resEarliest,
