@@ -114,6 +114,7 @@ export function PlanHoy({ selectedDate }: Props) {
     const { pasos, entregables, resultados, proyectos, pasosActivos } = state;
     const result: Block[] = [];
 
+    // Pasos legacy con inicioTs en dateKey.
     for (const paso of pasos) {
       if (!paso.inicioTs) continue;
       if (paso.inicioTs.slice(0, 10) !== dateKey) continue;
@@ -132,11 +133,11 @@ export function PlanHoy({ selectedDate }: Props) {
       const dur = endMin - startMin;
 
       result.push({
-        id: paso.id,
+        id: `paso-${paso.id}`,
         type: isDone ? "done" : "active",
         area: proj?.area ?? "operativa",
         title: paso.nombre,
-        subtitle: `${proj?.nombre ?? ""} · ${ent.nombre}`,
+        subtitle: `${proj?.nombre ?? ""} · ${ent.nombre} · paso`,
         hour,
         entregableId: ent.id,
         pasoId: paso.id,
@@ -150,8 +151,42 @@ export function PlanHoy({ selectedDate }: Props) {
       });
     }
 
+    // Sesiones de entregable que ocurrieron en dateKey.
+    for (const ent of entregables) {
+      if (ent.responsable && ent.responsable !== currentUser) continue;
+      const sesiones = Array.isArray(ent.sesiones) ? ent.sesiones : [];
+      for (let idx = 0; idx < sesiones.length; idx++) {
+        const s = sesiones[idx];
+        if (s.inicioTs.slice(0, 10) !== dateKey) continue;
+        const isDone = s.finTs !== null;
+        const res = resultados.find((r) => r.id === ent.resultadoId);
+        const proj = res ? proyectos.find((pr) => pr.id === res.proyectoId) : undefined;
+        const hour = new Date(s.inicioTs).getHours();
+        const startMin = minsFromMidnight(s.inicioTs);
+        const endMin = s.finTs ? minsFromMidnight(s.finTs) : startMin;
+        const dur = endMin - startMin;
+
+        result.push({
+          id: `ses-${ent.id}-${idx}`,
+          type: isDone ? "done" : "active",
+          area: proj?.area ?? "operativa",
+          title: ent.nombre,
+          subtitle: `${proj?.nombre ?? ""}${res ? ` · ${res.nombre}` : ""}`,
+          hour,
+          entregableId: ent.id,
+          proyectoId: proj?.id,
+          proyectoNombre: proj?.nombre,
+          entregableNombre: ent.nombre,
+          startMin,
+          endMin: isDone ? endMin : undefined,
+          timeLabel: isDone ? `${fmtTime(startMin)} – ${fmtTime(endMin)}` : fmtTime(startMin),
+          durationLabel: isDone ? fmtDuration(dur) : undefined,
+        });
+      }
+    }
+
     return result;
-  }, [state.pasos, state.entregables, state.resultados, state.proyectos, state.pasosActivos, dateKey, currentUser]);
+  }, [state, dateKey, currentUser]);
 
   const hookPlanned = usePlannedBlocks(dateKey);
   const { plannedPrincipal, plannedArrastrado } = useMemo(() => {
@@ -192,65 +227,20 @@ export function PlanHoy({ selectedDate }: Props) {
   }, [hookPlanned, isPast, isToday]);
 
   /**
-   * Asigna (o limpia) la hora planificada de un bloque.
-   * - Si es un paso existente (pending-/next-) o tiene pasoId: SET_PLAN_INICIO.
-   * - Si es un entregable sin paso (ent-): crea paso pendiente con planInicioTs.
+   * Asigna (o limpia) la hora planificada de un bloque a nivel ENTREGABLE.
+   * Al trabajar por entregable, `planInicioTs` vive en el entregable.
+   * Si el bloque arrastra un "next-*" legacy, también limpiamos el siguientePaso
+   * del paso previo para que el listado no duplique.
    */
   function asignarHora(block: Block, hhmm: string | null) {
     if (!block.entregableId) return;
     const nuevoTs = hhmm ? isoFromDateAndHhmm(dateKey, hhmm) : null;
 
     if (block.id.startsWith("next-") && block.pasoId) {
-      // Convertimos el siguientePaso en paso real con hora planificada.
-      const prev = state.pasos.find((p) => p.id === block.pasoId);
-      const nombre = prev?.siguientePaso?.nombre ?? block.title;
-      const newId = generateId();
-      dispatch({
-        type: "ADD_PASO",
-        payload: {
-          id: newId,
-          entregableId: block.entregableId,
-          nombre,
-          inicioTs: null,
-          finTs: null,
-          estado: "pendiente",
-          contexto: { urls: [], apps: [], notas: "" },
-          implicados: [{ tipo: "equipo", nombre: currentUser }],
-          pausas: [],
-          siguientePaso: null,
-          planInicioTs: nuevoTs,
-        },
-      });
-      // Quito el siguientePaso del paso anterior para no duplicar en listas.
-      if (prev) {
-        dispatch({ type: "RESCHEDULE_NEXT_PASO", pasoId: prev.id, newDate: null });
-      }
-      return;
+      dispatch({ type: "RESCHEDULE_NEXT_PASO", pasoId: block.pasoId, newDate: null });
     }
 
-    if (block.pasoId) {
-      dispatch({ type: "SET_PLAN_INICIO", pasoId: block.pasoId, ts: nuevoTs });
-      return;
-    }
-
-    // ent-: creamos paso pendiente con hora planificada.
-    const nombre = block.title;
-    dispatch({
-      type: "ADD_PASO",
-      payload: {
-        id: generateId(),
-        entregableId: block.entregableId,
-        nombre,
-        inicioTs: null,
-        finTs: null,
-        estado: "pendiente",
-        contexto: { urls: [], apps: [], notas: "" },
-        implicados: [{ tipo: "equipo", nombre: currentUser }],
-        pausas: [],
-        siguientePaso: null,
-        planInicioTs: nuevoTs,
-      },
-    });
+    dispatch({ type: "SET_ENTREGABLE_PLAN_INICIO", id: block.entregableId, ts: nuevoTs });
   }
 
   const { focoIds, toggleFoco, clearFoco, focoMax } = useFocoProyectos();

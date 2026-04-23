@@ -351,7 +351,10 @@ export interface PlannedBlock {
   title: string;
   subtitle: string;
   entregableId: string;
+  /** Paso "contextual" asociado (siguiente paso o paso legacy activo). Informativo para la UI. */
   pasoId?: string;
+  /** Nombre del siguiente paso (próximo en la checklist o paso legacy). Se usa para texto auxiliar. */
+  siguientePasoNombre?: string;
   area: Area;
   proyectoId?: string;
   proyectoNombre?: string;
@@ -362,9 +365,9 @@ export interface PlannedBlock {
   planInicioTs?: string | null;
   /**
    * Clasifica el bloque por su relación con `dateKey`:
-   * - "hoy": anclado exactamente a dateKey (mismo criterio que SEMANA).
-   * - "arrastrado": entregable o siguiente paso con fecha anterior a dateKey.
-   * - "en_marcha": paso pendiente de un entregable en_proceso sin fecha.
+   * - "en_marcha": el entregable tiene una sesión abierta (finTs=null) o está en_proceso.
+   * - "hoy": planificado exactamente para dateKey (planInicioTs, fechaInicio, next/pending paso hoy).
+   * - "arrastrado": anclado a una fecha anterior a dateKey y aún no cerrado.
    */
   origen: PlannedBlockOrigen;
 }
@@ -393,110 +396,122 @@ export function usePlannedBlocks(dateKey: string): PlannedBlock[] {
 
   return useMemo(() => {
     const { pasos, entregables, resultados, proyectos } = state;
-    const result: PlannedBlock[] = [];
-    const entIdsWithPasos = new Set<string>();
 
     /** Un entregable está oculto hoy si `ocultoHasta` cubre la fecha actual ("Cerrar por hoy"). */
     const estaOcultoHoy = (ent: { ocultoHasta?: string | null }): boolean =>
       !!ent.ocultoHasta && ent.ocultoHasta >= dateKey;
 
+    // Agrupamos pasos por entregable para explorar señales de fechas.
+    const pasosPorEnt = new Map<string, Paso[]>();
     for (const p of pasos) {
-      if (p.inicioTs && p.inicioTs.slice(0, 10) === dateKey) {
-        entIdsWithPasos.add(p.entregableId);
-      }
+      const arr = pasosPorEnt.get(p.entregableId) ?? [];
+      arr.push(p);
+      pasosPorEnt.set(p.entregableId, arr);
     }
 
-    for (const paso of pasos) {
-      if (!paso.finTs || !paso.siguientePaso) continue;
-      if (paso.siguientePaso.tipo !== "continuar") continue;
-      let fp = paso.siguientePaso.fechaProgramada;
-      if (!fp) continue;
-      if (fp === "manana") {
-        const finDate = new Date(paso.finTs);
-        finDate.setDate(finDate.getDate() + 1);
-        fp = toDateKey(finDate);
-      }
-      if (fp > dateKey) continue;
-      if (result.some((b) => b.id === `next-${paso.id}`)) continue;
-      const newerPasoExists = pasos.some((p2) =>
-        p2.entregableId === paso.entregableId && p2.inicioTs && paso.finTs && p2.inicioTs >= paso.finTs,
-      );
-      if (newerPasoExists) continue;
-      const ent = entregables.find((e) => e.id === paso.entregableId);
-      if (!ent) continue;
-      if (ent.estado === "hecho" || ent.estado === "cancelada" || ent.estado === "en_espera") continue;
-      if (estaOcultoHoy(ent)) continue;
-      if (ent.responsable && ent.responsable !== currentUser) continue;
-      entIdsWithPasos.add(ent.id);
-      const res = resultados.find((r) => r.id === ent.resultadoId);
-      const proj = res ? proyectos.find((pr) => pr.id === res.proyectoId) : undefined;
-      result.push({
-        id: `next-${paso.id}`,
-        title: paso.siguientePaso.nombre ?? paso.nombre,
-        subtitle: subtituloEntregable(ent, state),
-        entregableId: ent.id,
-        pasoId: paso.id,
-        area: (proj?.area ?? "operativa") as Area,
-        proyectoId: proj?.id,
-        proyectoNombre: proj?.nombre,
-        resultadoNombre: res?.nombre,
-        entregableNombre: ent.nombre,
-        hex: AREA_COLORS[proj?.area ?? ""]?.hex ?? "#888",
-        planInicioTs: paso.planInicioTs ?? null,
-        origen: fp === dateKey ? "hoy" : "arrastrado",
-      });
-    }
+    const result: PlannedBlock[] = [];
 
     for (const ent of entregables) {
-      if (!ent.fechaInicio || ent.fechaInicio > dateKey) continue;
       if (ent.estado === "hecho" || ent.estado === "cancelada" || ent.estado === "en_espera") continue;
       if (estaOcultoHoy(ent)) continue;
-      if (entIdsWithPasos.has(ent.id)) continue;
       if (ent.responsable && ent.responsable !== currentUser) continue;
+
+      const sesiones = Array.isArray(ent.sesiones) ? ent.sesiones : [];
+      const tieneSesionAbierta = sesiones.some((s) => s.finTs === null);
+
+      // Señales hoy / arrastrado
+      let hoy = false;
+      let arrastrado = false;
+
+      const planKey = ent.planInicioTs ? ent.planInicioTs.slice(0, 10) : null;
+      if (planKey) {
+        if (planKey === dateKey) hoy = true;
+        else if (planKey < dateKey) arrastrado = true;
+        else continue; // planInicioTs futuro: no aparece hoy (ni arrastrado)
+      }
+
+      if (!hoy && ent.fechaInicio) {
+        if (ent.fechaInicio === dateKey) hoy = true;
+        else if (ent.fechaInicio < dateKey) arrastrado = true;
+      }
+
+      // Señales procedentes de pasos (legacy next-* / pending-*).
+      let siguientePasoId: string | undefined;
+      let siguientePasoNombre: string | undefined;
+
+      const pasosE = pasosPorEnt.get(ent.id) ?? [];
+
+      // "next": paso cerrado con siguientePaso continuar + fechaProgramada.
+      for (const paso of pasosE) {
+        if (!paso.finTs || !paso.siguientePaso) continue;
+        if (paso.siguientePaso.tipo !== "continuar") continue;
+        let fp = paso.siguientePaso.fechaProgramada;
+        if (!fp) continue;
+        if (fp === "manana") {
+          const finDate = new Date(paso.finTs);
+          finDate.setDate(finDate.getDate() + 1);
+          fp = toDateKey(finDate);
+        }
+        const newerPasoExists = pasosE.some((p2) =>
+          p2.id !== paso.id && p2.inicioTs && paso.finTs && p2.inicioTs >= paso.finTs,
+        );
+        if (newerPasoExists) continue;
+        if (fp === dateKey) {
+          hoy = true;
+          siguientePasoId = siguientePasoId ?? paso.id;
+          siguientePasoNombre = siguientePasoNombre ?? (paso.siguientePaso.nombre ?? paso.nombre);
+        } else if (fp < dateKey) {
+          arrastrado = true;
+          siguientePasoId = siguientePasoId ?? paso.id;
+          siguientePasoNombre = siguientePasoNombre ?? (paso.siguientePaso.nombre ?? paso.nombre);
+        }
+      }
+
+      // "pending": paso sin inicio y sin fin, con o sin planInicioTs.
+      const pendingPaso = pasosE.find((p) => !p.inicioTs && !p.finTs);
+      if (pendingPaso) {
+        const pk = pendingPaso.planInicioTs ? pendingPaso.planInicioTs.slice(0, 10) : null;
+        if (pk === dateKey) {
+          hoy = true;
+          siguientePasoId = siguientePasoId ?? pendingPaso.id;
+          siguientePasoNombre = siguientePasoNombre ?? pendingPaso.nombre;
+        } else if (pk && pk < dateKey) {
+          arrastrado = true;
+          siguientePasoId = siguientePasoId ?? pendingPaso.id;
+          siguientePasoNombre = siguientePasoNombre ?? pendingPaso.nombre;
+        } else if (!pk && ent.estado === "en_proceso") {
+          // paso pendiente sin fecha pero entregable en proceso → se considera "en_marcha"
+          siguientePasoId = siguientePasoId ?? pendingPaso.id;
+          siguientePasoNombre = siguientePasoNombre ?? pendingPaso.nombre;
+        }
+      }
+
+      // Determina origen del bloque.
+      let origen: PlannedBlockOrigen | null = null;
+      if (tieneSesionAbierta) origen = "en_marcha";
+      else if (hoy) origen = "hoy";
+      else if (arrastrado) origen = "arrastrado";
+      else if (ent.estado === "en_proceso" && !!siguientePasoId) origen = "en_marcha";
+      else continue;
+
       const res = resultados.find((r) => r.id === ent.resultadoId);
       const proj = res ? proyectos.find((pr) => pr.id === res.proyectoId) : undefined;
+
       result.push({
         id: `ent-${ent.id}`,
         title: ent.nombre,
         subtitle: subtituloEntregable(ent, state),
         entregableId: ent.id,
+        pasoId: siguientePasoId,
+        siguientePasoNombre,
         area: (proj?.area ?? "operativa") as Area,
         proyectoId: proj?.id,
         proyectoNombre: proj?.nombre,
         resultadoNombre: res?.nombre,
         entregableNombre: ent.nombre,
         hex: AREA_COLORS[proj?.area ?? ""]?.hex ?? "#888",
-        origen: ent.fechaInicio === dateKey ? "hoy" : "arrastrado",
-      });
-    }
-
-    for (const entId of entIdsWithPasos) {
-      if (result.some((b) => b.id.startsWith("next-") && b.entregableId === entId)) continue;
-      if (result.some((b) => b.id.startsWith("pending-") && b.entregableId === entId)) continue;
-      const ent = entregables.find((e) => e.id === entId);
-      if (!ent || ent.estado !== "en_proceso") continue;
-      if (estaOcultoHoy(ent)) continue;
-      if (ent.responsable && ent.responsable !== currentUser) continue;
-      const pendingPaso = pasos.find((p) => p.entregableId === entId && !p.inicioTs && !p.finTs);
-      if (!pendingPaso) continue;
-      // Si el paso pending está programado para un día futuro, no lo mostramos hoy.
-      if (pendingPaso.planInicioTs && pendingPaso.planInicioTs.slice(0, 10) > dateKey) continue;
-      const res = resultados.find((r) => r.id === ent.resultadoId);
-      const proj = res ? proyectos.find((pr) => pr.id === res.proyectoId) : undefined;
-      result.push({
-        id: `pending-${pendingPaso.id}`,
-        title: pendingPaso.nombre,
-        subtitle: subtituloEntregable(ent, state),
-        entregableId: ent.id,
-        pasoId: pendingPaso.id,
-        area: (proj?.area ?? "operativa") as Area,
-        proyectoId: proj?.id,
-        proyectoNombre: proj?.nombre,
-        resultadoNombre: res?.nombre,
-        entregableNombre: ent.nombre,
-        hex: AREA_COLORS[proj?.area ?? ""]?.hex ?? "#888",
-        planInicioTs: pendingPaso.planInicioTs ?? null,
-        origen: "en_marcha",
+        planInicioTs: ent.planInicioTs ?? null,
+        origen,
       });
     }
 

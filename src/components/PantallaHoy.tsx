@@ -6,8 +6,9 @@ import { usePasosActivos, useDependenciasEntrantes, useEsperandoRespuesta, usePl
 import { generateId } from "@/lib/store";
 import { useUsuario, useIsMentor } from "@/lib/usuario";
 import { toDateKey, daysBetweenKeys, addDaysToKey } from "@/lib/date-utils";
-import type { InboxItem, Paso } from "@/lib/types";
+import type { InboxItem, Paso, Entregable } from "@/lib/types";
 import { PasoActivoCard } from "./PasoActivo";
+import { EntregableActivoCard } from "./EntregableActivo";
 import { NuevoPaso } from "./NuevoPaso";
 import { VistaInbox } from "./VistaInbox";
 import HierarchyPicker from "./shared/HierarchyPicker";
@@ -34,10 +35,26 @@ export function PantallaHoy() {
     return () => clearInterval(id);
   }, []);
 
+  // Entregables con sesión abierta (aparecen arriba como "en curso").
+  const entregablesEnCurso: Entregable[] = useMemo(() => {
+    return state.entregables.filter(
+      (e) =>
+        e.estado !== "hecho" &&
+        e.estado !== "cancelada" &&
+        (!e.responsable || e.responsable === currentUser) &&
+        Array.isArray(e.sesiones) &&
+        e.sesiones.some((s) => s.finTs === null),
+    );
+  }, [state.entregables, currentUser]);
+  const entregablesEnCursoIds = useMemo(
+    () => new Set(entregablesEnCurso.map((e) => e.id)),
+    [entregablesEnCurso],
+  );
+
   const plannedBlocks = usePlannedBlocks(todayKey);
   const { hoy: blocksHoy, arrastrado: blocksArrastrado, enMarcha: blocksEnMarcha } = useMemo(
-    () => splitPlannedBlocks(plannedBlocks),
-    [plannedBlocks],
+    () => splitPlannedBlocks(plannedBlocks.filter((b) => !entregablesEnCursoIds.has(b.entregableId))),
+    [plannedBlocks, entregablesEnCursoIds],
   );
   const blocksPrincipalesAll = useMemo(() => {
     const combined = [...blocksHoy, ...blocksEnMarcha];
@@ -91,8 +108,8 @@ export function PantallaHoy() {
 
   if (isMentor) return <div className="p-8 text-center text-muted">Vista no disponible para mentor.</div>;
 
-  const isEmpty = pasosActivos.length === 0 && blocksPrincipalesAll.length === 0 && blocksArrastrado.length === 0;
-  const hasOpenWork = pasosActivos.length > 0 || pendingInbox > 0;
+  const isEmpty = pasosActivos.length === 0 && entregablesEnCurso.length === 0 && blocksPrincipalesAll.length === 0 && blocksArrastrado.length === 0;
+  const hasOpenWork = pasosActivos.length > 0 || entregablesEnCurso.length > 0 || pendingInbox > 0;
 
   function captureIdea() {
     const text = quickCapture.trim();
@@ -116,53 +133,14 @@ export function PantallaHoy() {
 
   function doStartPlanned(block: typeof plannedBlocks[0]) {
     if (!block.entregableId) return;
-    const nowTs = new Date().toISOString();
 
-    // Caso 1: bloque pending-/en_marcha → ya existe un paso pendiente → activarlo.
-    if (block.pasoId && (block.id.startsWith("pending-") || !block.id.startsWith("next-"))) {
-      const paso = state.pasos.find((p) => p.id === block.pasoId);
-      if (paso && !paso.inicioTs && !paso.finTs) {
-        dispatch({ type: "ACTIVATE_PASO", id: paso.id });
-        dispatch({ type: "UPDATE_ENTREGABLE", id: block.entregableId, changes: { estado: "en_proceso" } });
-        return;
-      }
-    }
-
-    // Caso 2: bloque next-XXX → materializar siguientePaso como paso nuevo activo.
+    // Si el bloque arrastra un "next-*" legacy, limpio el siguientePaso del paso previo.
     if (block.id.startsWith("next-") && block.pasoId) {
-      const prev = state.pasos.find((p) => p.id === block.pasoId);
-      const nombre = prev?.siguientePaso?.nombre ?? block.title;
-      dispatch({
-        type: "START_PASO",
-        payload: {
-          id: generateId(),
-          entregableId: block.entregableId,
-          nombre,
-          inicioTs: nowTs,
-          finTs: null,
-          estado: "",
-          contexto: { urls: [] as import("@/lib/types").UrlRef[], apps: [] as string[], notas: "" },
-          implicados: [{ tipo: "equipo", nombre: currentUser }],
-          pausas: [],
-          siguientePaso: null,
-        },
-      });
-      // Limpio el siguientePaso del paso anterior.
-      if (prev) dispatch({ type: "RESCHEDULE_NEXT_PASO", pasoId: prev.id, newDate: null });
-      return;
+      dispatch({ type: "RESCHEDULE_NEXT_PASO", pasoId: block.pasoId, newDate: null });
     }
 
-    // Caso 3: ent-XXX sin paso previo → crear paso activo desde cero.
-    dispatch({
-      type: "START_PASO",
-      payload: {
-        id: generateId(), entregableId: block.entregableId, nombre: block.title,
-        inicioTs: nowTs, finTs: null, estado: "",
-        contexto: { urls: [] as import("@/lib/types").UrlRef[], apps: [] as string[], notas: "" },
-        implicados: [{ tipo: "equipo", nombre: currentUser }],
-        pausas: [], siguientePaso: null,
-      },
-    });
+    // Nuevo modelo: empezamos una sesión del entregable.
+    dispatch({ type: "START_ENTREGABLE", id: block.entregableId });
   }
 
   return (
@@ -175,15 +153,31 @@ export function PantallaHoy() {
         </p>
       </div>
 
-      {/* Active steps */}
-      {pasosActivos.length > 0 && (
+      {/* Entregables con sesión abierta */}
+      {entregablesEnCurso.length > 0 && (
         <section className="mb-6 space-y-3">
           <h2 className="flex items-center gap-2 text-sm font-semibold uppercase tracking-wider text-green-600">
             <span className="relative flex h-2.5 w-2.5">
               <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-green-400 opacity-75" />
               <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-green-500" />
             </span>
-            {pasosActivos.length === 1 ? "1 paso en curso" : `${pasosActivos.length} pasos en curso`}
+            {entregablesEnCurso.length === 1 ? "1 entregable en curso" : `${entregablesEnCurso.length} entregables en curso`}
+          </h2>
+          {entregablesEnCurso.map((e) => (
+            <EntregableActivoCard key={e.id} entregable={e} />
+          ))}
+        </section>
+      )}
+
+      {/* Pasos legacy activos (compatibilidad con datos anteriores) */}
+      {pasosActivos.length > 0 && (
+        <section className="mb-6 space-y-3">
+          <h2 className="flex items-center gap-2 text-sm font-semibold uppercase tracking-wider text-amber-600">
+            <span className="relative flex h-2.5 w-2.5">
+              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-amber-400 opacity-75" />
+              <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-amber-500" />
+            </span>
+            {pasosActivos.length === 1 ? "1 paso legacy en curso" : `${pasosActivos.length} pasos legacy en curso`}
           </h2>
           {pasosActivos.map((p) => (
             <PasoActivoCard key={p.id} paso={p} />
@@ -302,7 +296,7 @@ export function PantallaHoy() {
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
             <circle cx="12" cy="12" r="10" /><path d="M12 6v12M6 12h12" />
           </svg>
-          {pasosActivos.length > 0 ? "Iniciar otro paso" : "Iniciar un paso"}
+          {(pasosActivos.length > 0 || entregablesEnCurso.length > 0) ? "Iniciar otro paso" : "Iniciar un paso"}
         </button>
         <button
           onClick={() => setShowRetro(true)}
@@ -403,6 +397,7 @@ export function PantallaHoy() {
       {showEndOfDay && (
         <EndOfDayFlow
           pasosActivos={pasosActivos}
+          entregablesEnCurso={entregablesEnCurso}
           pendingInbox={pendingInbox}
           onClose={() => setShowEndOfDay(false)}
           onOpenInbox={() => { setShowEndOfDay(false); setShowInbox(true); }}
@@ -606,25 +601,37 @@ function toLocalDateTimeStr(d: Date): string {
 
 function EndOfDayFlow({
   pasosActivos,
+  entregablesEnCurso,
   pendingInbox,
   onClose,
   onOpenInbox,
 }: {
   pasosActivos: Paso[];
+  entregablesEnCurso: Entregable[];
   pendingInbox: number;
   onClose: () => void;
   onOpenInbox: () => void;
 }) {
   const dispatch = useAppDispatch();
   const state = useAppState();
+  const todayKey = toDateKey(new Date());
 
   function markContinueTomorrow(paso: Paso) {
     dispatch({ type: "CLOSE_PASO", payload: buildClosedPaso(paso) });
   }
 
+  function closeEntregableManana(e: Entregable) {
+    dispatch({ type: "END_ENTREGABLE_SESION", id: e.id });
+    dispatch({ type: "OCULTAR_ENTREGABLE_HASTA", id: e.id, hasta: todayKey });
+  }
+
   function closeAll() {
     for (const paso of pasosActivos) {
       dispatch({ type: "CLOSE_PASO", payload: buildClosedPaso(paso) });
+    }
+    for (const e of entregablesEnCurso) {
+      dispatch({ type: "END_ENTREGABLE_SESION", id: e.id });
+      dispatch({ type: "OCULTAR_ENTREGABLE_HASTA", id: e.id, hasta: todayKey });
     }
     onClose();
   }
@@ -652,12 +659,12 @@ function EndOfDayFlow({
           </div>
         </div>
 
-        {/* Active steps */}
-        {pasosActivos.length > 0 && (
+        {/* Entregables + pasos abiertos */}
+        {(entregablesEnCurso.length > 0 || pasosActivos.length > 0) && (
           <div className="mb-6">
             <div className="mb-3 flex items-center justify-between">
               <h3 className="text-sm font-semibold text-foreground">
-                {pasosActivos.length} {pasosActivos.length === 1 ? "paso abierto" : "pasos abiertos"}
+                {entregablesEnCurso.length + pasosActivos.length} {(entregablesEnCurso.length + pasosActivos.length) === 1 ? "trabajo abierto" : "trabajos abiertos"}
               </h3>
             </div>
 
@@ -671,13 +678,27 @@ function EndOfDayFlow({
 
             <p className="mb-2 text-center text-[10px] text-muted">o cierra uno a uno:</p>
             <div className="space-y-2">
+              {entregablesEnCurso.map((e) => (
+                <div key={e.id} className="flex items-center gap-3 rounded-xl border border-border bg-surface p-3">
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-medium text-foreground">{e.nombre}</p>
+                    <p className="truncate text-xs text-muted">Entregable</p>
+                  </div>
+                  <button
+                    onClick={() => closeEntregableManana(e)}
+                    className="shrink-0 rounded-lg bg-accent-soft px-3 py-1.5 text-xs font-medium text-accent transition-colors hover:bg-accent/20"
+                  >
+                    Mañana
+                  </button>
+                </div>
+              ))}
               {pasosActivos.map((paso) => {
                 const ent = state.entregables.find((e) => e.id === paso.entregableId);
                 return (
                   <div key={paso.id} className="flex items-center gap-3 rounded-xl border border-border bg-surface p-3">
                     <div className="min-w-0 flex-1">
                       <p className="truncate text-sm font-medium text-foreground">{paso.nombre}</p>
-                      {ent && <p className="truncate text-xs text-muted">{ent.nombre}</p>}
+                      {ent && <p className="truncate text-xs text-muted">{ent.nombre} · paso legacy</p>}
                     </div>
                     <button
                       onClick={() => markContinueTomorrow(paso)}
@@ -708,7 +729,7 @@ function EndOfDayFlow({
         )}
 
         {/* All clear */}
-        {pasosActivos.length === 0 && pendingInbox === 0 && (
+        {pasosActivos.length === 0 && entregablesEnCurso.length === 0 && pendingInbox === 0 && (
           <div className="mb-6 py-4 text-center">
             <div className="mb-2 text-3xl">✓</div>
             <p className="text-sm text-muted">Todo listo. Buen trabajo hoy.</p>
@@ -719,7 +740,7 @@ function EndOfDayFlow({
           onClick={onClose}
           className="w-full rounded-xl border border-border py-3 text-sm font-medium text-muted transition-colors hover:bg-surface hover:text-foreground"
         >
-          {pasosActivos.length === 0 && pendingInbox === 0 ? "Cerrar" : "Cerrar sin terminar"}
+          {pasosActivos.length === 0 && entregablesEnCurso.length === 0 && pendingInbox === 0 ? "Cerrar" : "Cerrar sin terminar"}
         </button>
       </div>
     </div>

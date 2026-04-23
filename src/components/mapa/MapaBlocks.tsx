@@ -1270,7 +1270,27 @@ function PasoLine({ paso, index, total, isEmpresa, entResponsable }: { paso: Pas
   return (
     <div ref={hlRef} className={`mb-1 transition-all duration-700${filter && !inFilter && !hideFiltered ? " opacity-40" : ""}${isTarget ? " rounded-lg ring-2 ring-accent ring-offset-2 animate-pulse" : ""}`}>
       <div className="group/row flex min-h-[44px] items-center gap-2 rounded-lg px-3 py-2 hover:bg-surface">
-        <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${done ? "bg-green-500" : "bg-border"}`} />
+        {isMentor ? (
+          <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${done ? "bg-green-500" : "bg-border"}`} />
+        ) : (
+          <button
+            type="button"
+            onClick={() => dispatch({ type: done ? "UNCHECK_PASO" : "CHECK_PASO", id: paso.id })}
+            className="h-4 w-4 shrink-0 rounded border-2 flex items-center justify-center transition-colors"
+            style={{
+              borderColor: done ? "#22c55e" : "#d4d4d8",
+              backgroundColor: done ? "#22c55e" : "transparent",
+            }}
+            aria-label={done ? "Marcar como pendiente" : "Marcar como hecho"}
+            title={done ? "Marcar como pendiente" : "Marcar como hecho"}
+          >
+            {done && (
+              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="20 6 9 17 4 12" />
+              </svg>
+            )}
+          </button>
+        )}
         {isMentor
           ? <span className={`text-sm ${done ? "text-muted line-through" : "text-foreground"}`}>{paso.nombre}</span>
           : <EditableText value={paso.nombre} onChange={(v) => dispatch({ type: "RENAME_PASO", id: paso.id, nombre: v })} className={`text-sm ${done ? "text-muted line-through" : "text-foreground"}`} />

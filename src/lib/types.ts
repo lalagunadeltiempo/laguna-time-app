@@ -151,6 +151,22 @@ export interface Entregable {
   /** Si está definido, el entregable se oculta de HOY operativo hasta que `dateKey` actual > este valor.
    *  Formato "YYYY-MM-DD". Permite "Cerrar por hoy" (setea dateKey de hoy) sin marcar el entregable como en_espera. */
   ocultoHasta?: string | null;
+  /** Historial de sesiones de trabajo sobre el entregable. Cada sesión ≈ "empezar... cerrar por hoy".
+   *  Una sesión con `finTs=null` indica que está en curso ahora mismo. */
+  sesiones?: SesionEntregable[];
+  /** Contexto de trabajo del entregable: URLs, apps, notas de contexto. Antes vivía a nivel Paso. */
+  contexto?: Contexto;
+  /** Personas implicadas en el entregable. Antes vivía a nivel Paso. */
+  implicados?: Implicado[];
+  /** Hora planificada para empezar HOY (ISO). Se fija desde Plan Hoy y se mantiene para su visualización. */
+  planInicioTs?: string | null;
+}
+
+/** Sesión de trabajo sobre un entregable: cronómetro + pausas. */
+export interface SesionEntregable {
+  inicioTs: string;          // ISO
+  finTs: string | null;      // null mientras la sesión está en curso
+  pausas?: PausaEntry[];     // pausas dentro de la sesión
 }
 
 export interface UrlRef {

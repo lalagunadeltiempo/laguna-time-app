@@ -44,6 +44,19 @@ export type Action =
   | { type: "RENAME_ENTREGABLE"; id: string; nombre: string }
   | { type: "UPDATE_ENTREGABLE"; id: string; changes: Partial<Pick<Entregable, "nombre" | "responsable" | "tipo" | "plantillaId" | "diasEstimados" | "estado" | "fechaLimite" | "fechaInicio" | "planNivel" | "semana">> }
   | { type: "OCULTAR_ENTREGABLE_HASTA"; id: string; hasta: string | null }
+  // --- Sesiones del entregable (cronómetro al nivel de entregable) ---
+  | { type: "START_ENTREGABLE"; id: string; ts?: string }
+  | { type: "PAUSE_ENTREGABLE_SESION"; id: string; ts?: string }
+  | { type: "RESUME_ENTREGABLE_SESION"; id: string; ts?: string }
+  | { type: "END_ENTREGABLE_SESION"; id: string; ts?: string }
+  | { type: "FINISH_ENTREGABLE"; id: string; ts?: string }
+  | { type: "DISCARD_ENTREGABLE_SESION"; id: string }
+  | { type: "UPDATE_ENTREGABLE_CONTEXTO"; id: string; contexto: Entregable["contexto"] }
+  | { type: "UPDATE_ENTREGABLE_IMPLICADOS"; id: string; implicados: Entregable["implicados"] }
+  | { type: "SET_ENTREGABLE_PLAN_INICIO"; id: string; ts: string | null }
+  // --- Checklist de pasos ---
+  | { type: "CHECK_PASO"; id: string; ts?: string }
+  | { type: "UNCHECK_PASO"; id: string }
   | { type: "SET_ENTREGABLE_SEMANA"; id: string; semana: string | null }
   | { type: "SET_RESULTADO_SEMANA"; id: string; semana: string | null }
   | { type: "TOGGLE_PROYECTO_MES"; id: string; mes: string }
@@ -381,6 +394,152 @@ export function reducer(state: AppState, action: Action): AppState {
       return {
         ...state,
         entregables: state.entregables.map((e) => e.id === action.id ? { ...e, ocultoHasta: action.hasta } : e),
+      };
+    }
+
+    // --- Sesiones del entregable ---
+    case "START_ENTREGABLE": {
+      const ts = action.ts ?? new Date().toISOString();
+      return {
+        ...state,
+        entregables: state.entregables.map((e) => {
+          if (e.id !== action.id) return e;
+          const sesiones = Array.isArray(e.sesiones) ? e.sesiones : [];
+          const abierta = sesiones.find((s) => s.finTs === null);
+          if (abierta) {
+            return { ...e, estado: "en_proceso", ocultoHasta: null };
+          }
+          return {
+            ...e,
+            estado: "en_proceso",
+            ocultoHasta: null,
+            sesiones: [...sesiones, { inicioTs: ts, finTs: null, pausas: [] }],
+          };
+        }),
+      };
+    }
+
+    case "PAUSE_ENTREGABLE_SESION": {
+      const ts = action.ts ?? new Date().toISOString();
+      return {
+        ...state,
+        entregables: state.entregables.map((e) => {
+          if (e.id !== action.id) return e;
+          const sesiones = Array.isArray(e.sesiones) ? [...e.sesiones] : [];
+          const idx = sesiones.map((s, i) => ({ s, i })).reverse().find(({ s }) => s.finTs === null)?.i;
+          if (idx === undefined) return e;
+          const ses = sesiones[idx];
+          const pausas = Array.isArray(ses.pausas) ? [...ses.pausas] : [];
+          if (!pausas.find((p) => p.resumeTs === null)) {
+            pausas.push({ pauseTs: ts, resumeTs: null });
+          }
+          sesiones[idx] = { ...ses, pausas };
+          return { ...e, sesiones };
+        }),
+      };
+    }
+
+    case "RESUME_ENTREGABLE_SESION": {
+      const ts = action.ts ?? new Date().toISOString();
+      return {
+        ...state,
+        entregables: state.entregables.map((e) => {
+          if (e.id !== action.id) return e;
+          const sesiones = Array.isArray(e.sesiones) ? [...e.sesiones] : [];
+          const idx = sesiones.map((s, i) => ({ s, i })).reverse().find(({ s }) => s.finTs === null)?.i;
+          if (idx === undefined) return e;
+          const ses = sesiones[idx];
+          const pausas = Array.isArray(ses.pausas) ? ses.pausas.map((p) => p.resumeTs === null ? { ...p, resumeTs: ts } : p) : [];
+          sesiones[idx] = { ...ses, pausas };
+          return { ...e, sesiones };
+        }),
+      };
+    }
+
+    case "END_ENTREGABLE_SESION": {
+      const ts = action.ts ?? new Date().toISOString();
+      return {
+        ...state,
+        entregables: state.entregables.map((e) => {
+          if (e.id !== action.id) return e;
+          const sesiones = Array.isArray(e.sesiones) ? [...e.sesiones] : [];
+          const idx = sesiones.map((s, i) => ({ s, i })).reverse().find(({ s }) => s.finTs === null)?.i;
+          if (idx === undefined) return e;
+          const ses = sesiones[idx];
+          const pausas = Array.isArray(ses.pausas) ? ses.pausas.map((p) => p.resumeTs === null ? { ...p, resumeTs: ts } : p) : [];
+          sesiones[idx] = { ...ses, finTs: ts, pausas };
+          return { ...e, sesiones };
+        }),
+      };
+    }
+
+    case "FINISH_ENTREGABLE": {
+      const ts = action.ts ?? new Date().toISOString();
+      return {
+        ...state,
+        entregables: state.entregables.map((e) => {
+          if (e.id !== action.id) return e;
+          const sesiones = Array.isArray(e.sesiones) ? [...e.sesiones] : [];
+          const idx = sesiones.map((s, i) => ({ s, i })).reverse().find(({ s }) => s.finTs === null)?.i;
+          if (idx !== undefined) {
+            const ses = sesiones[idx];
+            const pausas = Array.isArray(ses.pausas) ? ses.pausas.map((p) => p.resumeTs === null ? { ...p, resumeTs: ts } : p) : [];
+            sesiones[idx] = { ...ses, finTs: ts, pausas };
+          }
+          return { ...e, estado: "hecho", sesiones, ocultoHasta: null };
+        }),
+      };
+    }
+
+    case "DISCARD_ENTREGABLE_SESION": {
+      return {
+        ...state,
+        entregables: state.entregables.map((e) => {
+          if (e.id !== action.id) return e;
+          const sesiones = Array.isArray(e.sesiones) ? [...e.sesiones] : [];
+          const idx = sesiones.map((s, i) => ({ s, i })).reverse().find(({ s }) => s.finTs === null)?.i;
+          if (idx === undefined) return e;
+          sesiones.splice(idx, 1);
+          return { ...e, sesiones };
+        }),
+      };
+    }
+
+    case "UPDATE_ENTREGABLE_CONTEXTO":
+      return {
+        ...state,
+        entregables: state.entregables.map((e) => e.id === action.id ? { ...e, contexto: action.contexto } : e),
+      };
+
+    case "UPDATE_ENTREGABLE_IMPLICADOS":
+      return {
+        ...state,
+        entregables: state.entregables.map((e) => e.id === action.id ? { ...e, implicados: action.implicados } : e),
+      };
+
+    case "SET_ENTREGABLE_PLAN_INICIO":
+      return {
+        ...state,
+        entregables: state.entregables.map((e) => e.id === action.id ? { ...e, planInicioTs: action.ts } : e),
+      };
+
+    // --- Checklist de pasos ---
+    case "CHECK_PASO": {
+      const ts = action.ts ?? new Date().toISOString();
+      return {
+        ...state,
+        pasos: state.pasos.map((p) => p.id === action.id
+          ? { ...p, estado: "hecho" as const, finTs: p.finTs ?? ts, inicioTs: p.inicioTs ?? ts }
+          : p),
+      };
+    }
+
+    case "UNCHECK_PASO": {
+      return {
+        ...state,
+        pasos: state.pasos.map((p) => p.id === action.id
+          ? { ...p, estado: "pendiente" as const, finTs: null }
+          : p),
       };
     }
 
