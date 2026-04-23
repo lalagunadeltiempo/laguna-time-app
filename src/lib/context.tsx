@@ -25,6 +25,7 @@ import {
 } from "./store";
 import { reducer, type Action } from "./reducer";
 import { runMigrations } from "./migrations";
+import { mergeStates, statesDiffer } from "./merge";
 
 const StateCtx = createContext<AppState>(INITIAL_STATE);
 const DispatchCtx = createContext<Dispatch<Action>>(() => {});
@@ -158,69 +159,6 @@ function actionToLog(action: Action, _userName: string, state: AppState): { acti
   }
 }
 
-function mergeStates(a: AppState, b: AppState): AppState {
-  function unionById<T extends { id: string }>(arrA: T[], arrB: T[], prefer?: (x: T, y: T) => T): T[] {
-    const map = new Map<string, T>();
-    for (const item of arrA) map.set(item.id, item);
-    for (const item of arrB) {
-      const existing = map.get(item.id);
-      if (!existing) { map.set(item.id, item); continue; }
-      map.set(item.id, prefer ? prefer(existing, item) : existing);
-    }
-    return Array.from(map.values());
-  }
-
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const preferPaso = (x: any, y: any) => {
-    if (x.finTs && !y.finTs) return x;
-    if (y.finTs && !x.finTs) return y;
-    return (x.inicioTs ?? "") >= (y.inicioTs ?? "") ? x : y;
-  };
-
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const preferMore = (x: any, y: any) => {
-    if ((x.diasHechos ?? 0) > (y.diasHechos ?? 0)) return x;
-    if ((y.diasHechos ?? 0) > (x.diasHechos ?? 0)) return y;
-    return x;
-  };
-
-  const emptyDel = { proyectos: [] as string[], resultados: [] as string[], entregables: [] as string[], pasos: [] as string[], plantillas: [] as string[] };
-  const delA = a.deleted ?? emptyDel;
-  const delB = b.deleted ?? emptyDel;
-  const deleted = {
-    proyectos: Array.from(new Set([...delA.proyectos, ...delB.proyectos])),
-    resultados: Array.from(new Set([...delA.resultados, ...delB.resultados])),
-    entregables: Array.from(new Set([...delA.entregables, ...delB.entregables])),
-    pasos: Array.from(new Set([...delA.pasos, ...delB.pasos])),
-    plantillas: Array.from(new Set([...delA.plantillas, ...delB.plantillas])),
-  };
-
-  const delProj = new Set(deleted.proyectos);
-  const delRes = new Set(deleted.resultados);
-  const delEnt = new Set(deleted.entregables);
-  const delPas = new Set(deleted.pasos);
-  const delPl = new Set(deleted.plantillas);
-
-  const merged: AppState = {
-    ...a,
-    proyectos: unionById(a.proyectos, b.proyectos).filter((p) => !delProj.has(p.id)),
-    resultados: unionById(a.resultados, b.resultados).filter((r) => !delRes.has(r.id)),
-    entregables: unionById(a.entregables, b.entregables, preferMore).filter((e) => !delEnt.has(e.id)),
-    pasos: unionById(a.pasos, b.pasos, preferPaso).filter((p) => !delPas.has(p.id)),
-    contactos: unionById(a.contactos ?? [], b.contactos ?? []),
-    inbox: unionById(a.inbox ?? [], b.inbox ?? []),
-    plantillas: unionById(a.plantillas, b.plantillas).filter((p) => !delPl.has(p.id)),
-    ejecuciones: unionById(a.ejecuciones ?? [], b.ejecuciones ?? []),
-    miembros: unionById(a.miembros ?? [], b.miembros ?? []),
-    activityLog: unionById(a.activityLog ?? [], b.activityLog ?? []),
-    objetivos: unionById(a.objetivos ?? [], b.objetivos ?? []),
-    pasosActivos: Array.from(new Set([...a.pasosActivos, ...b.pasosActivos])).filter((id) => !delPas.has(id)),
-    deleted,
-    _migrationVersion: Math.max(a._migrationVersion ?? 0, b._migrationVersion ?? 0),
-  };
-  return merged;
-}
-
 export function AppProvider({ userId, displayName, children }: ProviderProps) {
   const logName = displayName || userId;
   const [state, dispatch] = useReducer(reducer, INITIAL_STATE);
@@ -311,7 +249,15 @@ export function AppProvider({ userId, displayName, children }: ProviderProps) {
     if (state === INITIAL_STATE) return;
     if (!initDone.current) return;
     if (userId !== "mentor") saveStateLocal(state);
-    saveStateCloud(userId, state);
+    saveStateCloud(userId, state, (merged) => {
+      // Si el cloud contenía tombstones/entidades que nuestro state local no tenía,
+      // el merged difiere: re-aplicamos para que esta sesión refleje lo mismo que se subió.
+      const cur = stateRef.current;
+      if (statesDiffer(cur, merged)) {
+        dispatch({ type: "INIT", state: merged });
+        if (userId !== "mentor") saveStateLocal(merged);
+      }
+    });
   }, [state, userId]);
 
   const stateRef = useRef(state);
@@ -319,44 +265,42 @@ export function AppProvider({ userId, displayName, children }: ProviderProps) {
 
   useEffect(() => {
     let lastSync = 0;
+
+    async function pullAndMerge(minGapMs: number): Promise<void> {
+      if (!initDone.current) return;
+      if (Date.now() - lastSync < minGapMs) return;
+      lastSync = Date.now();
+      const result = await loadStateCloud(userId);
+      if (!result.data) return;
+      const merged = mergeStates(stateRef.current, result.data);
+      if (statesDiffer(stateRef.current, merged)) {
+        dispatch({ type: "INIT", state: merged });
+      }
+    }
+
     function handleBeforeUnload() { flushPendingCloudSave(); }
     function handleVisibilityChange() {
       if (document.visibilityState === "hidden") {
         flushPendingCloudSave();
         return;
       }
-      if (!initDone.current) return;
-      if (Date.now() - lastSync < 5000) return;
-      lastSync = Date.now();
-      loadStateCloud(userId).then((result) => {
-        if (!result.data) return;
-        const merged = mergeStates(stateRef.current, result.data);
-        const cur = stateRef.current;
-        const delCur = cur.deleted;
-        const delMer = merged.deleted;
-        const tombstonesChanged = delCur && delMer
-          ? (delMer.proyectos.length !== delCur.proyectos.length
-            || delMer.resultados.length !== delCur.resultados.length
-            || delMer.entregables.length !== delCur.entregables.length
-            || delMer.pasos.length !== delCur.pasos.length
-            || delMer.plantillas.length !== delCur.plantillas.length)
-          : (!!delMer && !delCur);
-        const changed = merged.pasos.length !== cur.pasos.length
-          || merged.entregables.length !== cur.entregables.length
-          || merged.proyectos.length !== cur.proyectos.length
-          || merged.resultados.length !== cur.resultados.length
-          || merged.plantillas.length !== cur.plantillas.length
-          || merged.contactos.length !== cur.contactos.length
-          || merged.inbox.length !== cur.inbox.length
-          || tombstonesChanged;
-        if (changed) dispatch({ type: "INIT", state: merged });
-      });
+      void pullAndMerge(5000);
     }
+
     window.addEventListener("beforeunload", handleBeforeUnload);
     document.addEventListener("visibilitychange", handleVisibilityChange);
+
+    // Sync periódico para detectar cambios hechos desde otro dispositivo/pestaña
+    // sin tener que cambiar de pestaña. 30s es buen equilibrio tráfico/UX.
+    const intervalId = setInterval(() => {
+      if (document.visibilityState !== "visible") return;
+      void pullAndMerge(15000);
+    }, 30000);
+
     return () => {
       window.removeEventListener("beforeunload", handleBeforeUnload);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
+      clearInterval(intervalId);
     };
   }, [userId]);
 

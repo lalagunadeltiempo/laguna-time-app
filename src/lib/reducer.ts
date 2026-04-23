@@ -526,10 +526,33 @@ export function reducer(state: AppState, action: Action): AppState {
     // --- Checklist de pasos ---
     case "CHECK_PASO": {
       const ts = action.ts ?? new Date().toISOString();
+      const paso = state.pasos.find((p) => p.id === action.id);
+      if (!paso) return state;
+
+      // Calcular inicioTs "inteligente" si el paso no lo tiene:
+      // candidato = max(últimos finTs de hermanos hechos, inicioTs sesión activa del entregable)
+      // Nunca futuro respecto a ts.
+      let inicioCalc: string | null = paso.inicioTs ?? null;
+      if (!inicioCalc) {
+        const hermanos = state.pasos.filter(
+          (p) => p.entregableId === paso.entregableId && p.id !== paso.id && (p.estado === "hecho" || !!p.finTs) && !!p.finTs,
+        );
+        let candidato: string | null = null;
+        for (const h of hermanos) {
+          if (h.finTs && h.finTs <= ts && (!candidato || h.finTs > candidato)) candidato = h.finTs;
+        }
+        const entregable = state.entregables.find((e) => e.id === paso.entregableId);
+        const sesionAbierta = entregable?.sesiones?.find((s) => s.finTs === null);
+        if (sesionAbierta && sesionAbierta.inicioTs <= ts) {
+          if (!candidato || sesionAbierta.inicioTs > candidato) candidato = sesionAbierta.inicioTs;
+        }
+        inicioCalc = candidato ?? ts;
+      }
+
       return {
         ...state,
         pasos: state.pasos.map((p) => p.id === action.id
-          ? { ...p, estado: "hecho" as const, finTs: p.finTs ?? ts, inicioTs: p.inicioTs ?? ts }
+          ? { ...p, estado: "hecho" as const, finTs: ts, inicioTs: inicioCalc }
           : p),
       };
     }
@@ -538,7 +561,7 @@ export function reducer(state: AppState, action: Action): AppState {
       return {
         ...state,
         pasos: state.pasos.map((p) => p.id === action.id
-          ? { ...p, estado: "pendiente" as const, finTs: null }
+          ? { ...p, estado: "pendiente" as const, finTs: null, inicioTs: null }
           : p),
       };
     }

@@ -3,6 +3,7 @@
 import { AppState, EQUIPO_DEFAULT, PLAN_CONFIG_DEFAULT } from "./types";
 import { buildSeedSOPs } from "./seed-sops";
 import { getSupabase } from "./supabase";
+import { mergeStates } from "./merge";
 
 const OLD_STORAGE_KEY = "laguna-del-tiempo";
 const STORAGE_KEY = "laguna-time-app";
@@ -247,14 +248,14 @@ export async function loadStateCloud(userId: string): Promise<CloudLoadResult> {
 }
 
 let _saveTimer: ReturnType<typeof setTimeout> | null = null;
-let _pendingSave: { userId: string; state: AppState } | null = null;
+let _pendingSave: { userId: string; state: AppState; onMerged?: (merged: AppState) => void } | null = null;
 let _lastCloudSnapshot: AppState | null = null;
 
 export function markCloudLoadOk(): void {
   _cloudLoadedOk = true;
 }
 
-export function saveStateCloud(userId: string, state: AppState): void {
+export function saveStateCloud(userId: string, state: AppState, onMerged?: (merged: AppState) => void): void {
   if (userId === "local") return;
   if (!_cloudLoadedOk) return;
   const supabase = getSupabase();
@@ -265,7 +266,7 @@ export function saveStateCloud(userId: string, state: AppState): void {
     return;
   }
 
-  _pendingSave = { userId: WORKSPACE_ID, state };
+  _pendingSave = { userId: WORKSPACE_ID, state, onMerged };
 
   if (_saveTimer) clearTimeout(_saveTimer);
   _saveTimer = setTimeout(async () => {
@@ -276,7 +277,9 @@ export function saveStateCloud(userId: string, state: AppState): void {
 
     let stateToSave = pending.state;
 
-    // Merge mentor reviews/notes from cloud to prevent overwrites
+    // Pre-merge con el estado del cloud para:
+    // 1) respetar tombstones y entidades creadas/editadas por otros clientes (mergeStates),
+    // 2) conservar reviews/notas mentor (mergeCloudReviews).
     if (pending.userId === WORKSPACE_ID) {
       try {
         const { data: cloudRow } = await supabase
@@ -285,8 +288,10 @@ export function saveStateCloud(userId: string, state: AppState): void {
           .eq("user_id", WORKSPACE_ID)
           .single();
         if (cloudRow?.state) {
-          _lastCloudSnapshot = cloudRow.state as AppState;
-          stateToSave = mergeCloudReviews(stateToSave, _lastCloudSnapshot);
+          const cloudState = migrateV1(cloudRow.state);
+          _lastCloudSnapshot = cloudState;
+          stateToSave = mergeStates(stateToSave, cloudState);
+          stateToSave = mergeCloudReviews(stateToSave, cloudState);
         }
       } catch { /* proceed without merge */ }
     }
@@ -301,6 +306,10 @@ export function saveStateCloud(userId: string, state: AppState): void {
       }
     } catch (err) {
       console.error("[saveStateCloud] network error:", err);
+    }
+
+    if (pending.onMerged) {
+      try { pending.onMerged(stateToSave); } catch { /* noop */ }
     }
   }, 300);
 }
@@ -347,7 +356,12 @@ export function flushPendingCloudSave(): void {
   const supabase = getSupabase();
   if (!supabase || userId === "local") return;
 
-  const merged = _lastCloudSnapshot ? mergeCloudReviews(state, _lastCloudSnapshot) : state;
+  // Best-effort: aplicar también mergeStates con el último snapshot conocido para no pisar tombstones.
+  let merged = state;
+  if (_lastCloudSnapshot) {
+    merged = mergeStates(merged, _lastCloudSnapshot);
+    merged = mergeCloudReviews(merged, _lastCloudSnapshot);
+  }
 
   const payload = JSON.stringify({
     user_id: userId,

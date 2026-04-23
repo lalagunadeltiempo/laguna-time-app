@@ -17,6 +17,14 @@ interface Props {
 
 const EMPTY_CONTEXTO: Contexto = { urls: [], apps: [], notas: "" };
 
+function fmtPasoDuration(inicioTs: string, finTs: string): string {
+  const ms = new Date(finTs).getTime() - new Date(inicioTs).getTime();
+  if (!Number.isFinite(ms) || ms < 60000) return "<1m";
+  const h = Math.floor(ms / 3600000);
+  const m = Math.floor((ms % 3600000) / 60000);
+  return h > 0 ? `${h}h ${m}m` : `${m}m`;
+}
+
 export function EntregableActivoCard({ entregable }: Props) {
   const state = useAppState();
   const dispatch = useAppDispatch();
@@ -283,10 +291,34 @@ export function EntregableActivoCard({ entregable }: Props) {
               Pasos de este entregable
             </p>
             <div className="space-y-0.5">
-              {pasosDelEntregable.map((p) => {
+              {pasosDelEntregable.map((p, idx) => {
                 const done = p.estado === "hecho" || !!p.finTs;
+                const isFirst = idx === 0;
+                const isLast = idx === pasosDelEntregable.length - 1;
                 return (
                   <div key={p.id} className="flex items-center gap-2 rounded-lg px-2 py-1.5 text-xs hover:bg-zinc-50 dark:hover:bg-zinc-800">
+                    <div className="flex shrink-0 flex-col">
+                      <button
+                        type="button"
+                        onClick={() => dispatch({ type: "REORDER_PASO", id: p.id, direction: "up" })}
+                        disabled={isFirst}
+                        className="text-[8px] leading-none text-zinc-300 hover:text-zinc-600 disabled:opacity-20 disabled:hover:text-zinc-300"
+                        title="Subir"
+                        aria-label="Subir paso"
+                      >
+                        ▲
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => dispatch({ type: "REORDER_PASO", id: p.id, direction: "down" })}
+                        disabled={isLast}
+                        className="text-[8px] leading-none text-zinc-300 hover:text-zinc-600 disabled:opacity-20 disabled:hover:text-zinc-300"
+                        title="Bajar"
+                        aria-label="Bajar paso"
+                      >
+                        ▼
+                      </button>
+                    </div>
                     <button
                       type="button"
                       onClick={() => togglePaso(p)}
@@ -308,6 +340,14 @@ export function EntregableActivoCard({ entregable }: Props) {
                       onChange={(v) => dispatch({ type: "RENAME_PASO", id: p.id, nombre: v })}
                       className={`flex-1 text-xs ${done ? "text-zinc-400 dark:text-zinc-500 line-through" : "text-zinc-700 dark:text-zinc-300"}`}
                     />
+                    {done && p.inicioTs && p.finTs && (
+                      <span
+                        className="shrink-0 text-[10px] font-medium tabular-nums text-zinc-400 dark:text-zinc-500"
+                        title={`${new Date(p.inicioTs).toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" })} → ${new Date(p.finTs).toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" })}`}
+                      >
+                        {fmtPasoDuration(p.inicioTs, p.finTs)}
+                      </span>
+                    )}
                     <button
                       type="button"
                       onClick={() => dispatch({ type: "DELETE_PASO", id: p.id })}
