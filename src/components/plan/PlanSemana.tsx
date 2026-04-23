@@ -10,6 +10,7 @@ import { AmbitoToggle, type AmbitoFilter } from "./PlanMes";
 import { WeekBlockSheet, type WeekBlockInfo } from "./WeekBlockSheet";
 import { fechaEfectivaEntregable } from "@/lib/fechas-efectivas";
 import { subtituloEntregable } from "@/lib/display";
+import { WeekDayChips } from "./WeekDayChips";
 
 const DAYS = ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"];
 
@@ -59,6 +60,11 @@ export function PlanSemana({ selectedDate, onOpenInMapa }: Props) {
   const [showDone, setShowDone] = useState(true);
   const [pickDay, setPickDay] = useState<string | null>(null);
   const [confirmSOP, setConfirmSOP] = useState<{ sop: ProjectedSOP; dateKey: string } | null>(null);
+  const [carryOverDismissed, setCarryOverDismissed] = useState<string | null>(null);
+  useEffect(() => {
+    try { setCarryOverDismissed(localStorage.getItem("laguna-carryover-dismissed")); }
+    catch { /* noop */ }
+  }, []);
 
   const [todayKey, setTodayKey] = useState(() => toDateKey(new Date()));
   useEffect(() => {
@@ -258,10 +264,18 @@ export function PlanSemana({ selectedDate, onOpenInMapa }: Props) {
   const pendientesSinDias = useMemo(() => {
     const mondayKeyStr = weekDates[0] ? toDateKey(weekDates[0]) : null;
     const weekKeys = new Set(weekDates.map((d) => toDateKey(d)));
+    // IDs de entregables que ya están representados en el calendario por CUALQUIER vía
+    // (paso, paso-next, ent o sesión trabajada). Si ya se ven en el calendario, no
+    // tienen sentido en el panel "sin día".
+    const entregablesYaEnCalendario = new Set<string>();
+    for (const b of blocks) {
+      if (b.entregableId) entregablesYaEnCalendario.add(b.entregableId);
+    }
     const out: { ent: Entregable; hex: string; subtitulo: string; proyectoId?: string }[] = [];
     for (const ent of state.entregables) {
       if (ent.estado === "cancelada" || ent.estado === "hecho") continue;
       if (viewMode === "yo" && ent.responsable && ent.responsable !== currentUser) continue;
+      if (entregablesYaEnCalendario.has(ent.id)) continue;
       const res = state.resultados.find((r) => r.id === ent.resultadoId);
       const proj = res ? state.proyectos.find((p) => p.id === res.proyectoId) : undefined;
       if (!proj) continue;
@@ -304,7 +318,71 @@ export function PlanSemana({ selectedDate, onOpenInMapa }: Props) {
       return a.ent.nombre.localeCompare(b.ent.nombre);
     });
     return out;
+  }, [state, weekDates, viewMode, currentUser, filtro, blocks]);
+
+  // Pendientes de la semana anterior (no completados ni cancelados) que
+  // todavía no tienen presencia en la semana actual.
+  const carryOverCandidates = useMemo(() => {
+    const monday = weekDates[0];
+    if (!monday) return [] as { ent: Entregable; subtitulo: string; hex: string }[];
+    const prev = new Date(monday);
+    prev.setDate(monday.getDate() - 7);
+    const prevMondayKey = toDateKey(prev);
+    const prevWeekKeys = new Set<string>();
+    for (let i = 0; i < 7; i++) {
+      const d = new Date(prev);
+      d.setDate(prev.getDate() + i);
+      prevWeekKeys.add(toDateKey(d));
+    }
+    const currMondayKey = toDateKey(monday);
+    const currWeekKeys = new Set(weekDates.map((d) => toDateKey(d)));
+    const out: { ent: Entregable; subtitulo: string; hex: string }[] = [];
+    for (const ent of state.entregables) {
+      if (ent.estado === "cancelada" || ent.estado === "hecho") continue;
+      if (viewMode === "yo" && ent.responsable && ent.responsable !== currentUser) continue;
+      const res = state.resultados.find((r) => r.id === ent.resultadoId);
+      const proj = res ? state.proyectos.find((p) => p.id === res.proyectoId) : undefined;
+      if (!proj) continue;
+      if ((proj.estado ?? "plan") === "completado" || (proj.estado ?? "plan") === "pausado") continue;
+      if (filtro !== "todo" && ambitoDeArea(proj.area) !== filtro) continue;
+
+      // Pertenecía a la semana anterior (por semana explícita o por días planificados)
+      const teniaSemanaAnterior = ent.semana === prevMondayKey
+        || (Array.isArray(ent.diasPlanificados) && ent.diasPlanificados.some((k) => prevWeekKeys.has(k)));
+      if (!teniaSemanaAnterior) continue;
+
+      // Ya está presente en la actual: ignorar
+      const yaEnActual = ent.semana === currMondayKey
+        || (Array.isArray(ent.diasPlanificados) && ent.diasPlanificados.some((k) => currWeekKeys.has(k)));
+      if (yaEnActual) continue;
+
+      out.push({
+        ent,
+        hex: AREA_COLORS[proj.area]?.hex ?? "#888",
+        subtitulo: subtituloEntregable(ent, state),
+      });
+    }
+    return out;
   }, [state, weekDates, viewMode, currentUser, filtro]);
+
+  const carryOverKey = weekDates[0] ? toDateKey(weekDates[0]) : "";
+  const carryOverHidden = carryOverDismissed === carryOverKey;
+
+  function dismissCarryOver() {
+    setCarryOverDismissed(carryOverKey);
+    try { localStorage.setItem("laguna-carryover-dismissed", carryOverKey); }
+    catch { /* noop */ }
+  }
+
+  function carryAll() {
+    const monday = weekDates[0];
+    if (!monday) return;
+    const newSemana = toDateKey(monday);
+    for (const c of carryOverCandidates) {
+      dispatch({ type: "UPDATE_ENTREGABLE", id: c.ent.id, changes: { semana: newSemana } });
+    }
+    dismissCarryOver();
+  }
 
   const pendientesByProject = useMemo(() => {
     const items = state.entregables.filter((e) =>
@@ -408,6 +486,47 @@ export function PlanSemana({ selectedDate, onOpenInMapa }: Props) {
           {!isMentor && <AmbitoToggle value={filtro} onChange={setFiltro} />}
         </div>
       </div>
+
+      {/* Banner: pendientes de la semana anterior */}
+      {!isMentor && !carryOverHidden && carryOverCandidates.length > 0 && (
+        <div className="mb-3 rounded-xl border border-accent/30 bg-accent/10 p-3">
+          <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+            <p className="text-[11px] font-semibold uppercase tracking-wider text-accent">
+              Pendientes de la semana anterior ({carryOverCandidates.length})
+            </p>
+            <div className="flex items-center gap-1.5">
+              <button
+                type="button"
+                onClick={carryAll}
+                className="rounded-md bg-accent px-2.5 py-1 text-[11px] font-semibold text-white hover:opacity-90"
+              >
+                Llevar a esta semana
+              </button>
+              <button
+                type="button"
+                onClick={dismissCarryOver}
+                className="rounded-md border border-border bg-background px-2.5 py-1 text-[11px] font-medium text-muted hover:text-foreground"
+              >
+                Ignorar
+              </button>
+            </div>
+          </div>
+          <div className="space-y-1">
+            {carryOverCandidates.slice(0, 5).map(({ ent, hex, subtitulo }) => (
+              <div key={`carry-${ent.id}`} className="flex items-center gap-2 rounded-md border-l-[3px] bg-background/60 px-2 py-1"
+                style={{ borderLeftColor: hex }}>
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-xs font-medium text-foreground">{ent.nombre}</p>
+                  <p className="truncate text-[10px]" style={{ color: hex + "c0" }}>{subtitulo}</p>
+                </div>
+              </div>
+            ))}
+            {carryOverCandidates.length > 5 && (
+              <p className="pl-2 text-[10px] text-muted">y {carryOverCandidates.length - 5} más…</p>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Listado de entregables de la semana SIN días asignados */}
       {!isMentor && pendientesSinDias.length > 0 && (
@@ -613,35 +732,3 @@ export function PlanSemana({ selectedDate, onOpenInMapa }: Props) {
   );
 }
 
-const DAY_INITIAL = ["L", "M", "X", "J", "V", "S", "D"];
-
-function WeekDayChips({
-  weekDates,
-  selectedKeys,
-  onToggle,
-}: {
-  weekDates: Date[];
-  selectedKeys: string[];
-  onToggle: (dateKey: string) => void;
-}) {
-  const selected = new Set(selectedKeys);
-  return (
-    <div className="flex shrink-0 items-center gap-0.5">
-      {weekDates.map((d, i) => {
-        const k = toDateKey(d);
-        const isSel = selected.has(k);
-        return (
-          <button
-            key={k}
-            type="button"
-            onClick={() => onToggle(k)}
-            className={`h-5 w-5 rounded text-[10px] font-bold transition-colors ${isSel ? "bg-accent text-white" : "bg-surface text-muted hover:bg-border"}`}
-            title={d.toLocaleDateString("es-ES", { weekday: "long", day: "numeric", month: "short" })}
-          >
-            {DAY_INITIAL[i]}
-          </button>
-        );
-      })}
-    </div>
-  );
-}

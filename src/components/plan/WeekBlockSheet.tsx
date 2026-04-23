@@ -3,7 +3,8 @@
 import { useEffect, useState } from "react";
 import { AREA_COLORS, type Area, type MiembroInfo } from "@/lib/types";
 import MoveInlinePanel from "../shared/MoveInlinePanel";
-import { useAppState } from "@/lib/context";
+import { useAppState, useAppDispatch } from "@/lib/context";
+import { WeekDayChips } from "./WeekDayChips";
 
 const DAYS_SHORT = ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"];
 
@@ -65,6 +66,7 @@ export function WeekBlockSheet({
   const canMoveParent = block.origen === "ent" && !!block.entregableId;
   const hex = AREA_COLORS[block.area]?.hex ?? "#888";
   const appState = useAppState();
+  const dispatch = useAppDispatch();
   const currentEntregable = block.entregableId ? appState.entregables.find((e) => e.id === block.entregableId) : undefined;
 
   return (
@@ -88,6 +90,20 @@ export function WeekBlockSheet({
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
           </button>
         </div>
+
+        {/* Días planificados (solo entregables con id, en vista principal) */}
+        {view === "main" && block.origen === "ent" && currentEntregable && (
+          <div className="border-b border-border px-4 py-3">
+            <p className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-muted">Días planificados</p>
+            <WeekDayChips
+              weekDates={block.weekDates}
+              selectedKeys={currentEntregable.diasPlanificados ?? []}
+              onToggle={(k) => dispatch({ type: "TOGGLE_ENTREGABLE_DIA", id: currentEntregable.id, dateKey: k })}
+              size="md"
+            />
+            <p className="mt-1.5 text-[10px] text-muted/70">Toca un día para añadirlo o quitarlo.</p>
+          </div>
+        )}
 
         {/* Body */}
         <div className="p-2">
