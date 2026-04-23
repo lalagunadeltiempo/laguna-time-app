@@ -31,11 +31,25 @@ const AREA_LABELS: Record<Area, string> = {
 } as Record<Area, string>;
 
 /** Para un resultado, calcula si está "activo" en el mes actual
- *  (según semanasActivas, mesesActivos, o semana legada). */
+ *  (según semanasActivas, mesesActivos, o semana legada).
+ *
+ *  Si el resultado tiene marcas explícitas propias (mesesActivos,
+ *  semanasActivas o semana legada), esas son autoritarias: los
+ *  entregables con ent.semana NO activan el resultado en otros
+ *  meses. Así evitamos que SOPs materializados con semanas fuera
+ *  del mes marcado (p.ej. un autorrespondedor de abril) arrastren
+ *  un resultado planificado solo para mayo. */
 function resultadoActivoEnMes(r: Resultado, entregables: Entregable[], mesK: string, weekMondays: Set<string>): boolean {
   if ((r.mesesActivos ?? []).includes(mesK)) return true;
   if ((r.semanasActivas ?? []).some((sk) => weekMondays.has(sk) || mesKeyOf(sk) === mesK)) return true;
   if (r.semana && (weekMondays.has(r.semana) || mesKeyOf(r.semana) === mesK)) return true;
+
+  const tieneMarcasExplicitas =
+    (r.mesesActivos?.length ?? 0) > 0 ||
+    (r.semanasActivas?.length ?? 0) > 0 ||
+    !!r.semana;
+  if (tieneMarcasExplicitas) return false;
+
   if (entregables.some((e) => e.semana && (weekMondays.has(e.semana) || mesKeyOf(e.semana) === mesK))) return true;
   return false;
 }
