@@ -22,7 +22,7 @@ import type {
 import { PLAN_CONFIG_DEFAULT } from "./types";
 import { minutosEfectivos } from "./duration";
 import { toDateKey } from "./date-utils";
-import { mesKey, mesesDeTrimestre } from "./semana-utils";
+import { mesKey, mesesDeTrimestre, mondayKey } from "./semana-utils";
 
 export type Action =
   | { type: "INIT"; state: AppState }
@@ -54,6 +54,8 @@ export type Action =
   | { type: "UPDATE_ENTREGABLE_CONTEXTO"; id: string; contexto: Entregable["contexto"] }
   | { type: "UPDATE_ENTREGABLE_IMPLICADOS"; id: string; implicados: Entregable["implicados"] }
   | { type: "SET_ENTREGABLE_PLAN_INICIO"; id: string; ts: string | null }
+  | { type: "TOGGLE_ENTREGABLE_DIA"; id: string; dateKey: string }
+  | { type: "SET_ENTREGABLE_DIAS"; id: string; dias: string[] }
   // --- Checklist de pasos ---
   | { type: "CHECK_PASO"; id: string; ts?: string }
   | { type: "UNCHECK_PASO"; id: string }
@@ -522,6 +524,34 @@ export function reducer(state: AppState, action: Action): AppState {
         ...state,
         entregables: state.entregables.map((e) => e.id === action.id ? { ...e, planInicioTs: action.ts } : e),
       };
+
+    case "TOGGLE_ENTREGABLE_DIA": {
+      return {
+        ...state,
+        entregables: state.entregables.map((e) => {
+          if (e.id !== action.id) return e;
+          const current = Array.isArray(e.diasPlanificados) ? e.diasPlanificados : [];
+          const has = current.includes(action.dateKey);
+          const nextDias = has
+            ? current.filter((k) => k !== action.dateKey)
+            : [...current, action.dateKey].sort();
+          const newSemana = !e.semana && !has ? mondayKey(action.dateKey) : e.semana;
+          return { ...e, diasPlanificados: nextDias, semana: newSemana };
+        }),
+      };
+    }
+
+    case "SET_ENTREGABLE_DIAS": {
+      const sorted = [...new Set(action.dias)].sort();
+      return {
+        ...state,
+        entregables: state.entregables.map((e) => {
+          if (e.id !== action.id) return e;
+          const newSemana = !e.semana && sorted.length > 0 ? mondayKey(sorted[0]) : e.semana;
+          return { ...e, diasPlanificados: sorted, semana: newSemana };
+        }),
+      };
+    }
 
     // --- Checklist de pasos ---
     case "CHECK_PASO": {

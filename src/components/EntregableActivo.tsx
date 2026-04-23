@@ -165,7 +165,15 @@ export function EntregableActivoCard({ entregable }: Props) {
 
   function handleContinuarManana() {
     dispatch({ type: "END_ENTREGABLE_SESION", id: entregable.id });
-    const hoy = toDateKey(new Date());
+    const now = new Date();
+    const hoy = toDateKey(now);
+    const manana = new Date(now);
+    manana.setDate(now.getDate() + 1);
+    const mananaKey = toDateKey(manana);
+    const yaTieneManana = Array.isArray(entregable.diasPlanificados) && entregable.diasPlanificados.includes(mananaKey);
+    if (!yaTieneManana) {
+      dispatch({ type: "TOGGLE_ENTREGABLE_DIA", id: entregable.id, dateKey: mananaKey });
+    }
     dispatch({ type: "OCULTAR_ENTREGABLE_HASTA", id: entregable.id, hasta: hoy });
     setShowCloseOptions(false);
   }

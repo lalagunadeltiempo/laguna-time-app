@@ -9,7 +9,7 @@ import SOPLaunchDialog from "@/components/shared/SOPLaunchDialog";
 import { AmbitoToggle, type AmbitoFilter } from "./PlanMes";
 import { WeekBlockSheet, type WeekBlockInfo } from "./WeekBlockSheet";
 import { fechaEfectivaEntregable } from "@/lib/fechas-efectivas";
-import { subtituloCorto } from "@/lib/display";
+import { subtituloEntregable } from "@/lib/display";
 
 const DAYS = ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"];
 
@@ -36,7 +36,7 @@ interface WeekBlock {
   subtitle: string;
   responsable: string;
   dateKey: string;
-  type: "done" | "active" | "programado" | "sop";
+  type: "done" | "active" | "programado" | "sop" | "sesion-hecha";
   origen: "ent" | "paso-next" | "paso";
   entregableId?: string;
   pasoId?: string;
@@ -95,7 +95,7 @@ export function PlanSemana({ selectedDate, onOpenInMapa }: Props) {
         id: paso.id,
         area: proj?.area ?? "operativa",
         title: paso.nombre,
-        subtitle: subtituloCorto(ent, state),
+        subtitle: subtituloEntregable(ent, state),
         responsable: ent.responsable ?? "",
         dateKey: pasoDate,
         type: isDone ? "done" : isActive ? "active" : "programado",
@@ -135,7 +135,7 @@ export function PlanSemana({ selectedDate, onOpenInMapa }: Props) {
         id: `next-${paso.id}`,
         area: proj?.area ?? "operativa",
         title: paso.siguientePaso.nombre ?? paso.nombre,
-        subtitle: subtituloCorto(ent, state),
+        subtitle: subtituloEntregable(ent, state),
         responsable: ent.responsable ?? "",
         dateKey: fp,
         type: "programado",
@@ -151,7 +151,8 @@ export function PlanSemana({ selectedDate, onOpenInMapa }: Props) {
       return p?.entregableId;
     }).filter(Boolean));
 
-    const mondayKey = weekDates[0] ? toDateKey(weekDates[0]) : null;
+    const mondayKeyStr = weekDates[0] ? toDateKey(weekDates[0]) : null;
+    const entregablesEnSemana: { ent: typeof state.entregables[number]; diasUsados: Set<string> }[] = [];
 
     for (const ent of state.entregables) {
       if (ent.estado === "cancelada") continue;
@@ -163,33 +164,76 @@ export function PlanSemana({ selectedDate, onOpenInMapa }: Props) {
       const proj = res ? state.proyectos.find((p) => p.id === res.proyectoId) : undefined;
       if (filtro !== "todo" && proj && ambitoDeArea(proj.area) !== filtro) continue;
 
-      // Fuente primaria: ent.semana debe coincidir con la monday key de esta semana.
-      if (!ent.semana || ent.semana !== mondayKey) continue;
+      // Filtros de pertenencia a la semana
+      const resHasWeek = !!res && (
+        res.semana === mondayKeyStr ||
+        (Array.isArray(res.semanasActivas) && !!mondayKeyStr && res.semanasActivas.includes(mondayKeyStr))
+      );
+      const diasEnEstaSemana = (ent.diasPlanificados ?? []).filter((k) => weekKeys.has(k));
+      const pertenecePorSemana = ent.semana === mondayKeyStr;
+      const pertenecePorHerencia = !ent.semana && resHasWeek;
+      const pertenecePorDias = diasEnEstaSemana.length > 0;
 
-      // Para distribuir en un día concreto: fecha propia/heredada si cae en la semana;
-      // si no, colocar en el lunes.
-      const efectiva = fechaEfectivaEntregable(ent, res ?? null, proj ?? null);
-      let dateKey: string | null = null;
-      if (efectiva.inicio && weekKeys.has(efectiva.inicio)) dateKey = efectiva.inicio;
-      else if (efectiva.fin && weekKeys.has(efectiva.fin)) dateKey = efectiva.fin;
-      else dateKey = mondayKey;
-      if (!dateKey) continue;
+      if (!pertenecePorSemana && !pertenecePorHerencia && !pertenecePorDias) continue;
+      // Si el entregable tiene semana propia en OTRA semana y no tiene días aquí, excluir
+      if (ent.semana && ent.semana !== mondayKeyStr && !pertenecePorDias) continue;
+
+      // Conjunto de días para los que emitir un bloque planificado
+      const diasEnSemana = new Set<string>(diasEnEstaSemana);
+      if (diasEnSemana.size === 0) {
+        const efectiva = fechaEfectivaEntregable(ent, res ?? null, proj ?? null);
+        if (efectiva.inicio && weekKeys.has(efectiva.inicio)) diasEnSemana.add(efectiva.inicio);
+        else if (efectiva.fin && weekKeys.has(efectiva.fin)) diasEnSemana.add(efectiva.fin);
+        else if (mondayKeyStr) diasEnSemana.add(mondayKeyStr);
+      }
 
       const hasActive = state.pasos.some((p) => p.entregableId === ent.id && state.pasosActivos.includes(p.id));
 
-      result.push({
-        id: `ent-${ent.id}`,
-        area: proj?.area ?? "operativa",
-        title: ent.nombre,
-        subtitle: subtituloCorto(ent, state),
-        responsable: ent.responsable ?? "",
-        dateKey,
-        type: ent.estado === "hecho" ? "done" : "programado",
-        origen: "ent",
-        entregableId: ent.id,
-        proyectoId: proj?.id,
-        tieneActivePaso: hasActive,
-      });
+      for (const dateKey of diasEnSemana) {
+        result.push({
+          id: `ent-${ent.id}-${dateKey}`,
+          area: proj?.area ?? "operativa",
+          title: ent.nombre,
+          subtitle: subtituloEntregable(ent, state),
+          responsable: ent.responsable ?? "",
+          dateKey,
+          type: ent.estado === "hecho" ? "done" : "programado",
+          origen: "ent",
+          entregableId: ent.id,
+          proyectoId: proj?.id,
+          tieneActivePaso: hasActive,
+        });
+      }
+
+      entregablesEnSemana.push({ ent, diasUsados: diasEnSemana });
+    }
+
+    // Bloques de "sesión trabajada" en días que no tienen bloque planificado
+    for (const { ent, diasUsados } of entregablesEnSemana) {
+      if (!Array.isArray(ent.sesiones) || ent.sesiones.length === 0) continue;
+      const res = state.resultados.find((r) => r.id === ent.resultadoId);
+      const proj = res ? state.proyectos.find((p) => p.id === res.proyectoId) : undefined;
+      const diasConSesion = new Set<string>();
+      for (const s of ent.sesiones) {
+        const k = (s.inicioTs ?? "").slice(0, 10);
+        if (k) diasConSesion.add(k);
+      }
+      for (const k of diasConSesion) {
+        if (!weekKeys.has(k)) continue;
+        if (diasUsados.has(k)) continue; // ya hay un bloque planificado ese día
+        result.push({
+          id: `sesion-${ent.id}-${k}`,
+          area: proj?.area ?? "operativa",
+          title: ent.nombre,
+          subtitle: subtituloEntregable(ent, state),
+          responsable: ent.responsable ?? "",
+          dateKey: k,
+          type: "sesion-hecha",
+          origen: "ent",
+          entregableId: ent.id,
+          proyectoId: proj?.id,
+        });
+      }
     }
 
     return result;
@@ -206,6 +250,53 @@ export function PlanSemana({ selectedDate, onOpenInMapa }: Props) {
   }, [blocks, weekDates]);
 
   const sopsByDay = useMemo(() => new Map<string, ProjectedSOP[]>(), []);
+
+  // Entregables que pertenecen a esta semana pero no tienen NINGÚN día asignado en diasPlanificados.
+  // Útil para mostrar un listado "sin día" donde el usuario puede marcar los días rápidamente.
+  const pendientesSinDias = useMemo(() => {
+    const mondayKeyStr = weekDates[0] ? toDateKey(weekDates[0]) : null;
+    const weekKeys = new Set(weekDates.map((d) => toDateKey(d)));
+    const out: { ent: Entregable; hex: string; subtitulo: string; proyectoId?: string }[] = [];
+    for (const ent of state.entregables) {
+      if (ent.estado === "cancelada" || ent.estado === "hecho") continue;
+      if (viewMode === "yo" && ent.responsable && ent.responsable !== currentUser) continue;
+      const res = state.resultados.find((r) => r.id === ent.resultadoId);
+      const proj = res ? state.proyectos.find((p) => p.id === res.proyectoId) : undefined;
+      if (!proj) continue;
+      if ((proj.estado ?? "plan") === "completado" || (proj.estado ?? "plan") === "pausado") continue;
+      if (filtro !== "todo" && ambitoDeArea(proj.area) !== filtro) continue;
+
+      const resHasWeek = !!res && (
+        res.semana === mondayKeyStr ||
+        (Array.isArray(res.semanasActivas) && !!mondayKeyStr && res.semanasActivas.includes(mondayKeyStr))
+      );
+      const pertenece = ent.semana === mondayKeyStr
+        || (!ent.semana && resHasWeek);
+      if (!pertenece) continue;
+
+      const diasEnEstaSemana = (ent.diasPlanificados ?? []).filter((k) => weekKeys.has(k));
+      if (diasEnEstaSemana.length > 0) continue;
+
+      out.push({
+        ent,
+        hex: AREA_COLORS[proj.area]?.hex ?? "#888",
+        subtitulo: subtituloEntregable(ent, state),
+        proyectoId: proj.id,
+      });
+    }
+    // Ordenar por área y luego por nombre
+    out.sort((a, b) => {
+      const aArea = state.resultados.find((r) => r.id === a.ent.resultadoId);
+      const bArea = state.resultados.find((r) => r.id === b.ent.resultadoId);
+      const aProj = aArea ? state.proyectos.find((p) => p.id === aArea.proyectoId) : undefined;
+      const bProj = bArea ? state.proyectos.find((p) => p.id === bArea.proyectoId) : undefined;
+      const aAreaStr = aProj?.area ?? "zzz";
+      const bAreaStr = bProj?.area ?? "zzz";
+      if (aAreaStr !== bAreaStr) return aAreaStr.localeCompare(bAreaStr);
+      return a.ent.nombre.localeCompare(b.ent.nombre);
+    });
+    return out;
+  }, [state, weekDates, viewMode, currentUser, filtro]);
 
   const pendientesByProject = useMemo(() => {
     const items = state.entregables.filter((e) =>
@@ -310,6 +401,31 @@ export function PlanSemana({ selectedDate, onOpenInMapa }: Props) {
         </div>
       </div>
 
+      {/* Listado de entregables de la semana SIN días asignados */}
+      {!isMentor && pendientesSinDias.length > 0 && (
+        <div className="mb-3 rounded-xl border border-border bg-surface/30 p-3">
+          <p className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-muted">
+            Entregables de la semana sin día ({pendientesSinDias.length})
+          </p>
+          <div className="space-y-1.5">
+            {pendientesSinDias.map(({ ent, hex, subtitulo }) => (
+              <div key={`pend-${ent.id}`} className="flex flex-wrap items-center gap-2 rounded-lg border-l-[3px] bg-background px-2 py-1.5"
+                style={{ borderLeftColor: hex }}>
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-xs font-medium text-foreground">{ent.nombre}</p>
+                  <p className="truncate text-[10px]" style={{ color: hex + "c0" }}>{subtitulo}</p>
+                </div>
+                <WeekDayChips
+                  weekDates={weekDates}
+                  selectedKeys={ent.diasPlanificados ?? []}
+                  onToggle={(k) => dispatch({ type: "TOGGLE_ENTREGABLE_DIA", id: ent.id, dateKey: k })}
+                />
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 md:grid-cols-7">
         {weekDates.map((date, i) => {
           const key = toDateKey(date);
@@ -317,6 +433,14 @@ export function PlanSemana({ selectedDate, onOpenInMapa }: Props) {
           const isPast = key < todayKey;
           const dayBlocks = blocksByDay.get(key) ?? [];
           const loadPercent = Math.min(100, (dayBlocks.length / totalHoursAvailable) * 100);
+
+          // Agrupar por área manteniendo orden estable.
+          const areaOrder: Area[] = [];
+          const byArea = new Map<Area, WeekBlock[]>();
+          for (const b of dayBlocks) {
+            if (!byArea.has(b.area)) { byArea.set(b.area, []); areaOrder.push(b.area); }
+            byArea.get(b.area)!.push(b);
+          }
 
           return (
             <div key={key} className="flex flex-col">
@@ -331,13 +455,28 @@ export function PlanSemana({ selectedDate, onOpenInMapa }: Props) {
               </div>
 
               <div className="flex flex-1 flex-col gap-1">
-                {dayBlocks.map((block) => {
+                {areaOrder.map((area) => {
+                  const groupBlocks = byArea.get(area) ?? [];
+                  const areaInfo = AREA_COLORS[area];
+                  const areaHex = areaInfo?.hex ?? "#888";
+                  const initial = areaInfo?.initial ?? "";
+                  return (
+                    <div key={area} className="space-y-1">
+                      <div className="flex items-center gap-1 pt-0.5">
+                        <span className="flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded text-[9px] font-bold text-white"
+                          style={{ backgroundColor: areaHex }}>{initial}</span>
+                        <span className="text-[9px] font-semibold uppercase tracking-wider" style={{ color: areaHex }}>
+                          {area}
+                        </span>
+                      </div>
+                      {groupBlocks.map((block) => {
                   const hex = AREA_COLORS[block.area]?.hex ?? "#888";
+                  const isSesion = block.type === "sesion-hecha";
                   return (
                     <button key={block.id} type="button"
                       onClick={() => handleBlockClick(block)}
-                      className="w-full rounded-lg border-l-[3px] px-2 py-1.5 text-left transition-colors hover:brightness-95"
-                      style={{ borderLeftColor: hex, backgroundColor: hex + "0c" }}>
+                      className={`w-full rounded-lg border-l-[3px] px-2 py-1.5 text-left transition-colors hover:brightness-95 ${isSesion ? "opacity-60" : ""}`}
+                      style={{ borderLeftColor: hex, backgroundColor: hex + "0c", borderLeftStyle: isSesion ? "dashed" : "solid" }}>
                       <div className="flex items-center gap-1">
                         {block.type === "active" && (
                           <span className="relative flex h-1.5 w-1.5 shrink-0">
@@ -348,15 +487,23 @@ export function PlanSemana({ selectedDate, onOpenInMapa }: Props) {
                         {block.type === "done" && (
                           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#22c55e" strokeWidth="3" strokeLinecap="round"><polyline points="20 6 9 17 4 12" /></svg>
                         )}
+                        {isSesion && (
+                          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke={hex} strokeWidth="2" strokeLinecap="round"><circle cx="12" cy="12" r="10" /><polyline points="12 6 12 12 16 14" /></svg>
+                        )}
                         <p className={`text-xs font-medium leading-tight ${block.type === "done" ? "text-muted line-through" : "text-foreground"}`}>
                           {block.title}
                         </p>
                       </div>
-                      <p className="text-[10px] font-medium" style={{ color: hex + "b0" }}>{block.subtitle}</p>
+                      <p className="text-[10px] font-medium" style={{ color: hex + "b0" }}>
+                        {isSesion ? "· trabajado aquí ·" : block.subtitle}
+                      </p>
                       {viewMode === "equipo" && block.responsable && (
                         <p className="text-[10px] font-semibold text-muted">{block.responsable}</p>
                       )}
                     </button>
+                  );
+                      })}
+                    </div>
                   );
                 })}
                 {(sopsByDay.get(key) ?? []).map((sop) => {
@@ -454,6 +601,39 @@ export function PlanSemana({ selectedDate, onOpenInMapa }: Props) {
           }}
         />
       )}
+    </div>
+  );
+}
+
+const DAY_INITIAL = ["L", "M", "X", "J", "V", "S", "D"];
+
+function WeekDayChips({
+  weekDates,
+  selectedKeys,
+  onToggle,
+}: {
+  weekDates: Date[];
+  selectedKeys: string[];
+  onToggle: (dateKey: string) => void;
+}) {
+  const selected = new Set(selectedKeys);
+  return (
+    <div className="flex shrink-0 items-center gap-0.5">
+      {weekDates.map((d, i) => {
+        const k = toDateKey(d);
+        const isSel = selected.has(k);
+        return (
+          <button
+            key={k}
+            type="button"
+            onClick={() => onToggle(k)}
+            className={`h-5 w-5 rounded text-[10px] font-bold transition-colors ${isSel ? "bg-accent text-white" : "bg-surface text-muted hover:bg-border"}`}
+            title={d.toLocaleDateString("es-ES", { weekday: "long", day: "numeric", month: "short" })}
+          >
+            {DAY_INITIAL[i]}
+          </button>
+        );
+      })}
     </div>
   );
 }

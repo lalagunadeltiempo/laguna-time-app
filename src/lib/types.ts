@@ -160,6 +160,9 @@ export interface Entregable {
   implicados?: Implicado[];
   /** Hora planificada para empezar HOY (ISO). Se fija desde Plan Hoy y se mantiene para su visualización. */
   planInicioTs?: string | null;
+  /** Días concretos (dateKey YYYY-MM-DD) en los que se planifica trabajar este entregable.
+   *  Permite repartir un entregable en varios días dentro de la misma semana (o semanas). */
+  diasPlanificados?: string[];
 }
 
 /** Sesión de trabajo sobre un entregable: cronómetro + pausas. */

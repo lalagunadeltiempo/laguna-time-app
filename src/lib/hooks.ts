@@ -435,6 +435,15 @@ export function usePlannedBlocks(dateKey: string): PlannedBlock[] {
         else if (ent.fechaInicio < dateKey) arrastrado = true;
       }
 
+      // Señal diasPlanificados (modelo nuevo multi-día en Plan Semana)
+      if (Array.isArray(ent.diasPlanificados) && ent.diasPlanificados.length > 0) {
+        if (ent.diasPlanificados.includes(dateKey)) {
+          hoy = true;
+        } else if (!hoy && ent.diasPlanificados.some((k) => k < dateKey)) {
+          arrastrado = true;
+        }
+      }
+
       // Señales procedentes de pasos (legacy next-* / pending-*).
       let siguientePasoId: string | undefined;
       let siguientePasoNombre: string | undefined;
