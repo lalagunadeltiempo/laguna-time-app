@@ -270,9 +270,80 @@ export function useSOPsDemanda(): PlantillaProceso[] {
 }
 
 /* ============================================================
+   useFocoProyectos — shared hook para "Modo foco" en HOY
+   Persistencia en localStorage. No toca el reducer.
+   ============================================================ */
+
+const FOCO_STORAGE_KEY = "laguna-foco-proyectos";
+const FOCO_MAX = 3;
+
+export function useFocoProyectos() {
+  const [focoIds, setFocoIdsState] = useState<string[]>(() => {
+    if (typeof window === "undefined") return [];
+    try {
+      const raw = window.localStorage.getItem(FOCO_STORAGE_KEY);
+      if (!raw) return [];
+      const parsed = JSON.parse(raw);
+      return Array.isArray(parsed) ? parsed.filter((x): x is string => typeof x === "string").slice(0, FOCO_MAX) : [];
+    } catch {
+      return [];
+    }
+  });
+
+  const persist = useCallback((next: string[]) => {
+    if (typeof window === "undefined") return;
+    try {
+      if (next.length === 0) window.localStorage.removeItem(FOCO_STORAGE_KEY);
+      else window.localStorage.setItem(FOCO_STORAGE_KEY, JSON.stringify(next));
+    } catch {
+      // ignore quota/unavailable
+    }
+  }, []);
+
+  const setFocoIds = useCallback(
+    (updater: string[] | ((prev: string[]) => string[])) => {
+      setFocoIdsState((prev) => {
+        const next = typeof updater === "function" ? updater(prev) : updater;
+        const clean = next.slice(0, FOCO_MAX);
+        persist(clean);
+        return clean;
+      });
+    },
+    [persist],
+  );
+
+  const toggleFoco = useCallback(
+    (proyectoId: string) => {
+      setFocoIdsState((prev) => {
+        let next: string[];
+        if (prev.includes(proyectoId)) {
+          next = prev.filter((id) => id !== proyectoId);
+        } else if (prev.length >= FOCO_MAX) {
+          next = [...prev.slice(1), proyectoId];
+        } else {
+          next = [...prev, proyectoId];
+        }
+        persist(next);
+        return next;
+      });
+    },
+    [persist],
+  );
+
+  const clearFoco = useCallback(() => {
+    persist([]);
+    setFocoIdsState([]);
+  }, [persist]);
+
+  return { focoIds, setFocoIds, toggleFoco, clearFoco, focoMax: FOCO_MAX };
+}
+
+/* ============================================================
    usePlannedBlocks — shared hook for "planned for date" blocks
    Both PantallaHoy and PlanHoy consume this single source of truth.
    ============================================================ */
+
+export type PlannedBlockOrigen = "hoy" | "arrastrado" | "en_marcha";
 
 export interface PlannedBlock {
   id: string;
@@ -285,6 +356,31 @@ export interface PlannedBlock {
   proyectoNombre?: string;
   entregableNombre?: string;
   hex: string;
+  /**
+   * Clasifica el bloque por su relación con `dateKey`:
+   * - "hoy": anclado exactamente a dateKey (mismo criterio que SEMANA).
+   * - "arrastrado": entregable o siguiente paso con fecha anterior a dateKey.
+   * - "en_marcha": paso pendiente de un entregable en_proceso sin fecha.
+   */
+  origen: PlannedBlockOrigen;
+}
+
+export interface PlannedBlocksSplit {
+  hoy: PlannedBlock[];
+  arrastrado: PlannedBlock[];
+  enMarcha: PlannedBlock[];
+}
+
+export function splitPlannedBlocks(blocks: PlannedBlock[]): PlannedBlocksSplit {
+  const hoy: PlannedBlock[] = [];
+  const arrastrado: PlannedBlock[] = [];
+  const enMarcha: PlannedBlock[] = [];
+  for (const b of blocks) {
+    if (b.origen === "hoy") hoy.push(b);
+    else if (b.origen === "arrastrado") arrastrado.push(b);
+    else enMarcha.push(b);
+  }
+  return { hoy, arrastrado, enMarcha };
 }
 
 export function usePlannedBlocks(dateKey: string): PlannedBlock[] {
@@ -336,6 +432,7 @@ export function usePlannedBlocks(dateKey: string): PlannedBlock[] {
         proyectoNombre: proj?.nombre,
         entregableNombre: ent.nombre,
         hex: AREA_COLORS[proj?.area ?? ""]?.hex ?? "#888",
+        origen: fp === dateKey ? "hoy" : "arrastrado",
       });
     }
 
@@ -357,6 +454,7 @@ export function usePlannedBlocks(dateKey: string): PlannedBlock[] {
         proyectoNombre: proj?.nombre,
         entregableNombre: ent.nombre,
         hex: AREA_COLORS[proj?.area ?? ""]?.hex ?? "#888",
+        origen: ent.fechaInicio === dateKey ? "hoy" : "arrastrado",
       });
     }
 
@@ -381,6 +479,7 @@ export function usePlannedBlocks(dateKey: string): PlannedBlock[] {
         proyectoNombre: proj?.nombre,
         entregableNombre: ent.nombre,
         hex: AREA_COLORS[proj?.area ?? ""]?.hex ?? "#888",
+        origen: "en_marcha",
       });
     }
 
