@@ -10,6 +10,8 @@ import {
   ritmoLabelCorto,
   type ProyectoRitmo,
 } from "@/lib/proyecto-stats";
+import { useAppDispatch } from "@/lib/context";
+import { InlineNombre } from "./InlineEditors";
 
 interface EffectiveRange {
   start: string | undefined;
@@ -132,6 +134,8 @@ interface Props {
   selectedDate?: Date;
   rangeStart?: string;
   rangeEnd?: string;
+  /** Si false, los nombres se muestran como solo lectura. Por defecto true. */
+  editable?: boolean;
 }
 
 export function GanttMultiProyecto({
@@ -140,6 +144,7 @@ export function GanttMultiProyecto({
   selectedDate,
   rangeStart: rsOvr,
   rangeEnd: reOvr,
+  editable = true,
 }: Props) {
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [rangeMode, setRangeMode] = useState<RangeMode>("trimestre");
@@ -364,6 +369,7 @@ export function GanttMultiProyecto({
                   onToggle={toggle}
                   pos={pos}
                   rango={effectiveRange}
+                  editable={editable}
                 />
               ))}
             </div>
@@ -406,13 +412,16 @@ function ProjectRow({
   onToggle,
   pos,
   rango,
+  editable,
 }: {
   gp: GanttProject;
   open: boolean;
   onToggle: (id: string) => void;
   pos: (d: string) => number;
   rango: EffectiveRange;
+  editable: boolean;
 }) {
+  const dispatch = useAppDispatch();
   const p = gp.proyecto;
   const hex = AREA_COLORS[p.area]?.hex ?? "#888";
   const inf = inferDateRange([...gp.resultados, ...gp.entregables]);
@@ -442,28 +451,35 @@ function ProjectRow({
     <div className="border-b border-border/30 last:border-b-0">
       {/* Project bar */}
       <div className="group flex items-stretch transition-colors hover:bg-accent/5">
-        <button
-          onClick={() => onToggle(p.id)}
+        <div
           className="flex shrink-0 items-center gap-1.5 px-3 py-2 text-left"
           style={{ width: LABEL_W }}
         >
-          <svg
-            width="10"
-            height="10"
-            viewBox="0 0 24 24"
-            fill="currentColor"
-            className={`shrink-0 text-muted transition-transform duration-150 ${open ? "rotate-90" : ""}`}
-          >
-            <path d="M8 5l8 7-8 7z" />
-          </svg>
-          <span
-            className="h-2.5 w-2.5 shrink-0 rounded-full"
-            style={{ backgroundColor: hex }}
-          />
-          <span className="min-w-0 truncate text-[11px] font-semibold text-foreground">
-            {p.nombre}
-          </span>
-        </button>
+          <button onClick={() => onToggle(p.id)} className="flex shrink-0 items-center gap-1.5" title={open ? "Contraer" : "Expandir"}>
+            <svg
+              width="10"
+              height="10"
+              viewBox="0 0 24 24"
+              fill="currentColor"
+              className={`shrink-0 text-muted transition-transform duration-150 ${open ? "rotate-90" : ""}`}
+            >
+              <path d="M8 5l8 7-8 7z" />
+            </svg>
+            <span
+              className="h-2.5 w-2.5 shrink-0 rounded-full"
+              style={{ backgroundColor: hex }}
+            />
+          </button>
+          <div className="min-w-0 flex-1">
+            <InlineNombre
+              value={p.nombre}
+              onSave={(nombre) => dispatch({ type: "UPDATE_PROYECTO", id: p.id, changes: { nombre } })}
+              disabled={!editable}
+              className="truncate text-[11px] font-semibold text-foreground"
+              inputClassName="text-[11px] font-semibold text-foreground"
+            />
+          </div>
+        </div>
 
         <div className="relative flex-1 py-1.5">
           {pS && pE ? (
@@ -537,6 +553,7 @@ function ProjectRow({
             entregables={entregablesFiltrados.filter((e) => e.resultadoId === r.id)}
             hex={hex}
             pos={pos}
+            editable={editable}
           />
         ))}
       {open && enRango > 0 && rango.start && rango.end && entregablesFiltrados.length < gp.entregables.length && (
@@ -553,12 +570,15 @@ function ResultRow({
   entregables,
   hex,
   pos,
+  editable,
 }: {
   resultado: Resultado;
   entregables: Entregable[];
   hex: string;
   pos: (d: string) => number;
+  editable: boolean;
 }) {
+  const dispatch = useAppDispatch();
   const rI = inferDateRange(entregables);
   const rS = r.fechaInicio || rI.inicio;
   const rF = r.fechaLimite || rI.fin;
@@ -577,9 +597,15 @@ function ResultRow({
             className="h-1.5 w-1.5 shrink-0 rounded-full"
             style={{ backgroundColor: hex + "88" }}
           />
-          <span className="min-w-0 truncate text-[10px] font-medium text-foreground/75">
-            {r.nombre}
-          </span>
+          <div className="min-w-0 flex-1">
+            <InlineNombre
+              value={r.nombre}
+              onSave={(nombre) => dispatch({ type: "UPDATE_RESULTADO", id: r.id, changes: { nombre } })}
+              disabled={!editable}
+              className="truncate text-[10px] font-medium text-foreground/75"
+              inputClassName="text-[10px] font-medium text-foreground"
+            />
+          </div>
           {tot > 0 && (
             <span className="shrink-0 text-[9px] text-muted">
               {done}/{tot}
@@ -628,7 +654,7 @@ function ResultRow({
 
       {/* Deliverables */}
       {entregables.map((e) => (
-        <EntregableRow key={e.id} entregable={e} pos={pos} />
+        <EntregableRow key={e.id} entregable={e} pos={pos} editable={editable} />
       ))}
     </>
   );
@@ -637,10 +663,13 @@ function ResultRow({
 function EntregableRow({
   entregable: e,
   pos,
+  editable,
 }: {
   entregable: Entregable;
   pos: (d: string) => number;
+  editable: boolean;
 }) {
+  const dispatch = useAppDispatch();
   const eS = e.fechaInicio;
   const eF = e.fechaLimite;
   const eD = eS || eF;
@@ -655,15 +684,19 @@ function EntregableRow({
           className="h-1.5 w-1.5 shrink-0 rounded-full"
           style={{ backgroundColor: entClr(e.estado) }}
         />
-        <span
-          className={`min-w-0 truncate text-[9px] ${
-            e.estado === "hecho"
-              ? "text-muted/50 line-through"
-              : "text-foreground/60"
-          }`}
-        >
-          {e.nombre}
-        </span>
+        <div className="min-w-0 flex-1">
+          <InlineNombre
+            value={e.nombre}
+            onSave={(nombre) => dispatch({ type: "UPDATE_ENTREGABLE", id: e.id, changes: { nombre } })}
+            disabled={!editable}
+            className={`truncate text-[9px] ${
+              e.estado === "hecho"
+                ? "text-muted/50 line-through"
+                : "text-foreground/60"
+            }`}
+            inputClassName="text-[9px] text-foreground"
+          />
+        </div>
         {e.diasEstimados > 0 && (
           <span className="shrink-0 text-[8px] text-muted/50">
             {e.diasEstimados}d

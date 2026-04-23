@@ -16,7 +16,7 @@ import {
   type Objetivo,
 } from "@/lib/types";
 import { AmbitoToggle, ResponsableToggle, matchesResponsable, type AmbitoFilter, type ResponsableFilter } from "./PlanMes";
-import { mesKey, etiquetaMesCorta, mesesDeTrimestre } from "@/lib/semana-utils";
+import { mesKey, etiquetaMesCorta, mesesDeTrimestre, primerLunesDeMes } from "@/lib/semana-utils";
 import { InlineNombre, ResponsableSelect } from "./InlineEditors";
 import type { MiembroInfo } from "@/lib/types";
 
@@ -487,24 +487,76 @@ function ResultadoRow({ resultado, entregables, qMonthKeys, isMentor, hex, miemb
       {entregables.length > 0 && (
         <div className="mt-1 space-y-0.5 pl-3">
           {entregables.map((ent) => (
-            <div key={ent.id} className="flex items-center gap-1 text-[10px]">
-              <span className={`h-1 w-1 shrink-0 rounded-full ${
-                ent.estado === "hecho" ? "bg-emerald-500"
-                : ent.estado === "en_proceso" ? "bg-amber-500"
-                : "bg-gray-300"
-              }`} />
-              <span className={`flex-1 truncate ${ent.estado === "hecho" ? "text-muted line-through" : "text-muted"}`}>{ent.nombre}</span>
-              {ent.semana && (
-                <span className="shrink-0 rounded bg-background px-1 py-0.5 text-[8px] text-muted">
-                  {(() => {
-                    const m = mesKey(ent.semana);
-                    return m ? etiquetaMesCorta(m) : "";
-                  })()}
-                </span>
-              )}
-            </div>
+            <EntregableRowTrimestre key={ent.id} ent={ent} qMonthKeys={qMonthKeys} isMentor={isMentor} />
           ))}
         </div>
+      )}
+    </div>
+  );
+}
+
+/* ================================================================
+   EntregableRowTrimestre: nombre editable + chips de mes (single-toggle)
+   ================================================================ */
+
+function EntregableRowTrimestre({ ent, qMonthKeys, isMentor }: {
+  ent: Entregable; qMonthKeys: string[]; isMentor: boolean;
+}) {
+  const dispatch = useAppDispatch();
+  const mesEnt = ent.semana ? mesKey(ent.semana) : null;
+
+  function toggleMes(mes: string) {
+    if (mesEnt === mes) {
+      // Deseleccionar el mes actual → entregable sin semana asignada
+      dispatch({ type: "UPDATE_ENTREGABLE", id: ent.id, changes: { semana: null } });
+    } else {
+      const nuevoLunes = primerLunesDeMes(mes);
+      if (nuevoLunes) {
+        dispatch({ type: "UPDATE_ENTREGABLE", id: ent.id, changes: { semana: nuevoLunes } });
+      }
+    }
+  }
+
+  return (
+    <div className="flex flex-wrap items-center gap-1 text-[10px]">
+      <span className={`h-1 w-1 shrink-0 rounded-full ${
+        ent.estado === "hecho" ? "bg-emerald-500"
+        : ent.estado === "en_proceso" ? "bg-amber-500"
+        : "bg-gray-300"
+      }`} />
+      <div className="min-w-0 flex-1">
+        <InlineNombre
+          value={ent.nombre}
+          onSave={(nombre) => dispatch({ type: "UPDATE_ENTREGABLE", id: ent.id, changes: { nombre } })}
+          disabled={isMentor}
+          className={`truncate text-[10px] ${ent.estado === "hecho" ? "text-muted line-through" : "text-muted"}`}
+          inputClassName="text-[10px] text-foreground"
+        />
+      </div>
+      {!isMentor ? (
+        <div className="flex shrink-0 items-center gap-0.5">
+          {qMonthKeys.map((mk) => {
+            const active = mesEnt === mk;
+            return (
+              <button
+                key={mk}
+                onClick={() => toggleMes(mk)}
+                title={`Asignar a ${etiquetaMesCorta(mk)}${active ? " (clic para quitar)" : ""}`}
+                className={`rounded px-1 py-0.5 text-[8px] font-semibold transition-colors ${
+                  active ? "bg-accent text-white" : "border border-border text-muted hover:border-accent hover:text-accent"
+                }`}
+              >
+                {etiquetaMesCorta(mk)}
+              </button>
+            );
+          })}
+        </div>
+      ) : (
+        ent.semana && (
+          <span className="shrink-0 rounded bg-background px-1 py-0.5 text-[8px] text-muted">
+            {mesEnt ? etiquetaMesCorta(mesEnt) : ""}
+          </span>
+        )
       )}
     </div>
   );

@@ -210,7 +210,7 @@ export function PlanMes({ selectedDate }: Props) {
       {ganttProjects.length > 0 && (
         <section className="mb-6">
           <h3 className="mb-2 text-xs font-bold uppercase tracking-widest text-muted">Gantt</h3>
-          <GanttMultiProyecto projects={ganttProjects} hoy={hoy} selectedDate={selectedDate} />
+          <GanttMultiProyecto projects={ganttProjects} hoy={hoy} selectedDate={selectedDate} editable={!isMentor} />
         </section>
       )}
 
@@ -480,21 +480,21 @@ function ResultadoCard({ card, week, weeks, mesK, showDone, respFilter, currentU
       )}
 
       {open && (
-        <div className="space-y-1 border-t border-border/60 p-2">
+        <div className="space-y-1.5 border-t border-border/60 p-2">
           {entsVisibles.length === 0 ? (
             <p className="pl-1 text-[10px] italic text-muted/70">— sin entregables</p>
           ) : (
             entsVisibles.map((ent) => (
-              <div key={ent.id} className="flex flex-wrap items-center gap-1">
-                <div className="min-w-0 flex-1">
-                  <EntregableInlineRow ent={ent} miembros={miembros} editable={!isMentor} />
-                </div>
+              <div key={ent.id} className="rounded border border-border/40 bg-surface/30 px-1.5 py-1">
+                <EntregableInlineRow ent={ent} miembros={miembros} editable={!isMentor} />
                 {!isMentor && (
-                  <EntregableWeekChips
-                    entId={ent.id}
-                    weeks={weeks}
-                    current={ent.semana ?? null}
-                  />
+                  <div className="mt-1 flex items-center justify-end">
+                    <EntregableWeekChips
+                      entId={ent.id}
+                      weeks={weeks}
+                      current={ent.semana ?? null}
+                    />
+                  </div>
                 )}
               </div>
             ))
@@ -584,74 +584,79 @@ function EntregableInlineRow({ ent, miembros, editable }: { ent: Entregable; mie
   }
 
   return (
-    <div className="flex flex-wrap items-center gap-2 text-xs">
-      <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${isDone ? "bg-emerald-500" : ent.estado === "en_proceso" ? "bg-amber-500" : "bg-gray-300"}`} />
+    <div className="space-y-0.5 text-xs">
+      {/* Línea 1: bullet + nombre (a toda anchura) */}
+      <div className="flex items-center gap-1.5">
+        <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${isDone ? "bg-emerald-500" : ent.estado === "en_proceso" ? "bg-amber-500" : "bg-gray-300"}`} />
+        {editable && editingNombre ? (
+          <input
+            autoFocus
+            value={draftNombre}
+            onChange={(e) => setDraftNombre(e.target.value)}
+            onBlur={saveNombre}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") { e.preventDefault(); saveNombre(); }
+              if (e.key === "Escape") { setDraftNombre(ent.nombre); setEditingNombre(false); }
+            }}
+            className="min-w-0 flex-1 rounded border border-accent/40 bg-background px-1.5 py-0.5 text-foreground outline-none focus:border-accent"
+          />
+        ) : (
+          <button
+            onClick={editable ? () => { setDraftNombre(ent.nombre); setEditingNombre(true); } : undefined}
+            className={`min-w-0 flex-1 truncate rounded px-1 py-0.5 text-left ${editable ? "hover:bg-surface/60" : ""} ${isDone ? "text-muted line-through" : "text-foreground"}`}
+            title={editable ? "Editar nombre" : ent.nombre}
+          >
+            {ent.nombre}
+          </button>
+        )}
+      </div>
 
-      {editable && editingNombre ? (
-        <input
-          autoFocus
-          value={draftNombre}
-          onChange={(e) => setDraftNombre(e.target.value)}
-          onBlur={saveNombre}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") { e.preventDefault(); saveNombre(); }
-            if (e.key === "Escape") { setDraftNombre(ent.nombre); setEditingNombre(false); }
-          }}
-          className="min-w-0 flex-1 rounded border border-accent/40 bg-background px-1.5 py-0.5 text-foreground outline-none focus:border-accent"
-        />
-      ) : (
-        <button
-          onClick={editable ? () => { setDraftNombre(ent.nombre); setEditingNombre(true); } : undefined}
-          className={`min-w-0 flex-1 truncate rounded text-left ${editable ? "hover:bg-surface/60" : ""} ${isDone ? "text-muted line-through" : "text-foreground"}`}
-          title={editable ? "Editar nombre" : undefined}
-        >
-          {ent.nombre}
-        </button>
-      )}
+      {/* Línea 2: meta (días, responsable, estado) */}
+      <div className="flex flex-wrap items-center gap-1 pl-3 text-[10px] text-muted">
+        {editable && editingDias ? (
+          <input
+            type="number" min={0} autoFocus
+            value={draftDias}
+            onChange={(e) => setDraftDias(e.target.value)}
+            onBlur={saveDias}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") { e.preventDefault(); saveDias(); }
+              if (e.key === "Escape") { setDraftDias(String(ent.diasEstimados ?? 0)); setEditingDias(false); }
+            }}
+            className="w-14 rounded border border-accent/40 bg-background px-1 py-0.5 text-[10px] text-foreground outline-none focus:border-accent"
+          />
+        ) : (
+          <button
+            onClick={editable ? () => { setDraftDias(String(ent.diasEstimados ?? 0)); setEditingDias(true); } : undefined}
+            className={`shrink-0 rounded px-1 ${editable ? "hover:bg-surface/60 hover:text-foreground" : ""}`}
+            title={editable ? "Editar días estimados" : undefined}
+          >
+            {(ent.diasEstimados ?? 0)}d
+          </button>
+        )}
 
-      {editable && editingDias ? (
-        <input
-          type="number" min={0} autoFocus
-          value={draftDias}
-          onChange={(e) => setDraftDias(e.target.value)}
-          onBlur={saveDias}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") { e.preventDefault(); saveDias(); }
-            if (e.key === "Escape") { setDraftDias(String(ent.diasEstimados ?? 0)); setEditingDias(false); }
-          }}
-          className="w-14 rounded border border-accent/40 bg-background px-1 py-0.5 text-[10px] text-foreground outline-none focus:border-accent"
-        />
-      ) : (
-        <button
-          onClick={editable ? () => { setDraftDias(String(ent.diasEstimados ?? 0)); setEditingDias(true); } : undefined}
-          className={`shrink-0 rounded px-1 text-[10px] text-muted ${editable ? "hover:bg-surface/60 hover:text-foreground" : ""}`}
-          title={editable ? "Editar días estimados" : undefined}
-        >
-          {(ent.diasEstimados ?? 0)}d
-        </button>
-      )}
+        {editable ? (
+          <select
+            value={ent.responsable ?? ""}
+            onChange={(e) => setResponsable(e.target.value)}
+            className="shrink-0 rounded bg-surface px-1 py-0.5 outline-none hover:text-foreground"
+            title="Responsable"
+          >
+            <option value="">—</option>
+            {miembros.map((m) => (
+              <option key={m.id} value={m.nombre}>{m.nombre}</option>
+            ))}
+          </select>
+        ) : (
+          ent.responsable && (
+            <span className="shrink-0 rounded bg-surface px-1.5 py-0.5 text-[9px]">{ent.responsable}</span>
+          )
+        )}
 
-      {editable ? (
-        <select
-          value={ent.responsable ?? ""}
-          onChange={(e) => setResponsable(e.target.value)}
-          className="shrink-0 rounded bg-surface px-1 py-0.5 text-[10px] text-muted outline-none hover:text-foreground"
-          title="Responsable"
-        >
-          <option value="">—</option>
-          {miembros.map((m) => (
-            <option key={m.id} value={m.nombre}>{m.nombre}</option>
-          ))}
-        </select>
-      ) : (
-        ent.responsable && (
-          <span className="shrink-0 rounded bg-surface px-1.5 py-0.5 text-[9px] text-muted">{ent.responsable}</span>
-        )
-      )}
-
-      <span className="shrink-0 rounded bg-surface px-1.5 py-0.5 text-[9px] text-muted">
-        {ent.estado === "hecho" ? "hecho" : ent.estado === "en_proceso" ? "en curso" : ent.estado === "planificado" ? "planif." : ent.estado === "a_futuro" ? "futuro" : ent.estado}
-      </span>
+        <span className="shrink-0 rounded bg-surface px-1.5 py-0.5 text-[9px]">
+          {ent.estado === "hecho" ? "hecho" : ent.estado === "en_proceso" ? "en curso" : ent.estado === "planificado" ? "planif." : ent.estado === "a_futuro" ? "futuro" : ent.estado}
+        </span>
+      </div>
     </div>
   );
 }

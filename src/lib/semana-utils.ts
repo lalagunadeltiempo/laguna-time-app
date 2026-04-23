@@ -128,6 +128,22 @@ export function mesesDeTrimestre(trimestre: string): string[] {
   return [0, 1, 2].map((i) => `${year}-${pad(start + i + 1)}`);
 }
 
+/** Primer lunes que cae DENTRO del mes dado ("YYYY-MM"). Devuelve "YYYY-MM-DD".
+ *  A diferencia de `weeksOfMonth(...)[0].monday`, nunca devuelve un lunes del mes anterior:
+ *  si el mes empieza un miércoles, devuelve el lunes 6 (no el 30 del mes previo). */
+export function primerLunesDeMes(mes: string): string | null {
+  const m = /^(\d{4})-(\d{2})$/.exec(mes);
+  if (!m) return null;
+  const year = Number(m[1]);
+  const month = Number(m[2]) - 1;
+  if (month < 0 || month > 11) return null;
+  const first = new Date(year, month, 1);
+  const dow = first.getDay() || 7;
+  const offset = dow === 1 ? 0 : 8 - dow;
+  const lunes = new Date(year, month, 1 + offset);
+  return toLocalDateKey(lunes);
+}
+
 /** "2026-04" -> trimestre "2026-Q2". */
 export function trimestreDeMes(mes: string): string | null {
   const m = /^(\d{4})-(\d{2})$/.exec(mes);
