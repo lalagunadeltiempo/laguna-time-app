@@ -8,16 +8,18 @@ import {
   AREAS_EMPRESA,
   AREA_COLORS,
   type Area,
+  type Entregable,
   type Proyecto,
   type Resultado,
 } from "@/lib/types";
 
-export type PickerDepth = "area" | "proyecto" | "resultado";
+export type PickerDepth = "area" | "proyecto" | "resultado" | "entregable";
 
 export interface HierarchySelection {
   areaId?: Area;
   proyectoId?: string;
   resultadoId?: string;
+  entregableId?: string;
 }
 
 interface Props {
@@ -30,12 +32,14 @@ interface Props {
   filterProyecto?: (p: Proyecto) => boolean;
   /** Filter results */
   filterResultado?: (r: Resultado) => boolean;
+  /** Filter deliverables */
+  filterEntregable?: (e: Entregable) => boolean;
   title?: string;
   /** Whether to render inside a modal overlay */
   modal?: boolean;
 }
 
-type Step = "ambito" | "area" | "proyecto" | "resultado";
+type Step = "ambito" | "area" | "proyecto" | "resultado" | "entregable";
 type Ambito = "empresa" | "personal";
 
 export default function HierarchyPicker({
@@ -45,6 +49,7 @@ export default function HierarchyPicker({
   onCancel,
   filterProyecto,
   filterResultado,
+  filterEntregable,
   title,
   modal = true,
 }: Props) {
@@ -58,6 +63,7 @@ export default function HierarchyPicker({
   );
   const [selectedArea, setSelectedArea] = useState<Area | null>(initialArea ?? null);
   const [selectedProyectoId, setSelectedProyectoId] = useState<string | null>(null);
+  const [selectedResultadoId, setSelectedResultadoId] = useState<string | null>(null);
   const [showCreate, setShowCreate] = useState(false);
   const [createName, setCreateName] = useState("");
 
@@ -68,6 +74,9 @@ export default function HierarchyPicker({
   const resultados = state.resultados
     .filter((r) => r.proyectoId === selectedProyectoId)
     .filter((r) => !filterResultado || filterResultado(r));
+  const entregables = state.entregables
+    .filter((e) => e.resultadoId === selectedResultadoId)
+    .filter((e) => !filterEntregable || filterEntregable(e));
 
   function resetCreate() { setShowCreate(false); setCreateName(""); }
 
@@ -85,7 +94,21 @@ export default function HierarchyPicker({
     resetCreate();
   }
   function selectResultado(id: string) {
-    onSelect({ areaId: selectedArea!, proyectoId: selectedProyectoId!, resultadoId: id });
+    if (depth === "resultado") {
+      onSelect({ areaId: selectedArea!, proyectoId: selectedProyectoId!, resultadoId: id });
+      return;
+    }
+    setSelectedResultadoId(id);
+    setStep("entregable");
+    resetCreate();
+  }
+  function selectEntregable(id: string) {
+    onSelect({
+      areaId: selectedArea!,
+      proyectoId: selectedProyectoId!,
+      resultadoId: selectedResultadoId!,
+      entregableId: id,
+    });
   }
 
   function goBack() {
@@ -93,6 +116,7 @@ export default function HierarchyPicker({
     if (step === "area") { setStep("ambito"); setSelectedAmbito(null); }
     else if (step === "proyecto") { if (initialArea) { onCancel(); } else { setStep("area"); setSelectedArea(null); } }
     else if (step === "resultado") { setStep("proyecto"); setSelectedProyectoId(null); }
+    else if (step === "entregable") { setStep("resultado"); setSelectedResultadoId(null); }
   }
 
   function createInline() {
@@ -108,7 +132,10 @@ export default function HierarchyPicker({
     } else if (step === "resultado" && selectedProyectoId) {
       const id = generateId();
       dispatch({ type: "ADD_RESULTADO", payload: { id, nombre: name, descripcion: null, proyectoId: selectedProyectoId, creado: new Date().toISOString(), semana: null, fechaLimite: null, fechaInicio: null, diasEstimados: null } });
-      onSelect({ areaId: selectedArea!, proyectoId: selectedProyectoId, resultadoId: id });
+      if (depth === "resultado") { onSelect({ areaId: selectedArea!, proyectoId: selectedProyectoId, resultadoId: id }); return; }
+      setSelectedResultadoId(id);
+      setStep("entregable");
+      resetCreate();
     }
   }
 
@@ -120,6 +147,7 @@ export default function HierarchyPicker({
     area: "Elige área",
     proyecto: "Elige proyecto",
     resultado: "Elige resultado",
+    entregable: "Elige entregable",
   };
 
   const backdropRef = useRef<HTMLDivElement>(null);
@@ -182,6 +210,18 @@ export default function HierarchyPicker({
             {resultados.map((r) => (
               <button key={r.id} onClick={() => selectResultado(r.id)} className="flex w-full items-center gap-3 rounded-lg px-4 py-3 text-left transition-colors hover:bg-surface">
                 <span className="text-sm font-medium text-foreground">{r.nombre}</span>
+              </button>
+            ))}
+          </div>
+        )}
+
+        {step === "entregable" && (
+          <div className="space-y-1">
+            {entregables.length === 0 && <p className="px-4 py-3 text-xs text-muted">No hay entregables en este resultado</p>}
+            {entregables.map((e) => (
+              <button key={e.id} onClick={() => selectEntregable(e.id)} className="flex w-full items-center gap-3 rounded-lg px-4 py-3 text-left transition-colors hover:bg-surface">
+                <span className="flex-1 text-sm font-medium text-foreground">{e.nombre}</span>
+                {e.estado && <span className="shrink-0 text-[10px] text-muted">{e.estado}</span>}
               </button>
             ))}
           </div>

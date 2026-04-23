@@ -423,3 +423,23 @@ export function restoreBackup(): AppState | null {
 export function generateId(): string {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
 }
+
+export type DestinoAdjuntar =
+  | { tipo: "paso-existente"; pasoId: string }
+  | { tipo: "crear-pendiente"; entregableId: string };
+
+/**
+ * Decide dónde adjuntar una URL o nota que queremos difundir a otro entregable.
+ * Si existe un paso no cerrado en ese entregable (finTs == null), se reutiliza.
+ * En caso contrario, se indica crear un paso pendiente nuevo.
+ */
+export function resolverDestinoParaAdjuntar(
+  state: AppState,
+  entregableId: string,
+): DestinoAdjuntar {
+  const pasoAbierto = state.pasos.find(
+    (p) => p.entregableId === entregableId && !p.finTs,
+  );
+  if (pasoAbierto) return { tipo: "paso-existente", pasoId: pasoAbierto.id };
+  return { tipo: "crear-pendiente", entregableId };
+}

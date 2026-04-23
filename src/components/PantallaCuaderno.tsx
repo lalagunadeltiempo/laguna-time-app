@@ -1,8 +1,11 @@
 "use client";
 
-import { useState, useMemo } from "react";
-import { useAppState } from "@/lib/context";
+import { useState, useMemo, useCallback } from "react";
+import { useAppState, useAppDispatch } from "@/lib/context";
+import { useIsMentor, useUsuario } from "@/lib/usuario";
 import type { ActivityEntry } from "@/lib/types";
+import { generateId, resolverDestinoParaAdjuntar } from "@/lib/store";
+import HierarchyPicker, { type HierarchySelection } from "@/components/shared/HierarchyPicker";
 
 function groupByDate(entries: ActivityEntry[]): [string, ActivityEntry[]][] {
   const map = new Map<string, ActivityEntry[]>();
@@ -59,11 +62,55 @@ const ACTION_COLORS: Record<string, string> = {
 
 export function PantallaCuaderno() {
   const state = useAppState();
+  const dispatch = useAppDispatch();
+  const isMentor = useIsMentor();
+  const { nombre: currentUser } = useUsuario();
   const [filterUser, setFilterUser] = useState<string>("all");
   const [filterAction, setFilterAction] = useState<string>("all");
   const [searchText, setSearchText] = useState("");
+  const [pickerForNota, setPickerForNota] = useState<{ texto: string } | null>(null);
+  const [toast, setToast] = useState<string | null>(null);
 
   const todayKey = toDateKey(new Date());
+
+  const difundirNotaAEntregable = useCallback((texto: string, entregableId: string) => {
+    const destino = resolverDestinoParaAdjuntar(state, entregableId);
+    const ent = state.entregables.find((e) => e.id === entregableId);
+    const nuevaNota = { id: generateId(), texto, autor: currentUser, creadoTs: new Date().toISOString() };
+    if (destino.tipo === "paso-existente") {
+      dispatch({ type: "ADD_NOTA", nivel: "paso", targetId: destino.pasoId, nota: nuevaNota });
+      const paso = state.pasos.find((p) => p.id === destino.pasoId);
+      setToast(`Nota añadida a ${paso?.nombre ?? "paso"}`);
+    } else {
+      dispatch({
+        type: "ADD_PASO",
+        payload: {
+          id: generateId(),
+          entregableId,
+          nombre: `Pendiente · ${ent?.nombre ?? "Entregable"}`,
+          inicioTs: null,
+          finTs: null,
+          estado: "",
+          contexto: { urls: [], apps: [], notas: "" },
+          implicados: [{ tipo: "equipo", nombre: currentUser }],
+          pausas: [],
+          notas: [nuevaNota],
+          siguientePaso: null,
+        },
+      });
+      setToast(`Paso pendiente creado en ${ent?.nombre ?? "entregable"}`);
+    }
+    setTimeout(() => setToast(null), 2500);
+    setPickerForNota(null);
+  }, [state, dispatch, currentUser]);
+
+  const onPickerSelect = useCallback((sel: HierarchySelection) => {
+    if (pickerForNota && sel.entregableId) {
+      difundirNotaAEntregable(pickerForNota.texto, sel.entregableId);
+    } else {
+      setPickerForNota(null);
+    }
+  }, [pickerForNota, difundirNotaAEntregable]);
 
   const entries = useMemo(() => {
     let list = [...(state.activityLog ?? [])].sort(
@@ -141,15 +188,31 @@ export function PantallaCuaderno() {
       ) : (
         <div className="space-y-3">
           {grouped.map(([dateKey, dayEntries]) => (
-            <DaySection key={dateKey} dateKey={dateKey} entries={dayEntries} isToday={dateKey === todayKey} />
+            <DaySection key={dateKey} dateKey={dateKey} entries={dayEntries} isToday={dateKey === todayKey}
+              onDifundirNota={isMentor ? undefined : (texto) => setPickerForNota({ texto })} />
           ))}
+        </div>
+      )}
+
+      {pickerForNota && (
+        <HierarchyPicker
+          depth="entregable"
+          title="Añadir nota a otro paso"
+          onSelect={onPickerSelect}
+          onCancel={() => setPickerForNota(null)}
+        />
+      )}
+
+      {toast && (
+        <div className="fixed bottom-6 left-1/2 z-50 -translate-x-1/2 rounded-full bg-foreground px-4 py-2 text-xs font-medium text-background shadow-lg">
+          {toast}
         </div>
       )}
     </div>
   );
 }
 
-function DaySection({ dateKey, entries, isToday }: { dateKey: string; entries: ActivityEntry[]; isToday: boolean }) {
+function DaySection({ dateKey, entries, isToday, onDifundirNota }: { dateKey: string; entries: ActivityEntry[]; isToday: boolean; onDifundirNota?: (texto: string) => void }) {
   const [open, setOpen] = useState(isToday);
 
   return (
@@ -175,7 +238,7 @@ function DaySection({ dateKey, entries, isToday }: { dateKey: string; entries: A
       {open && (
         <div className="border-t border-border divide-y divide-border/50">
           {entries.map((entry) => (
-            <EntryRow key={entry.id} entry={entry} />
+            <EntryRow key={entry.id} entry={entry} onDifundirNota={onDifundirNota} />
           ))}
         </div>
       )}
@@ -183,7 +246,7 @@ function DaySection({ dateKey, entries, isToday }: { dateKey: string; entries: A
   );
 }
 
-function EntryRow({ entry }: { entry: ActivityEntry }) {
+function EntryRow({ entry, onDifundirNota }: { entry: ActivityEntry; onDifundirNota?: (texto: string) => void }) {
   const color = ACTION_COLORS[entry.action] ?? "#888";
   const label = ACTION_LABELS[entry.action] ?? entry.action;
 
@@ -211,6 +274,19 @@ function EntryRow({ entry }: { entry: ActivityEntry }) {
           {entry.detalle && (
             <div className="mt-1.5 rounded-md border border-border/60 bg-surface/30 px-3 py-2">
               <p className="whitespace-pre-wrap text-xs text-foreground/80">{entry.detalle}</p>
+              {entry.action === "add_nota" && onDifundirNota && entry.detalle.trim() && (
+                <button
+                  type="button"
+                  onClick={() => onDifundirNota(entry.detalle!)}
+                  className="mt-2 inline-flex items-center gap-1 rounded-md border border-border bg-background px-2 py-1 text-[10px] font-medium text-muted transition-colors hover:bg-accent-soft hover:text-accent"
+                  title="Añadir esta nota a otro paso"
+                >
+                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                    <path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48" />
+                  </svg>
+                  Añadir a otro paso
+                </button>
+              )}
             </div>
           )}
         </div>

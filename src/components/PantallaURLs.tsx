@@ -2,11 +2,13 @@
 
 import { useState, useMemo, useCallback } from "react";
 import { useAppState, useAppDispatch } from "@/lib/context";
-import { useIsMentor } from "@/lib/usuario";
+import { useIsMentor, useUsuario } from "@/lib/usuario";
 import {
   AREA_COLORS, AREAS_PERSONAL, AREAS_EMPRESA,
-  type Area, type Paso,
+  type Area, type Paso, type UrlRef,
 } from "@/lib/types";
+import { generateId, resolverDestinoParaAdjuntar } from "@/lib/store";
+import HierarchyPicker, { type HierarchySelection } from "@/components/shared/HierarchyPicker";
 
 const ALL_AREAS = [...AREAS_PERSONAL, ...AREAS_EMPRESA];
 
@@ -32,8 +34,11 @@ export function PantallaURLs() {
   const state = useAppState();
   const dispatch = useAppDispatch();
   const isMentor = useIsMentor();
+  const { nombre: currentUser } = useUsuario();
   const [filter, setFilter] = useState("");
   const [areaFilter, setAreaFilter] = useState<Area | null>(null);
+  const [pickerForUrl, setPickerForUrl] = useState<UrlRef | null>(null);
+  const [toast, setToast] = useState<string | null>(null);
 
   const urls = useMemo(() => {
     const map = new Map<string, UrlEntry>();
@@ -116,6 +121,56 @@ export function PantallaURLs() {
     }
   }, [state.pasos, dispatch]);
 
+  const difundirUrlAEntregable = useCallback((url: UrlRef, entregableId: string) => {
+    const destino = resolverDestinoParaAdjuntar(state, entregableId);
+    const normalizedTarget = url.url.toLowerCase().replace(/\/+$/, "");
+    const ent = state.entregables.find((e) => e.id === entregableId);
+    if (destino.tipo === "paso-existente") {
+      const paso = state.pasos.find((p) => p.id === destino.pasoId);
+      if (!paso) return;
+      const yaEstaba = paso.contexto.urls.some(
+        (u) => u.url.toLowerCase().replace(/\/+$/, "") === normalizedTarget,
+      );
+      if (yaEstaba) {
+        setToast(`La URL ya estaba en ${paso.nombre}`);
+      } else {
+        dispatch({
+          type: "UPDATE_PASO_CONTEXTO",
+          id: paso.id,
+          contexto: { ...paso.contexto, urls: [...paso.contexto.urls, { ...url }] },
+        });
+        setToast(`Añadida a ${paso.nombre}`);
+      }
+    } else {
+      dispatch({
+        type: "ADD_PASO",
+        payload: {
+          id: generateId(),
+          entregableId,
+          nombre: `Pendiente · ${ent?.nombre ?? "Entregable"}`,
+          inicioTs: null,
+          finTs: null,
+          estado: "",
+          contexto: { urls: [{ ...url }], apps: [], notas: "" },
+          implicados: [{ tipo: "equipo", nombre: currentUser }],
+          pausas: [],
+          siguientePaso: null,
+        },
+      });
+      setToast(`Paso pendiente creado en ${ent?.nombre ?? "entregable"}`);
+    }
+    setTimeout(() => setToast(null), 2500);
+    setPickerForUrl(null);
+  }, [state, dispatch, currentUser]);
+
+  const onPickerSelect = useCallback((sel: HierarchySelection) => {
+    if (pickerForUrl && sel.entregableId) {
+      difundirUrlAEntregable(pickerForUrl, sel.entregableId);
+    } else {
+      setPickerForUrl(null);
+    }
+  }, [pickerForUrl, difundirUrlAEntregable]);
+
   const removeUrlFromPaso = useCallback((pasoId: string, targetUrl: string) => {
     const paso = state.pasos.find((p) => p.id === pasoId);
     if (!paso) return;
@@ -179,8 +234,24 @@ export function PantallaURLs() {
           {filtered.map((entry) => (
             <UrlCard key={entry.url} entry={entry} isMentor={isMentor}
               onEditField={(field, value) => updateUrlInAllPasos(entry.url, field, value)}
-              onRemoveFromPaso={(pasoId) => removeUrlFromPaso(pasoId, entry.url)} />
+              onRemoveFromPaso={(pasoId) => removeUrlFromPaso(pasoId, entry.url)}
+              onAdjuntarAOtroPaso={() => setPickerForUrl({ url: entry.url, nombre: entry.nombre, descripcion: entry.descripcion })} />
           ))}
+        </div>
+      )}
+
+      {pickerForUrl && (
+        <HierarchyPicker
+          depth="entregable"
+          title="Añadir URL a otro paso"
+          onSelect={onPickerSelect}
+          onCancel={() => setPickerForUrl(null)}
+        />
+      )}
+
+      {toast && (
+        <div className="fixed bottom-6 left-1/2 z-50 -translate-x-1/2 rounded-full bg-foreground px-4 py-2 text-xs font-medium text-background shadow-lg">
+          {toast}
         </div>
       )}
     </div>
@@ -215,10 +286,11 @@ function Favicon({ url }: { url: string }) {
 
 /* ─── URL Card ─── */
 
-function UrlCard({ entry, isMentor, onEditField, onRemoveFromPaso }: {
+function UrlCard({ entry, isMentor, onEditField, onRemoveFromPaso, onAdjuntarAOtroPaso }: {
   entry: UrlEntry; isMentor: boolean;
   onEditField: (field: "nombre" | "descripcion", value: string) => void;
   onRemoveFromPaso: (pasoId: string) => void;
+  onAdjuntarAOtroPaso: () => void;
 }) {
   const [open, setOpen] = useState(false);
   const [editingField, setEditingField] = useState<"nombre" | "descripcion" | null>(null);
@@ -344,6 +416,14 @@ function UrlCard({ entry, isMentor, onEditField, onRemoveFromPaso }: {
                 <path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6" /><polyline points="15 3 21 3 21 9" /><line x1="10" y1="14" x2="21" y2="3" />
               </svg>
             </a>
+            {!isMentor && (
+              <button type="button" onClick={onAdjuntarAOtroPaso} title="Añadir a otro paso"
+                className="rounded-lg p-2 text-muted transition-colors hover:bg-accent-soft hover:text-accent">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                  <path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48" />
+                </svg>
+              </button>
+            )}
           </div>
           {/* People & paso count */}
           <div className="flex items-center gap-1.5">
