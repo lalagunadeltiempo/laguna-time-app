@@ -531,13 +531,24 @@ export function AreaSection({ areaId, hideSops }: { areaId: Area; hideSops?: boo
               <>
                 {visibleProyectos.length > 0 ? (
                   <div className="space-y-2">
-                    {[...visibleProyectos].sort((a, b) => {
-                      const aF = a.fechaInicio ?? "9999";
-                      const bF = b.fechaInicio ?? "9999";
-                      return aF.localeCompare(bF);
-                    }).map((proj, i) => (
-                      <ProyectoBlock key={proj.id} proyecto={proj} index={i} total={visibleProyectos.length} />
-                    ))}
+                    {(() => {
+                      // Orden: 1) estado (en_marcha → plan → pausado → completado),
+                      //        2) alfabético por nombre,
+                      //        3) orden manual (posición original, desempate final).
+                      const ESTADO_ORDER: Record<string, number> = { en_marcha: 0, plan: 1, pausado: 2, completado: 3 };
+                      const indexed = visibleProyectos.map((p, idx) => ({ p, idx }));
+                      indexed.sort((a, b) => {
+                        const ea = ESTADO_ORDER[a.p.estado ?? "plan"] ?? 1;
+                        const eb = ESTADO_ORDER[b.p.estado ?? "plan"] ?? 1;
+                        if (ea !== eb) return ea - eb;
+                        const nameCmp = a.p.nombre.localeCompare(b.p.nombre, "es", { sensitivity: "base" });
+                        if (nameCmp !== 0) return nameCmp;
+                        return a.idx - b.idx;
+                      });
+                      return indexed.map(({ p: proj }, i) => (
+                        <ProyectoBlock key={proj.id} proyecto={proj} index={i} total={visibleProyectos.length} />
+                      ));
+                    })()}
                   </div>
                 ) : (
                   <p className="py-3 text-base italic text-muted">Sin proyectos</p>
@@ -653,7 +664,6 @@ function ProyectoBlock({ proyecto, index, total }: { proyecto: Proyecto; index: 
   const [showNotas, setShowNotas] = useState(false);
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [showMoveArea, setShowMoveArea] = useState(false);
-  const [showDeadlinePicker, setShowDeadlinePicker] = useState(false);
   const [showPlanner, setShowPlanner] = useState(false);
   const isEmpresa = ambitoDeArea(proyecto.area) === "empresa";
   const hlRef = useRef<HTMLDivElement>(null);
@@ -671,7 +681,6 @@ function ProyectoBlock({ proyecto, index, total }: { proyecto: Proyecto; index: 
   const hasActiveWork = projEntregables.some((e) => e.estado === "en_proceso" || state.pasos.some((p) => p.entregableId === e.id && p.inicioTs && !p.finTs));
   const notasCount = (proyecto.notas ?? []).length;
   const isProgrammed = !!proyecto.fechaInicio;
-  const hasDeadline = !!proyecto.fechaLimite;
   const projEstado = proyecto.estado ?? "plan";
   const isInactive = projEstado === "completado" || projEstado === "pausado";
 
@@ -727,13 +736,6 @@ function ProyectoBlock({ proyecto, index, total }: { proyecto: Proyecto; index: 
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
               <rect x="3" y="4" width="18" height="18" rx="2" /><line x1="16" y1="2" x2="16" y2="6" /><line x1="8" y1="2" x2="8" y2="6" /><line x1="3" y1="10" x2="21" y2="10" />
             </svg>
-          </button>
-        )}
-        {!isMentor && (
-          <button onClick={(e) => { e.stopPropagation(); setShowDeadlinePicker(!showDeadlinePicker); }}
-            className={`flex h-7 items-center gap-1 rounded-md px-2 text-xs transition-all hover:bg-red-50 hover:text-red-600 ${hasDeadline ? "text-red-600" : "text-muted opacity-60 hover:opacity-100"}`}
-            title="Fecha límite">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z" /><line x1="4" y1="22" x2="4" y2="15" /></svg>
           </button>
         )}
         {!isMentor && (
@@ -809,24 +811,6 @@ function ProyectoBlock({ proyecto, index, total }: { proyecto: Proyecto; index: 
         />
       )}
 
-      {showDeadlinePicker && (
-        <div className="mx-2 mb-3 ml-3 sm:mx-5 sm:ml-8 md:ml-14 rounded-lg border border-border bg-surface/50 p-3">
-          <div className="flex items-center gap-3">
-            <label className="flex items-center gap-2 text-xs text-muted">
-              <span className="text-[10px] font-semibold uppercase tracking-wider">Fecha límite</span>
-              <input type="date" autoFocus value={proyecto.fechaLimite ?? ""}
-                onChange={(e) => { dispatch({ type: "UPDATE_PROYECTO", id: proyecto.id, changes: { fechaLimite: e.target.value || null } }); }}
-                className="rounded-md border border-border bg-background px-2 py-1 text-sm text-foreground" />
-            </label>
-            {proyecto.fechaLimite && (
-              <button onClick={() => dispatch({ type: "UPDATE_PROYECTO", id: proyecto.id, changes: { fechaLimite: null } })}
-                className="text-[10px] text-red-500 hover:text-red-700">Quitar</button>
-            )}
-            <button onClick={() => setShowDeadlinePicker(false)} className="text-[10px] text-muted hover:text-foreground">Cerrar</button>
-          </div>
-        </div>
-      )}
-
       {showPlanner && (
         <ProyectoPlanner proyectoId={proyecto.id} onClose={() => setShowPlanner(false)} />
       )}
@@ -896,7 +880,6 @@ function ResultadoBlock({ resultado, index, total }: { resultado: Resultado; ind
   const [showNotas, setShowNotas] = useState(false);
   const [showMove, setShowMove] = useState(false);
   const [showDatePicker, setShowDatePicker] = useState(false);
-  const [showDeadlinePicker, setShowDeadlinePicker] = useState(false);
   const hlRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => { if (isAncestor || isTarget) setOpen(true); }, [isAncestor, isTarget]);
@@ -912,7 +895,6 @@ function ResultadoBlock({ resultado, index, total }: { resultado: Resultado; ind
   const isEmpresa = parentProj ? ambitoDeArea(parentProj.area) === "empresa" : false;
   const notasCount = (resultado.notas ?? []).length;
   const isProgrammed = !!resultado.fechaInicio;
-  const hasDeadline = !!resultado.fechaLimite;
   const rangoRes = useMemo(() => rangoResultadoMapa(resultado, allEntregables), [resultado, allEntregables]);
 
   if (hideFiltered && !inFilter) return null;
@@ -961,13 +943,6 @@ function ResultadoBlock({ resultado, index, total }: { resultado: Resultado; ind
           </button>
         )}
         {!isMentor && (
-          <button onClick={(e) => { e.stopPropagation(); setShowDeadlinePicker(!showDeadlinePicker); }}
-            className={`flex h-7 items-center gap-1 rounded-md px-2 text-xs transition-all hover:bg-red-50 hover:text-red-600 ${hasDeadline ? "text-red-600" : "text-muted opacity-60 hover:opacity-100"}`}
-            title="Fecha límite">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z" /><line x1="4" y1="22" x2="4" y2="15" /></svg>
-          </button>
-        )}
-        {!isMentor && (
           <button onClick={(e) => { e.stopPropagation(); setShowMove((v) => !v); }}
             className="flex h-6 items-center gap-0.5 rounded px-1.5 text-[10px] text-muted transition-colors hover:bg-surface hover:text-foreground" title="Mover a otro proyecto">
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M5 12h14M12 5l7 7-7 7" /></svg>
@@ -988,24 +963,6 @@ function ResultadoBlock({ resultado, index, total }: { resultado: Resultado; ind
 
       {showDatePicker && (
         <PlanPicker onSelect={handlePlanSelect} onCancel={() => setShowDatePicker(false)} showDayLevel={false} />
-      )}
-
-      {showDeadlinePicker && (
-        <div className="mx-2 mb-3 ml-3 sm:mx-5 sm:ml-8 md:ml-14 rounded-lg border border-border bg-surface/50 p-3">
-          <div className="flex items-center gap-3">
-            <label className="flex items-center gap-2 text-xs text-muted">
-              <span className="text-[10px] font-semibold uppercase tracking-wider">Fecha límite</span>
-              <input type="date" autoFocus value={resultado.fechaLimite ?? ""}
-                onChange={(e) => dispatch({ type: "UPDATE_RESULTADO", id: resultado.id, changes: { fechaLimite: e.target.value || null } })}
-                className="rounded-md border border-border bg-background px-2 py-1 text-sm text-foreground" />
-            </label>
-            {resultado.fechaLimite && (
-              <button onClick={() => dispatch({ type: "UPDATE_RESULTADO", id: resultado.id, changes: { fechaLimite: null } })}
-                className="text-[10px] text-red-500 hover:text-red-700">Quitar</button>
-            )}
-            <button onClick={() => setShowDeadlinePicker(false)} className="text-[10px] text-muted hover:text-foreground">Cerrar</button>
-          </div>
-        </div>
       )}
 
       {confirm && <ConfirmDelete label={resultado.nombre}
@@ -1057,7 +1014,6 @@ function EntregableBlock({ entregable, index, total }: { entregable: Entregable;
   const [open, setOpen] = useState(false);
   const [confirm, setConfirm] = useState(false);
   const [showDatePicker, setShowDatePicker] = useState(false);
-  const [showDeadlinePicker, setShowDeadlinePicker] = useState(false);
   const [justAssigned, setJustAssigned] = useState(false);
   const [showMove, setShowMove] = useState(false);
   const [synced, setSynced] = useState(false);
@@ -1101,7 +1057,6 @@ function EntregableBlock({ entregable, index, total }: { entregable: Entregable;
   const parentProj = parentRes ? state.proyectos.find((p) => p.id === parentRes.proyectoId) : undefined;
   const entAreaHex = parentProj ? (AREA_COLORS[parentProj.area]?.hex ?? "#888") : "#888";
   const isEmpresa = parentProj ? ambitoDeArea(parentProj.area) === "empresa" : false;
-  const hasDeadline = !!entregable.fechaLimite;
   const notasCount = (entregable.notas ?? []).length;
 
   const rangoEnt = rangoEntregableMapa(entregable);
@@ -1170,14 +1125,6 @@ function EntregableBlock({ entregable, index, total }: { entregable: Entregable;
           </button>
         )}
         {!isMentor && (
-          <button onClick={(e) => { e.stopPropagation(); setShowDeadlinePicker(!showDeadlinePicker); }}
-            className={`flex h-7 items-center gap-1 rounded-md px-2 text-xs transition-all hover:bg-red-50 hover:text-red-600 ${hasDeadline ? "text-red-600" : "text-muted opacity-60 hover:opacity-100"}`}
-            title="Fecha límite">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z" /><line x1="4" y1="22" x2="4" y2="15" /></svg>
-          </button>
-        )}
-
-        {!isMentor && (
           <button onClick={(e) => { e.stopPropagation(); setShowMove((v) => !v); }}
             className="flex h-6 items-center gap-0.5 rounded px-1.5 text-[10px] text-muted transition-colors hover:bg-surface hover:text-foreground" title="Mover a otro resultado">
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M5 12h14M12 5l7 7-7 7" /></svg>
@@ -1228,24 +1175,6 @@ function EntregableBlock({ entregable, index, total }: { entregable: Entregable;
 
       {showDatePicker && (
         <PlanPicker onSelect={handlePlanSelect} onCancel={() => setShowDatePicker(false)} />
-      )}
-
-      {showDeadlinePicker && (
-        <div className="mx-2 mb-3 ml-4 sm:mx-5 sm:ml-10 md:ml-16 rounded-lg border border-border bg-surface/50 p-3">
-          <div className="flex items-center gap-3">
-            <label className="flex items-center gap-2 text-xs text-muted">
-              <span className="text-[10px] font-semibold uppercase tracking-wider">Fecha límite</span>
-              <input type="date" autoFocus value={entregable.fechaLimite ?? ""}
-                onChange={(e) => dispatch({ type: "UPDATE_ENTREGABLE", id: entregable.id, changes: { fechaLimite: e.target.value || null } })}
-                className="rounded-md border border-border bg-background px-2 py-1 text-sm text-foreground" />
-            </label>
-            {entregable.fechaLimite && (
-              <button onClick={() => dispatch({ type: "UPDATE_ENTREGABLE", id: entregable.id, changes: { fechaLimite: null } })}
-                className="text-[10px] text-red-500 hover:text-red-700">Quitar</button>
-            )}
-            <button onClick={() => setShowDeadlinePicker(false)} className="text-[10px] text-muted hover:text-foreground">Cerrar</button>
-          </div>
-        </div>
       )}
 
       {confirm && <ConfirmDelete label={entregable.nombre}

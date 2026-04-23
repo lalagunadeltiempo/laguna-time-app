@@ -144,59 +144,78 @@ export function rangoEntregableMapa(ent: Entregable): Rango {
 }
 
 /**
- * Rango derivado para un resultado. Combina:
- *  - `res.semanasActivas` (o `res.semana` legada) expandidas a [lunes, domingo].
- *  - Rango de cada entregable vía `rangoEntregableMapa`.
- * Ignora `res.fechaInicio`/`res.fechaLimite`.
+ * Rango derivado para un resultado en MAPA.
+ *
+ * Criterio estricto:
+ *  - Si el resultado tiene `semanasActivas` (o `semana` legada), el rango es EXACTAMENTE
+ *    la unión de esas semanas [lunes, domingo]. Se ignoran entregables y fechas legacy.
+ *  - Si no tiene planning por semanas, se combinan los rangos de sus entregables
+ *    (que a su vez priorizan `ent.semana` y caen a `ent.fechaInicio/fechaLimite` si no).
+ *
+ * Siempre se ignoran `res.fechaInicio`/`res.fechaLimite`.
  */
 export function rangoResultadoMapa(res: Resultado, entregables: Entregable[]): Rango {
-  let inicio: string | null = null;
-  let fin: string | null = null;
-
   const semanas = (res.semanasActivas && res.semanasActivas.length > 0)
     ? res.semanasActivas
     : (res.semana ? [res.semana] : []);
-  for (const monday of semanas) {
-    inicio = minIso(inicio, monday);
-    fin = maxIso(fin, addDaysIso(monday, 6));
+
+  if (semanas.length > 0) {
+    let inicio: string | null = null;
+    let fin: string | null = null;
+    for (const monday of semanas) {
+      inicio = minIso(inicio, monday);
+      fin = maxIso(fin, addDaysIso(monday, 6));
+    }
+    return { inicio, fin };
   }
 
+  let inicio: string | null = null;
+  let fin: string | null = null;
   for (const ent of entregables) {
     const r = rangoEntregableMapa(ent);
     inicio = minIso(inicio, r.inicio);
     fin = maxIso(fin, r.fin);
   }
-
   return { inicio, fin };
 }
 
 /**
- * Rango derivado para un proyecto. Combina:
- *  - `proy.mesesActivos` (o `proy.trimestresActivos` convertido a meses) expandidos a [1, último día].
- *  - Rango de cada resultado vía `rangoResultadoMapa`.
- * Ignora `proy.fechaInicio`/`proy.fechaLimite`.
+ * Rango derivado para un proyecto en MAPA.
+ *
+ * Criterio estricto:
+ *  - Si el proyecto tiene `mesesActivos` o `trimestresActivos`, el rango es EXACTAMENTE
+ *    la unión de esos meses [día 1, último día]. Se ignoran resultados/entregables que
+ *    "se salgan" del rango del planning y cualquier fecha legacy.
+ *  - Si el proyecto no tiene planning por meses/trimestres, caemos a combinar rangos
+ *    de sus resultados (que a su vez siguen el criterio de `rangoResultadoMapa`).
+ *
+ * Siempre se ignoran `proy.fechaInicio`/`proy.fechaLimite`.
  */
 export function rangoProyectoMapa(proy: Proyecto, resultados: Resultado[], entregables: Entregable[]): Rango {
-  let inicio: string | null = null;
-  let fin: string | null = null;
-
   const meses = new Set<string>(proy.mesesActivos ?? []);
   if (meses.size === 0) {
     for (const t of proy.trimestresActivos ?? []) {
       for (const m of mesesDeTrimestre(t)) meses.add(m);
     }
   }
-  for (const mesK of meses) {
-    inicio = minIso(inicio, primerDiaMes(mesK));
-    fin = maxIso(fin, ultimoDiaMes(mesK));
+
+  if (meses.size > 0) {
+    let inicio: string | null = null;
+    let fin: string | null = null;
+    for (const mesK of meses) {
+      inicio = minIso(inicio, primerDiaMes(mesK));
+      fin = maxIso(fin, ultimoDiaMes(mesK));
+    }
+    return { inicio, fin };
   }
 
+  let inicio: string | null = null;
+  let fin: string | null = null;
   for (const res of resultados) {
     const entsRes = entregables.filter((e) => e.resultadoId === res.id);
     const r = rangoResultadoMapa(res, entsRes);
     inicio = minIso(inicio, r.inicio);
     fin = maxIso(fin, r.fin);
   }
-
   return { inicio, fin };
 }
