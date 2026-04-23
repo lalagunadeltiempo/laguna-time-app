@@ -4,7 +4,7 @@ import { useMemo, useState, useEffect } from "react";
 import { useAppState, useAppDispatch } from "@/lib/context";
 import { useUsuario, useIsMentor } from "@/lib/usuario";
 import { ambitoDeArea, AREA_COLORS, type Area, type Entregable } from "@/lib/types";
-import { projectSOPsForDate, type ProjectedSOP } from "@/lib/sop-projector";
+import type { ProjectedSOP } from "@/lib/sop-projector";
 import SOPLaunchDialog from "@/components/shared/SOPLaunchDialog";
 import { AmbitoToggle, type AmbitoFilter } from "./PlanMes";
 import { WeekBlockSheet, type WeekBlockInfo } from "./WeekBlockSheet";
@@ -191,20 +191,7 @@ export function PlanSemana({ selectedDate }: Props) {
     return map;
   }, [blocks, weekDates]);
 
-  const sopsByDay = useMemo(() => {
-    const map = new Map<string, ProjectedSOP[]>();
-    for (const date of weekDates) {
-      const key = toDateKey(date);
-      const projected = projectSOPsForDate(state, date, viewMode === "yo" ? currentUser : undefined);
-      const filtered = projected.filter((sop) => {
-        if (state.entregables.some((e) => e.tipo === "sop" && e.plantillaId === sop.plantillaId && e.fechaInicio === key)) return false;
-        if (filtro !== "todo" && ambitoDeArea(sop.area) !== filtro) return false;
-        return true;
-      });
-      if (filtered.length > 0) map.set(key, filtered);
-    }
-    return map;
-  }, [state, weekDates, viewMode, currentUser, filtro]);
+  const sopsByDay = useMemo(() => new Map<string, ProjectedSOP[]>(), []);
 
   const pendientesByProject = useMemo(() => {
     const items = state.entregables.filter((e) =>

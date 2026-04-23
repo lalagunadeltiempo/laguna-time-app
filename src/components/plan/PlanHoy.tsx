@@ -10,12 +10,14 @@ import {
   type Area, type Entregable, type Ambito, type Paso,
 } from "@/lib/types";
 import HierarchyPicker from "@/components/shared/HierarchyPicker";
+import { daysBetweenKeys, addDaysToKey } from "@/lib/date-utils";
 
 function addDays(d: Date, n: number) { const r = new Date(d); r.setDate(r.getDate() + n); return r; }
 
 function toDateKey(d: Date) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
+
 
 function minsFromMidnight(ts: string): number {
   const d = new Date(ts);
@@ -248,6 +250,8 @@ export function PlanHoy({ selectedDate }: Props) {
   const arrastradoCount = plannedArrastrado.length;
   const [planOpen, setPlanOpen] = useState(true);
   const [arrastradoOpen, setArrastradoOpen] = useState(false);
+  const [fechaPickerFor, setFechaPickerFor] = useState<string | null>(null);
+  const [confirmDeleteFor, setConfirmDeleteFor] = useState<string | null>(null);
   const [otrosOpen, setOtrosOpen] = useState(false);
   const [showFocoPicker, setShowFocoPicker] = useState(false);
 
@@ -272,6 +276,10 @@ export function PlanHoy({ selectedDate }: Props) {
   }, [plannedArrastrado]);
 
   function planificarHoy(block: Block) {
+    if (block.id.startsWith("next-") && block.pasoId) {
+      dispatch({ type: "RESCHEDULE_NEXT_PASO", pasoId: block.pasoId, newDate: dateKey });
+      return;
+    }
     if (!block.entregableId) return;
     dispatch({
       type: "UPDATE_ENTREGABLE",
@@ -281,10 +289,14 @@ export function PlanHoy({ selectedDate }: Props) {
   }
 
   function posponerManana(block: Block) {
-    if (!block.entregableId) return;
     const d = new Date(dateKey + "T12:00:00");
     d.setDate(d.getDate() + 1);
     const manana = toDateKey(d);
+    if (block.id.startsWith("next-") && block.pasoId) {
+      dispatch({ type: "RESCHEDULE_NEXT_PASO", pasoId: block.pasoId, newDate: manana });
+      return;
+    }
+    if (!block.entregableId) return;
     dispatch({
       type: "UPDATE_ENTREGABLE",
       id: block.entregableId,
@@ -299,6 +311,28 @@ export function PlanHoy({ selectedDate }: Props) {
       id: block.entregableId,
       changes: { estado: "en_espera" },
     });
+  }
+
+  function reprogramar(block: Block, nuevaFechaInicio: string) {
+    if (!block.entregableId) return;
+    const ent = state.entregables.find((e) => e.id === block.entregableId);
+    if (!ent) return;
+    const changes: Partial<Entregable> = { fechaInicio: nuevaFechaInicio, planNivel: "dia" };
+    if (ent.fechaInicio && ent.fechaLimite) {
+      const offsetDias = daysBetweenKeys(ent.fechaInicio, nuevaFechaInicio);
+      changes.fechaLimite = addDaysToKey(ent.fechaLimite, offsetDias);
+    }
+    dispatch({ type: "UPDATE_ENTREGABLE", id: block.entregableId, changes });
+    if (block.id.startsWith("next-") && block.pasoId) {
+      dispatch({ type: "RESCHEDULE_NEXT_PASO", pasoId: block.pasoId, newDate: nuevaFechaInicio });
+    }
+    setFechaPickerFor(null);
+  }
+
+  function eliminar(block: Block) {
+    if (!block.entregableId) return;
+    dispatch({ type: "DELETE_ENTREGABLE", id: block.entregableId });
+    setConfirmDeleteFor(null);
   }
 
   return (
@@ -521,6 +555,27 @@ export function PlanHoy({ selectedDate }: Props) {
                                 >
                                   Mañana
                                 </button>
+                                {fechaPickerFor === block.id ? (
+                                  <input
+                                    type="date"
+                                    autoFocus
+                                    defaultValue={todayKey}
+                                    onBlur={() => setFechaPickerFor(null)}
+                                    onChange={(e) => {
+                                      const v = e.target.value;
+                                      if (v) reprogramar(block, v);
+                                    }}
+                                    className="rounded border border-border bg-surface px-1 py-0.5 text-[10px]"
+                                  />
+                                ) : (
+                                  <button
+                                    onClick={() => setFechaPickerFor(block.id)}
+                                    className="rounded border border-border bg-surface px-1.5 py-0.5 text-[10px] font-medium text-foreground transition-colors hover:bg-accent-soft hover:text-accent"
+                                    title="Reprogramar a otra fecha (mueve inicio y fin)"
+                                  >
+                                    Fecha…
+                                  </button>
+                                )}
                                 <button
                                   onClick={() => ponerEnEspera(block)}
                                   className="rounded border border-border bg-surface px-1.5 py-0.5 text-[10px] font-medium text-foreground transition-colors hover:bg-amber-100 hover:text-amber-700"
@@ -528,6 +583,30 @@ export function PlanHoy({ selectedDate }: Props) {
                                 >
                                   En espera
                                 </button>
+                                {confirmDeleteFor === block.id ? (
+                                  <>
+                                    <button
+                                      onClick={() => eliminar(block)}
+                                      className="rounded border border-red-300 bg-red-50 px-1.5 py-0.5 text-[10px] font-semibold text-red-700 hover:bg-red-100"
+                                    >
+                                      ¿Eliminar?
+                                    </button>
+                                    <button
+                                      onClick={() => setConfirmDeleteFor(null)}
+                                      className="rounded border border-border bg-surface px-1.5 py-0.5 text-[10px] text-muted hover:bg-accent-soft"
+                                    >
+                                      No
+                                    </button>
+                                  </>
+                                ) : (
+                                  <button
+                                    onClick={() => setConfirmDeleteFor(block.id)}
+                                    className="rounded border border-border bg-surface px-1.5 py-0.5 text-[10px] font-medium text-foreground transition-colors hover:bg-red-50 hover:text-red-700"
+                                    title="Eliminar este entregable"
+                                  >
+                                    Eliminar
+                                  </button>
+                                )}
                               </>
                             )}
                             <button

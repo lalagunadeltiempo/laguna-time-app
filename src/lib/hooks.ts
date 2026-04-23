@@ -416,7 +416,7 @@ export function usePlannedBlocks(dateKey: string): PlannedBlock[] {
       if (newerPasoExists) continue;
       const ent = entregables.find((e) => e.id === paso.entregableId);
       if (!ent) continue;
-      if (ent.estado === "hecho" || ent.estado === "cancelada") continue;
+      if (ent.estado === "hecho" || ent.estado === "cancelada" || ent.estado === "en_espera") continue;
       if (ent.responsable && ent.responsable !== currentUser) continue;
       entIdsWithPasos.add(ent.id);
       const res = resultados.find((r) => r.id === ent.resultadoId);
@@ -439,7 +439,7 @@ export function usePlannedBlocks(dateKey: string): PlannedBlock[] {
     for (const ent of entregables) {
       if (!ent.fechaInicio || ent.fechaInicio > dateKey) continue;
       if (ent.planNivel === "mes" || ent.planNivel === "trimestre") continue;
-      if (ent.estado === "hecho" || ent.estado === "cancelada") continue;
+      if (ent.estado === "hecho" || ent.estado === "cancelada" || ent.estado === "en_espera") continue;
       if (entIdsWithPasos.has(ent.id)) continue;
       if (ent.responsable && ent.responsable !== currentUser) continue;
       const res = resultados.find((r) => r.id === ent.resultadoId);

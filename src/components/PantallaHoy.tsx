@@ -5,7 +5,7 @@ import { useAppState, useAppDispatch } from "@/lib/context";
 import { usePasosActivos, useDependenciasEntrantes, useEsperandoRespuesta, usePlannedBlocks, splitPlannedBlocks, useFocoProyectos, buildClosedPaso, type PlannedBlock } from "@/lib/hooks";
 import { generateId } from "@/lib/store";
 import { useUsuario, useIsMentor } from "@/lib/usuario";
-import { toDateKey } from "@/lib/date-utils";
+import { toDateKey, daysBetweenKeys, addDaysToKey } from "@/lib/date-utils";
 import type { InboxItem, Paso } from "@/lib/types";
 import { PasoActivoCard } from "./PasoActivo";
 import { NuevoPaso } from "./NuevoPaso";
@@ -697,8 +697,11 @@ function ArrastradoSection({
   todayKey: string;
   onStart: (block: PlannedBlock) => void;
 }) {
+  const state = useAppState();
   const dispatch = useAppDispatch();
   const [open, setOpen] = useState(false);
+  const [fechaPickerFor, setFechaPickerFor] = useState<string | null>(null);
+  const [confirmDeleteFor, setConfirmDeleteFor] = useState<string | null>(null);
 
   const grupos = useMemo(() => {
     const map = new Map<string, { proyectoId: string; proyectoNombre: string; hex: string; items: PlannedBlock[] }>();
@@ -720,6 +723,10 @@ function ArrastradoSection({
   }, [blocks]);
 
   function planificarHoy(block: PlannedBlock) {
+    if (block.id.startsWith("next-") && block.pasoId) {
+      dispatch({ type: "RESCHEDULE_NEXT_PASO", pasoId: block.pasoId, newDate: todayKey });
+      return;
+    }
     if (!block.entregableId) return;
     dispatch({
       type: "UPDATE_ENTREGABLE",
@@ -729,10 +736,14 @@ function ArrastradoSection({
   }
 
   function posponerManana(block: PlannedBlock) {
-    if (!block.entregableId) return;
     const d = new Date(todayKey + "T12:00:00");
     d.setDate(d.getDate() + 1);
     const manana = toDateKey(d);
+    if (block.id.startsWith("next-") && block.pasoId) {
+      dispatch({ type: "RESCHEDULE_NEXT_PASO", pasoId: block.pasoId, newDate: manana });
+      return;
+    }
+    if (!block.entregableId) return;
     dispatch({
       type: "UPDATE_ENTREGABLE",
       id: block.entregableId,
@@ -747,6 +758,28 @@ function ArrastradoSection({
       id: block.entregableId,
       changes: { estado: "en_espera" },
     });
+  }
+
+  function reprogramar(block: PlannedBlock, nuevaFechaInicio: string) {
+    if (!block.entregableId) return;
+    const ent = state.entregables.find((e) => e.id === block.entregableId);
+    if (!ent) return;
+    const changes: Record<string, unknown> = { fechaInicio: nuevaFechaInicio, planNivel: "dia" };
+    if (ent.fechaInicio && ent.fechaLimite) {
+      const offsetDias = daysBetweenKeys(ent.fechaInicio, nuevaFechaInicio);
+      changes.fechaLimite = addDaysToKey(ent.fechaLimite, offsetDias);
+    }
+    dispatch({ type: "UPDATE_ENTREGABLE", id: block.entregableId, changes });
+    if (block.id.startsWith("next-") && block.pasoId) {
+      dispatch({ type: "RESCHEDULE_NEXT_PASO", pasoId: block.pasoId, newDate: nuevaFechaInicio });
+    }
+    setFechaPickerFor(null);
+  }
+
+  function eliminar(block: PlannedBlock) {
+    if (!block.entregableId) return;
+    dispatch({ type: "DELETE_ENTREGABLE", id: block.entregableId });
+    setConfirmDeleteFor(null);
   }
 
   return (
@@ -818,6 +851,27 @@ function ArrastradoSection({
                     >
                       Mañana
                     </button>
+                    {fechaPickerFor === block.id ? (
+                      <input
+                        type="date"
+                        autoFocus
+                        defaultValue={todayKey}
+                        onBlur={() => setFechaPickerFor(null)}
+                        onChange={(e) => {
+                          const v = e.target.value;
+                          if (v) reprogramar(block, v);
+                        }}
+                        className="rounded-md border border-border bg-surface px-1.5 py-0.5 text-[10px]"
+                      />
+                    ) : (
+                      <button
+                        onClick={() => setFechaPickerFor(block.id)}
+                        className="rounded-md border border-border bg-surface px-2 py-1 text-[10px] font-medium text-foreground transition-colors hover:bg-accent-soft hover:text-accent"
+                        title="Reprogramar a otra fecha (mueve inicio y fin)"
+                      >
+                        Fecha…
+                      </button>
+                    )}
                     <button
                       onClick={() => ponerEnEspera(block)}
                       className="rounded-md border border-border bg-surface px-2 py-1 text-[10px] font-medium text-foreground transition-colors hover:bg-amber-100 hover:text-amber-700"
@@ -825,6 +879,30 @@ function ArrastradoSection({
                     >
                       En espera
                     </button>
+                    {confirmDeleteFor === block.id ? (
+                      <>
+                        <button
+                          onClick={() => eliminar(block)}
+                          className="rounded-md border border-red-300 bg-red-50 px-2 py-1 text-[10px] font-semibold text-red-700 hover:bg-red-100"
+                        >
+                          ¿Eliminar?
+                        </button>
+                        <button
+                          onClick={() => setConfirmDeleteFor(null)}
+                          className="rounded-md border border-border bg-surface px-2 py-1 text-[10px] text-muted hover:bg-accent-soft"
+                        >
+                          No
+                        </button>
+                      </>
+                    ) : (
+                      <button
+                        onClick={() => setConfirmDeleteFor(block.id)}
+                        className="rounded-md border border-border bg-surface px-2 py-1 text-[10px] font-medium text-foreground transition-colors hover:bg-red-50 hover:text-red-700"
+                        title="Eliminar este entregable"
+                      >
+                        Eliminar
+                      </button>
+                    )}
                     <button
                       onClick={() => onStart(block)}
                       className="shrink-0 rounded-md px-2.5 py-1 text-[10px] font-semibold text-white hover:brightness-110"
