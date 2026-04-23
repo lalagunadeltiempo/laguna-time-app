@@ -70,7 +70,12 @@ export function mergeStates(a: AppState, b: AppState): AppState {
   return merged;
 }
 
-/** Compara dos estados y devuelve true si difieren en aspectos relevantes (tamaños, tombstones, contactos). */
+/** Compara dos estados y devuelve true si difieren en aspectos relevantes:
+ *  - conteos de entidades principales,
+ *  - tombstones (presencia exacta de IDs, no solo conteos),
+ *  - sets de IDs (detecta cambios de membresía aun cuando los conteos coincidan,
+ *    p.ej. un cliente añadió X y otro borró Y → mismos conteos pero IDs distintos).
+ */
 export function statesDiffer(a: AppState, b: AppState): boolean {
   if (a.pasos.length !== b.pasos.length) return true;
   if (a.entregables.length !== b.entregables.length) return true;
@@ -79,14 +84,33 @@ export function statesDiffer(a: AppState, b: AppState): boolean {
   if (a.plantillas.length !== b.plantillas.length) return true;
   if ((a.contactos?.length ?? 0) !== (b.contactos?.length ?? 0)) return true;
   if ((a.inbox?.length ?? 0) !== (b.inbox?.length ?? 0)) return true;
+
+  const idSetEq = (xs: { id: string }[], ys: { id: string }[]): boolean => {
+    if (xs.length !== ys.length) return false;
+    const setX = new Set(xs.map((x) => x.id));
+    for (const y of ys) if (!setX.has(y.id)) return false;
+    return true;
+  };
+  if (!idSetEq(a.pasos, b.pasos)) return true;
+  if (!idSetEq(a.entregables, b.entregables)) return true;
+  if (!idSetEq(a.proyectos, b.proyectos)) return true;
+  if (!idSetEq(a.resultados, b.resultados)) return true;
+  if (!idSetEq(a.plantillas, b.plantillas)) return true;
+
   const dA = a.deleted, dB = b.deleted;
   if (!!dA !== !!dB) return true;
   if (dA && dB) {
-    if (dA.proyectos.length !== dB.proyectos.length) return true;
-    if (dA.resultados.length !== dB.resultados.length) return true;
-    if (dA.entregables.length !== dB.entregables.length) return true;
-    if (dA.pasos.length !== dB.pasos.length) return true;
-    if (dA.plantillas.length !== dB.plantillas.length) return true;
+    const arrEq = (xs: string[], ys: string[]): boolean => {
+      if (xs.length !== ys.length) return false;
+      const sx = new Set(xs);
+      for (const y of ys) if (!sx.has(y)) return false;
+      return true;
+    };
+    if (!arrEq(dA.proyectos, dB.proyectos)) return true;
+    if (!arrEq(dA.resultados, dB.resultados)) return true;
+    if (!arrEq(dA.entregables, dB.entregables)) return true;
+    if (!arrEq(dA.pasos, dB.pasos)) return true;
+    if (!arrEq(dA.plantillas, dB.plantillas)) return true;
   }
   return false;
 }

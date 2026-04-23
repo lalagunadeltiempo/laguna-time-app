@@ -9,6 +9,7 @@ const OLD_STORAGE_KEY = "laguna-del-tiempo";
 const STORAGE_KEY = "laguna-time-app";
 const BACKUP_KEY = "laguna-time-app-backup";
 const SAVED_AT_KEY = "laguna-time-app-saved-at";
+const CLOUD_SNAPSHOT_KEY = "laguna-time-app-cloud-snapshot";
 
 let _loadedSuccessfully = false;
 let _cloudLoadedOk = false;
@@ -231,6 +232,7 @@ export async function loadStateCloud(userId: string): Promise<CloudLoadResult> {
           { onConflict: "user_id" },
         );
         _cloudLoadedOk = true;
+        persistCloudSnapshot(migrated);
         return { data: migrated, error: false, updatedAt: userData.updated_at ?? null };
       }
       if (error && error.code !== "PGRST116") {
@@ -240,7 +242,7 @@ export async function loadStateCloud(userId: string): Promise<CloudLoadResult> {
     }
     _cloudLoadedOk = true;
     const migrated = migrateV1(data.state);
-    _lastCloudSnapshot = migrated;
+    persistCloudSnapshot(migrated);
     return { data: migrated, error: false, updatedAt: data.updated_at ?? null };
   } catch {
     return { data: null, error: true, updatedAt: null };
@@ -250,6 +252,25 @@ export async function loadStateCloud(userId: string): Promise<CloudLoadResult> {
 let _saveTimer: ReturnType<typeof setTimeout> | null = null;
 let _pendingSave: { userId: string; state: AppState; onMerged?: (merged: AppState) => void } | null = null;
 let _lastCloudSnapshot: AppState | null = null;
+
+function hydrateCloudSnapshotFromLocal(): AppState | null {
+  if (_lastCloudSnapshot) return _lastCloudSnapshot;
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = localStorage.getItem(CLOUD_SNAPSHOT_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    _lastCloudSnapshot = migrateV1(parsed);
+    return _lastCloudSnapshot;
+  } catch { return null; }
+}
+
+function persistCloudSnapshot(snapshot: AppState): void {
+  _lastCloudSnapshot = snapshot;
+  if (typeof window === "undefined") return;
+  try { localStorage.setItem(CLOUD_SNAPSHOT_KEY, JSON.stringify(snapshot)); }
+  catch { /* quota — ignorar */ }
+}
 
 export function markCloudLoadOk(): void {
   _cloudLoadedOk = true;
@@ -280,20 +301,42 @@ export function saveStateCloud(userId: string, state: AppState, onMerged?: (merg
     // Pre-merge con el estado del cloud para:
     // 1) respetar tombstones y entidades creadas/editadas por otros clientes (mergeStates),
     // 2) conservar reviews/notas mentor (mergeCloudReviews).
+    let mergedWithFreshCloud = false;
     if (pending.userId === WORKSPACE_ID) {
       try {
-        const { data: cloudRow } = await supabase
+        const { data: cloudRow, error: getErr } = await supabase
           .from("user_data")
           .select("state")
           .eq("user_id", WORKSPACE_ID)
           .single();
-        if (cloudRow?.state) {
+        if (!getErr && cloudRow?.state) {
           const cloudState = migrateV1(cloudRow.state);
-          _lastCloudSnapshot = cloudState;
+          persistCloudSnapshot(cloudState);
           stateToSave = mergeStates(stateToSave, cloudState);
           stateToSave = mergeCloudReviews(stateToSave, cloudState);
+          mergedWithFreshCloud = true;
+        } else if (getErr && getErr.code !== "PGRST116") {
+          console.warn("[saveStateCloud] GET cloud falló:", getErr.message);
         }
-      } catch { /* proceed without merge */ }
+      } catch (err) {
+        console.warn("[saveStateCloud] GET cloud falló (network):", err);
+      }
+    }
+
+    // Fallback: si no pudimos leer cloud, usamos el último snapshot conocido para
+    // preservar tombstones/cambios remotos previos. Si tampoco tenemos snapshot,
+    // ABORTAMOS el upload para no pisar cloud con un estado sin contexto.
+    if (!mergedWithFreshCloud && pending.userId === WORKSPACE_ID) {
+      const fallback = hydrateCloudSnapshotFromLocal();
+      if (fallback) {
+        console.warn("[saveStateCloud] usando snapshot local como fallback de pre-merge");
+        stateToSave = mergeStates(stateToSave, fallback);
+        stateToSave = mergeCloudReviews(stateToSave, fallback);
+      } else {
+        console.warn("[saveStateCloud] sin snapshot ni cloud accesible — ABORTO el upload para no pisar tombstones remotos");
+        // Mantén _pendingSave como null pero deja la siguiente acción reintentar.
+        return;
+      }
     }
 
     try {
@@ -303,6 +346,8 @@ export function saveStateCloud(userId: string, state: AppState, onMerged?: (merg
       );
       if (error) {
         console.error("[saveStateCloud] Supabase error:", error.message);
+      } else {
+        persistCloudSnapshot(stateToSave);
       }
     } catch (err) {
       console.error("[saveStateCloud] network error:", err);
