@@ -14,6 +14,7 @@ import { ProyectoPlanner } from "../plan/ProyectoPlanner";
 import { ProyectoTimeline } from "../plan/ProyectoTimeline";
 import { TrimestreSelector } from "./TrimestreSelector";
 import { computeProyectoRitmo, ritmoColor, ritmoLabel, ritmoLabelCorto, ritmoExplicacion, inferDateRange, type DateRange } from "@/lib/proyecto-stats";
+import { rangoProyectoMapa, rangoResultadoMapa, rangoEntregableMapa } from "@/lib/fechas-efectivas";
 import {
   AREAS_PERSONAL,
   AREAS_EMPRESA,
@@ -676,6 +677,9 @@ function ProyectoBlock({ proyecto, index, total }: { proyecto: Proyecto; index: 
 
   const ritmo = useMemo(() => showRitmo ? computeProyectoRitmo(proyecto, projEntregables, allResultados, new Date(), state.miembros, state.pasos, state.planConfig) : null, [showRitmo, proyecto, projEntregables, allResultados, state.miembros, state.pasos, state.planConfig]);
 
+  // Rango efectivo derivado del planning (trimestres, semanas, entregables).
+  const rangoProy = useMemo(() => rangoProyectoMapa(proyecto, allResultados, projEntregables), [proyecto, allResultados, projEntregables]);
+
   if (hideFiltered && !inFilter) return null;
 
   function handlePlanSelect(fechaInicio: string, planNivel: PlanNivel) {
@@ -705,12 +709,12 @@ function ProyectoBlock({ proyecto, index, total }: { proyecto: Proyecto; index: 
         <ReviewBadge review={proyecto.review} nivel="proyecto" targetId={proyecto.id} />
         {isEmpresa && <ResponsableBadge nombre={proyecto.responsable} editable={!isMentor} miembros={state.miembros} onChange={(v) => dispatch({ type: "UPDATE_PROYECTO", id: proyecto.id, changes: { responsable: v } })} />}
         <span className="rounded-full bg-surface px-3 py-1 text-xs font-medium text-muted">{allResultados.length} result.</span>
-        {(proyecto.fechaInicio || proyecto.fechaLimite) && (
-          <span className="hidden sm:inline rounded-md bg-surface px-2 py-0.5 text-[11px] text-muted" title="Fechas del proyecto">
-            {formatDateRange(proyecto.fechaInicio, proyecto.fechaLimite)}
+        {(rangoProy.inicio || rangoProy.fin) && (
+          <span className="hidden sm:inline rounded-md bg-surface px-2 py-0.5 text-[11px] text-muted" title="Rango derivado del planning">
+            {formatDateRange(rangoProy.inicio, rangoProy.fin)}
           </span>
         )}
-        {!proyecto.fechaInicio && !proyecto.fechaLimite && projEstado !== "completado" && (
+        {!rangoProy.inicio && !rangoProy.fin && projEstado !== "completado" && (
           <span className="hidden sm:inline rounded-md bg-amber-50 px-2 py-0.5 text-[10px] text-amber-600 dark:bg-amber-500/10 dark:text-amber-400">Sin fechas</span>
         )}
         {isMentor
@@ -846,9 +850,9 @@ function ProyectoBlock({ proyecto, index, total }: { proyecto: Proyecto; index: 
             <p className="mb-4 text-sm italic text-muted">{proyecto.descripcion}</p>
           ) : null}
 
-          {proyecto.fechaInicio && (
+          {rangoProy.inicio && (
             <p className="mb-3 text-xs text-muted">
-              Inicio: {new Date(proyecto.fechaInicio).toLocaleDateString("es-ES", { day: "numeric", month: "long", year: "numeric" })}
+              Inicio: {new Date(rangoProy.inicio + "T12:00:00").toLocaleDateString("es-ES", { day: "numeric", month: "long", year: "numeric" })}
             </p>
           )}
 
@@ -909,6 +913,7 @@ function ResultadoBlock({ resultado, index, total }: { resultado: Resultado; ind
   const notasCount = (resultado.notas ?? []).length;
   const isProgrammed = !!resultado.fechaInicio;
   const hasDeadline = !!resultado.fechaLimite;
+  const rangoRes = useMemo(() => rangoResultadoMapa(resultado, allEntregables), [resultado, allEntregables]);
 
   if (hideFiltered && !inFilter) return null;
 
@@ -938,9 +943,9 @@ function ResultadoBlock({ resultado, index, total }: { resultado: Resultado; ind
         {computedEstado === "completado" && (
           <span className="rounded-md bg-green-100 px-2 py-0.5 text-[11px] font-semibold text-green-700 dark:bg-green-500/10 dark:text-green-400">Completado</span>
         )}
-        {(resultado.fechaInicio || resultado.fechaLimite) && computedEstado !== "completado" && (
-          <span className="hidden sm:inline rounded-md bg-surface px-2 py-0.5 text-[11px] text-muted">
-            {formatDateRange(resultado.fechaInicio, resultado.fechaLimite)}
+        {(rangoRes.inicio || rangoRes.fin) && computedEstado !== "completado" && (
+          <span className="hidden sm:inline rounded-md bg-surface px-2 py-0.5 text-[11px] text-muted" title="Rango derivado del planning">
+            {formatDateRange(rangoRes.inicio, rangoRes.fin)}
           </span>
         )}
         {isMentor
@@ -1099,8 +1104,11 @@ function EntregableBlock({ entregable, index, total }: { entregable: Entregable;
   const hasDeadline = !!entregable.fechaLimite;
   const notasCount = (entregable.notas ?? []).length;
 
-  const isProgrammed = !!entregable.fechaInicio;
-  const programLabel = isProgrammed ? formatFechaInicio(entregable.fechaInicio!, entregable.planNivel) : null;
+  const rangoEnt = rangoEntregableMapa(entregable);
+  const isProgrammed = !!(rangoEnt.inicio || entregable.fechaInicio);
+  const programLabel = entregable.semana
+    ? formatDateRange(rangoEnt.inicio, rangoEnt.fin)
+    : (entregable.fechaInicio ? formatFechaInicio(entregable.fechaInicio, entregable.planNivel) : null);
 
   function handlePlanSelect(fechaInicio: string, planNivel: PlanNivel) {
     const newEstado = computeEstadoOnPlan(planNivel, fechaInicio, entregable.estado);

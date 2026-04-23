@@ -101,11 +101,13 @@ export function PlanMes({ selectedDate }: Props) {
       if (filtered.length === 0 && entregables.length > 0) continue;
 
       // Proyecto visible en el mes si el proyecto tiene ese mes activo o algún resultado está activo.
+      // La lista de resultados, sin embargo, es ESTRICTA: solo entran los que el usuario marcó
+      // explícitamente en este mes (mesesActivos, semanasActivas del mes, semana legada o entregable del mes).
       let inMonth = (proj.mesesActivos ?? []).includes(mesK);
       const resultadosActivos: Resultado[] = [];
       for (const r of resultados) {
         const entsRes = entregables.filter((e) => e.resultadoId === r.id);
-        if (resultadoActivoEnMes(r, entsRes, mesK, weekMondays) || (proj.mesesActivos ?? []).includes(mesK)) {
+        if (resultadoActivoEnMes(r, entsRes, mesK, weekMondays)) {
           inMonth = true;
           resultadosActivos.push(r);
         }
@@ -114,7 +116,7 @@ export function PlanMes({ selectedDate }: Props) {
 
       const areaHex = AREA_COLORS[proj.area]?.hex ?? "#888";
 
-      for (const res of (resultadosActivos.length > 0 ? resultadosActivos : resultados)) {
+      for (const res of resultadosActivos) {
         const entsRes = entregables.filter((e) => e.resultadoId === res.id);
         const entHechos = entsRes.filter((e) => e.estado === "hecho").length;
         cards.push({
@@ -217,6 +219,7 @@ export function PlanMes({ selectedDate }: Props) {
               <WeekColumn key={bucket.week.monday}
                 week={bucket.week}
                 byArea={bucket.byArea}
+                mesK={mesK}
                 showDone={showDone}
                 respFilter={respFilter}
                 currentUser={currentUser}
@@ -247,6 +250,7 @@ export function PlanMes({ selectedDate }: Props) {
                         card={card}
                         week={null}
                         weeks={weeks}
+                        mesK={mesK}
                         showDone={showDone}
                         respFilter={respFilter}
                         currentUser={currentUser}
@@ -284,9 +288,10 @@ function groupCardsByArea(cards: ResultadoCardData[]): { area: Area; label: stri
    WeekColumn: columna de una semana con resultados por área
    ============================================================ */
 
-function WeekColumn({ week, byArea, showDone, respFilter, currentUser, isMentor, miembros, weeks }: {
+function WeekColumn({ week, byArea, mesK, showDone, respFilter, currentUser, isMentor, miembros, weeks }: {
   week: WeekInfo;
   byArea: Map<Area, ResultadoCardData[]>;
+  mesK: string;
   showDone: boolean;
   respFilter: ResponsableFilter;
   currentUser: string;
@@ -330,6 +335,7 @@ function WeekColumn({ week, byArea, showDone, respFilter, currentUser, isMentor,
                     card={card}
                     week={week}
                     weeks={weeks}
+                    mesK={mesK}
                     showDone={showDone}
                     respFilter={respFilter}
                     currentUser={currentUser}
@@ -350,11 +356,12 @@ function WeekColumn({ week, byArea, showDone, respFilter, currentUser, isMentor,
    ResultadoCard: colapsable con entregables de la semana
    ============================================================ */
 
-function ResultadoCard({ card, week, weeks, showDone, respFilter, currentUser, isMentor, miembros }: {
+function ResultadoCard({ card, week, weeks, mesK, showDone, respFilter, currentUser, isMentor, miembros }: {
   card: ResultadoCardData;
   /** null si se muestra en la sección "Sin semana" */
   week: WeekInfo | null;
   weeks: WeekInfo[];
+  mesK: string;
   showDone: boolean;
   respFilter: ResponsableFilter;
   currentUser: string;
@@ -429,6 +436,15 @@ function ResultadoCard({ card, week, weeks, showDone, respFilter, currentUser, i
             miembros={miembros}
             onChange={(v) => dispatch({ type: "UPDATE_RESULTADO", id: resultado.id, changes: { responsable: v || undefined } })}
           />
+        )}
+        {!isMentor && week === null && (resultado.mesesActivos ?? []).includes(mesK) && (
+          <button
+            onClick={() => dispatch({ type: "TOGGLE_RESULTADO_MES", id: resultado.id, mes: mesK })}
+            title="Quitar de este mes (reprograma desde Plan Trimestre)"
+            className="shrink-0 rounded border border-border px-1.5 py-0.5 text-[9px] font-semibold text-muted hover:border-red-400 hover:text-red-500"
+          >
+            Quitar del mes
+          </button>
         )}
       </div>
 
