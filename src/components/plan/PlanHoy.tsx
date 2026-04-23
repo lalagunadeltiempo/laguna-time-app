@@ -7,9 +7,8 @@ import { useUsuario, useIsMentor } from "@/lib/usuario";
 import { usePlannedBlocks, useFocoProyectos, type PlannedBlockOrigen } from "@/lib/hooks";
 import {
   AREA_COLORS, AREAS_PERSONAL, AREAS_EMPRESA,
-  type Area, type Entregable, type Ambito, type Paso,
+  type Area, type Entregable, type Ambito,
 } from "@/lib/types";
-import HierarchyPicker from "@/components/shared/HierarchyPicker";
 import { daysBetweenKeys, addDaysToKey } from "@/lib/date-utils";
 
 function addDays(d: Date, n: number) { const r = new Date(d); r.setDate(r.getDate() + n); return r; }
@@ -52,6 +51,7 @@ interface Block {
   pasoId?: string;
   proyectoId?: string;
   proyectoNombre?: string;
+  resultadoNombre?: string;
   entregableNombre?: string;
   startMin?: number;
   endMin?: number;
@@ -59,6 +59,21 @@ interface Block {
   durationLabel?: string;
   hex?: string;
   origen?: PlannedBlockOrigen;
+  /** Hora planificada (solo lo usan bloques no ejecutados). */
+  planInicioTs?: string | null;
+}
+
+function hhmmFromIso(iso: string | null | undefined): string | null {
+  if (!iso) return null;
+  const d = new Date(iso);
+  return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+}
+
+function isoFromDateAndHhmm(dateKey: string, hhmm: string): string {
+  const [h, m] = hhmm.split(":").map((s) => parseInt(s, 10));
+  const [y, mo, d] = dateKey.split("-").map((s) => parseInt(s, 10));
+  const dt = new Date(y, mo - 1, d, h || 0, m || 0, 0, 0);
+  return dt.toISOString();
 }
 
 interface Props {
@@ -70,11 +85,9 @@ export function PlanHoy({ selectedDate }: Props) {
   const isMentor = useIsMentor();
   const state = useAppState();
   const dispatch = useAppDispatch();
-  const [confirmBlock, setConfirmBlock] = useState<Block | null>(null);
   const [showDrillDown, setShowDrillDown] = useState(false);
-  const [orphanBlock, setOrphanBlock] = useState<Block | null>(null);
   const [editingBlock, setEditingBlock] = useState<Block | null>(null);
-  const [logAsDoneBlock, setLogAsDoneBlock] = useState<Block | null>(null);
+  const [timeBlock, setTimeBlock] = useState<Block | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   const dateKey = useMemo(() => toDateKey(selectedDate), [selectedDate]);
@@ -149,11 +162,16 @@ export function PlanHoy({ selectedDate }: Props) {
       ...b,
       type: "programado" as const,
       hour: -1,
+      resultadoNombre: b.resultadoNombre,
+      planInicioTs: b.planInicioTs ?? null,
     });
+    // Orden: 1) bloques con hora planificada ascendente; 2) sin hora alfabéticamente.
     const cmp = (a: Block, b: Block) => {
-      const areaA = a.area ?? "";
-      const areaB = b.area ?? "";
-      if (areaA !== areaB) return areaA.localeCompare(areaB);
+      const ha = a.planInicioTs ? new Date(a.planInicioTs).getTime() : null;
+      const hb = b.planInicioTs ? new Date(b.planInicioTs).getTime() : null;
+      if (ha != null && hb != null) return ha - hb;
+      if (ha != null) return -1;
+      if (hb != null) return 1;
       const projA = a.proyectoNombre ?? "";
       const projB = b.proyectoNombre ?? "";
       if (projA !== projB) return projA.localeCompare(projB);
@@ -173,49 +191,66 @@ export function PlanHoy({ selectedDate }: Props) {
     return { plannedPrincipal: principal, plannedArrastrado: arrastrado };
   }, [hookPlanned, isPast, isToday]);
 
-  function tryStartBlock(block: Block) {
+  /**
+   * Asigna (o limpia) la hora planificada de un bloque.
+   * - Si es un paso existente (pending-/next-) o tiene pasoId: SET_PLAN_INICIO.
+   * - Si es un entregable sin paso (ent-): crea paso pendiente con planInicioTs.
+   */
+  function asignarHora(block: Block, hhmm: string | null) {
     if (!block.entregableId) return;
-    const ent = state.entregables.find((e) => e.id === block.entregableId);
-    if (!ent) return;
-    const res = state.resultados.find((r) => r.id === ent.resultadoId);
-    const proj = res ? state.proyectos.find((p) => p.id === res.proyectoId) : undefined;
-    if (!res || !proj) {
-      setConfirmBlock(null);
-      setOrphanBlock(block);
-      return;
-    }
-    doStartBlock(block);
-  }
+    const nuevoTs = hhmm ? isoFromDateAndHhmm(dateKey, hhmm) : null;
 
-  function doStartBlock(block: Block) {
-    if (!block.entregableId) return;
     if (block.id.startsWith("next-") && block.pasoId) {
-      dispatch({ type: "REOPEN_PASO", id: block.pasoId });
-      setConfirmBlock(null);
-      return;
-    }
-    const existingPending = state.pasos.find(
-      (p) => p.entregableId === block.entregableId && !p.inicioTs && !p.finTs && p.nombre === block.title
-    );
-    if (existingPending) {
-      dispatch({ type: "ACTIVATE_PASO", id: existingPending.id });
-      dispatch({ type: "UPDATE_ENTREGABLE", id: block.entregableId, changes: { estado: "en_proceso" } });
-    } else {
+      // Convertimos el siguientePaso en paso real con hora planificada.
+      const prev = state.pasos.find((p) => p.id === block.pasoId);
+      const nombre = prev?.siguientePaso?.nombre ?? block.title;
+      const newId = generateId();
       dispatch({
-        type: "START_PASO",
+        type: "ADD_PASO",
         payload: {
-          id: generateId(),
+          id: newId,
           entregableId: block.entregableId,
-          nombre: block.title,
-          inicioTs: new Date().toISOString(),
-          finTs: null, estado: "",
-          contexto: { urls: [] as Paso["contexto"]["urls"], apps: [] as string[], notas: "" },
+          nombre,
+          inicioTs: null,
+          finTs: null,
+          estado: "pendiente",
+          contexto: { urls: [], apps: [], notas: "" },
           implicados: [{ tipo: "equipo", nombre: currentUser }],
-          pausas: [], siguientePaso: null,
+          pausas: [],
+          siguientePaso: null,
+          planInicioTs: nuevoTs,
         },
       });
+      // Quito el siguientePaso del paso anterior para no duplicar en listas.
+      if (prev) {
+        dispatch({ type: "RESCHEDULE_NEXT_PASO", pasoId: prev.id, newDate: null });
+      }
+      return;
     }
-    setConfirmBlock(null);
+
+    if (block.pasoId) {
+      dispatch({ type: "SET_PLAN_INICIO", pasoId: block.pasoId, ts: nuevoTs });
+      return;
+    }
+
+    // ent-: creamos paso pendiente con hora planificada.
+    const nombre = block.title;
+    dispatch({
+      type: "ADD_PASO",
+      payload: {
+        id: generateId(),
+        entregableId: block.entregableId,
+        nombre,
+        inicioTs: null,
+        finTs: null,
+        estado: "pendiente",
+        contexto: { urls: [], apps: [], notas: "" },
+        implicados: [{ tipo: "equipo", nombre: currentUser }],
+        pausas: [],
+        siguientePaso: null,
+        planInicioTs: nuevoTs,
+      },
+    });
   }
 
   const { focoIds, toggleFoco, clearFoco, focoMax } = useFocoProyectos();
@@ -404,9 +439,8 @@ export function PlanHoy({ selectedDate }: Props) {
                       </span>
                     </div>
                   )}
-                  <PlannedBlockRow block={block} hex={hex} isToday={isToday} isMentor={isMentor} refDate={selectedDate}
-                    onStart={() => setConfirmBlock(block)}
-                    onLogAsDone={() => setLogAsDoneBlock(block)}
+                  <PlannedBlockRow block={block} hex={hex} isMentor={isMentor} refDate={selectedDate}
+                    onSetTime={() => setTimeBlock(block)}
                     onReschedule={(newDate) => {
                       if (block.id.startsWith("pending-") && block.pasoId) {
                         if (!newDate) dispatch({ type: "DELETE_PASO", id: block.pasoId });
@@ -458,9 +492,8 @@ export function PlanHoy({ selectedDate }: Props) {
                             </span>
                           </div>
                         )}
-                        <PlannedBlockRow block={block} hex={hex} isToday={isToday} isMentor={isMentor} refDate={selectedDate}
-                          onStart={() => setConfirmBlock(block)}
-                          onLogAsDone={() => setLogAsDoneBlock(block)}
+                        <PlannedBlockRow block={block} hex={hex} isMentor={isMentor} refDate={selectedDate}
+                          onSetTime={() => setTimeBlock(block)}
                           onReschedule={(newDate) => {
                             if (block.id.startsWith("pending-") && block.pasoId) {
                               if (!newDate) dispatch({ type: "DELETE_PASO", id: block.pasoId });
@@ -609,13 +642,6 @@ export function PlanHoy({ selectedDate }: Props) {
                                 )}
                               </>
                             )}
-                            <button
-                              onClick={() => setConfirmBlock(block)}
-                              className="shrink-0 rounded px-2 py-0.5 text-[10px] font-semibold text-white hover:brightness-110"
-                              style={{ backgroundColor: block.hex ?? g.hex }}
-                            >
-                              Empezar
-                            </button>
                           </div>
                         ))}
                       </div>
@@ -643,7 +669,7 @@ export function PlanHoy({ selectedDate }: Props) {
               <div className="flex-1 px-2 py-1">
                 {hourBlocks.map((block) => {
                   const color = AREA_COLORS[block.area]?.hex ?? "#888";
-                  const clickable = block.type === "done" && block.pasoId;
+                  const clickable = (block.type === "done" || block.type === "active") && !!block.pasoId;
                   return (
                     <div key={block.id}
                       className={`mb-1 rounded-lg border-l-[3px] px-3 py-2 ${clickable ? "cursor-pointer hover:brightness-95 transition-all" : ""}`}
@@ -745,52 +771,7 @@ export function PlanHoy({ selectedDate }: Props) {
         </div>
       )}
 
-      {/* Orphan entregable → pick destination first */}
-      {orphanBlock && orphanBlock.entregableId && (
-        <HierarchyPicker
-          depth="resultado"
-          title={`Destino para "${orphanBlock.title}"`}
-          onSelect={(sel) => {
-            if (sel.resultadoId && orphanBlock.entregableId) {
-              dispatch({ type: "MOVE_ENTREGABLE", entregableId: orphanBlock.entregableId, nuevoResultadoId: sel.resultadoId });
-              doStartBlock(orphanBlock);
-            }
-            setOrphanBlock(null);
-          }}
-          onCancel={() => setOrphanBlock(null)}
-        />
-      )}
-
-      {/* Confirm start */}
-      {confirmBlock && (() => {
-        const cbHex = AREA_COLORS[confirmBlock.area]?.hex ?? "#888";
-        return (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/20 px-6 backdrop-blur-sm"
-            role="dialog" aria-modal="true" tabIndex={-1}
-            onClick={(e) => { if (e.target === e.currentTarget) setConfirmBlock(null); }}
-            onKeyDown={(e) => { if (e.key === "Escape") setConfirmBlock(null); }}>
-            <div className="w-full max-w-sm rounded-2xl bg-background p-5 shadow-xl">
-              <h3 className="text-sm font-semibold text-foreground">Empezar paso</h3>
-              {confirmBlock.proyectoNombre && (
-                <div className="mt-2 flex items-center gap-2">
-                  <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: cbHex }} />
-                  <span className="text-[11px] font-semibold" style={{ color: cbHex }}>{confirmBlock.proyectoNombre}</span>
-                </div>
-              )}
-              {confirmBlock.entregableNombre && (
-                <p className="mt-1 text-xs text-muted">Entregable: <span className="font-medium text-foreground">{confirmBlock.entregableNombre}</span></p>
-              )}
-              <p className="mt-2 rounded-lg border border-border bg-surface/50 px-3 py-2 text-sm font-medium text-foreground">{confirmBlock.title}</p>
-              <div className="mt-4 flex gap-2">
-                <button onClick={() => setConfirmBlock(null)} className="flex-1 rounded-lg border border-border py-2.5 text-xs font-medium text-muted hover:bg-surface">Cancelar</button>
-                <button onClick={() => tryStartBlock(confirmBlock)} className="flex-1 rounded-lg py-2.5 text-xs font-medium text-white" style={{ backgroundColor: "#16a34a" }}>Empezar</button>
-              </div>
-            </div>
-          </div>
-        );
-      })()}
-
-      {/* Edit time of done block */}
+      {/* Edit time of done block (histórico pasado) */}
       {editingBlock && editingBlock.pasoId && (
         <EditBlockTimesDialog
           block={editingBlock}
@@ -799,14 +780,45 @@ export function PlanHoy({ selectedDate }: Props) {
         />
       )}
 
-      {/* Log planned block as done in past */}
-      {logAsDoneBlock && (
-        <LogAsDoneDialog
-          block={logAsDoneBlock}
-          dateKey={dateKey}
-          onClose={() => setLogAsDoneBlock(null)}
+      {/* Picker de hora planificada */}
+      {timeBlock && (
+        <TimePickerDialog
+          block={timeBlock}
+          onClose={() => setTimeBlock(null)}
+          onSave={(hhmm) => { asignarHora(timeBlock, hhmm); setTimeBlock(null); }}
+          onClear={() => { asignarHora(timeBlock, null); setTimeBlock(null); }}
         />
       )}
+    </div>
+  );
+}
+
+function TimePickerDialog({ block, onClose, onSave, onClear }: {
+  block: Block; onClose: () => void;
+  onSave: (hhmm: string) => void; onClear: () => void;
+}) {
+  const current = hhmmFromIso(block.planInicioTs) ?? "";
+  const [value, setValue] = useState(current);
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/20 px-6 backdrop-blur-sm"
+      role="dialog" aria-modal="true"
+      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+      onKeyDown={(e) => { if (e.key === "Escape") onClose(); }}>
+      <div className="w-full max-w-sm rounded-2xl bg-background p-5 shadow-xl">
+        <h3 className="text-sm font-semibold text-foreground">Hora planificada</h3>
+        <p className="mt-1 mb-3 truncate text-xs text-muted">{block.title}</p>
+        <input type="time" value={value} onChange={(e) => setValue(e.target.value)}
+          autoFocus
+          className="mb-4 w-full rounded-lg border border-border bg-background px-3 py-2 text-base text-foreground outline-none focus:border-accent" />
+        <div className="flex gap-2">
+          {block.planInicioTs && (
+            <button onClick={onClear} className="rounded-lg border border-border px-3 py-2.5 text-xs font-medium text-muted hover:bg-surface">Quitar hora</button>
+          )}
+          <button onClick={onClose} className="flex-1 rounded-lg border border-border py-2.5 text-xs font-medium text-muted hover:bg-surface">Cancelar</button>
+          <button onClick={() => value && onSave(value)} disabled={!value}
+            className="flex-1 rounded-lg bg-accent py-2.5 text-xs font-medium text-white hover:bg-accent/90 disabled:opacity-40">Guardar</button>
+        </div>
+      </div>
     </div>
   );
 }
@@ -829,6 +841,9 @@ function EditBlockTimesDialog({ block, pasoId, onClose }: { block: Block; pasoId
   const [inicio, setInicio] = useState(() => paso?.inicioTs ? toLocalDT(new Date(paso.inicioTs)) : "");
   const [fin, setFin] = useState(() => paso?.finTs ? toLocalDT(new Date(paso.finTs)) : "");
 
+  const isDone = !!paso?.finTs;
+  const isActive = !isDone && !!paso?.inicioTs;
+
   function save() {
     if (!inicio) return;
     const inicioTs = new Date(inicio).toISOString();
@@ -838,13 +853,23 @@ function EditBlockTimesDialog({ block, pasoId, onClose }: { block: Block; pasoId
     onClose();
   }
 
+  function restaurar() {
+    dispatch({ type: "RESTORE_PASO", id: pasoId });
+    onClose();
+  }
+
+  function cancelarInicio() {
+    dispatch({ type: "CANCEL_INICIO_PASO", id: pasoId });
+    onClose();
+  }
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/20 px-6 backdrop-blur-sm"
       role="dialog" aria-modal="true"
       onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
       onKeyDown={(e) => { if (e.key === "Escape") onClose(); }}>
       <div className="w-full max-w-sm max-h-[85vh] overflow-y-auto rounded-2xl bg-background p-5 shadow-xl">
-        <h3 className="text-sm font-semibold text-foreground">Editar horario</h3>
+        <h3 className="text-sm font-semibold text-foreground">Editar registro</h3>
         <p className="mt-1 mb-3 truncate text-xs text-muted">{block.title}</p>
 
         <label className="mb-1 block text-[11px] font-medium text-muted">Inicio</label>
@@ -854,6 +879,19 @@ function EditBlockTimesDialog({ block, pasoId, onClose }: { block: Block; pasoId
         <label className="mb-1 block text-[11px] font-medium text-muted">Fin</label>
         <input type="datetime-local" value={fin} onChange={(e) => setFin(e.target.value)}
           className="mb-4 w-full rounded-lg border border-border bg-background px-3 py-2 text-base text-foreground outline-none focus:border-accent" />
+
+        {isDone && (
+          <button onClick={restaurar}
+            className="mb-3 w-full rounded-lg border border-amber-300 bg-amber-50 py-2 text-[11px] font-semibold text-amber-700 hover:bg-amber-100">
+            Restaurar (no lo había terminado)
+          </button>
+        )}
+        {isActive && (
+          <button onClick={cancelarInicio}
+            className="mb-3 w-full rounded-lg border border-zinc-300 bg-zinc-50 py-2 text-[11px] font-semibold text-zinc-700 hover:bg-zinc-100">
+            Cancelar inicio (no lo había empezado)
+          </button>
+        )}
 
         <div className="flex gap-2">
           <button onClick={onClose} className="flex-1 rounded-lg border border-border py-2.5 text-xs font-medium text-muted hover:bg-surface">Cancelar</button>
@@ -865,93 +903,27 @@ function EditBlockTimesDialog({ block, pasoId, onClose }: { block: Block; pasoId
 }
 
 /* ============================================================
-   LOG AS DONE DIALOG — register a planned block as done in a past time slot
-   ============================================================ */
-
-function LogAsDoneDialog({ block, dateKey, onClose }: { block: Block; dateKey: string; onClose: () => void }) {
-  const dispatch = useAppDispatch();
-  const { nombre: currentUser } = useUsuario();
-
-  const [nombre, setNombre] = useState(block.title);
-  const [inicio, setInicio] = useState(() => {
-    const d = new Date();
-    d.setHours(d.getHours() - 1);
-    return toLocalDT(d);
-  });
-  const [fin, setFin] = useState(() => toLocalDT(new Date()));
-
-  function submit() {
-    if (!nombre.trim() || !block.entregableId) return;
-    const inicioTs = new Date(inicio).toISOString();
-    const finTs = new Date(fin).toISOString();
-    if (finTs <= inicioTs) return;
-
-    const makePaso = (id: string): Paso => ({
-      id, entregableId: block.entregableId!, nombre: nombre.trim(), inicioTs, finTs,
-      estado: nombre.trim(), contexto: { urls: [], apps: [], notas: "" },
-      implicados: [{ tipo: "equipo", nombre: currentUser }], pausas: [], siguientePaso: null,
-    });
-
-    if (block.pasoId) {
-      dispatch({ type: "UPDATE_PASO_TIMES", id: block.pasoId, inicioTs, finTs });
-      dispatch({ type: "CLOSE_PASO", payload: makePaso(block.pasoId) });
-    } else {
-      const paso = makePaso(generateId());
-      dispatch({ type: "ADD_PASO", payload: paso });
-      dispatch({ type: "CLOSE_PASO", payload: paso });
-    }
-    dispatch({ type: "UPDATE_ENTREGABLE", id: block.entregableId, changes: { fechaInicio: dateKey, planNivel: "dia" as const, estado: "en_proceso" as const } });
-    onClose();
-  }
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/20 px-6 backdrop-blur-sm"
-      role="dialog" aria-modal="true"
-      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
-      onKeyDown={(e) => { if (e.key === "Escape") onClose(); }}>
-      <div className="w-full max-w-sm max-h-[85vh] overflow-y-auto rounded-2xl bg-background p-5 shadow-xl">
-        <h3 className="text-sm font-semibold text-foreground">Registrar como hecho</h3>
-        <p className="mt-1 mb-3 truncate text-xs text-muted">{block.subtitle}</p>
-
-        <label className="mb-1 block text-[11px] font-medium text-muted">Nombre del paso</label>
-        <input type="text" value={nombre} onChange={(e) => setNombre(e.target.value)}
-          className="mb-3 w-full rounded-lg border border-border bg-background px-3 py-2 text-base text-foreground outline-none focus:border-accent" />
-
-        <label className="mb-1 block text-[11px] font-medium text-muted">Inicio</label>
-        <input type="datetime-local" value={inicio} onChange={(e) => setInicio(e.target.value)}
-          className="mb-3 w-full rounded-lg border border-border bg-background px-3 py-2 text-base text-foreground outline-none focus:border-accent" />
-
-        <label className="mb-1 block text-[11px] font-medium text-muted">Fin</label>
-        <input type="datetime-local" value={fin} onChange={(e) => setFin(e.target.value)}
-          className="mb-4 w-full rounded-lg border border-border bg-background px-3 py-2 text-base text-foreground outline-none focus:border-accent" />
-
-        <div className="flex gap-2">
-          <button onClick={onClose} className="flex-1 rounded-lg border border-border py-2.5 text-xs font-medium text-muted hover:bg-surface">Cancelar</button>
-          <button onClick={submit} disabled={!nombre.trim() || !inicio || !fin}
-            className="flex-1 rounded-lg bg-accent py-2.5 text-xs font-medium text-white hover:bg-accent/90 disabled:opacity-40">Registrar</button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-/* ============================================================
    PLANNED BLOCK ROW with reschedule/delete
    ============================================================ */
 
-function PlannedBlockRow({ block, hex, isToday, isMentor, refDate, onStart, onReschedule, onLogAsDone }: {
-  block: Block; hex: string; isToday: boolean; isMentor: boolean; refDate: Date;
-  onStart: () => void; onReschedule: (newDate: string | null) => void; onLogAsDone?: () => void;
+function PlannedBlockRow({ block, hex, isMentor, refDate, onSetTime, onReschedule }: {
+  block: Block; hex: string; isMentor: boolean; refDate: Date;
+  onSetTime: () => void; onReschedule: (newDate: string | null) => void;
 }) {
   const [showMenu, setShowMenu] = useState(false);
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [customDate, setCustomDate] = useState("");
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const horaPlan = hhmmFromIso(block.planInicioTs);
 
   return (
     <div className="flex items-center gap-2 rounded-lg border-l-[3px] px-3 py-2.5"
       style={{ borderLeftColor: hex, backgroundColor: hex + "0c" }}>
-      <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: hex }} />
+      {horaPlan ? (
+        <span className="shrink-0 rounded-md bg-background px-2 py-0.5 text-[11px] font-bold tabular-nums" style={{ color: hex }}>{horaPlan}</span>
+      ) : (
+        <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: hex }} />
+      )}
       <div className="flex-1 min-w-0">
         <p className="truncate text-sm font-medium text-foreground">{block.title}</p>
         <p className="truncate text-xs text-muted">{block.subtitle}</p>
@@ -989,25 +961,17 @@ function PlannedBlockRow({ block, hex, isToday, isMentor, refDate, onStart, onRe
       </div>
       {!isMentor && (
         <div className="flex shrink-0 flex-wrap items-center justify-end gap-1">
+          <button type="button" onClick={onSetTime}
+            className="rounded-lg border border-border px-2.5 py-2 text-[11px] font-medium text-foreground hover:bg-surface"
+            title={horaPlan ? "Editar hora planificada" : "Asignar hora planificada"}>
+            {horaPlan ? "Hora…" : "+ Hora"}
+          </button>
           <button type="button" onClick={() => setShowMenu((s) => !s)} title="Opciones"
             className="rounded-lg p-2 text-muted hover:bg-surface hover:text-foreground transition-colors">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
               <circle cx="12" cy="5" r="1" /><circle cx="12" cy="12" r="1" /><circle cx="12" cy="19" r="1" />
             </svg>
           </button>
-          {isToday && onLogAsDone && (
-            <button type="button" onClick={onLogAsDone} title="Registrar como ya hecho"
-              className="rounded-lg border border-border p-2 text-muted hover:bg-surface hover:text-foreground transition-colors">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><circle cx="12" cy="12" r="10" /><polyline points="12 6 12 12 16 14" /></svg>
-            </button>
-          )}
-          {isToday && (
-            <button type="button" onClick={onStart}
-              className="rounded-lg px-3 py-2 text-xs font-semibold text-white hover:brightness-110"
-              style={{ backgroundColor: hex }}>
-              Empezar
-            </button>
-          )}
         </div>
       )}
     </div>

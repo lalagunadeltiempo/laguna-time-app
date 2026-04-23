@@ -6,6 +6,7 @@ import { AREAS_PERSONAL, AREAS_EMPRESA, ambitoDeArea, AREA_COLORS, type Area, ty
 import { useUsuario } from "./usuario";
 import { getSOPsHoy, getSOPsDemanda, type SOPHoy } from "./sop-scheduler";
 import { toDateKey } from "./date-utils";
+import { subtituloEntregable } from "./display";
 import type { PlantillaProceso } from "./types";
 
 const AREA_LABELS: Record<string, string> = Object.fromEntries([
@@ -354,8 +355,11 @@ export interface PlannedBlock {
   area: Area;
   proyectoId?: string;
   proyectoNombre?: string;
+  resultadoNombre?: string;
   entregableNombre?: string;
   hex: string;
+  /** Hora planificada de inicio (ISO). Solo relevante si origen === "hoy". */
+  planInicioTs?: string | null;
   /**
    * Clasifica el bloque por su relación con `dateKey`:
    * - "hoy": anclado exactamente a dateKey (mismo criterio que SEMANA).
@@ -424,21 +428,22 @@ export function usePlannedBlocks(dateKey: string): PlannedBlock[] {
       result.push({
         id: `next-${paso.id}`,
         title: paso.siguientePaso.nombre ?? paso.nombre,
-        subtitle: `${proj?.nombre ?? ""} · ${ent.nombre}`,
+        subtitle: subtituloEntregable(ent, state),
         entregableId: ent.id,
         pasoId: paso.id,
         area: (proj?.area ?? "operativa") as Area,
         proyectoId: proj?.id,
         proyectoNombre: proj?.nombre,
+        resultadoNombre: res?.nombre,
         entregableNombre: ent.nombre,
         hex: AREA_COLORS[proj?.area ?? ""]?.hex ?? "#888",
+        planInicioTs: paso.planInicioTs ?? null,
         origen: fp === dateKey ? "hoy" : "arrastrado",
       });
     }
 
     for (const ent of entregables) {
       if (!ent.fechaInicio || ent.fechaInicio > dateKey) continue;
-      if (ent.planNivel === "mes" || ent.planNivel === "trimestre") continue;
       if (ent.estado === "hecho" || ent.estado === "cancelada" || ent.estado === "en_espera") continue;
       if (entIdsWithPasos.has(ent.id)) continue;
       if (ent.responsable && ent.responsable !== currentUser) continue;
@@ -447,11 +452,12 @@ export function usePlannedBlocks(dateKey: string): PlannedBlock[] {
       result.push({
         id: `ent-${ent.id}`,
         title: ent.nombre,
-        subtitle: proj?.nombre ?? "",
+        subtitle: subtituloEntregable(ent, state),
         entregableId: ent.id,
         area: (proj?.area ?? "operativa") as Area,
         proyectoId: proj?.id,
         proyectoNombre: proj?.nombre,
+        resultadoNombre: res?.nombre,
         entregableNombre: ent.nombre,
         hex: AREA_COLORS[proj?.area ?? ""]?.hex ?? "#888",
         origen: ent.fechaInicio === dateKey ? "hoy" : "arrastrado",
@@ -471,14 +477,16 @@ export function usePlannedBlocks(dateKey: string): PlannedBlock[] {
       result.push({
         id: `pending-${pendingPaso.id}`,
         title: pendingPaso.nombre,
-        subtitle: `${proj?.nombre ?? ""} · ${ent.nombre}`,
+        subtitle: subtituloEntregable(ent, state),
         entregableId: ent.id,
         pasoId: pendingPaso.id,
         area: (proj?.area ?? "operativa") as Area,
         proyectoId: proj?.id,
         proyectoNombre: proj?.nombre,
+        resultadoNombre: res?.nombre,
         entregableNombre: ent.nombre,
         hex: AREA_COLORS[proj?.area ?? ""]?.hex ?? "#888",
+        planInicioTs: pendingPaso.planInicioTs ?? null,
         origen: "en_marcha",
       });
     }

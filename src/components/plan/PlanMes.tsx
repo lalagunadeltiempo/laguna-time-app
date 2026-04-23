@@ -199,6 +199,23 @@ export function PlanMes({ selectedDate, onNavigateToWeek }: Props) {
         if (pasoEnMes) inMonth = true;
       }
 
+      // Semanas explícitas de proyecto o de sus resultados dentro del mes
+      if (!inMonth) {
+        const semanasProj = proj.semanasExplicitas ?? [];
+        for (const sem of semanasProj) {
+          const t = new Date(sem + "T12:00:00").getTime();
+          if (t >= monthStart && t <= monthEnd) { inMonth = true; break; }
+        }
+      }
+      if (!inMonth) {
+        outer: for (const r of resultados) {
+          for (const sem of r.semanasExplicitas ?? []) {
+            const t = new Date(sem + "T12:00:00").getTime();
+            if (t >= monthStart && t <= monthEnd) { inMonth = true; break outer; }
+          }
+        }
+      }
+
       if (!inMonth) continue;
 
       const areaHex = AREA_COLORS[proj.area]?.hex ?? "#888";
@@ -308,15 +325,36 @@ export function PlanMes({ selectedDate, onNavigateToWeek }: Props) {
     const byWeek = new Map<number, EntCard[]>();
     const noWeek: EntCard[] = [];
 
+    function pushToWeek(w: WeekDef, card: EntCard) {
+      if (!byWeek.has(w.index)) byWeek.set(w.index, []);
+      byWeek.get(w.index)!.push(card);
+    }
+
     for (const card of relevant) {
-      const nivel = card.entregable.planNivel;
-      if (nivel === "mes" || nivel === "trimestre") { noWeek.push(card); continue; }
-      if (card.anclaMs == null) { noWeek.push(card); continue; }
+      if (card.anclaMs != null) {
+        let placed = false;
+        for (const w of weeks) {
+          if (card.anclaMs >= w.mondayMs && card.anclaMs <= w.sundayMs) {
+            pushToWeek(w, card);
+            placed = true;
+            break;
+          }
+        }
+        if (!placed) noWeek.push(card);
+        continue;
+      }
+
+      // Sin ancla: intentar colocar usando semanas explícitas del resultado o proyecto.
+      const res = state.resultados.find((r) => r.id === card.entregable.resultadoId);
+      const semanasExp = [
+        ...((res?.semanasExplicitas) ?? []),
+        ...((card.proyecto.semanasExplicitas) ?? []),
+      ];
       let placed = false;
-      for (const w of weeks) {
-        if (card.anclaMs >= w.mondayMs && card.anclaMs <= w.sundayMs) {
-          if (!byWeek.has(w.index)) byWeek.set(w.index, []);
-          byWeek.get(w.index)!.push(card);
+      for (const semKey of semanasExp) {
+        const match = weeks.find((w) => w.monday === semKey);
+        if (match) {
+          pushToWeek(match, card);
           placed = true;
           break;
         }
@@ -468,34 +506,23 @@ export function PlanMes({ selectedDate, onNavigateToWeek }: Props) {
                         <div className="space-y-2">
                           {s.resultados.map((res) => {
                             const ents = state.entregables.filter((e) => e.resultadoId === res.id);
-                            if (ents.length === 0) return (
-                              <div key={res.id} className="text-xs text-muted italic pl-2">{res.nombre} — sin entregables</div>
-                            );
                             return (
                               <div key={res.id}>
-                                <p className="text-[11px] font-semibold text-muted mb-1">{res.nombre}</p>
-                                <div className="space-y-1 pl-2">
-                                  {ents.map((ent) => {
-                                    const isDone = ent.estado === "hecho";
-                                    const isCancelled = ent.estado === "cancelada";
-                                    if (!showDone && (isDone || isCancelled)) return null;
-                                    return (
-                                      <div key={ent.id} className="flex items-center gap-2 text-xs">
-                                        <span className={`h-1.5 w-1.5 rounded-full ${isDone ? "bg-emerald-500" : ent.estado === "en_proceso" ? "bg-amber-500" : "bg-gray-300"}`} />
-                                        <span className={isDone ? "text-muted line-through" : "text-foreground"}>{ent.nombre}</span>
-                                        {ent.diasEstimados > 0 && <span className="text-[10px] text-muted">{ent.diasEstimados}d</span>}
-                                        {ent.fechaInicio && (
-                                          <span className="text-[10px] text-accent">
-                                            {new Date(ent.fechaInicio + "T12:00:00").toLocaleDateString("es-ES", { day: "numeric", month: "short" })}
-                                          </span>
-                                        )}
-                                        <span className="rounded bg-surface px-1.5 py-0.5 text-[9px] text-muted">
-                                          {ent.estado === "hecho" ? "hecho" : ent.estado === "en_proceso" ? "en curso" : ent.estado === "planificado" ? "planif." : ent.estado === "a_futuro" ? "futuro" : ent.estado}
-                                        </span>
-                                      </div>
-                                    );
-                                  })}
-                                </div>
+                                <InlineResultadoNombre resId={res.id} nombre={res.nombre} editable={!isMentor} />
+                                {ents.length === 0 ? (
+                                  <p className="pl-2 text-[11px] italic text-muted/70">— sin entregables</p>
+                                ) : (
+                                  <div className="space-y-1 pl-2">
+                                    {ents.map((ent) => {
+                                      const isDone = ent.estado === "hecho";
+                                      const isCancelled = ent.estado === "cancelada";
+                                      if (!showDone && (isDone || isCancelled)) return null;
+                                      return (
+                                        <EntregableInlineRow key={ent.id} ent={ent} miembros={state.miembros} editable={!isMentor} />
+                                      );
+                                    })}
+                                  </div>
+                                )}
                               </div>
                             );
                           })}
@@ -704,6 +731,163 @@ function EntregableCard({ card, weeks, onAssign, currentWeek, compact }: {
           ))}
         </div>
       )}
+    </div>
+  );
+}
+
+/* ============================================================
+   Inline editors (nombre resultado, entregable, días, responsable)
+   ============================================================ */
+
+function InlineResultadoNombre({ resId, nombre, editable }: { resId: string; nombre: string; editable: boolean }) {
+  const dispatch = useAppDispatch();
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(nombre);
+
+  if (!editable) {
+    return <p className="mb-1 text-[11px] font-semibold text-muted">{nombre}</p>;
+  }
+
+  function save() {
+    const trimmed = draft.trim();
+    if (trimmed && trimmed !== nombre) {
+      dispatch({ type: "UPDATE_RESULTADO", id: resId, changes: { nombre: trimmed } });
+    } else {
+      setDraft(nombre);
+    }
+    setEditing(false);
+  }
+
+  if (!editing) {
+    return (
+      <button onClick={() => { setDraft(nombre); setEditing(true); }}
+        className="mb-1 block w-full truncate rounded text-left text-[11px] font-semibold text-muted hover:bg-surface/60 hover:text-foreground"
+        title="Editar nombre del resultado">
+        {nombre}
+      </button>
+    );
+  }
+  return (
+    <input
+      autoFocus
+      value={draft}
+      onChange={(e) => setDraft(e.target.value)}
+      onBlur={save}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") { e.preventDefault(); save(); }
+        if (e.key === "Escape") { setDraft(nombre); setEditing(false); }
+      }}
+      className="mb-1 w-full rounded border border-accent/40 bg-background px-1.5 py-0.5 text-[11px] font-semibold text-foreground outline-none focus:border-accent"
+    />
+  );
+}
+
+function EntregableInlineRow({ ent, miembros, editable }: { ent: Entregable; miembros: MiembroInfo[]; editable: boolean }) {
+  const dispatch = useAppDispatch();
+  const isDone = ent.estado === "hecho";
+
+  const [editingNombre, setEditingNombre] = useState(false);
+  const [draftNombre, setDraftNombre] = useState(ent.nombre);
+  const [editingDias, setEditingDias] = useState(false);
+  const [draftDias, setDraftDias] = useState(String(ent.diasEstimados ?? 0));
+
+  function saveNombre() {
+    const trimmed = draftNombre.trim();
+    if (trimmed && trimmed !== ent.nombre) {
+      dispatch({ type: "UPDATE_ENTREGABLE", id: ent.id, changes: { nombre: trimmed } });
+    } else {
+      setDraftNombre(ent.nombre);
+    }
+    setEditingNombre(false);
+  }
+  function saveDias() {
+    const n = Number.parseInt(draftDias, 10);
+    if (Number.isFinite(n) && n >= 0 && n !== ent.diasEstimados) {
+      dispatch({ type: "UPDATE_ENTREGABLE", id: ent.id, changes: { diasEstimados: n } });
+    } else {
+      setDraftDias(String(ent.diasEstimados ?? 0));
+    }
+    setEditingDias(false);
+  }
+  function setResponsable(v: string) {
+    dispatch({ type: "UPDATE_ENTREGABLE", id: ent.id, changes: { responsable: v || undefined } });
+  }
+
+  return (
+    <div className="flex flex-wrap items-center gap-2 text-xs">
+      <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${isDone ? "bg-emerald-500" : ent.estado === "en_proceso" ? "bg-amber-500" : "bg-gray-300"}`} />
+
+      {editable && editingNombre ? (
+        <input
+          autoFocus
+          value={draftNombre}
+          onChange={(e) => setDraftNombre(e.target.value)}
+          onBlur={saveNombre}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") { e.preventDefault(); saveNombre(); }
+            if (e.key === "Escape") { setDraftNombre(ent.nombre); setEditingNombre(false); }
+          }}
+          className="min-w-0 flex-1 rounded border border-accent/40 bg-background px-1.5 py-0.5 text-foreground outline-none focus:border-accent"
+        />
+      ) : (
+        <button
+          onClick={editable ? () => { setDraftNombre(ent.nombre); setEditingNombre(true); } : undefined}
+          className={`min-w-0 flex-1 truncate rounded text-left ${editable ? "hover:bg-surface/60" : ""} ${isDone ? "text-muted line-through" : "text-foreground"}`}
+          title={editable ? "Editar nombre" : undefined}
+        >
+          {ent.nombre}
+        </button>
+      )}
+
+      {editable && editingDias ? (
+        <input
+          type="number" min={0} autoFocus
+          value={draftDias}
+          onChange={(e) => setDraftDias(e.target.value)}
+          onBlur={saveDias}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") { e.preventDefault(); saveDias(); }
+            if (e.key === "Escape") { setDraftDias(String(ent.diasEstimados ?? 0)); setEditingDias(false); }
+          }}
+          className="w-14 rounded border border-accent/40 bg-background px-1 py-0.5 text-[10px] text-foreground outline-none focus:border-accent"
+        />
+      ) : (
+        <button
+          onClick={editable ? () => { setDraftDias(String(ent.diasEstimados ?? 0)); setEditingDias(true); } : undefined}
+          className={`shrink-0 rounded px-1 text-[10px] text-muted ${editable ? "hover:bg-surface/60 hover:text-foreground" : ""}`}
+          title={editable ? "Editar días estimados" : undefined}
+        >
+          {(ent.diasEstimados ?? 0)}d
+        </button>
+      )}
+
+      {ent.fechaInicio && (
+        <span className="shrink-0 text-[10px] text-accent">
+          {new Date(ent.fechaInicio + "T12:00:00").toLocaleDateString("es-ES", { day: "numeric", month: "short" })}
+        </span>
+      )}
+
+      {editable ? (
+        <select
+          value={ent.responsable ?? ""}
+          onChange={(e) => setResponsable(e.target.value)}
+          className="shrink-0 rounded bg-surface px-1 py-0.5 text-[10px] text-muted outline-none hover:text-foreground"
+          title="Responsable"
+        >
+          <option value="">—</option>
+          {miembros.map((m) => (
+            <option key={m.id} value={m.nombre}>{m.nombre}</option>
+          ))}
+        </select>
+      ) : (
+        ent.responsable && (
+          <span className="shrink-0 rounded bg-surface px-1.5 py-0.5 text-[9px] text-muted">{ent.responsable}</span>
+        )
+      )}
+
+      <span className="shrink-0 rounded bg-surface px-1.5 py-0.5 text-[9px] text-muted">
+        {ent.estado === "hecho" ? "hecho" : ent.estado === "en_proceso" ? "en curso" : ent.estado === "planificado" ? "planif." : ent.estado === "a_futuro" ? "futuro" : ent.estado}
+      </span>
     </div>
   );
 }

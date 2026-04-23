@@ -39,7 +39,20 @@ export function PantallaHoy() {
     () => splitPlannedBlocks(plannedBlocks),
     [plannedBlocks],
   );
-  const blocksPrincipalesAll = useMemo(() => [...blocksHoy, ...blocksEnMarcha], [blocksHoy, blocksEnMarcha]);
+  const blocksPrincipalesAll = useMemo(() => {
+    const combined = [...blocksHoy, ...blocksEnMarcha];
+    return combined.sort((a, b) => {
+      const ha = a.planInicioTs ? new Date(a.planInicioTs).getTime() : null;
+      const hb = b.planInicioTs ? new Date(b.planInicioTs).getTime() : null;
+      if (ha != null && hb != null) return ha - hb;
+      if (ha != null) return -1;
+      if (hb != null) return 1;
+      const pa = a.proyectoNombre ?? "";
+      const pb = b.proyectoNombre ?? "";
+      if (pa !== pb) return pa.localeCompare(pb);
+      return (a.entregableNombre ?? "").localeCompare(b.entregableNombre ?? "");
+    });
+  }, [blocksHoy, blocksEnMarcha]);
 
   const { focoIds, toggleFoco, clearFoco, focoMax } = useFocoProyectos();
   const focoActivo = focoIds.length > 0;
@@ -98,27 +111,53 @@ export function PantallaHoy() {
 
   function doStartPlanned(block: typeof plannedBlocks[0]) {
     if (!block.entregableId) return;
-    if (block.id.startsWith("next-")) {
-      const pasoId = block.id.slice(5);
-      dispatch({ type: "REOPEN_PASO", id: pasoId });
-      return;
+    const nowTs = new Date().toISOString();
+
+    // Caso 1: bloque pending-/en_marcha → ya existe un paso pendiente → activarlo.
+    if (block.pasoId && (block.id.startsWith("pending-") || !block.id.startsWith("next-"))) {
+      const paso = state.pasos.find((p) => p.id === block.pasoId);
+      if (paso && !paso.inicioTs && !paso.finTs) {
+        dispatch({ type: "ACTIVATE_PASO", id: paso.id });
+        dispatch({ type: "UPDATE_ENTREGABLE", id: block.entregableId, changes: { estado: "en_proceso" } });
+        return;
+      }
     }
-    const existingPending = state.pasos.find((p) => p.entregableId === block.entregableId && !p.inicioTs && !p.finTs && p.nombre === block.title);
-    if (existingPending) {
-      dispatch({ type: "ACTIVATE_PASO", id: existingPending.id });
-      dispatch({ type: "UPDATE_ENTREGABLE", id: block.entregableId, changes: { estado: "en_proceso" } });
-    } else {
+
+    // Caso 2: bloque next-XXX → materializar siguientePaso como paso nuevo activo.
+    if (block.id.startsWith("next-") && block.pasoId) {
+      const prev = state.pasos.find((p) => p.id === block.pasoId);
+      const nombre = prev?.siguientePaso?.nombre ?? block.title;
       dispatch({
         type: "START_PASO",
         payload: {
-          id: generateId(), entregableId: block.entregableId, nombre: block.title,
-          inicioTs: new Date().toISOString(), finTs: null, estado: "",
+          id: generateId(),
+          entregableId: block.entregableId,
+          nombre,
+          inicioTs: nowTs,
+          finTs: null,
+          estado: "",
           contexto: { urls: [] as import("@/lib/types").UrlRef[], apps: [] as string[], notas: "" },
           implicados: [{ tipo: "equipo", nombre: currentUser }],
-          pausas: [], siguientePaso: null,
+          pausas: [],
+          siguientePaso: null,
         },
       });
+      // Limpio el siguientePaso del paso anterior.
+      if (prev) dispatch({ type: "RESCHEDULE_NEXT_PASO", pasoId: prev.id, newDate: null });
+      return;
     }
+
+    // Caso 3: ent-XXX sin paso previo → crear paso activo desde cero.
+    dispatch({
+      type: "START_PASO",
+      payload: {
+        id: generateId(), entregableId: block.entregableId, nombre: block.title,
+        inicioTs: nowTs, finTs: null, estado: "",
+        contexto: { urls: [] as import("@/lib/types").UrlRef[], apps: [] as string[], notas: "" },
+        implicados: [{ tipo: "equipo", nombre: currentUser }],
+        pausas: [], siguientePaso: null,
+      },
+    });
   }
 
   return (
@@ -191,9 +230,26 @@ export function PantallaHoy() {
               Nada de tus proyectos en foco hoy. Despliega &quot;Otros proyectos&quot; si quieres verlos, o quita el foco.
             </p>
           )}
-          {blocksPrincipales.map((block) => (
-            <PlannedRow key={block.id} block={block} onStart={() => startPlannedBlock(block)} />
-          ))}
+          {(() => {
+            const conHora = blocksPrincipales.filter((b) => b.planInicioTs);
+            const sinHora = blocksPrincipales.filter((b) => !b.planInicioTs);
+            return (
+              <>
+                {conHora.length > 0 && (
+                  <p className="mt-1 text-[10px] font-semibold uppercase tracking-wider text-muted/70">Por hora</p>
+                )}
+                {conHora.map((block) => (
+                  <PlannedRow key={block.id} block={block} onStart={() => startPlannedBlock(block)} />
+                ))}
+                {sinHora.length > 0 && (
+                  <p className="mt-2 text-[10px] font-semibold uppercase tracking-wider text-muted/70">Sin hora</p>
+                )}
+                {sinHora.map((block) => (
+                  <PlannedRow key={block.id} block={block} onStart={() => startPlannedBlock(block)} />
+                ))}
+              </>
+            );
+          })()}
         </section>
       )}
 
@@ -670,9 +726,17 @@ function EndOfDayFlow({
    ============================================================ */
 
 function PlannedRow({ block, onStart }: { block: PlannedBlock; onStart: () => void }) {
+  const hora = block.planInicioTs ? (() => {
+    const d = new Date(block.planInicioTs!);
+    return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+  })() : null;
   return (
     <div className="flex items-center gap-2 rounded-xl border-l-[3px] bg-surface/50 px-3 py-2.5" style={{ borderLeftColor: block.hex }}>
-      <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: block.hex }} />
+      {hora ? (
+        <span className="shrink-0 rounded-md bg-background px-2 py-0.5 text-[11px] font-bold tabular-nums" style={{ color: block.hex }}>{hora}</span>
+      ) : (
+        <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: block.hex }} />
+      )}
       <div className="min-w-0 flex-1">
         <p className="truncate text-sm font-medium text-foreground">{block.title}</p>
         <p className="truncate text-[11px] text-muted">{block.subtitle}</p>

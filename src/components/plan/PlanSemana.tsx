@@ -9,6 +9,8 @@ import SOPLaunchDialog from "@/components/shared/SOPLaunchDialog";
 import { AmbitoToggle, type AmbitoFilter } from "./PlanMes";
 import { WeekBlockSheet, type WeekBlockInfo } from "./WeekBlockSheet";
 import { ProyectoPlanner } from "./ProyectoPlanner";
+import { fechaEfectivaEntregable } from "@/lib/fechas-efectivas";
+import { subtituloCorto } from "@/lib/display";
 
 const DAYS = ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"];
 
@@ -93,7 +95,7 @@ export function PlanSemana({ selectedDate }: Props) {
         id: paso.id,
         area: proj?.area ?? "operativa",
         title: paso.nombre,
-        subtitle: proj?.nombre ?? "",
+        subtitle: subtituloCorto(ent, state),
         responsable: ent.responsable ?? "",
         dateKey: pasoDate,
         type: isDone ? "done" : isActive ? "active" : "programado",
@@ -133,7 +135,7 @@ export function PlanSemana({ selectedDate }: Props) {
         id: `next-${paso.id}`,
         area: proj?.area ?? "operativa",
         title: paso.siguientePaso.nombre ?? paso.nombre,
-        subtitle: proj?.nombre ?? "",
+        subtitle: subtituloCorto(ent, state),
         responsable: ent.responsable ?? "",
         dateKey: fp,
         type: "programado",
@@ -149,9 +151,9 @@ export function PlanSemana({ selectedDate }: Props) {
       return p?.entregableId;
     }).filter(Boolean));
 
+    const mondayKey = weekDates[0] ? toDateKey(weekDates[0]) : null;
+
     for (const ent of state.entregables) {
-      if (!ent.fechaInicio || !weekKeys.has(ent.fechaInicio)) continue;
-      if (ent.planNivel === "mes" || ent.planNivel === "trimestre") continue;
       if (ent.estado === "cancelada") continue;
       if (ent.estado === "hecho" && !showDone) continue;
       if (entIdsWithPasos.has(ent.id)) continue;
@@ -161,15 +163,31 @@ export function PlanSemana({ selectedDate }: Props) {
       const proj = res ? state.proyectos.find((p) => p.id === res.proyectoId) : undefined;
       if (filtro !== "todo" && proj && ambitoDeArea(proj.area) !== filtro) continue;
 
+      // Determinar en qué día de la semana encaja:
+      // 1) fecha propia o heredada dentro de la semana → ese día
+      // 2) semana explícita del resultado/proyecto coincide con el lunes → lunes
+      const efectiva = fechaEfectivaEntregable(ent, res ?? null, proj ?? null);
+      let dateKey: string | null = null;
+      if (efectiva.inicio && weekKeys.has(efectiva.inicio)) dateKey = efectiva.inicio;
+      else if (efectiva.fin && weekKeys.has(efectiva.fin)) dateKey = efectiva.fin;
+      else if (mondayKey) {
+        const semanasExp = [
+          ...((res?.semanasExplicitas) ?? []),
+          ...((proj?.semanasExplicitas) ?? []),
+        ];
+        if (semanasExp.includes(mondayKey)) dateKey = mondayKey;
+      }
+      if (!dateKey) continue;
+
       const hasActive = state.pasos.some((p) => p.entregableId === ent.id && state.pasosActivos.includes(p.id));
 
       result.push({
         id: `ent-${ent.id}`,
         area: proj?.area ?? "operativa",
         title: ent.nombre,
-        subtitle: proj?.nombre ?? "",
+        subtitle: subtituloCorto(ent, state),
         responsable: ent.responsable ?? "",
-        dateKey: ent.fechaInicio,
+        dateKey,
         type: ent.estado === "hecho" ? "done" : "programado",
         origen: "ent",
         entregableId: ent.id,

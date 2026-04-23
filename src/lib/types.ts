@@ -98,6 +98,10 @@ export interface Proyecto {
   responsable?: string;
   notas?: Nota[];
   review?: ReviewMark;
+  /** Claves tipo "2026-Q2" de los trimestres en los que el proyecto está activo. */
+  trimestresActivos?: string[];
+  /** Claves de lunes ISO ("YYYY-MM-DD") de semanas marcadas explícitamente aunque no haya entregables con fecha. */
+  semanasExplicitas?: string[];
 }
 
 export interface Resultado {
@@ -114,6 +118,8 @@ export interface Resultado {
   responsable?: string;
   notas?: Nota[];
   review?: ReviewMark;
+  /** Claves de lunes ISO ("YYYY-MM-DD") de semanas marcadas explícitamente aunque no haya entregables con fecha. */
+  semanasExplicitas?: string[];
 }
 
 export type TipoEntregable = "raw" | "sop" | "a-sop";
@@ -185,6 +191,8 @@ export interface Paso {
     fechaProgramada?: string;
     dependeDe?: DependeDe[];
   } | null;
+  /** Hora planificada para empezar (ISO). Se fija desde Plan Hoy y se limpia al empezar de verdad. */
+  planInicioTs?: string | null;
 }
 
 export interface ContactoExterno {
@@ -258,7 +266,7 @@ export interface EjecucionSOP {
 }
 
 export const AREA_COLORS: Record<string, { border: string; bg: string; text: string; dot: string; initial: string; hex: string }> = {
-  fisico:         { border: "border-pink-300",    bg: "bg-pink-50",    text: "text-pink-700",    dot: "bg-pink-600",    initial: "F", hex: "#db2777" },
+  fisico:         { border: "border-pink-300",    bg: "bg-pink-50",    text: "text-pink-700",    dot: "bg-pink-600",    initial: "Q", hex: "#db2777" },
   emocional:      { border: "border-orange-300",  bg: "bg-orange-50",  text: "text-orange-700",  dot: "bg-orange-600",  initial: "E", hex: "#ea580c" },
   mental:         { border: "border-teal-300",    bg: "bg-teal-50",    text: "text-teal-700",    dot: "bg-teal-600",    initial: "M", hex: "#0d9488" },
   espiritual:     { border: "border-violet-300",  bg: "bg-violet-50",  text: "text-violet-700",  dot: "bg-violet-600",  initial: "S", hex: "#7c3aed" },

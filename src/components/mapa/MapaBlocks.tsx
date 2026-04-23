@@ -12,6 +12,7 @@ import HierarchyPicker from "../shared/HierarchyPicker";
 import MoveInlinePanel from "../shared/MoveInlinePanel";
 import { ProyectoPlanner } from "../plan/ProyectoPlanner";
 import { ProyectoTimeline } from "../plan/ProyectoTimeline";
+import { TrimestreSelector } from "./TrimestreSelector";
 import { computeProyectoRitmo, ritmoColor, ritmoLabel, ritmoLabelCorto, ritmoExplicacion, inferDateRange, type DateRange } from "@/lib/proyecto-stats";
 import {
   AREAS_PERSONAL,
@@ -530,9 +531,6 @@ export function AreaSection({ areaId, hideSops }: { areaId: Area; hideSops?: boo
                 {visibleProyectos.length > 0 ? (
                   <div className="space-y-2">
                     {[...visibleProyectos].sort((a, b) => {
-                      const aOp = a.tipo === "operacion" ? 0 : 1;
-                      const bOp = b.tipo === "operacion" ? 0 : 1;
-                      if (aOp !== bOp) return aOp - bOp;
                       const aF = a.fechaInicio ?? "9999";
                       const bF = b.fechaInicio ?? "9999";
                       return aF.localeCompare(bF);
@@ -670,7 +668,6 @@ function ProyectoBlock({ proyecto, index, total }: { proyecto: Proyecto; index: 
   const resIds = new Set(allResultados.map((r) => r.id));
   const projEntregables = state.entregables.filter((e) => resIds.has(e.resultadoId));
   const hasActiveWork = projEntregables.some((e) => e.estado === "en_proceso" || state.pasos.some((p) => p.entregableId === e.id && p.inicioTs && !p.finTs));
-  const isOperacion = proyecto.tipo === "operacion";
   const notasCount = (proyecto.notas ?? []).length;
   const isProgrammed = !!proyecto.fechaInicio;
   const hasDeadline = !!proyecto.fechaLimite;
@@ -699,46 +696,43 @@ function ProyectoBlock({ proyecto, index, total }: { proyecto: Proyecto; index: 
         {projEstado === "pausado" && (
           <span className="rounded-md bg-gray-200 px-2 py-0.5 text-[11px] font-semibold text-gray-600 dark:bg-gray-700/30 dark:text-gray-400">Pausado</span>
         )}
-        {projEstado === "plan" && !isOperacion && (
+        {projEstado === "plan" && (
           <span className="rounded-md bg-gray-100 px-2 py-0.5 text-[11px] font-medium text-gray-500 dark:bg-gray-700/20 dark:text-gray-400">Plan</span>
         )}
-        {projEstado === "en_marcha" && !isOperacion && (
+        {projEstado === "en_marcha" && (
           <span className="rounded-md bg-blue-100 px-2 py-0.5 text-[11px] font-semibold text-blue-700 dark:bg-blue-500/10 dark:text-blue-400">En marcha</span>
         )}
         <ReviewBadge review={proyecto.review} nivel="proyecto" targetId={proyecto.id} />
         {isEmpresa && <ResponsableBadge nombre={proyecto.responsable} editable={!isMentor} miembros={state.miembros} onChange={(v) => dispatch({ type: "UPDATE_PROYECTO", id: proyecto.id, changes: { responsable: v } })} />}
         <span className="rounded-full bg-surface px-3 py-1 text-xs font-medium text-muted">{allResultados.length} result.</span>
-        {!isOperacion && (proyecto.fechaInicio || proyecto.fechaLimite) && (
+        {(proyecto.fechaInicio || proyecto.fechaLimite) && (
           <span className="hidden sm:inline rounded-md bg-surface px-2 py-0.5 text-[11px] text-muted" title="Fechas del proyecto">
             {formatDateRange(proyecto.fechaInicio, proyecto.fechaLimite)}
           </span>
         )}
-        {!isOperacion && !proyecto.fechaInicio && !proyecto.fechaLimite && projEstado !== "completado" && (
+        {!proyecto.fechaInicio && !proyecto.fechaLimite && projEstado !== "completado" && (
           <span className="hidden sm:inline rounded-md bg-amber-50 px-2 py-0.5 text-[10px] text-amber-600 dark:bg-amber-500/10 dark:text-amber-400">Sin fechas</span>
-        )}
-        {isOperacion && (
-          <span className="rounded-md bg-indigo-100 px-2 py-0.5 text-[11px] font-semibold text-indigo-700 dark:bg-indigo-500/10 dark:text-indigo-400">Core</span>
         )}
         {isMentor
           ? <CommentIcon count={notasCount} onClick={() => toggleOrSheet(showNotas, setShowNotas, openSheet, { title: proyecto.nombre, nivel: "proyecto", targetId: proyecto.id })} />
           : <NotasIcon count={notasCount} onClick={() => toggleOrSheet(showNotas, setShowNotas, openSheet, { title: proyecto.nombre, nivel: "proyecto", targetId: proyecto.id })} />}
-        {!isMentor && !isOperacion && (
+        {!isMentor && (
           <button onClick={(e) => { e.stopPropagation(); setShowDatePicker(!showDatePicker); }}
             className={`flex h-7 items-center gap-1 rounded-md px-2 text-xs transition-all hover:bg-accent-soft hover:text-accent ${isProgrammed ? "text-accent" : "text-muted opacity-60 hover:opacity-100"}`}
-            title="Planificar proyecto">
+            title="Asignar trimestres">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
               <rect x="3" y="4" width="18" height="18" rx="2" /><line x1="16" y1="2" x2="16" y2="6" /><line x1="8" y1="2" x2="8" y2="6" /><line x1="3" y1="10" x2="21" y2="10" />
             </svg>
           </button>
         )}
-        {!isMentor && !isOperacion && (
+        {!isMentor && (
           <button onClick={(e) => { e.stopPropagation(); setShowDeadlinePicker(!showDeadlinePicker); }}
             className={`flex h-7 items-center gap-1 rounded-md px-2 text-xs transition-all hover:bg-red-50 hover:text-red-600 ${hasDeadline ? "text-red-600" : "text-muted opacity-60 hover:opacity-100"}`}
             title="Fecha límite">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z" /><line x1="4" y1="22" x2="4" y2="15" /></svg>
           </button>
         )}
-        {!isMentor && !isOperacion && (
+        {!isMentor && (
           <button onClick={(e) => { e.stopPropagation(); setShowPlanner(true); }}
             className="flex h-7 items-center gap-1 rounded-md px-2 text-xs text-muted opacity-60 transition-all hover:bg-accent-soft hover:text-accent hover:opacity-100"
             title="Planificar proyecto (detalle)">
@@ -751,19 +745,19 @@ function ProyectoBlock({ proyecto, index, total }: { proyecto: Proyecto; index: 
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M5 12h14M12 5l7 7-7 7" /></svg>
           </button>
         )}
-        {!isMentor && !isOperacion && !isInactive && (
+        {!isMentor && !isInactive && (
           <button onClick={(e) => { e.stopPropagation(); dispatch({ type: "UPDATE_PROYECTO", id: proyecto.id, changes: { estado: "completado" } }); }}
             className="flex h-6 items-center gap-0.5 rounded px-1.5 text-[10px] text-muted transition-colors hover:bg-emerald-50 hover:text-emerald-600" title="Completar proyecto">
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><polyline points="20 6 9 17 4 12" /></svg>
           </button>
         )}
-        {!isMentor && !isOperacion && !isInactive && (
+        {!isMentor && !isInactive && (
           <button onClick={(e) => { e.stopPropagation(); dispatch({ type: "UPDATE_PROYECTO", id: proyecto.id, changes: { estado: "pausado" } }); }}
             className="flex h-6 items-center gap-0.5 rounded px-1.5 text-[10px] text-muted transition-colors hover:bg-gray-100 hover:text-gray-600" title="Pausar proyecto">
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><rect x="6" y="4" width="4" height="16" /><rect x="14" y="4" width="4" height="16" /></svg>
           </button>
         )}
-        {!isMentor && !isOperacion && isInactive && (
+        {!isMentor && isInactive && (
           <button onClick={(e) => { e.stopPropagation(); dispatch({ type: "UPDATE_PROYECTO", id: proyecto.id, changes: { estado: "en_marcha" } }); }}
             className="flex h-6 items-center gap-0.5 rounded px-1.5 text-[10px] text-emerald-600 transition-colors hover:bg-emerald-50" title="Reactivar proyecto">
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><polygon points="5 3 19 12 5 21 5 3" /></svg>
@@ -779,7 +773,7 @@ function ProyectoBlock({ proyecto, index, total }: { proyecto: Proyecto; index: 
         <p className="truncate px-5 pl-8 sm:pl-14 -mt-1 pb-1.5 text-xs italic text-muted">{proyecto.descripcion}</p>
       )}
 
-      {ritmo && !isOperacion && (
+      {ritmo && (
         <RitmoBanner ritmo={ritmo} deadline={proyecto.fechaLimite} />
       )}
 
@@ -802,7 +796,13 @@ function ProyectoBlock({ proyecto, index, total }: { proyecto: Proyecto; index: 
       )}
 
       {showDatePicker && (
-        <PlanPicker onSelect={handlePlanSelect} onCancel={() => setShowDatePicker(false)} showDayLevel={false} />
+        <TrimestreSelector
+          trimestresActivos={proyecto.trimestresActivos ?? []}
+          fechaInicio={proyecto.fechaInicio}
+          fechaLimite={proyecto.fechaLimite}
+          onChange={(trimestres) => dispatch({ type: "SET_PROYECTO_TRIMESTRES", id: proyecto.id, trimestres })}
+          onClose={() => setShowDatePicker(false)}
+        />
       )}
 
       {showDeadlinePicker && (
@@ -839,24 +839,6 @@ function ProyectoBlock({ proyecto, index, total }: { proyecto: Proyecto; index: 
 
       {open && (
         <div className="px-2 pb-5 pl-3 sm:px-5 sm:pl-8 md:pl-14">
-          {!isMentor && (
-            <div className="mb-3 flex items-center gap-1.5">
-              <span className="mr-1 text-[10px] font-semibold uppercase tracking-wider text-muted">Tipo:</span>
-              {(["operacion", "proyecto"] as const).map((t) => {
-                const active = (proyecto.tipo ?? "proyecto") === t;
-                return (
-                  <button key={t} onClick={() => dispatch({ type: "UPDATE_PROYECTO", id: proyecto.id, changes: { tipo: t } })}
-                    className={`rounded-full px-2.5 py-0.5 text-[11px] font-medium transition-all ${
-                      active
-                        ? t === "operacion" ? "bg-indigo-100 text-indigo-700" : "bg-zinc-200 text-zinc-700"
-                        : "bg-surface text-muted hover:bg-surface-hover"
-                    }`}>
-                    {t === "operacion" ? "Core" : "Proyecto"}
-                  </button>
-                );
-              })}
-            </div>
-          )}
           {!isMentor ? (
             <EditableText value={proyecto.descripcion ?? ""} onChange={(v) => dispatch({ type: "UPDATE_PROYECTO", id: proyecto.id, changes: { descripcion: v || null } })}
               className="mb-4 text-sm italic text-muted" placeholder="Objetivo del proyecto..." multiline />
@@ -864,7 +846,7 @@ function ProyectoBlock({ proyecto, index, total }: { proyecto: Proyecto; index: 
             <p className="mb-4 text-sm italic text-muted">{proyecto.descripcion}</p>
           ) : null}
 
-          {!isOperacion && proyecto.fechaInicio && (
+          {proyecto.fechaInicio && (
             <p className="mb-3 text-xs text-muted">
               Inicio: {new Date(proyecto.fechaInicio).toLocaleDateString("es-ES", { day: "numeric", month: "long", year: "numeric" })}
             </p>
@@ -1811,7 +1793,7 @@ function SOPDestinoEditor({ sop, onClose }: { sop: PlantillaProceso; onClose: ()
   function createProj() {
     if (!newProjName.trim()) return;
     const id = generateId();
-    dispatch({ type: "ADD_PROYECTO", payload: { id, nombre: newProjName.trim(), descripcion: null, area: sop.area, creado: new Date().toISOString(), fechaInicio: null, tipo: "operacion", estado: "plan" } });
+    dispatch({ type: "ADD_PROYECTO", payload: { id, nombre: newProjName.trim(), descripcion: null, area: sop.area, creado: new Date().toISOString(), fechaInicio: null, estado: "plan" } });
     setSelProyectoId(id);
     setSelResultadoId(null);
     setNewProjName("");

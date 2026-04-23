@@ -74,11 +74,6 @@ export function PlanAnio({ selectedDate }: Props) {
       const total = entregs.length;
       const percent = total > 0 ? Math.round((done / total) * 100) : 0;
 
-      if (proj.tipo === "operacion") {
-        if (total > 0) items.push({ proyecto: proj, startMonth: 0, endMonth: 11, percent, total, done });
-        continue;
-      }
-
       if (entregs.length === 0 && !proj.fechaInicio) continue;
 
       let startMonth = currentMonth >= 0 ? currentMonth : 0;
@@ -261,46 +256,14 @@ export function PlanAnio({ selectedDate }: Props) {
         </div>
 
         {(() => {
-          const opsRoad = roadmap.filter((r) => r.proyecto.tipo === "operacion");
-          const projRoad = roadmap.filter((r) => r.proyecto.tipo !== "operacion");
-
           return (
             <>
-              {/* Operations — full-year bars */}
-              {opsRoad.length > 0 && (
-                <div className="mb-1 space-y-1">
-                  {opsRoad.map((r) => {
-                    const hex = areaHex(r.proyecto.area);
-                    return (
-                      <div key={r.proyecto.id} className="group flex items-center gap-2">
-                        <div className="w-28 shrink-0 truncate text-right text-xs font-medium text-foreground">
-                          {r.proyecto.nombre}
-                          <span className="ml-1.5 rounded bg-indigo-100 px-1 py-0.5 text-[8px] font-bold text-indigo-600 dark:bg-indigo-500/20 dark:text-indigo-400">Core</span>
-                        </div>
-                        <div className="relative flex-1">
-                          <div className="grid h-6 grid-cols-12 gap-px rounded-lg bg-surface">
-                            {Array.from({ length: 12 }, (_, i) => <div key={i} className="h-6 border-r border-border/30 last:border-r-0" />)}
-                          </div>
-                          <div className="absolute top-0 flex h-6 w-full items-center overflow-hidden rounded-lg border border-dashed px-1.5"
-                            style={{ borderColor: hex + "60", backgroundColor: hex + "08" }}>
-                            <div className="h-full rounded-lg opacity-20" style={{ width: `${r.percent}%`, backgroundColor: hex }} />
-                            <span className="absolute right-1.5 text-[9px] font-bold text-muted">{r.done}/{r.total}</span>
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })}
-                  <div className="my-2 border-t border-border/40" />
-                </div>
-              )}
-
-              {/* Temporal projects */}
-              {projRoad.length === 0 && opsRoad.length === 0 && (
+              {roadmap.length === 0 && (
                 <p className="py-8 text-center text-sm text-muted">Sin proyectos activos</p>
               )}
-              {projRoad.length > 0 && (
+              {roadmap.length > 0 && (
                 <div className="space-y-1.5">
-                  {projRoad.map((r) => {
+                  {roadmap.map((r) => {
                     const hex = areaHex(r.proyecto.area);
                     const span = r.endMonth - r.startMonth + 1;
                     return (

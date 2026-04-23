@@ -16,7 +16,7 @@ import {
   type Objetivo,
 } from "@/lib/types";
 import { AmbitoToggle, ResponsableToggle, matchesResponsable, type AmbitoFilter, type ResponsableFilter } from "./PlanMes";
-import { projectSOPsForRange, summarizeSOPsByMonth, type SOPMonthSummary } from "@/lib/sop-projector";
+import { fechaEfectivaEntregable } from "@/lib/fechas-efectivas";
 
 const MONTHS_ES = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"];
 
@@ -24,6 +24,8 @@ interface EntWithContext {
   ent: Entregable;
   hex: string;
   projName: string;
+  /** Fecha efectiva (inicio heredado si no tiene propia). YYYY-MM-DD. */
+  efectiva: string | null;
 }
 
 interface ResNode {
@@ -58,6 +60,11 @@ function entMonth(fechaInicio: string | null): number {
   return new Date(fechaInicio + "T12:00:00").getMonth();
 }
 
+function monthOfKey(key: string | null): number {
+  if (!key) return -1;
+  return new Date(key + "T12:00:00").getMonth();
+}
+
 interface Props { selectedDate: Date }
 
 export function PlanTrimestre({ selectedDate }: Props) {
@@ -83,7 +90,10 @@ export function PlanTrimestre({ selectedDate }: Props) {
       const ents = state.entregables
         .filter((e) => e.resultadoId === r.id && e.estado !== "cancelada" && (showDone || e.estado !== "hecho")
           && matchesResponsable(e.responsable, respFilter, currentUser))
-        .map((e) => ({ ent: e, hex, projName: p.nombre }));
+        .map((e) => {
+          const ef = fechaEfectivaEntregable(e, r, p);
+          return { ent: e, hex, projName: p.nombre, efectiva: ef.inicio ?? ef.fin ?? null };
+        });
       return { resultado: r, entregables: ents };
     }).filter((rn) => rn.entregables.length > 0 || rn.resultado.fechaInicio);
 
@@ -102,34 +112,56 @@ export function PlanTrimestre({ selectedDate }: Props) {
 
   function sliceProjNodeForMonth(node: ProjNode, month: number): ProjNode | null {
     const qStart = new Date(year, qMonths[0], 1).getTime();
+    const monthStart = new Date(year, month, 1).getTime();
+    const monthEnd = new Date(year, month + 1, 0, 23, 59, 59).getTime();
+
     const slicedRes: ResNode[] = node.resultados.map((rn) => ({
       resultado: rn.resultado,
       entregables: rn.entregables.filter((ec) => {
-        if (entMonth(ec.ent.fechaInicio) === month) return true;
-        if (!ec.ent.fechaInicio && ec.ent.estado === "en_proceso" && month === nowMonth) return true;
-        if (ec.ent.estado === "en_proceso" && ec.ent.fechaInicio && month === nowMonth) {
-          const fi = new Date(ec.ent.fechaInicio + "T12:00:00").getTime();
+        if (monthOfKey(ec.efectiva) === month) return true;
+        if (!ec.efectiva && ec.ent.estado === "en_proceso" && month === nowMonth) return true;
+        if (ec.ent.estado === "en_proceso" && ec.efectiva && month === nowMonth) {
+          const fi = new Date(ec.efectiva + "T12:00:00").getTime();
           if (fi < qStart) return true;
         }
         return false;
       }),
-    })).filter((rn) => rn.entregables.length > 0 || entMonth(rn.resultado.fechaInicio) === month);
-    if (slicedRes.length === 0) return null;
+    })).filter((rn) => {
+      const resSemanasEnMes = (rn.resultado.semanasExplicitas ?? []).some((semKey) => {
+        const t = new Date(semKey + "T12:00:00").getTime();
+        return t >= monthStart && t <= monthEnd;
+      });
+      return rn.entregables.length > 0
+        || entMonth(rn.resultado.fechaInicio) === month
+        || resSemanasEnMes;
+    });
+
+    // Si el proyecto tiene semanasExplicitas en este mes y no hay resultados visibles,
+    // forzamos al menos una entrada vacía para que el proyecto aparezca en el mes.
+    const projSemanasEnMes = (node.proyecto.semanasExplicitas ?? []).some((semKey) => {
+      const t = new Date(semKey + "T12:00:00").getTime();
+      return t >= monthStart && t <= monthEnd;
+    });
+
+    if (slicedRes.length === 0 && !projSemanasEnMes) return null;
     const entCount = slicedRes.reduce((s, rn) => s + rn.entregables.length, 0);
     return { ...node, resultados: slicedRes, entCount };
   }
 
   function sliceProjNodeBacklog(node: ProjNode): ProjNode | null {
     const qStart = new Date(year, qMonths[0], 1).getTime();
+    const qEnd = new Date(year, qMonths[2] + 1, 0, 23, 59, 59).getTime();
     const slicedRes: ResNode[] = node.resultados.map((rn) => ({
       resultado: rn.resultado,
       entregables: rn.entregables.filter((ec) => {
-        if (!ec.ent.fechaInicio && ec.ent.estado === "en_proceso" && qMonths.includes(nowMonth)) return false;
-        if (ec.ent.estado === "en_proceso" && ec.ent.fechaInicio) {
-          const fi = new Date(ec.ent.fechaInicio + "T12:00:00").getTime();
+        if (!ec.efectiva && ec.ent.estado === "en_proceso" && qMonths.includes(nowMonth)) return false;
+        if (ec.ent.estado === "en_proceso" && ec.efectiva) {
+          const fi = new Date(ec.efectiva + "T12:00:00").getTime();
           if (fi < qStart && qMonths.includes(nowMonth)) return false;
         }
-        return !entInQuarter(ec.ent.fechaInicio, qMonths, year);
+        if (!ec.efectiva) return true;
+        const t = new Date(ec.efectiva + "T12:00:00").getTime();
+        return t < qStart || t > qEnd;
       }),
     })).filter((rn) => rn.entregables.length > 0
       || (rn.resultado.fechaInicio && !entInQuarter(rn.resultado.fechaInicio, qMonths, year)));
@@ -138,28 +170,32 @@ export function PlanTrimestre({ selectedDate }: Props) {
     return { ...node, resultados: slicedRes, entCount };
   }
 
-  const { monthProjects, operations, backlogProjects } = useMemo(() => {
+  const { monthProjects, backlogProjects } = useMemo(() => {
     const mProj = new Map<number, ProjNode[]>();
     for (const m of qMonths) mProj.set(m, []);
-    const ops: ProjNode[] = [];
     const backlog: ProjNode[] = [];
 
     for (const p of state.proyectos) {
       if (filtro !== "todo" && ambitoDeArea(p.area) !== filtro) continue;
       const fullNode = buildFullProjNode(p);
+      const activoEnQ = (p.trimestresActivos ?? []).includes(qPeriodo);
 
-      if (p.tipo === "operacion") {
-        if (fullNode.total > 0) ops.push(fullNode);
-        continue;
-      }
-
+      let placedInAnyMonth = false;
       for (const m of qMonths) {
         const slice = sliceProjNodeForMonth(fullNode, m);
         if (slice) {
           mProj.get(m)!.push(slice);
+          placedInAnyMonth = true;
         } else if (entInQuarter(p.fechaInicio, [m], year)) {
           mProj.get(m)!.push({ ...fullNode, resultados: [], entCount: 0 });
+          placedInAnyMonth = true;
         }
+      }
+
+      // Proyecto marcado en este trimestre pero sin distribución por mes → backlog del Q.
+      if (activoEnQ && !placedInAnyMonth) {
+        backlog.push({ ...fullNode, resultados: [], entCount: 0 });
+        continue;
       }
 
       if (fullNode.entCount > 0) {
@@ -168,16 +204,9 @@ export function PlanTrimestre({ selectedDate }: Props) {
       }
     }
 
-    return { monthProjects: mProj, operations: ops, backlogProjects: backlog };
+    return { monthProjects: mProj, backlogProjects: backlog };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state, filtro, respFilter, currentUser, showDone, qMonths, year, nowMonth]);
-
-  const sopMonthSummaries = useMemo(() => {
-    const qStart = new Date(year, qMonths[0], 1);
-    const qEnd = new Date(year, qMonths[2] + 1, 0);
-    const sopMap = projectSOPsForRange(state, qStart, qEnd, respFilter === "yo" ? currentUser : respFilter !== "todo" ? respFilter : undefined);
-    return summarizeSOPsByMonth(sopMap, qMonths, state.plantillas);
-  }, [state, qMonths, year, respFilter, currentUser]);
+  }, [state, filtro, respFilter, currentUser, showDone, qMonths, year, nowMonth, qPeriodo]);
 
   const objetivos = useMemo(() => {
     return (state.objetivos ?? []).filter(
@@ -259,19 +288,6 @@ export function PlanTrimestre({ selectedDate }: Props) {
         )}
       </section>
 
-      {/* Operaciones (expandibles) */}
-      {operations.length > 0 && (
-        <section>
-          <h3 className="mb-2 text-xs font-bold uppercase tracking-wider text-muted">Core</h3>
-          <div className="space-y-2">
-            {operations.map((pn) => (
-              <ExpandableProjectCard key={pn.proyecto.id} node={pn} qMonths={qMonths}
-                onAssign={assignToMonth} onUnassign={unassignEnt} isMentor={isMentor} />
-            ))}
-          </div>
-        </section>
-      )}
-
       {/* Roadmap por mes */}
       <section>
         <h3 className="mb-2 text-xs font-bold uppercase tracking-wider text-muted">Roadmap</h3>
@@ -279,11 +295,9 @@ export function PlanTrimestre({ selectedDate }: Props) {
           {qMonths.map((m) => {
             const projects = monthProjects.get(m) ?? [];
             const count = projects.reduce((s, pn) => s + pn.entCount + pn.resultados.filter(rn => rn.entregables.length === 0).length, 0);
-            const sopSum = sopMonthSummaries.find((s) => s.month === m);
             return (
               <MonthColumn key={m} month={m} year={year} projects={projects} count={count}
-                qMonths={qMonths} onAssign={assignToMonth} onUnassign={unassignEnt} isMentor={isMentor}
-                sopSummary={sopSum} />
+                qMonths={qMonths} onAssign={assignToMonth} onUnassign={unassignEnt} isMentor={isMentor} />
             );
           })}
         </div>
@@ -319,15 +333,13 @@ export function PlanTrimestre({ selectedDate }: Props) {
    SUB-COMPONENTS
    ================================================================ */
 
-function MonthColumn({ month, year, projects, count, qMonths, onAssign, onUnassign, isMentor, sopSummary }: {
+function MonthColumn({ month, year, projects, count, qMonths, onAssign, onUnassign, isMentor }: {
   month: number; year: number; projects: ProjNode[]; count: number; qMonths: number[];
   onAssign: (id: string, month: number) => void; onUnassign: (id: string) => void; isMentor: boolean;
-  sopSummary?: SOPMonthSummary;
 }) {
   const now = new Date();
   const isCurrent = now.getFullYear() === year && now.getMonth() === month;
   const overloaded = count > 6;
-  const [showSops, setShowSops] = useState(false);
 
   return (
     <div className={`rounded-xl border p-3 ${isCurrent ? "border-accent/40 bg-accent/5" : "border-border bg-background"}`}>
@@ -336,26 +348,7 @@ function MonthColumn({ month, year, projects, count, qMonths, onAssign, onUnassi
         <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${overloaded ? "bg-amber-100 text-amber-700" : "bg-surface text-muted"}`}>{count}</span>
       </div>
 
-      {sopSummary && sopSummary.totalOcurrencias > 0 && (
-        <div className="mb-2">
-          <button onClick={() => setShowSops(!showSops)}
-            className="w-full rounded-lg bg-blue-50 px-2 py-1.5 text-center text-[10px] font-medium text-blue-600 transition-colors hover:bg-blue-100">
-            {sopSummary.totalOcurrencias} SOP{sopSummary.totalOcurrencias !== 1 ? "s" : ""} recurrente{sopSummary.totalOcurrencias !== 1 ? "s" : ""}
-            {sopSummary.totalMinutos > 0 && ` (~${Math.round(sopSummary.totalMinutos / 60)}h)`}
-          </button>
-          {showSops && (
-            <div className="mt-1 rounded-lg bg-blue-50 p-2">
-              {sopSummary.sops.map((s) => (
-                <p key={s.nombre} className="text-[10px] text-blue-700">
-                  {s.nombre} <span className="text-blue-400">({s.count}×)</span>
-                </p>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
-
-      {projects.length === 0 && (!sopSummary || sopSummary.totalOcurrencias === 0) ? (
+      {projects.length === 0 ? (
         <p className="py-4 text-center text-xs text-muted">—</p>
       ) : (
         <div className="space-y-1.5">
@@ -375,7 +368,6 @@ function ExpandableProjectCard({ node, qMonths, onAssign, onUnassign, isMentor, 
   isMentor: boolean; inMonth?: number; backlogStyle?: boolean;
 }) {
   const [open, setOpen] = useState(false);
-  const isOp = node.proyecto.tipo === "operacion";
   const expandable = node.resultados.length > 0;
 
   return (
@@ -392,7 +384,6 @@ function ExpandableProjectCard({ node, qMonths, onAssign, onUnassign, isMentor, 
         ) : <span className="w-2.5 shrink-0" />}
         <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: node.hex }} />
         <span className="flex-1 truncate text-xs font-semibold text-foreground">{node.proyecto.nombre}</span>
-        {isOp && <span className="shrink-0 rounded bg-indigo-100 px-1.5 py-0.5 text-[9px] font-bold text-indigo-600">Core</span>}
         {backlogStyle && <span className="shrink-0 rounded-full bg-surface px-2 py-0.5 text-[10px] font-bold text-muted">{node.entCount} pend.</span>}
         <div className="flex items-center gap-1.5">
           <div className="h-1.5 w-12 overflow-hidden rounded-full bg-surface">

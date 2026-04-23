@@ -22,6 +22,7 @@ import type {
 import { PLAN_CONFIG_DEFAULT } from "./types";
 import { minutosEfectivos } from "./duration";
 import { toDateKey } from "./date-utils";
+import { fechasDesdeTrimestres } from "./trimestre-utils";
 
 export type Action =
   | { type: "INIT"; state: AppState }
@@ -42,6 +43,9 @@ export type Action =
   | { type: "DELETE_PASO"; id: string }
   | { type: "RENAME_ENTREGABLE"; id: string; nombre: string }
   | { type: "UPDATE_ENTREGABLE"; id: string; changes: Partial<Pick<Entregable, "nombre" | "responsable" | "tipo" | "plantillaId" | "diasEstimados" | "estado" | "fechaLimite" | "fechaInicio" | "planNivel">> }
+  | { type: "SET_PLAN_INICIO"; pasoId: string; ts: string | null }
+  | { type: "RESTORE_PASO"; id: string }
+  | { type: "CANCEL_INICIO_PASO"; id: string }
   | { type: "DELETE_ENTREGABLE"; id: string }
   | { type: "PROMOTE_PASO_TO_ENTREGABLE"; pasoId: string; nuevoEntregableId: string }
   | { type: "PROMOTE_ENTREGABLE_TO_RESULTADO"; entregableId: string; nuevoResultadoId: string }
@@ -51,10 +55,13 @@ export type Action =
   | { type: "PROMOTE_RESULTADO"; resultadoId: string; area: Proyecto["area"]; nuevoProyectoId: string }
   | { type: "DELETE_RESULTADO"; id: string }
   | { type: "RENAME_RESULTADO"; id: string; nombre: string }
-  | { type: "UPDATE_RESULTADO"; id: string; changes: Partial<Pick<Resultado, "nombre" | "descripcion" | "semana" | "fechaLimite" | "fechaInicio" | "diasEstimados" | "planNivel" | "responsable">> }
+  | { type: "UPDATE_RESULTADO"; id: string; changes: Partial<Pick<Resultado, "nombre" | "descripcion" | "semana" | "fechaLimite" | "fechaInicio" | "diasEstimados" | "planNivel" | "responsable" | "semanasExplicitas">> }
+  | { type: "TOGGLE_RESULTADO_SEMANA"; id: string; semana: string }
   | { type: "DELETE_PROYECTO"; id: string }
   | { type: "RENAME_PROYECTO"; id: string; nombre: string }
-  | { type: "UPDATE_PROYECTO"; id: string; changes: Partial<Pick<Proyecto, "nombre" | "descripcion" | "area" | "fechaInicio" | "fechaLimite" | "planNivel" | "tipo" | "estado" | "responsable">> }
+  | { type: "UPDATE_PROYECTO"; id: string; changes: Partial<Pick<Proyecto, "nombre" | "descripcion" | "area" | "fechaInicio" | "fechaLimite" | "planNivel" | "tipo" | "estado" | "responsable" | "trimestresActivos" | "semanasExplicitas">> }
+  | { type: "SET_PROYECTO_TRIMESTRES"; id: string; trimestres: string[] }
+  | { type: "TOGGLE_PROYECTO_SEMANA"; id: string; semana: string }
   | { type: "IMPORT_DATA"; proyectos: Proyecto[]; resultados: Resultado[]; entregables: Entregable[] }
   | { type: "ADD_INBOX"; payload: InboxItem }
   | { type: "PROCESS_INBOX"; id: string }
@@ -201,7 +208,7 @@ export function reducer(state: AppState, action: Action): AppState {
       const todayAct = toDateKey(new Date());
       let newState: AppState = {
         ...state,
-        pasos: state.pasos.map((p) => p.id === action.id ? { ...p, inicioTs: new Date().toISOString() } : p),
+        pasos: state.pasos.map((p) => p.id === action.id ? { ...p, inicioTs: new Date().toISOString(), planInicioTs: null } : p),
         entregables: state.entregables.map((e) =>
           e.id === paso.entregableId && !e.fechaInicio
             ? { ...e, fechaInicio: todayAct, planNivel: e.planNivel ?? ("dia" as const),
@@ -857,6 +864,105 @@ export function reducer(state: AppState, action: Action): AppState {
         default:
           return state;
       }
+    }
+
+    // --- Planificación: trimestres y semanas explícitas ---
+    case "SET_PROYECTO_TRIMESTRES": {
+      const trimestres = [...new Set(action.trimestres)].sort();
+      const rango = fechasDesdeTrimestres(trimestres);
+      return {
+        ...state,
+        proyectos: state.proyectos.map((p) => {
+          if (p.id !== action.id) return p;
+          if (trimestres.length === 0) {
+            return { ...p, trimestresActivos: [] };
+          }
+          return {
+            ...p,
+            trimestresActivos: trimestres,
+            fechaInicio: rango.fechaInicio ?? p.fechaInicio,
+            fechaLimite: rango.fechaLimite ?? p.fechaLimite,
+          };
+        }),
+      };
+    }
+
+    case "TOGGLE_PROYECTO_SEMANA": {
+      return {
+        ...state,
+        proyectos: state.proyectos.map((p) => {
+          if (p.id !== action.id) return p;
+          const curr = p.semanasExplicitas ?? [];
+          const next = curr.includes(action.semana)
+            ? curr.filter((s) => s !== action.semana)
+            : [...curr, action.semana];
+          return { ...p, semanasExplicitas: next };
+        }),
+      };
+    }
+
+    case "TOGGLE_RESULTADO_SEMANA": {
+      return {
+        ...state,
+        resultados: state.resultados.map((r) => {
+          if (r.id !== action.id) return r;
+          const curr = r.semanasExplicitas ?? [];
+          const next = curr.includes(action.semana)
+            ? curr.filter((s) => s !== action.semana)
+            : [...curr, action.semana];
+          return { ...r, semanasExplicitas: next };
+        }),
+      };
+    }
+
+    case "SET_PLAN_INICIO":
+      return {
+        ...state,
+        pasos: state.pasos.map((p) => p.id === action.pasoId ? { ...p, planInicioTs: action.ts } : p),
+      };
+
+    case "RESTORE_PASO": {
+      const paso = state.pasos.find((p) => p.id === action.id);
+      if (!paso || !paso.finTs) return state;
+      const now = new Date().toISOString();
+      return {
+        ...state,
+        pasos: state.pasos.map((p) =>
+          p.id === action.id
+            ? {
+                ...p,
+                finTs: null,
+                estado: "",
+                siguientePaso: null,
+                pausas: [...p.pausas, { pauseTs: p.finTs!, resumeTs: now }],
+              }
+            : p
+        ),
+        entregables: state.entregables.map((e) =>
+          e.id !== paso.entregableId
+            ? e
+            : {
+                ...e,
+                diasHechos: Math.max(0, e.diasHechos - 1),
+                estado: e.estado === "hecho" ? ("en_proceso" as const) : e.estado,
+              }
+        ),
+        pasosActivos: state.pasosActivos.includes(action.id)
+          ? state.pasosActivos
+          : [...state.pasosActivos, action.id],
+      };
+    }
+
+    case "CANCEL_INICIO_PASO": {
+      const paso = state.pasos.find((p) => p.id === action.id);
+      if (!paso || !paso.inicioTs || paso.finTs) return state;
+      return {
+        ...state,
+        pasos: state.pasos.map((p) =>
+          p.id === action.id ? { ...p, inicioTs: null, pausas: [] } : p
+        ),
+        pasosActivos: state.pasosActivos.filter((id) => id !== action.id),
+      };
     }
 
     case "SET_MTP":
