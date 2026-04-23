@@ -100,6 +100,8 @@ export interface Proyecto {
   review?: ReviewMark;
   /** Claves tipo "2026-Q2" de los trimestres en los que el proyecto está activo. */
   trimestresActivos?: string[];
+  /** Claves tipo "2026-04" de los meses en los que el proyecto está activo. Fuente de verdad en Plan Trimestre. */
+  mesesActivos?: string[];
   /** Claves de lunes ISO ("YYYY-MM-DD") de semanas marcadas explícitamente aunque no haya entregables con fecha. */
   semanasExplicitas?: string[];
 }
@@ -118,6 +120,8 @@ export interface Resultado {
   responsable?: string;
   notas?: Nota[];
   review?: ReviewMark;
+  /** Claves tipo "2026-04" de los meses en los que el resultado está activo. */
+  mesesActivos?: string[];
   /** Claves de lunes ISO ("YYYY-MM-DD") de semanas marcadas explícitamente aunque no haya entregables con fecha. */
   semanasExplicitas?: string[];
 }

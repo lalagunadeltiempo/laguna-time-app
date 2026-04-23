@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import { trimestreKey, trimestreRango, trimestresEntre, etiquetaTrimestre } from "../../lib/trimestre-utils";
+import { etiquetaMesCorta, mesesDeTrimestre } from "../../lib/semana-utils";
 
 interface Props {
   trimestresActivos: string[];
@@ -78,7 +79,7 @@ export function TrimestreSelector({ trimestresActivos, fechaInicio, fechaLimite,
               title={rango ? `${rango.inicio} → ${rango.fin}` : key}>
               <span className="font-semibold">{etiquetaTrimestre(key).slice(0, 2)}</span>
               <span className="text-[9px] opacity-70">
-                {rango ? `${rango.inicio.slice(5)} - ${rango.fin.slice(5)}` : ""}
+                {mesesDeTrimestre(key).map((m) => etiquetaMesCorta(m)).join("-")}
               </span>
             </button>
           );

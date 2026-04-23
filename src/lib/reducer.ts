@@ -42,7 +42,11 @@ export type Action =
   | { type: "UPDATE_PASO_TIMES"; id: string; inicioTs: string; finTs: string | null }
   | { type: "DELETE_PASO"; id: string }
   | { type: "RENAME_ENTREGABLE"; id: string; nombre: string }
-  | { type: "UPDATE_ENTREGABLE"; id: string; changes: Partial<Pick<Entregable, "nombre" | "responsable" | "tipo" | "plantillaId" | "diasEstimados" | "estado" | "fechaLimite" | "fechaInicio" | "planNivel">> }
+  | { type: "UPDATE_ENTREGABLE"; id: string; changes: Partial<Pick<Entregable, "nombre" | "responsable" | "tipo" | "plantillaId" | "diasEstimados" | "estado" | "fechaLimite" | "fechaInicio" | "planNivel" | "semana">> }
+  | { type: "SET_ENTREGABLE_SEMANA"; id: string; semana: string | null }
+  | { type: "SET_RESULTADO_SEMANA"; id: string; semana: string | null }
+  | { type: "TOGGLE_PROYECTO_MES"; id: string; mes: string }
+  | { type: "TOGGLE_RESULTADO_MES"; id: string; mes: string }
   | { type: "SET_PLAN_INICIO"; pasoId: string; ts: string | null }
   | { type: "RESTORE_PASO"; id: string }
   | { type: "CANCEL_INICIO_PASO"; id: string }
@@ -55,11 +59,11 @@ export type Action =
   | { type: "PROMOTE_RESULTADO"; resultadoId: string; area: Proyecto["area"]; nuevoProyectoId: string }
   | { type: "DELETE_RESULTADO"; id: string }
   | { type: "RENAME_RESULTADO"; id: string; nombre: string }
-  | { type: "UPDATE_RESULTADO"; id: string; changes: Partial<Pick<Resultado, "nombre" | "descripcion" | "semana" | "fechaLimite" | "fechaInicio" | "diasEstimados" | "planNivel" | "responsable" | "semanasExplicitas">> }
+  | { type: "UPDATE_RESULTADO"; id: string; changes: Partial<Pick<Resultado, "nombre" | "descripcion" | "semana" | "fechaLimite" | "fechaInicio" | "diasEstimados" | "planNivel" | "responsable" | "semanasExplicitas" | "mesesActivos">> }
   | { type: "TOGGLE_RESULTADO_SEMANA"; id: string; semana: string }
   | { type: "DELETE_PROYECTO"; id: string }
   | { type: "RENAME_PROYECTO"; id: string; nombre: string }
-  | { type: "UPDATE_PROYECTO"; id: string; changes: Partial<Pick<Proyecto, "nombre" | "descripcion" | "area" | "fechaInicio" | "fechaLimite" | "planNivel" | "tipo" | "estado" | "responsable" | "trimestresActivos" | "semanasExplicitas">> }
+  | { type: "UPDATE_PROYECTO"; id: string; changes: Partial<Pick<Proyecto, "nombre" | "descripcion" | "area" | "fechaInicio" | "fechaLimite" | "planNivel" | "tipo" | "estado" | "responsable" | "trimestresActivos" | "semanasExplicitas" | "mesesActivos">> }
   | { type: "SET_PROYECTO_TRIMESTRES"; id: string; trimestres: string[] }
   | { type: "TOGGLE_PROYECTO_SEMANA"; id: string; semana: string }
   | { type: "IMPORT_DATA"; proyectos: Proyecto[]; resultados: Resultado[]; entregables: Entregable[] }
@@ -912,6 +916,54 @@ export function reducer(state: AppState, action: Action): AppState {
             : [...curr, action.semana];
           return { ...r, semanasExplicitas: next };
         }),
+      };
+    }
+
+    case "TOGGLE_PROYECTO_MES": {
+      return {
+        ...state,
+        proyectos: state.proyectos.map((p) => {
+          if (p.id !== action.id) return p;
+          const curr = p.mesesActivos ?? [];
+          const next = curr.includes(action.mes)
+            ? curr.filter((m) => m !== action.mes)
+            : [...curr, action.mes].sort();
+          return { ...p, mesesActivos: next };
+        }),
+      };
+    }
+
+    case "TOGGLE_RESULTADO_MES": {
+      return {
+        ...state,
+        resultados: state.resultados.map((r) => {
+          if (r.id !== action.id) return r;
+          const curr = r.mesesActivos ?? [];
+          const next = curr.includes(action.mes)
+            ? curr.filter((m) => m !== action.mes)
+            : [...curr, action.mes].sort();
+          return { ...r, mesesActivos: next };
+        }),
+      };
+    }
+
+    case "SET_ENTREGABLE_SEMANA": {
+      return {
+        ...state,
+        entregables: state.entregables.map((e) => {
+          if (e.id !== action.id) return e;
+          const newEstado = (e.estado === "hecho" || e.estado === "cancelada" || e.estado === "en_espera")
+            ? e.estado
+            : action.semana ? (e.estado === "a_futuro" ? "planificado" : e.estado) : e.estado;
+          return { ...e, semana: action.semana, estado: newEstado };
+        }),
+      };
+    }
+
+    case "SET_RESULTADO_SEMANA": {
+      return {
+        ...state,
+        resultados: state.resultados.map((r) => r.id === action.id ? { ...r, semana: action.semana } : r),
       };
     }
 

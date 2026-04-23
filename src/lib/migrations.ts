@@ -3,8 +3,9 @@ import type { AppState } from "./types";
 import { buildSeedSOPs } from "./seed-sops";
 import { buildPersonalSeedData } from "./seed-personal";
 import { buildEmpresaSeedProyectos } from "./seed-proyectos-empresa";
+import { mondayKey, mesKey, mesesDeTrimestre } from "./semana-utils";
 
-export const CURRENT_MIGRATION = 15;
+export const CURRENT_MIGRATION = 16;
 
 type Dispatch = (action: Action) => void;
 
@@ -36,8 +37,62 @@ export function runMigrations(state: AppState, dispatch: Dispatch): void {
     migrateProyectoEstadoV2(state, dispatch);
   }
 
+  if (version < 16) {
+    migrateSemanasYMeses(state, dispatch);
+  }
+
   if (version < CURRENT_MIGRATION) {
     dispatch({ type: "SET_MIGRATION_VERSION", version: CURRENT_MIGRATION });
+  }
+}
+
+/**
+ * Migración al modelo "planificación por unidades":
+ *  - Si un entregable tiene fecha y no tiene semana asignada → ent.semana = lunes de esa fecha.
+ *  - Si un resultado tiene fecha y no tiene semana asignada → res.semana = lunes.
+ *  - Si un proyecto tiene trimestresActivos y no mesesActivos → deriva mesesActivos de las semanas/fechas existentes; fallback a los 3 meses de cada trimestre marcado.
+ */
+function migrateSemanasYMeses(state: AppState, dispatch: Dispatch): void {
+  for (const ent of state.entregables) {
+    if (ent.semana) continue;
+    const src = ent.fechaInicio ?? ent.fechaLimite;
+    const mk = mondayKey(src);
+    if (mk) dispatch({ type: "SET_ENTREGABLE_SEMANA", id: ent.id, semana: mk });
+  }
+  for (const res of state.resultados) {
+    if (res.semana) continue;
+    const src = res.fechaInicio ?? res.fechaLimite;
+    const mk = mondayKey(src);
+    if (mk) dispatch({ type: "SET_RESULTADO_SEMANA", id: res.id, semana: mk });
+  }
+  for (const proj of state.proyectos) {
+    if (proj.mesesActivos && proj.mesesActivos.length > 0) continue;
+    const derivedMeses = new Set<string>();
+
+    const resultadosDelProj = state.resultados.filter((r) => r.proyectoId === proj.id);
+    const resIds = new Set(resultadosDelProj.map((r) => r.id));
+    const entregablesDelProj = state.entregables.filter((e) => resIds.has(e.resultadoId));
+
+    for (const r of resultadosDelProj) {
+      const mk = r.semana ?? mondayKey(r.fechaInicio ?? r.fechaLimite);
+      const m = mesKey(mk);
+      if (m) derivedMeses.add(m);
+    }
+    for (const e of entregablesDelProj) {
+      const mk = e.semana ?? mondayKey(e.fechaInicio ?? e.fechaLimite);
+      const m = mesKey(mk);
+      if (m) derivedMeses.add(m);
+    }
+
+    if (derivedMeses.size === 0 && proj.trimestresActivos && proj.trimestresActivos.length > 0) {
+      for (const t of proj.trimestresActivos) {
+        for (const m of mesesDeTrimestre(t)) derivedMeses.add(m);
+      }
+    }
+
+    if (derivedMeses.size > 0) {
+      dispatch({ type: "UPDATE_PROYECTO", id: proj.id, changes: { mesesActivos: [...derivedMeses].sort() } });
+    }
   }
 }
 

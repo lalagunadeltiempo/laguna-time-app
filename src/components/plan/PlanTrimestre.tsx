@@ -16,53 +16,24 @@ import {
   type Objetivo,
 } from "@/lib/types";
 import { AmbitoToggle, ResponsableToggle, matchesResponsable, type AmbitoFilter, type ResponsableFilter } from "./PlanMes";
-import { fechaEfectivaEntregable } from "@/lib/fechas-efectivas";
+import { mesKey, etiquetaMesCorta, mesesDeTrimestre } from "@/lib/semana-utils";
 
 const MONTHS_ES = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"];
 
-interface EntWithContext {
-  ent: Entregable;
-  hex: string;
-  projName: string;
-  /** Fecha efectiva (inicio heredado si no tiene propia). YYYY-MM-DD. */
-  efectiva: string | null;
-}
-
-interface ResNode {
-  resultado: Resultado;
-  entregables: EntWithContext[];
-}
+function pad(n: number) { return String(n).padStart(2, "0"); }
+function quarterLabel(q: number, y: number) { return `Q${q + 1} ${y}`; }
+function quarterMonths(q: number) { return [q * 3, q * 3 + 1, q * 3 + 2]; }
+function periodoQ(q: number, y: number) { return `${y}-Q${q + 1}`; }
+function monthToKey(year: number, month: number) { return `${year}-${pad(month + 1)}`; }
 
 interface ProjNode {
   proyecto: Proyecto;
-  resultados: ResNode[];
-  entCount: number;
+  resultados: Resultado[];
+  entregables: Entregable[];
   done: number;
   total: number;
   percent: number;
   hex: string;
-}
-
-function pad(n: number) { return String(n).padStart(2, "0"); }
-
-function quarterLabel(q: number, y: number) { return `Q${q + 1} ${y}`; }
-function quarterMonths(q: number) { return [q * 3, q * 3 + 1, q * 3 + 2]; }
-function periodoQ(q: number, y: number) { return `${y}-Q${q + 1}`; }
-
-function entInQuarter(fechaInicio: string | null, qMonths: number[], year: number): boolean {
-  if (!fechaInicio) return false;
-  const d = new Date(fechaInicio + "T12:00:00");
-  return d.getFullYear() === year && qMonths.includes(d.getMonth());
-}
-
-function entMonth(fechaInicio: string | null): number {
-  if (!fechaInicio) return -1;
-  return new Date(fechaInicio + "T12:00:00").getMonth();
-}
-
-function monthOfKey(key: string | null): number {
-  if (!key) return -1;
-  return new Date(key + "T12:00:00").getMonth();
 }
 
 interface Props { selectedDate: Date }
@@ -82,131 +53,73 @@ export function PlanTrimestre({ selectedDate }: Props) {
   const currentQ = Math.floor(selectedDate.getMonth() / 3);
   const qMonths = useMemo(() => quarterMonths(currentQ), [currentQ]);
   const qPeriodo = periodoQ(currentQ, year);
+  const qMonthKeys = useMemo(() => mesesDeTrimestre(qPeriodo), [qPeriodo]);
 
-  function buildFullProjNode(p: Proyecto): ProjNode {
+  /**
+   * Un proyecto aparece en el mes `m` si:
+   *  - `mesKey(m)` está en `proyecto.mesesActivos`, o
+   *  - el trimestre de `m` está en `proyecto.trimestresActivos` Y el proyecto no tiene
+   *    ningún mes del trimestre marcado explícitamente (fallback: trimestre manda).
+   */
+  function proyectoEnMes(p: Proyecto, mes: string): boolean {
+    const mesesProj = p.mesesActivos ?? [];
+    if (mesesProj.includes(mes)) return true;
+    if (!(p.trimestresActivos ?? []).includes(qPeriodo)) return false;
+    return !qMonthKeys.some((qm) => mesesProj.includes(qm));
+  }
+
+  function buildProjNode(p: Proyecto): ProjNode {
     const hex = AREA_COLORS[p.area]?.hex ?? "#888";
-    const projResults = state.resultados.filter((r) => r.proyectoId === p.id);
-    const resNodes: ResNode[] = projResults.map((r) => {
-      const ents = state.entregables
-        .filter((e) => e.resultadoId === r.id && e.estado !== "cancelada" && (showDone || e.estado !== "hecho")
-          && matchesResponsable(e.responsable, respFilter, currentUser))
-        .map((e) => {
-          const ef = fechaEfectivaEntregable(e, r, p);
-          return { ent: e, hex, projName: p.nombre, efectiva: ef.inicio ?? ef.fin ?? null };
-        });
-      return { resultado: r, entregables: ents };
-    }).filter((rn) => rn.entregables.length > 0 || rn.resultado.fechaInicio);
-
-    const allEnts = state.entregables.filter((e) => {
-      const res = state.resultados.find((r) => r.id === e.resultadoId);
-      return res?.proyectoId === p.id;
-    });
-    const done = allEnts.filter((e) => e.estado === "hecho").length;
-    const total = allEnts.length;
-    const entCount = resNodes.reduce((s, rn) => s + rn.entregables.length, 0);
-
-    return { proyecto: p, resultados: resNodes, entCount, done, total, percent: total ? Math.round((done / total) * 100) : 0, hex };
-  }
-
-  const nowMonth = useMemo(() => new Date().getMonth(), []);
-
-  function sliceProjNodeForMonth(node: ProjNode, month: number): ProjNode | null {
-    const qStart = new Date(year, qMonths[0], 1).getTime();
-    const monthStart = new Date(year, month, 1).getTime();
-    const monthEnd = new Date(year, month + 1, 0, 23, 59, 59).getTime();
-
-    const slicedRes: ResNode[] = node.resultados.map((rn) => ({
-      resultado: rn.resultado,
-      entregables: rn.entregables.filter((ec) => {
-        if (monthOfKey(ec.efectiva) === month) return true;
-        if (!ec.efectiva && ec.ent.estado === "en_proceso" && month === nowMonth) return true;
-        if (ec.ent.estado === "en_proceso" && ec.efectiva && month === nowMonth) {
-          const fi = new Date(ec.efectiva + "T12:00:00").getTime();
-          if (fi < qStart) return true;
-        }
-        return false;
-      }),
-    })).filter((rn) => {
-      const resSemanasEnMes = (rn.resultado.semanasExplicitas ?? []).some((semKey) => {
-        const t = new Date(semKey + "T12:00:00").getTime();
-        return t >= monthStart && t <= monthEnd;
-      });
-      return rn.entregables.length > 0
-        || entMonth(rn.resultado.fechaInicio) === month
-        || resSemanasEnMes;
-    });
-
-    // Si el proyecto tiene semanasExplicitas en este mes y no hay resultados visibles,
-    // forzamos al menos una entrada vacía para que el proyecto aparezca en el mes.
-    const projSemanasEnMes = (node.proyecto.semanasExplicitas ?? []).some((semKey) => {
-      const t = new Date(semKey + "T12:00:00").getTime();
-      return t >= monthStart && t <= monthEnd;
-    });
-
-    if (slicedRes.length === 0 && !projSemanasEnMes) return null;
-    const entCount = slicedRes.reduce((s, rn) => s + rn.entregables.length, 0);
-    return { ...node, resultados: slicedRes, entCount };
-  }
-
-  function sliceProjNodeBacklog(node: ProjNode): ProjNode | null {
-    const qStart = new Date(year, qMonths[0], 1).getTime();
-    const qEnd = new Date(year, qMonths[2] + 1, 0, 23, 59, 59).getTime();
-    const slicedRes: ResNode[] = node.resultados.map((rn) => ({
-      resultado: rn.resultado,
-      entregables: rn.entregables.filter((ec) => {
-        if (!ec.efectiva && ec.ent.estado === "en_proceso" && qMonths.includes(nowMonth)) return false;
-        if (ec.ent.estado === "en_proceso" && ec.efectiva) {
-          const fi = new Date(ec.efectiva + "T12:00:00").getTime();
-          if (fi < qStart && qMonths.includes(nowMonth)) return false;
-        }
-        if (!ec.efectiva) return true;
-        const t = new Date(ec.efectiva + "T12:00:00").getTime();
-        return t < qStart || t > qEnd;
-      }),
-    })).filter((rn) => rn.entregables.length > 0
-      || (rn.resultado.fechaInicio && !entInQuarter(rn.resultado.fechaInicio, qMonths, year)));
-    if (slicedRes.length === 0) return null;
-    const entCount = slicedRes.reduce((s, rn) => s + rn.entregables.length, 0);
-    return { ...node, resultados: slicedRes, entCount };
+    const resultados = state.resultados.filter((r) => r.proyectoId === p.id);
+    const resIds = new Set(resultados.map((r) => r.id));
+    const entregables = state.entregables.filter((e) => resIds.has(e.resultadoId));
+    const done = entregables.filter((e) => e.estado === "hecho").length;
+    const total = entregables.length;
+    return {
+      proyecto: p,
+      resultados,
+      entregables,
+      done,
+      total,
+      percent: total ? Math.round((done / total) * 100) : 0,
+      hex,
+    };
   }
 
   const { monthProjects, backlogProjects } = useMemo(() => {
-    const mProj = new Map<number, ProjNode[]>();
-    for (const m of qMonths) mProj.set(m, []);
+    const byMonth = new Map<number, ProjNode[]>();
+    for (const m of qMonths) byMonth.set(m, []);
     const backlog: ProjNode[] = [];
 
     for (const p of state.proyectos) {
+      if (p.estado === "completado" || p.estado === "pausado") continue;
       if (filtro !== "todo" && ambitoDeArea(p.area) !== filtro) continue;
-      const fullNode = buildFullProjNode(p);
-      const activoEnQ = (p.trimestresActivos ?? []).includes(qPeriodo);
 
-      let placedInAnyMonth = false;
-      for (const m of qMonths) {
-        const slice = sliceProjNodeForMonth(fullNode, m);
-        if (slice) {
-          mProj.get(m)!.push(slice);
-          placedInAnyMonth = true;
-        } else if (entInQuarter(p.fechaInicio, [m], year)) {
-          mProj.get(m)!.push({ ...fullNode, resultados: [], entCount: 0 });
-          placedInAnyMonth = true;
+      const node = buildProjNode(p);
+      const resultadosVisibles = respFilter === "todo"
+        ? node.resultados
+        : node.resultados.filter((r) => matchesResponsable(r.responsable, respFilter, currentUser));
+      if (!showDone && node.total > 0 && node.done === node.total) continue;
+      if (resultadosVisibles.length === 0 && node.total > 0) continue;
+
+      let placedAny = false;
+      for (let i = 0; i < qMonths.length; i++) {
+        const m = qMonths[i];
+        const mesK = qMonthKeys[i];
+        if (proyectoEnMes(p, mesK)) {
+          byMonth.get(m)!.push(node);
+          placedAny = true;
         }
       }
 
-      // Proyecto marcado en este trimestre pero sin distribución por mes → backlog del Q.
-      if (activoEnQ && !placedInAnyMonth) {
-        backlog.push({ ...fullNode, resultados: [], entCount: 0 });
-        continue;
-      }
-
-      if (fullNode.entCount > 0) {
-        const backlogSlice = sliceProjNodeBacklog(fullNode);
-        if (backlogSlice) backlog.push(backlogSlice);
+      if (!placedAny && (p.trimestresActivos ?? []).includes(qPeriodo)) {
+        backlog.push(node);
       }
     }
 
-    return { monthProjects: mProj, backlogProjects: backlog };
+    return { monthProjects: byMonth, backlogProjects: backlog };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state, filtro, respFilter, currentUser, showDone, qMonths, year, nowMonth, qPeriodo]);
+  }, [state, filtro, respFilter, currentUser, showDone, qMonths, qMonthKeys, qPeriodo, year]);
 
   const objetivos = useMemo(() => {
     return (state.objetivos ?? []).filter(
@@ -215,21 +128,6 @@ export function PlanTrimestre({ selectedDate }: Props) {
   }, [state.objetivos, qPeriodo]);
 
   const allAreas = [...AREAS_EMPRESA, ...AREAS_PERSONAL].filter((a) => filtro === "todo" || ambitoDeArea(a.id) === filtro);
-
-  function assignToMonth(entId: string, month: number) {
-    const dateStr = `${year}-${pad(month + 1)}-01`;
-    const now = new Date();
-    const isCurrent = now.getFullYear() === year && now.getMonth() === month;
-    const ent = state.entregables.find((e) => e.id === entId);
-    if (!ent) return;
-    const newEstado = (ent.estado === "hecho" || ent.estado === "cancelada" || ent.estado === "en_espera")
-      ? ent.estado : isCurrent ? "en_proceso" : "planificado";
-    dispatch({ type: "UPDATE_ENTREGABLE", id: entId, changes: { fechaInicio: dateStr, planNivel: "mes", estado: newEstado } });
-  }
-
-  function unassignEnt(entId: string) {
-    dispatch({ type: "UPDATE_ENTREGABLE", id: entId, changes: { fechaInicio: null, planNivel: null, estado: "a_futuro" } });
-  }
 
   function addObjetivo() {
     if (!newObjText.trim()) return;
@@ -292,60 +190,56 @@ export function PlanTrimestre({ selectedDate }: Props) {
       <section>
         <h3 className="mb-2 text-xs font-bold uppercase tracking-wider text-muted">Roadmap</h3>
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-          {qMonths.map((m) => {
+          {qMonths.map((m, idx) => {
             const projects = monthProjects.get(m) ?? [];
-            const count = projects.reduce((s, pn) => s + pn.entCount + pn.resultados.filter(rn => rn.entregables.length === 0).length, 0);
+            const mesK = qMonthKeys[idx];
             return (
-              <MonthColumn key={m} month={m} year={year} projects={projects} count={count}
-                qMonths={qMonths} onAssign={assignToMonth} onUnassign={unassignEnt} isMentor={isMentor} />
+              <MonthColumn key={m} month={m} year={year} mesKey={mesK} projects={projects}
+                qMonthKeys={qMonthKeys} isMentor={isMentor} />
             );
           })}
         </div>
       </section>
 
       {/* Backlog */}
-      <section>
-        <h3 className="mb-2 text-xs font-bold uppercase tracking-wider text-muted">
-          Backlog
-          {backlogProjects.length > 0 && (
+      {backlogProjects.length > 0 && (
+        <section>
+          <h3 className="mb-2 text-xs font-bold uppercase tracking-wider text-muted">
+            Sin asignar a mes
             <span className="ml-2 text-[10px] font-normal text-muted">
-              ({backlogProjects.reduce((s, pn) => s + pn.entCount, 0)} entregables sin planificar)
+              ({backlogProjects.length} proyecto{backlogProjects.length !== 1 ? "s" : ""} con trimestre marcado pero sin mes)
             </span>
-          )}
-        </h3>
-        {backlogProjects.length === 0 ? (
-          <p className="py-4 text-center text-sm text-muted">Todo el trabajo está planificado</p>
-        ) : (
+          </h3>
           <div className="space-y-2">
             {backlogProjects.map((pn) => (
-              <ExpandableProjectCard key={pn.proyecto.id} node={pn} qMonths={qMonths}
-                onAssign={assignToMonth} onUnassign={unassignEnt} isMentor={isMentor}
-                backlogStyle />
+              <ProjectCard key={pn.proyecto.id} node={pn} qMonthKeys={qMonthKeys}
+                currentMesKey={null} isMentor={isMentor} backlogStyle />
             ))}
           </div>
-        )}
-      </section>
+        </section>
+      )}
     </div>
   );
 }
 
 /* ================================================================
-   SUB-COMPONENTS
+   MonthColumn
    ================================================================ */
 
-function MonthColumn({ month, year, projects, count, qMonths, onAssign, onUnassign, isMentor }: {
-  month: number; year: number; projects: ProjNode[]; count: number; qMonths: number[];
-  onAssign: (id: string, month: number) => void; onUnassign: (id: string) => void; isMentor: boolean;
+function MonthColumn({ month, year, mesKey: mesK, projects, qMonthKeys, isMentor }: {
+  month: number; year: number; mesKey: string;
+  projects: ProjNode[]; qMonthKeys: string[];
+  isMentor: boolean;
 }) {
   const now = new Date();
   const isCurrent = now.getFullYear() === year && now.getMonth() === month;
-  const overloaded = count > 6;
+  const count = projects.length;
 
   return (
     <div className={`rounded-xl border p-3 ${isCurrent ? "border-accent/40 bg-accent/5" : "border-border bg-background"}`}>
       <div className="mb-2 flex items-center justify-center gap-2">
         <h4 className={`text-center text-xs font-bold uppercase ${isCurrent ? "text-accent" : "text-muted"}`}>{MONTHS_ES[month]}</h4>
-        <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${overloaded ? "bg-amber-100 text-amber-700" : "bg-surface text-muted"}`}>{count}</span>
+        <span className="rounded-full bg-surface px-2 py-0.5 text-[10px] font-bold text-muted">{count}</span>
       </div>
 
       {projects.length === 0 ? (
@@ -353,8 +247,8 @@ function MonthColumn({ month, year, projects, count, qMonths, onAssign, onUnassi
       ) : (
         <div className="space-y-1.5">
           {projects.map((pn) => (
-            <ExpandableProjectCard key={pn.proyecto.id} node={pn} qMonths={qMonths}
-              onAssign={onAssign} onUnassign={onUnassign} isMentor={isMentor} inMonth={month} />
+            <ProjectCard key={pn.proyecto.id} node={pn} qMonthKeys={qMonthKeys}
+              currentMesKey={mesK} isMentor={isMentor} />
           ))}
         </div>
       )}
@@ -362,29 +256,63 @@ function MonthColumn({ month, year, projects, count, qMonths, onAssign, onUnassi
   );
 }
 
-function ExpandableProjectCard({ node, qMonths, onAssign, onUnassign, isMentor, inMonth, backlogStyle }: {
-  node: ProjNode; qMonths: number[];
-  onAssign: (id: string, month: number) => void; onUnassign: (id: string) => void;
-  isMentor: boolean; inMonth?: number; backlogStyle?: boolean;
+/* ================================================================
+   ProjectCard: proyecto con chips de meses + resultados
+   ================================================================ */
+
+function ProjectCard({ node, qMonthKeys, currentMesKey, isMentor, backlogStyle }: {
+  node: ProjNode; qMonthKeys: string[]; currentMesKey: string | null;
+  isMentor: boolean; backlogStyle?: boolean;
 }) {
+  const dispatch = useAppDispatch();
+  const { nombre: currentUser } = useUsuario();
   const [open, setOpen] = useState(false);
-  const expandable = node.resultados.length > 0;
+  const [newResName, setNewResName] = useState("");
+  const [adding, setAdding] = useState(false);
+
+  const mesesProj = node.proyecto.mesesActivos ?? [];
+
+  function toggleMes(mes: string) {
+    dispatch({ type: "TOGGLE_PROYECTO_MES", id: node.proyecto.id, mes });
+  }
+
+  function addResultado() {
+    const nombre = newResName.trim();
+    if (!nombre) return;
+    const id = generateId();
+    const mesesNuevoRes = currentMesKey ? [currentMesKey] : [];
+    dispatch({
+      type: "ADD_RESULTADO",
+      payload: {
+        id,
+        nombre,
+        descripcion: null,
+        proyectoId: node.proyecto.id,
+        creado: new Date().toISOString(),
+        semana: null,
+        fechaLimite: null,
+        fechaInicio: null,
+        diasEstimados: null,
+        responsable: currentUser,
+        mesesActivos: mesesNuevoRes,
+      },
+    });
+    setNewResName("");
+    setAdding(false);
+  }
 
   return (
     <div className={backlogStyle
       ? "rounded-xl border border-dashed border-border bg-surface/20"
       : "rounded-lg border-2 bg-background"
     } style={backlogStyle ? undefined : { borderColor: node.hex + "50" }}>
-      <button onClick={() => expandable && setOpen(!open)} className={`flex w-full items-center gap-1.5 p-2 text-left ${expandable ? "cursor-pointer" : "cursor-default"}`}>
-        {expandable ? (
-          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round"
-            className={`shrink-0 text-muted transition-transform ${open ? "rotate-90" : ""}`}>
-            <polyline points="9 18 15 12 9 6" />
-          </svg>
-        ) : <span className="w-2.5 shrink-0" />}
+      <button onClick={() => setOpen(!open)} className="flex w-full items-center gap-1.5 p-2 text-left">
+        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round"
+          className={`shrink-0 text-muted transition-transform ${open ? "rotate-90" : ""}`}>
+          <polyline points="9 18 15 12 9 6" />
+        </svg>
         <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: node.hex }} />
         <span className="flex-1 truncate text-xs font-semibold text-foreground">{node.proyecto.nombre}</span>
-        {backlogStyle && <span className="shrink-0 rounded-full bg-surface px-2 py-0.5 text-[10px] font-bold text-muted">{node.entCount} pend.</span>}
         <div className="flex items-center gap-1.5">
           <div className="h-1.5 w-12 overflow-hidden rounded-full bg-surface">
             <div className="h-full rounded-full transition-all" style={{ width: `${node.percent}%`, backgroundColor: node.hex }} />
@@ -392,31 +320,131 @@ function ExpandableProjectCard({ node, qMonths, onAssign, onUnassign, isMentor, 
           <span className="text-[9px] font-bold text-muted">{node.done}/{node.total}</span>
         </div>
       </button>
-      {node.proyecto.descripcion && !open && (
-        <p className="truncate px-2 pb-1.5 text-[10px] italic text-muted">{node.proyecto.descripcion}</p>
-      )}
+
       {open && (
-        <div className="space-y-1 px-2 pb-2">
-          {node.resultados.map((rn) => (
-            <div key={rn.resultado.id}>
-              <div className="mb-0.5 flex items-center gap-1.5">
-                <p className="text-[10px] font-semibold uppercase tracking-wider text-muted">{rn.resultado.nombre}</p>
-                {rn.resultado.fechaInicio && (
-                  <span className="rounded bg-accent/10 px-1.5 py-0.5 text-[9px] font-bold text-accent">
-                    {MONTHS_ES[new Date(rn.resultado.fechaInicio + "T12:00:00").getMonth()]}
-                  </span>
-                )}
+        <div className="space-y-2 px-2 pb-2">
+          {/* Chips meses del proyecto */}
+          {!isMentor && (
+            <div className="flex flex-wrap items-center gap-1">
+              <span className="mr-1 text-[9px] uppercase tracking-wider text-muted">Meses:</span>
+              {qMonthKeys.map((mk) => {
+                const active = mesesProj.includes(mk);
+                return (
+                  <button
+                    key={mk}
+                    onClick={() => toggleMes(mk)}
+                    className={`rounded px-1.5 py-0.5 text-[9px] font-semibold transition-colors ${
+                      active
+                        ? "bg-accent text-white"
+                        : "border border-border text-muted hover:border-accent hover:text-accent"
+                    }`}
+                  >
+                    {etiquetaMesCorta(mk)}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+
+          {/* Resultados */}
+          {node.resultados.length === 0 ? (
+            <p className="pl-2 text-[10px] italic text-muted/70">Sin resultados</p>
+          ) : (
+            <div className="space-y-1">
+              {node.resultados.map((r) => (
+                <ResultadoRow key={r.id} resultado={r} entregables={node.entregables.filter((e) => e.resultadoId === r.id)}
+                  qMonthKeys={qMonthKeys} isMentor={isMentor} hex={node.hex} />
+              ))}
+            </div>
+          )}
+
+          {!isMentor && (
+            adding ? (
+              <div className="flex items-center gap-1">
+                <input
+                  value={newResName}
+                  onChange={(e) => setNewResName(e.target.value)}
+                  placeholder="Nombre del resultado..."
+                  autoFocus
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") { e.preventDefault(); addResultado(); }
+                    if (e.key === "Escape") { setNewResName(""); setAdding(false); }
+                  }}
+                  className="flex-1 rounded border border-accent/40 bg-background px-2 py-1 text-[11px] text-foreground outline-none focus:border-accent"
+                />
+                <button onClick={addResultado} disabled={!newResName.trim()}
+                  className="rounded bg-accent px-2 py-1 text-[10px] font-semibold text-white disabled:opacity-40">+</button>
+                <button onClick={() => { setAdding(false); setNewResName(""); }}
+                  className="rounded border border-border px-2 py-1 text-[10px] text-muted">✕</button>
               </div>
-              {rn.entregables.length > 0 ? (
-                <div className="space-y-1 pl-2">
-                  {rn.entregables.map((ec) => (
-                    <EntregableRow key={ec.ent.id} ec={ec} qMonths={qMonths}
-                      onAssign={onAssign} onUnassign={onUnassign} isMentor={isMentor}
-                      currentMonth={inMonth} />
-                  ))}
-                </div>
-              ) : (
-                <p className="pl-2 text-[10px] italic text-muted/60">Sin entregables</p>
+            ) : (
+              <button onClick={() => setAdding(true)}
+                className="w-full rounded border border-dashed border-border py-1 text-[10px] font-medium text-muted hover:border-accent hover:text-accent">
+                + Añadir resultado
+              </button>
+            )
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ================================================================
+   ResultadoRow: nombre + chips ABR/MAY/JUN + entregables informativos
+   ================================================================ */
+
+function ResultadoRow({ resultado, entregables, qMonthKeys, isMentor, hex }: {
+  resultado: Resultado; entregables: Entregable[]; qMonthKeys: string[]; isMentor: boolean; hex: string;
+}) {
+  const dispatch = useAppDispatch();
+  const mesesRes = resultado.mesesActivos ?? [];
+
+  function toggleMes(mes: string) {
+    dispatch({ type: "TOGGLE_RESULTADO_MES", id: resultado.id, mes });
+  }
+
+  return (
+    <div className="rounded border border-border/60 bg-surface/40 p-1.5">
+      <div className="flex flex-wrap items-center gap-1.5">
+        <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ backgroundColor: hex }} />
+        <span className="flex-1 truncate text-[11px] font-semibold text-foreground">{resultado.nombre}</span>
+        {!isMentor && (
+          <div className="flex items-center gap-0.5">
+            {qMonthKeys.map((mk) => {
+              const active = mesesRes.includes(mk);
+              return (
+                <button
+                  key={mk}
+                  onClick={() => toggleMes(mk)}
+                  className={`rounded px-1 py-0.5 text-[9px] font-semibold transition-colors ${
+                    active ? "bg-accent text-white" : "border border-border text-muted hover:border-accent hover:text-accent"
+                  }`}
+                >
+                  {etiquetaMesCorta(mk)}
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </div>
+      {entregables.length > 0 && (
+        <div className="mt-1 space-y-0.5 pl-3">
+          {entregables.map((ent) => (
+            <div key={ent.id} className="flex items-center gap-1 text-[10px]">
+              <span className={`h-1 w-1 shrink-0 rounded-full ${
+                ent.estado === "hecho" ? "bg-emerald-500"
+                : ent.estado === "en_proceso" ? "bg-amber-500"
+                : "bg-gray-300"
+              }`} />
+              <span className={`flex-1 truncate ${ent.estado === "hecho" ? "text-muted line-through" : "text-muted"}`}>{ent.nombre}</span>
+              {ent.semana && (
+                <span className="shrink-0 rounded bg-background px-1 py-0.5 text-[8px] text-muted">
+                  {(() => {
+                    const m = mesKey(ent.semana);
+                    return m ? etiquetaMesCorta(m) : "";
+                  })()}
+                </span>
               )}
             </div>
           ))}
@@ -426,65 +454,9 @@ function ExpandableProjectCard({ node, qMonths, onAssign, onUnassign, isMentor, 
   );
 }
 
-function EntregableRow({ ec, qMonths, onAssign, onUnassign, isMentor, currentMonth }: {
-  ec: EntWithContext; qMonths: number[];
-  onAssign: (id: string, month: number) => void; onUnassign: (id: string) => void;
-  isMentor: boolean; currentMonth?: number;
-}) {
-  const [showActions, setShowActions] = useState(false);
-  const isDone = ec.ent.estado === "hecho";
-  const estadoBadge = isDone ? "bg-green-100 text-green-700"
-    : ec.ent.estado === "en_proceso" ? "bg-amber-100 text-amber-700"
-    : ec.ent.estado === "planificado" ? "bg-blue-100 text-blue-700" : "bg-gray-100 text-gray-500";
-  const assignedMonth = entMonth(ec.ent.fechaInicio);
-  const isInQ = qMonths.includes(assignedMonth);
-  const otherMonths = qMonths.filter((m) => m !== assignedMonth);
-
-  return (
-    <div className={`flex flex-wrap items-center gap-1.5 rounded bg-surface/50 px-1.5 py-1${isDone ? " opacity-50" : ""}`}>
-      {isDone
-        ? <span className="flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-full bg-green-500 text-[7px] text-white">✓</span>
-        : <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ backgroundColor: ec.hex }} />}
-      <span className={`flex-1 truncate text-[11px] ${isDone ? "text-muted line-through" : "text-foreground"}`}>{ec.ent.nombre}</span>
-      <span className={`shrink-0 rounded px-1 py-0.5 text-[8px] font-bold ${estadoBadge}`}>{isDone ? "hecho" : ec.ent.estado.replace("_", " ")}</span>
-      {isInQ && currentMonth == null && (
-        <span className="shrink-0 rounded bg-accent/10 px-1 py-0.5 text-[8px] font-bold text-accent">{MONTHS_ES[assignedMonth]}</span>
-      )}
-      {!isMentor && currentMonth != null && (
-        <button onClick={() => setShowActions(!showActions)}
-          className="shrink-0 rounded p-0.5 text-muted hover:bg-surface hover:text-foreground" title="Reasignar">
-          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><circle cx="12" cy="12" r="1" /><circle cx="12" cy="5" r="1" /><circle cx="12" cy="19" r="1" /></svg>
-        </button>
-      )}
-      {!isMentor && currentMonth == null && (
-        <div className="flex shrink-0 gap-0.5">
-          {qMonths.map((m) => (
-            <button key={m} onClick={() => onAssign(ec.ent.id, m)}
-              className={`rounded px-1 py-0.5 text-[8px] font-medium transition-colors ${
-                m === assignedMonth ? "bg-accent text-white" : "border border-border text-muted hover:border-accent hover:text-accent"
-              }`}>
-              {MONTHS_ES[m]}
-            </button>
-          ))}
-        </div>
-      )}
-      {showActions && currentMonth != null && (
-        <div className="flex w-full gap-1 pt-0.5">
-          {otherMonths.map((m) => (
-            <button key={m} onClick={() => { onAssign(ec.ent.id, m); setShowActions(false); }}
-              className="flex-1 rounded border border-border px-1 py-0.5 text-[10px] font-medium text-muted hover:border-accent hover:bg-accent-soft hover:text-accent">
-              {MONTHS_ES[m]}
-            </button>
-          ))}
-          <button onClick={() => { onUnassign(ec.ent.id); setShowActions(false); }}
-            className="rounded border border-red-200 px-1.5 py-0.5 text-[10px] font-medium text-red-400 hover:border-red-400 hover:bg-red-50 hover:text-red-600">
-            ✕
-          </button>
-        </div>
-      )}
-    </div>
-  );
-}
+/* ================================================================
+   ObjetivoRow
+   ================================================================ */
 
 function ObjetivoRow({ obj, isMentor }: { obj: Objetivo; isMentor: boolean }) {
   const dispatch = useAppDispatch();

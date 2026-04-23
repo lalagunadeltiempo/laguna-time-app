@@ -163,20 +163,16 @@ export function PlanSemana({ selectedDate }: Props) {
       const proj = res ? state.proyectos.find((p) => p.id === res.proyectoId) : undefined;
       if (filtro !== "todo" && proj && ambitoDeArea(proj.area) !== filtro) continue;
 
-      // Determinar en qué día de la semana encaja:
-      // 1) fecha propia o heredada dentro de la semana → ese día
-      // 2) semana explícita del resultado/proyecto coincide con el lunes → lunes
+      // Fuente primaria: ent.semana debe coincidir con la monday key de esta semana.
+      if (!ent.semana || ent.semana !== mondayKey) continue;
+
+      // Para distribuir en un día concreto: fecha propia/heredada si cae en la semana;
+      // si no, colocar en el lunes.
       const efectiva = fechaEfectivaEntregable(ent, res ?? null, proj ?? null);
       let dateKey: string | null = null;
       if (efectiva.inicio && weekKeys.has(efectiva.inicio)) dateKey = efectiva.inicio;
       else if (efectiva.fin && weekKeys.has(efectiva.fin)) dateKey = efectiva.fin;
-      else if (mondayKey) {
-        const semanasExp = [
-          ...((res?.semanasExplicitas) ?? []),
-          ...((proj?.semanasExplicitas) ?? []),
-        ];
-        if (semanasExp.includes(mondayKey)) dateKey = mondayKey;
-      }
+      else dateKey = mondayKey;
       if (!dateKey) continue;
 
       const hasActive = state.pasos.some((p) => p.entregableId === ent.id && state.pasosActivos.includes(p.id));
