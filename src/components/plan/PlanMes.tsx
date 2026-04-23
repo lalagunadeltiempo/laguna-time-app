@@ -30,26 +30,22 @@ const AREA_LABELS: Record<Area, string> = {
   ...Object.fromEntries(AREAS_PERSONAL.map((a) => [a.id, a.label])),
 } as Record<Area, string>;
 
-/** Para un resultado, calcula si está "activo" en el mes actual
- *  (según semanasActivas, mesesActivos, o semana legada).
+/** Para un resultado, calcula si está "activo" en el mes actual.
  *
- *  Si el resultado tiene marcas explícitas propias (mesesActivos,
- *  semanasActivas o semana legada), esas son autoritarias: los
- *  entregables con ent.semana NO activan el resultado en otros
- *  meses. Así evitamos que SOPs materializados con semanas fuera
- *  del mes marcado (p.ej. un autorrespondedor de abril) arrastren
- *  un resultado planificado solo para mayo. */
+ *  Jerarquía (la superior gana con prioridad absoluta):
+ *   1. `mesesActivos` (explícito): si está definido, solo es activo en
+ *      los meses marcados. Las `semanasActivas` o `semana` no pueden
+ *      expandirlo a otros meses (p.ej. semanas cross-month como
+ *      "2026-04-27" que es S5 abril y S1 mayo a la vez).
+ *   2. Si no hay `mesesActivos`, fallback a `semanasActivas`, `semana`
+ *      legada o entregables con `ent.semana` del mes. */
 function resultadoActivoEnMes(r: Resultado, entregables: Entregable[], mesK: string, weekMondays: Set<string>): boolean {
-  if ((r.mesesActivos ?? []).includes(mesK)) return true;
+  const mesesExplicitos = r.mesesActivos ?? [];
+  if (mesesExplicitos.length > 0) {
+    return mesesExplicitos.includes(mesK);
+  }
   if ((r.semanasActivas ?? []).some((sk) => weekMondays.has(sk) || mesKeyOf(sk) === mesK)) return true;
   if (r.semana && (weekMondays.has(r.semana) || mesKeyOf(r.semana) === mesK)) return true;
-
-  const tieneMarcasExplicitas =
-    (r.mesesActivos?.length ?? 0) > 0 ||
-    (r.semanasActivas?.length ?? 0) > 0 ||
-    !!r.semana;
-  if (tieneMarcasExplicitas) return false;
-
   if (entregables.some((e) => e.semana && (weekMondays.has(e.semana) || mesKeyOf(e.semana) === mesK))) return true;
   return false;
 }
