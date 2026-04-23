@@ -178,13 +178,15 @@ export function PlanSemana({ selectedDate, onOpenInMapa }: Props) {
       // Si el entregable tiene semana propia en OTRA semana y no tiene días aquí, excluir
       if (ent.semana && ent.semana !== mondayKeyStr && !pertenecePorDias) continue;
 
-      // Conjunto de días para los que emitir un bloque planificado
+      // Conjunto de días para los que emitir un bloque planificado:
+      //   1) diasPlanificados que caen en esta semana
+      //   2) fallback legacy: fechaInicio si cae en esta semana
+      //   3) si no hay nada anterior → NO se emite bloque (irá al listado "sin día")
       const diasEnSemana = new Set<string>(diasEnEstaSemana);
       if (diasEnSemana.size === 0) {
         const efectiva = fechaEfectivaEntregable(ent, res ?? null, proj ?? null);
         if (efectiva.inicio && weekKeys.has(efectiva.inicio)) diasEnSemana.add(efectiva.inicio);
         else if (efectiva.fin && weekKeys.has(efectiva.fin)) diasEnSemana.add(efectiva.fin);
-        else if (mondayKeyStr) diasEnSemana.add(mondayKeyStr);
       }
 
       const hasActive = state.pasos.some((p) => p.entregableId === ent.id && state.pasosActivos.includes(p.id));
@@ -276,6 +278,12 @@ export function PlanSemana({ selectedDate, onOpenInMapa }: Props) {
 
       const diasEnEstaSemana = (ent.diasPlanificados ?? []).filter((k) => weekKeys.has(k));
       if (diasEnEstaSemana.length > 0) continue;
+
+      // Fallback legacy: si fechaInicio/fechaEfectiva cae en esta semana, ya tiene día de facto.
+      const efectiva = fechaEfectivaEntregable(ent, res ?? null, proj ?? null);
+      const inicioEnSemana = !!efectiva.inicio && weekKeys.has(efectiva.inicio);
+      const finEnSemana = !!efectiva.fin && weekKeys.has(efectiva.fin);
+      if (inicioEnSemana || finEnSemana) continue;
 
       out.push({
         ent,
