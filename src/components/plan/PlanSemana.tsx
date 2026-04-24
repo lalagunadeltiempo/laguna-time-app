@@ -80,82 +80,12 @@ export function PlanSemana({ selectedDate, onOpenInMapa }: Props) {
     const result: WeekBlock[] = [];
     const weekKeys = new Set(weekDates.map((d) => toDateKey(d)));
 
-    for (const paso of state.pasos) {
-      if (!paso.inicioTs) continue;
-      const pasoDate = paso.inicioTs.slice(0, 10);
-      if (!weekKeys.has(pasoDate)) continue;
-
-      const ent = state.entregables.find((e) => e.id === paso.entregableId);
-      if (!ent) continue;
-      if (viewMode === "yo" && ent.responsable && ent.responsable !== currentUser) continue;
-
-      const res = state.resultados.find((r) => r.id === ent.resultadoId);
-      const proj = res ? state.proyectos.find((p) => p.id === res.proyectoId) : undefined;
-      if (filtro !== "todo" && proj && ambitoDeArea(proj.area) !== filtro) continue;
-
-      const isDone = !!paso.finTs;
-      if (isDone && !showDone) continue;
-
-      const isActive = state.pasosActivos.includes(paso.id);
-      result.push({
-        id: paso.id,
-        area: proj?.area ?? "operativa",
-        title: paso.nombre,
-        subtitle: subtituloEntregable(ent, state),
-        responsable: ent.responsable ?? "",
-        dateKey: pasoDate,
-        type: isDone ? "done" : isActive ? "active" : "programado",
-        origen: "paso",
-        entregableId: ent.id,
-        pasoId: paso.id,
-        proyectoId: proj?.id,
-        tieneActivePaso: isActive,
-      });
-    }
-
-    for (const paso of state.pasos) {
-      if (!paso.finTs || !paso.siguientePaso) continue;
-      if (paso.siguientePaso.tipo !== "continuar") continue;
-      let fp = paso.siguientePaso.fechaProgramada;
-      if (!fp) continue;
-
-      if (fp === "manana") {
-        const finDate = new Date(paso.finTs);
-        finDate.setDate(finDate.getDate() + 1);
-        fp = toDateKey(finDate);
-      }
-
-      if (!weekKeys.has(fp)) continue;
-      if (fp < todayKey) continue;
-      if (result.some((b) => b.id === `next-${paso.id}`)) continue;
-
-      const ent = state.entregables.find((e) => e.id === paso.entregableId);
-      if (!ent) continue;
-      if (viewMode === "yo" && ent.responsable && ent.responsable !== currentUser) continue;
-
-      const res = state.resultados.find((r) => r.id === ent.resultadoId);
-      const proj = res ? state.proyectos.find((p) => p.id === res.proyectoId) : undefined;
-      if (filtro !== "todo" && proj && ambitoDeArea(proj.area) !== filtro) continue;
-
-      result.push({
-        id: `next-${paso.id}`,
-        area: proj?.area ?? "operativa",
-        title: paso.siguientePaso.nombre ?? paso.nombre,
-        subtitle: subtituloEntregable(ent, state),
-        responsable: ent.responsable ?? "",
-        dateKey: fp,
-        type: "programado",
-        origen: "paso-next",
-        entregableId: ent.id,
-        pasoId: paso.id,
-        proyectoId: proj?.id,
-      });
-    }
-
-    const entIdsWithPasos = new Set(result.map((b) => {
-      const p = state.pasos.find((pp) => pp.id === b.id || b.id === `next-${pp.id}`);
-      return p?.entregableId;
-    }).filter(Boolean));
+    // NOTA: en la vista Semana trabajamos sólo a nivel de ENTREGABLE.
+    // Antes pintábamos un bloque por cada paso ejecutado (inicioTs en la
+    // semana) y por cada "siguientePaso" programado (legacy), pero eso
+    // apilaba decenas de bloques por día. La unidad de planificación ahora
+    // es el entregable: un entregable = un bloque por día que lo tocas.
+    // El trabajo real hecho se refleja con bloques `sesion-hecha` más abajo.
 
     const mondayKeyStr = weekDates[0] ? toDateKey(weekDates[0]) : null;
     const entregablesEnSemana: { ent: typeof state.entregables[number]; diasUsados: Set<string> }[] = [];
@@ -163,7 +93,6 @@ export function PlanSemana({ selectedDate, onOpenInMapa }: Props) {
     for (const ent of state.entregables) {
       if (ent.estado === "cancelada") continue;
       if (ent.estado === "hecho" && !showDone) continue;
-      if (entIdsWithPasos.has(ent.id)) continue;
       if (viewMode === "yo" && ent.responsable && ent.responsable !== currentUser) continue;
 
       const res = state.resultados.find((r) => r.id === ent.resultadoId);
@@ -216,11 +145,25 @@ export function PlanSemana({ selectedDate, onOpenInMapa }: Props) {
       entregablesEnSemana.push({ ent, diasUsados: diasEnSemana });
     }
 
-    // Bloques de "sesión trabajada" en días que no tienen bloque planificado
-    for (const { ent, diasUsados } of entregablesEnSemana) {
+    // Bloques de "sesión trabajada". Aplicamos a cualquier entregable que
+    // haya sido trabajado en algún día de esta semana, aunque no estuviera
+    // marcado como "de la semana" (esto antes lo cubrían los bloques de paso,
+    // que hemos retirado). Para los entregables que sí estaban planificados
+    // esta semana, evitamos duplicar en días que ya tengan su bloque.
+    const diasUsadosPorEnt = new Map<string, Set<string>>();
+    for (const { ent, diasUsados } of entregablesEnSemana) diasUsadosPorEnt.set(ent.id, diasUsados);
+
+    for (const ent of state.entregables) {
+      if (ent.estado === "cancelada") continue;
+      if (ent.estado === "hecho" && !showDone) continue;
+      if (viewMode === "yo" && ent.responsable && ent.responsable !== currentUser) continue;
       if (!Array.isArray(ent.sesiones) || ent.sesiones.length === 0) continue;
+
       const res = state.resultados.find((r) => r.id === ent.resultadoId);
       const proj = res ? state.proyectos.find((p) => p.id === res.proyectoId) : undefined;
+      if (filtro !== "todo" && proj && ambitoDeArea(proj.area) !== filtro) continue;
+
+      const diasUsados = diasUsadosPorEnt.get(ent.id) ?? new Set<string>();
       const diasConSesion = new Set<string>();
       for (const s of ent.sesiones) {
         const k = (s.inicioTs ?? "").slice(0, 10);
@@ -228,7 +171,7 @@ export function PlanSemana({ selectedDate, onOpenInMapa }: Props) {
       }
       for (const k of diasConSesion) {
         if (!weekKeys.has(k)) continue;
-        if (diasUsados.has(k)) continue; // ya hay un bloque planificado ese día
+        if (diasUsados.has(k)) continue;
         result.push({
           id: `sesion-${ent.id}-${k}`,
           area: proj?.area ?? "operativa",
@@ -245,7 +188,7 @@ export function PlanSemana({ selectedDate, onOpenInMapa }: Props) {
     }
 
     return result;
-  }, [state, weekDates, viewMode, currentUser, todayKey, filtro, showDone]);
+  }, [state, weekDates, viewMode, currentUser, filtro, showDone]);
 
   const blocksByDay = useMemo(() => {
     const map = new Map<string, WeekBlock[]>();
