@@ -191,6 +191,20 @@ export function PlanHoy({ selectedDate }: Props) {
   }, [state, dateKey, currentUser]);
 
   const hookPlanned = usePlannedBlocks(dateKey);
+
+  /**
+   * Entregables que ya tienen sesión (activa o terminada) hoy.
+   * Sirven para no duplicarlos en "Planificado": si ya están ejecutándose o
+   * hechos, sólo se ven en el Horario.
+   */
+  const entregablesEnHorario = useMemo(() => {
+    const ids = new Set<string>();
+    for (const b of executedBlocks) {
+      if (b.entregableId) ids.add(b.entregableId);
+    }
+    return ids;
+  }, [executedBlocks]);
+
   const { plannedPrincipal, plannedArrastrado } = useMemo(() => {
     if (isPast && !isToday) {
       return { plannedPrincipal: [] as Block[], plannedArrastrado: [] as Block[] };
@@ -219,6 +233,7 @@ export function PlanHoy({ selectedDate }: Props) {
     const principal: Block[] = [];
     const arrastrado: Block[] = [];
     for (const hb of hookPlanned) {
+      if (hb.entregableId && entregablesEnHorario.has(hb.entregableId)) continue;
       const block = toBlock(hb);
       if (hb.origen === "arrastrado") arrastrado.push(block);
       else principal.push(block);
@@ -226,7 +241,7 @@ export function PlanHoy({ selectedDate }: Props) {
     principal.sort(cmp);
     arrastrado.sort(cmp);
     return { plannedPrincipal: principal, plannedArrastrado: arrastrado };
-  }, [hookPlanned, isPast, isToday]);
+  }, [hookPlanned, isPast, isToday, entregablesEnHorario]);
 
   /**
    * Asigna (o limpia) la hora planificada de un bloque a nivel ENTREGABLE.
@@ -693,12 +708,25 @@ export function PlanHoy({ selectedDate }: Props) {
               <div className="flex-1 px-2 py-1">
                 {hourBlocks.map((block) => {
                   const color = AREA_COLORS[block.area]?.hex ?? "#888";
-                  const clickable = (block.type === "done" || block.type === "active") && !!block.pasoId;
+                  // Priorizamos abrir el detalle del entregable (notas, URLs,
+                  // pasos, historial de sesiones con edición de horas…). Si el
+                  // bloque es un paso legacy sin entregable asociado, caemos al
+                  // editor de tiempos del paso como antes.
+                  const openDetalle = block.entregableId ? () => setDetalleEntregableId(block.entregableId!) : null;
+                  const openLegacyPasoEditor = !openDetalle && (block.type === "done" || block.type === "active") && !!block.pasoId
+                    ? () => setEditingBlock(block)
+                    : null;
+                  const onClick = openDetalle ?? openLegacyPasoEditor;
+                  const clickable = !!onClick;
                   return (
                     <div key={block.id}
                       className={`mb-1 rounded-lg border-l-[3px] px-3 py-2 ${clickable ? "cursor-pointer hover:brightness-95 transition-all" : ""}`}
                       style={{ borderLeftColor: color, backgroundColor: color + "0c" }}
-                      onClick={clickable ? () => setEditingBlock(block) : undefined}>
+                      onClick={onClick ?? undefined}
+                      role={clickable ? "button" : undefined}
+                      tabIndex={clickable ? 0 : undefined}
+                      title={openDetalle ? "Abrir entregable (notas, URLs, pasos…)" : undefined}
+                      onKeyDown={clickable ? (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onClick?.(); } } : undefined}>
                       <div className="flex items-center gap-2">
                         {block.type === "active" && (
                           <span className="relative flex h-2 w-2" aria-hidden="true">
@@ -709,7 +737,14 @@ export function PlanHoy({ selectedDate }: Props) {
                         {block.type === "done" && (
                           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#22c55e" strokeWidth="3" strokeLinecap="round"><polyline points="20 6 9 17 4 12" /></svg>
                         )}
-                        <span className={`text-sm font-medium ${block.type === "done" ? "text-muted line-through" : "text-foreground"}`}>{block.title}</span>
+                        <span className={`flex-1 text-sm font-medium ${block.type === "done" ? "text-muted line-through" : "text-foreground"}`}>{block.title}</span>
+                        {openDetalle && (
+                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 text-muted/60" aria-hidden="true">
+                            <path d="M14 3h7v7" />
+                            <path d="M10 14 21 3" />
+                            <path d="M21 14v5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5" />
+                          </svg>
+                        )}
                       </div>
                       <p className="mt-0.5 text-xs text-muted">{block.subtitle}</p>
                       {(block.timeLabel || block.durationLabel) && (
