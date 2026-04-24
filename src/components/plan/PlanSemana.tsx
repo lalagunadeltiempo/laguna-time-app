@@ -126,7 +126,20 @@ export function PlanSemana({ selectedDate, onOpenInMapa }: Props) {
 
       const hasActive = state.pasos.some((p) => p.entregableId === ent.id && state.pasosActivos.includes(p.id));
 
+      // Días en los que YA hay una sesión cerrada del entregable: se marcan
+      // como trabajados (estilo "sesion-hecha") aunque estuvieran planificados.
+      // Así un entregable trabajado se ve igual esté planificado o no.
+      const diasConSesionCerrada = new Set<string>();
+      if (Array.isArray(ent.sesiones)) {
+        for (const s of ent.sesiones) {
+          if (!s.finTs) continue;
+          const k = (s.inicioTs ?? "").slice(0, 10);
+          if (k) diasConSesionCerrada.add(k);
+        }
+      }
+
       for (const dateKey of diasEnSemana) {
+        const trabajadoEseDia = diasConSesionCerrada.has(dateKey);
         result.push({
           id: `ent-${ent.id}-${dateKey}`,
           area: proj?.area ?? "operativa",
@@ -134,7 +147,7 @@ export function PlanSemana({ selectedDate, onOpenInMapa }: Props) {
           subtitle: subtituloEntregable(ent, state),
           responsable: ent.responsable ?? "",
           dateKey,
-          type: ent.estado === "hecho" ? "done" : "programado",
+          type: ent.estado === "hecho" ? "done" : trabajadoEseDia ? "sesion-hecha" : "programado",
           origen: "ent",
           entregableId: ent.id,
           proyectoId: proj?.id,
