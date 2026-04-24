@@ -52,6 +52,10 @@ export type Action =
   | { type: "FINISH_ENTREGABLE"; id: string; ts?: string }
   | { type: "DISCARD_ENTREGABLE_SESION"; id: string }
   | { type: "APPEND_SESION_ENTREGABLE"; id: string; inicioTs: string; finTs: string }
+  /** Edita los timestamps de una sesión concreta (por índice).
+   *  - `inicioTs` se actualiza siempre.
+   *  - `finTs` puede ser null → la sesión vuelve/sigue en curso. */
+  | { type: "UPDATE_SESION_ENTREGABLE_TIMES"; id: string; sesionIdx: number; inicioTs: string; finTs: string | null }
   | { type: "UPDATE_ENTREGABLE_CONTEXTO"; id: string; contexto: Entregable["contexto"] }
   | { type: "UPDATE_ENTREGABLE_IMPLICADOS"; id: string; implicados: Entregable["implicados"] }
   | { type: "SET_ENTREGABLE_PLAN_INICIO"; id: string; ts: string | null }
@@ -519,6 +523,26 @@ export function reducer(state: AppState, action: Action): AppState {
           const sesiones = Array.isArray(e.sesiones) ? [...e.sesiones] : [];
           sesiones.push({ inicioTs, finTs, pausas: [] });
           // Ordenamos por inicioTs ascendente para mantener coherencia histórica.
+          sesiones.sort((a, b) => a.inicioTs.localeCompare(b.inicioTs));
+          return { ...e, sesiones };
+        }),
+      };
+    }
+
+    case "UPDATE_SESION_ENTREGABLE_TIMES": {
+      const { id, sesionIdx, inicioTs, finTs } = action;
+      if (!inicioTs) return state;
+      // Si hay fin, debe ser posterior al inicio.
+      if (finTs !== null && new Date(finTs).getTime() <= new Date(inicioTs).getTime()) return state;
+      return {
+        ...state,
+        entregables: state.entregables.map((e) => {
+          if (e.id !== id) return e;
+          const sesiones = Array.isArray(e.sesiones) ? [...e.sesiones] : [];
+          if (sesionIdx < 0 || sesionIdx >= sesiones.length) return e;
+          const ses = sesiones[sesionIdx];
+          sesiones[sesionIdx] = { ...ses, inicioTs, finTs };
+          // Mantener orden cronológico.
           sesiones.sort((a, b) => a.inicioTs.localeCompare(b.inicioTs));
           return { ...e, sesiones };
         }),

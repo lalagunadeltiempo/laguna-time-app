@@ -10,7 +10,7 @@ import { toDateKey } from "@/lib/date-utils";
 import { Timer } from "./Timer";
 import { NotasSection } from "./shared/NotasSection";
 import { EditableText } from "./shared/EditableText";
-import { RegistrarSesionIconButton } from "./shared/RegistrarSesionPopover";
+import { RegistrarSesionIconButton, EditarSesionPopover } from "./shared/RegistrarSesionPopover";
 
 interface Props {
   entregable: Entregable;
@@ -618,7 +618,7 @@ export function EntregableActivoCard({ entregable, mode = "trabajo" }: Props) {
               </RegistrarSesionIconButton>
             </div>
             {sesiones.length > 0 && (
-              <SesionesEntregableHistory sesiones={sesiones} borderColor={borderColor} hideTitle />
+              <SesionesEntregableHistory sesiones={sesiones} borderColor={borderColor} hideTitle entregableId={entregable.id} />
             )}
           </div>
 
@@ -677,7 +677,9 @@ export function EntregableActivoCard({ entregable, mode = "trabajo" }: Props) {
   );
 }
 
-function SesionesEntregableHistory({ sesiones, borderColor, hideTitle }: { sesiones: SesionEntregable[]; borderColor: string; hideTitle?: boolean }) {
+function SesionesEntregableHistory({ sesiones, borderColor, hideTitle, entregableId }: { sesiones: SesionEntregable[]; borderColor: string; hideTitle?: boolean; entregableId?: string }) {
+  const [editing, setEditing] = useState<number | null>(null);
+
   if (sesiones.length === 0) return null;
 
   const fmtTs = (ts: string) => {
@@ -693,14 +695,19 @@ function SesionesEntregableHistory({ sesiones, borderColor, hideTitle }: { sesio
     return h > 0 ? `${h}h ${m}m` : `${m}m`;
   };
 
-  const byDay = new Map<string, SesionEntregable[]>();
-  for (const s of sesiones) {
+  // Mantenemos el índice global (posición en `sesiones`) para que al editar
+  // podamos referenciarla sin depender del agrupado por día.
+  type SesionConIdx = { s: SesionEntregable; globalIdx: number };
+  const byDay = new Map<string, SesionConIdx[]>();
+  sesiones.forEach((s, globalIdx) => {
     const k = s.inicioTs.slice(0, 10);
     const arr = byDay.get(k) ?? [];
-    arr.push(s);
+    arr.push({ s, globalIdx });
     byDay.set(k, arr);
-  }
+  });
   const days = Array.from(byDay.keys()).sort((a, b) => b.localeCompare(a));
+
+  const editingSesion = editing !== null ? sesiones[editing] : null;
 
   return (
     <div className="space-y-1">
@@ -713,9 +720,10 @@ function SesionesEntregableHistory({ sesiones, borderColor, hideTitle }: { sesio
             <p className="text-[9px] text-zinc-400 dark:text-zinc-500">
               {new Date(`${day}T00:00:00`).toLocaleDateString("es-ES", { weekday: "short", day: "numeric", month: "short" })}
             </p>
-            {(byDay.get(day) ?? []).map((s, i) => (
-              <div key={i} className="flex items-center gap-2 rounded px-2 py-1 text-[10px]"
-                style={s.finTs === null ? { backgroundColor: `${borderColor}10` } : undefined}>
+            {(byDay.get(day) ?? []).map(({ s, globalIdx }) => {
+              const clickable = !!entregableId;
+              const row = (
+                <>
                 <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: s.finTs === null ? borderColor : "#d4d4d8" }} />
                 <span className="text-zinc-500 dark:text-zinc-400">{fmtTs(s.inicioTs)}</span>
                 {s.finTs ? (
@@ -727,11 +735,38 @@ function SesionesEntregableHistory({ sesiones, borderColor, hideTitle }: { sesio
                 ) : (
                   <span className="ml-auto text-[9px] font-medium" style={{ color: borderColor }}>En curso</span>
                 )}
-              </div>
-            ))}
+                </>
+              );
+              const commonStyle = s.finTs === null ? { backgroundColor: `${borderColor}10` } : undefined;
+              return clickable ? (
+                <button
+                  key={globalIdx}
+                  type="button"
+                  onClick={() => setEditing(globalIdx)}
+                  title="Editar hora"
+                  className="flex w-full items-center gap-2 rounded px-2 py-1 text-left text-[10px] transition-colors hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                  style={commonStyle}
+                >
+                  {row}
+                </button>
+              ) : (
+                <div key={globalIdx} className="flex items-center gap-2 rounded px-2 py-1 text-[10px]" style={commonStyle}>
+                  {row}
+                </div>
+              );
+            })}
           </div>
         ))}
       </div>
+      {editing !== null && editingSesion && entregableId && (
+        <EditarSesionPopover
+          entregableId={entregableId}
+          sesionIdx={editing}
+          inicioTsActual={editingSesion.inicioTs}
+          finTsActual={editingSesion.finTs}
+          onClose={() => setEditing(null)}
+        />
+      )}
     </div>
   );
 }

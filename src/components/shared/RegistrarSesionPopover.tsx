@@ -226,3 +226,147 @@ export function RegistrarSesionIconButton({
     </>
   );
 }
+
+interface EditarSesionPopoverProps {
+  entregableId: string;
+  sesionIdx: number;
+  inicioTsActual: string;
+  /** null → la sesión está en curso. */
+  finTsActual: string | null;
+  onClose: () => void;
+}
+
+/**
+ * Popover para editar los timestamps de una sesión existente.
+ * Si la sesión estaba en curso (`finTsActual === null`), se ofrece un toggle
+ * "Sigue en curso" para mantenerla abierta o cerrarla ahora.
+ */
+export function EditarSesionPopover({
+  entregableId,
+  sesionIdx,
+  inicioTsActual,
+  finTsActual,
+  onClose,
+}: EditarSesionPopoverProps) {
+  const dispatch = useAppDispatch();
+  const [inicio, setInicio] = useState(() => toLocalDateTimeStr(new Date(inicioTsActual)));
+  const abiertaInicial = finTsActual === null;
+  const [sigueEnCurso, setSigueEnCurso] = useState<boolean>(abiertaInicial);
+  const [fin, setFin] = useState(() =>
+    finTsActual ? toLocalDateTimeStr(new Date(finTsActual)) : toLocalDateTimeStr(new Date()),
+  );
+
+  const duracionMin = useMemo(() => {
+    try {
+      if (sigueEnCurso) {
+        const ms = Date.now() - new Date(inicio).getTime();
+        if (!Number.isFinite(ms) || ms <= 0) return 0;
+        return Math.round(ms / 60000);
+      }
+      const ms = new Date(fin).getTime() - new Date(inicio).getTime();
+      if (!Number.isFinite(ms) || ms <= 0) return 0;
+      return Math.round(ms / 60000);
+    } catch {
+      return 0;
+    }
+  }, [inicio, fin, sigueEnCurso]);
+
+  const canSubmit = !!inicio && duracionMin > 0;
+
+  function submit() {
+    if (!canSubmit) return;
+    const inicioTs = new Date(inicio).toISOString();
+    const finTs = sigueEnCurso ? null : new Date(fin).toISOString();
+    if (finTs !== null && new Date(finTs) <= new Date(inicioTs)) return;
+    dispatch({
+      type: "UPDATE_SESION_ENTREGABLE_TIMES",
+      id: entregableId,
+      sesionIdx,
+      inicioTs,
+      finTs,
+    });
+    onClose();
+  }
+
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") onClose();
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  return (
+    <div
+      className="fixed inset-0 z-[60] flex items-center justify-center bg-black/30 px-4 backdrop-blur-sm"
+      role="dialog"
+      aria-modal="true"
+      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+    >
+      <div className="w-full max-w-sm rounded-2xl bg-background p-5 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+        <h3 className="mb-1 text-base font-bold text-foreground">Editar sesión</h3>
+        <p className="mb-4 text-[11px] text-muted">
+          {abiertaInicial
+            ? "Ajusta la hora de inicio si empezaste antes de darle al play."
+            : "Corrige los horarios de esta sesión."}
+        </p>
+
+        <div className="mb-3 grid grid-cols-2 gap-2">
+          <div className={sigueEnCurso ? "col-span-2" : ""}>
+            <label className="mb-1 block text-[11px] font-medium text-muted">Inicio</label>
+            <input
+              type="datetime-local"
+              value={inicio}
+              onChange={(e) => setInicio(e.target.value)}
+              autoFocus
+              className="w-full rounded-lg border border-border bg-background px-2 py-2 text-sm text-foreground outline-none focus:border-accent"
+            />
+          </div>
+          {!sigueEnCurso && (
+            <div>
+              <label className="mb-1 block text-[11px] font-medium text-muted">Fin</label>
+              <input
+                type="datetime-local"
+                value={fin}
+                onChange={(e) => setFin(e.target.value)}
+                className="w-full rounded-lg border border-border bg-background px-2 py-2 text-sm text-foreground outline-none focus:border-accent"
+              />
+            </div>
+          )}
+        </div>
+
+        <label className="mb-3 flex cursor-pointer items-center gap-2 rounded-lg border border-border bg-surface/40 px-3 py-2 text-xs text-foreground">
+          <input
+            type="checkbox"
+            checked={sigueEnCurso}
+            onChange={(e) => setSigueEnCurso(e.target.checked)}
+            className="h-4 w-4 accent-accent"
+          />
+          {abiertaInicial ? "Sigue en curso (no cerrarla aún)" : "Dejarla como en curso"}
+        </label>
+
+        <p className="mb-3 text-[11px] text-muted">
+          {duracionMin > 0
+            ? `Duración${sigueEnCurso ? " (hasta ahora)" : ""}: ${duracionMin >= 60 ? `${Math.floor(duracionMin / 60)}h ${duracionMin % 60}m` : `${duracionMin}m`}`
+            : "El fin debe ser posterior al inicio."}
+        </p>
+
+        <div className="flex gap-2">
+          <button
+            onClick={onClose}
+            className="flex-1 rounded-xl border border-border py-2.5 text-xs font-medium text-muted hover:bg-surface"
+          >
+            Cancelar
+          </button>
+          <button
+            onClick={submit}
+            disabled={!canSubmit}
+            className="flex-1 rounded-xl bg-accent py-2.5 text-xs font-semibold text-white disabled:opacity-40 hover:bg-accent/90"
+          >
+            Guardar
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
