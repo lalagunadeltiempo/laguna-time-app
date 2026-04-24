@@ -113,45 +113,15 @@ export function PlanHoy({ selectedDate }: Props) {
   }, [isToday, dateKey]);
 
   const executedBlocks = useMemo(() => {
-    const { pasos, entregables, resultados, proyectos, pasosActivos } = state;
+    const { entregables, resultados, proyectos } = state;
     const result: Block[] = [];
 
-    // Pasos legacy con inicioTs en dateKey.
-    for (const paso of pasos) {
-      if (!paso.inicioTs) continue;
-      if (paso.inicioTs.slice(0, 10) !== dateKey) continue;
-      const isDone = !!paso.finTs;
-      const isActive = !isDone && pasosActivos.includes(paso.id);
-      if (!isDone && !isActive) continue;
-
-      const ent = entregables.find((e) => e.id === paso.entregableId);
-      if (!ent) continue;
-      if (ent.responsable && ent.responsable !== currentUser) continue;
-      const res = resultados.find((r) => r.id === ent.resultadoId);
-      const proj = res ? proyectos.find((pr) => pr.id === res.proyectoId) : undefined;
-      const hour = new Date(paso.inicioTs).getHours();
-      const startMin = minsFromMidnight(paso.inicioTs);
-      const endMin = paso.finTs ? minsFromMidnight(paso.finTs) : startMin;
-      const dur = endMin - startMin;
-
-      result.push({
-        id: `paso-${paso.id}`,
-        type: isDone ? "done" : "active",
-        area: proj?.area ?? "operativa",
-        title: paso.nombre,
-        subtitle: `${proj?.nombre ?? ""} · ${ent.nombre} · paso`,
-        hour,
-        entregableId: ent.id,
-        pasoId: paso.id,
-        proyectoId: proj?.id,
-        proyectoNombre: proj?.nombre,
-        entregableNombre: ent.nombre,
-        startMin,
-        endMin: isDone ? endMin : undefined,
-        timeLabel: isDone ? `${fmtTime(startMin)} – ${fmtTime(endMin)}` : fmtTime(startMin),
-        durationLabel: isDone ? fmtDuration(dur) : undefined,
-      });
-    }
+    // NOTA: la unidad de trabajo es el ENTREGABLE. Antes pintábamos también
+    // un bloque por cada PASO ejecutado (legacy), lo que apilaba varias filas
+    // por hora cuando un entregable tenía varios pasos hechos. Ahora el
+    // horario muestra sólo bloques de SESIÓN del entregable: una sesión =
+    // un bloque. Los pasos siguen visibles dentro del detalle del entregable
+    // como checklist.
 
     // Sesiones de entregable que ocurrieron en dateKey.
     for (const ent of entregables) {
