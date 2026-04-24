@@ -12,6 +12,7 @@ import { EntregableActivoCard } from "./EntregableActivo";
 import { NuevoPaso } from "./NuevoPaso";
 import { VistaInbox } from "./VistaInbox";
 import HierarchyPicker from "./shared/HierarchyPicker";
+import { RegistrarSesionIconButton } from "./shared/RegistrarSesionPopover";
 
 export function PantallaHoy() {
   const isMentor = useIsMentor();
@@ -22,7 +23,6 @@ export function PantallaHoy() {
   const [showNuevoPaso, setShowNuevoPaso] = useState(false);
   const [showInbox, setShowInbox] = useState(false);
   const [showEndOfDay, setShowEndOfDay] = useState(false);
-  const [showRetro, setShowRetro] = useState(false);
   const [quickCapture, setQuickCapture] = useState("");
 
   const depsEntrantes = useDependenciasEntrantes();
@@ -238,13 +238,13 @@ export function PantallaHoy() {
                   <p className="mt-1 text-[10px] font-semibold uppercase tracking-wider text-muted/70">Por hora</p>
                 )}
                 {conHora.map((block) => (
-                  <PlannedRow key={block.id} block={block} onStart={() => startPlannedBlock(block)} onCerrarPorHoy={cerrarEntregablePorHoy} />
+                  <PlannedRow key={block.id} block={block} onStart={() => startPlannedBlock(block)} onCerrarPorHoy={cerrarEntregablePorHoy} todayKey={todayKey} />
                 ))}
                 {sinHora.length > 0 && (
                   <p className="mt-2 text-[10px] font-semibold uppercase tracking-wider text-muted/70">Sin hora</p>
                 )}
                 {sinHora.map((block) => (
-                  <PlannedRow key={block.id} block={block} onStart={() => startPlannedBlock(block)} onCerrarPorHoy={cerrarEntregablePorHoy} />
+                  <PlannedRow key={block.id} block={block} onStart={() => startPlannedBlock(block)} onCerrarPorHoy={cerrarEntregablePorHoy} todayKey={todayKey} />
                 ))}
               </>
             );
@@ -271,7 +271,7 @@ export function PantallaHoy() {
           {otrosOpen && (
             <div className="mt-2 space-y-1.5">
               {blocksOtros.map((block) => (
-                <PlannedRow key={block.id} block={block} onStart={() => startPlannedBlock(block)} onCerrarPorHoy={cerrarEntregablePorHoy} />
+                <PlannedRow key={block.id} block={block} onStart={() => startPlannedBlock(block)} onCerrarPorHoy={cerrarEntregablePorHoy} todayKey={todayKey} />
               ))}
             </div>
           )}
@@ -297,14 +297,6 @@ export function PantallaHoy() {
             <circle cx="12" cy="12" r="10" /><path d="M12 6v12M6 12h12" />
           </svg>
           {(pasosActivos.length > 0 || entregablesEnCurso.length > 0) ? "Iniciar otro paso" : "Iniciar un paso"}
-        </button>
-        <button
-          onClick={() => setShowRetro(true)}
-          className="flex items-center gap-1.5 rounded-2xl border border-border px-4 py-4 text-xs font-medium text-muted transition-colors hover:bg-surface hover:text-foreground"
-          title="Registrar a posteriori una sesión de trabajo que olvidaste cronometrar"
-        >
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><circle cx="12" cy="12" r="10" /><polyline points="12 6 12 12 16 14" /></svg>
-          Registrar
         </button>
       </div>
 
@@ -407,7 +399,6 @@ export function PantallaHoy() {
       {/* Panels */}
       {showNuevoPaso && <NuevoPaso onClose={() => setShowNuevoPaso(false)} />}
       {showInbox && <VistaInbox onClose={() => setShowInbox(false)} />}
-      {showRetro && <RegistrarSesionEntregable onClose={() => setShowRetro(false)} />}
       {showFocoPicker && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 px-4 backdrop-blur-sm"
           role="dialog" aria-modal="true"
@@ -490,147 +481,6 @@ export function PantallaHoy() {
    END OF DAY FLOW
    ============================================================ */
 
-
-/* ============================================================
-   REGISTRAR SESIÓN DE ENTREGABLE (retroactivo)
-   ============================================================ */
-
-function RegistrarSesionEntregable({ onClose }: { onClose: () => void }) {
-  const state = useAppState();
-  const dispatch = useAppDispatch();
-
-  const [entregableId, setEntregableId] = useState<string | null>(null);
-  const [filter, setFilter] = useState("");
-  const [marcarHecho, setMarcarHecho] = useState(false);
-  const [fechaInicio, setFechaInicio] = useState(() => {
-    const d = new Date();
-    d.setHours(d.getHours() - 1);
-    return toLocalDateTimeStr(d);
-  });
-  const [fechaFin, setFechaFin] = useState(() => toLocalDateTimeStr(new Date()));
-
-  const entregables = useMemo(() => {
-    const lastAct = new Map<string, number>();
-    for (const p of state.pasos) {
-      if (!p.inicioTs) continue;
-      const ts = new Date(p.inicioTs).getTime();
-      const prev = lastAct.get(p.entregableId) ?? 0;
-      if (ts > prev) lastAct.set(p.entregableId, ts);
-    }
-    for (const e of state.entregables) {
-      for (const s of e.sesiones ?? []) {
-        const ts = new Date(s.inicioTs).getTime();
-        const prev = lastAct.get(e.id) ?? 0;
-        if (ts > prev) lastAct.set(e.id, ts);
-      }
-    }
-    const q = filter.trim().toLowerCase();
-    return state.entregables
-      .filter((e) => e.estado !== "hecho" && e.estado !== "cancelada")
-      .filter((e) => !q || e.nombre.toLowerCase().includes(q))
-      .sort((a, b) => (lastAct.get(b.id) ?? 0) - (lastAct.get(a.id) ?? 0))
-      .slice(0, 30);
-  }, [state.entregables, state.pasos, filter]);
-
-  const duracionMin = useMemo(() => {
-    try {
-      const ms = new Date(fechaFin).getTime() - new Date(fechaInicio).getTime();
-      if (!Number.isFinite(ms) || ms <= 0) return 0;
-      return Math.round(ms / 60000);
-    } catch {
-      return 0;
-    }
-  }, [fechaInicio, fechaFin]);
-
-  function submit() {
-    if (!entregableId) return;
-    const inicioTs = new Date(fechaInicio).toISOString();
-    const finTs = new Date(fechaFin).toISOString();
-    if (new Date(finTs) <= new Date(inicioTs)) return;
-    dispatch({ type: "APPEND_SESION_ENTREGABLE", id: entregableId, inicioTs, finTs });
-    if (marcarHecho) {
-      // FINISH_ENTREGABLE marca "hecho" y cierra sesión abierta si hay; no abre nueva.
-      dispatch({ type: "FINISH_ENTREGABLE", id: entregableId, ts: finTs });
-    }
-    onClose();
-  }
-
-  const canSubmit = !!entregableId && duracionMin > 0;
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 px-4 backdrop-blur-sm"
-      role="dialog" aria-modal="true"
-      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
-      onKeyDown={(e) => { if (e.key === "Escape") onClose(); }}>
-      <div className="w-full max-w-md max-h-[85vh] overflow-y-auto rounded-2xl bg-background p-6 shadow-2xl">
-        <h2 className="mb-1 text-lg font-bold text-foreground">Registrar sesión</h2>
-        <p className="mb-4 text-xs text-muted">
-          ¿Se te olvidó arrancar el cronómetro? Añade una sesión ya cerrada al entregable.
-        </p>
-
-        <label className="mb-1 block text-xs font-medium text-muted">Entregable</label>
-        <input
-          type="text"
-          value={filter}
-          onChange={(e) => setFilter(e.target.value)}
-          placeholder="Buscar entregable..."
-          className="mb-2 w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground outline-none focus:border-accent"
-        />
-        <div className="mb-3 max-h-40 overflow-y-auto rounded-lg border border-border">
-          {entregables.length === 0 ? (
-            <p className="px-3 py-4 text-center text-xs text-muted">Sin entregables</p>
-          ) : (
-            entregables.map((e) => (
-              <button key={e.id} onClick={() => setEntregableId(e.id)}
-                className={`block w-full px-3 py-2 text-left text-sm transition-colors ${entregableId === e.id ? "bg-accent-soft font-medium text-accent" : "text-foreground hover:bg-surface"}`}>
-                {e.nombre}
-              </button>
-            ))
-          )}
-        </div>
-
-        <div className="mb-3 grid grid-cols-2 gap-3">
-          <div>
-            <label className="mb-1 block text-xs font-medium text-muted">Inicio</label>
-            <input type="datetime-local" value={fechaInicio} onChange={(e) => setFechaInicio(e.target.value)}
-              className="w-full rounded-lg border border-border bg-background px-2 py-2 text-base text-foreground outline-none focus:border-accent" />
-          </div>
-          <div>
-            <label className="mb-1 block text-xs font-medium text-muted">Fin</label>
-            <input type="datetime-local" value={fechaFin} onChange={(e) => setFechaFin(e.target.value)}
-              className="w-full rounded-lg border border-border bg-background px-2 py-2 text-base text-foreground outline-none focus:border-accent" />
-          </div>
-        </div>
-
-        {duracionMin > 0 && (
-          <p className="mb-3 text-[11px] text-muted">
-            Duración: {duracionMin >= 60 ? `${Math.floor(duracionMin / 60)}h ${duracionMin % 60}m` : `${duracionMin}m`}
-          </p>
-        )}
-
-        <label className="mb-3 flex cursor-pointer items-center gap-2 rounded-lg border border-border bg-surface/40 px-3 py-2 text-sm text-foreground">
-          <input type="checkbox" checked={marcarHecho} onChange={(e) => setMarcarHecho(e.target.checked)}
-            className="h-4 w-4 accent-accent" />
-          Marcar entregable como hecho al registrar
-        </label>
-
-        <button onClick={submit} disabled={!canSubmit}
-          className="mb-2 w-full rounded-xl bg-accent py-3 text-sm font-semibold text-white disabled:opacity-40 hover:bg-accent/90">
-          Registrar sesión
-        </button>
-        <button onClick={onClose}
-          className="w-full rounded-xl border border-border py-2.5 text-xs font-medium text-muted hover:bg-surface">
-          Cancelar
-        </button>
-      </div>
-    </div>
-  );
-}
-
-function toLocalDateTimeStr(d: Date): string {
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
-}
 
 function EndOfDayFlow({
   pasosActivos,
@@ -784,7 +634,7 @@ function EndOfDayFlow({
    PlannedRow / ArrastradoSection — UI para "Planificados para hoy"
    ============================================================ */
 
-function PlannedRow({ block, onStart, onCerrarPorHoy }: { block: PlannedBlock; onStart: () => void; onCerrarPorHoy?: (block: PlannedBlock) => void }) {
+function PlannedRow({ block, onStart, onCerrarPorHoy, todayKey }: { block: PlannedBlock; onStart: () => void; onCerrarPorHoy?: (block: PlannedBlock) => void; todayKey: string }) {
   const hora = block.planInicioTs ? (() => {
     const d = new Date(block.planInicioTs!);
     return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
@@ -808,6 +658,13 @@ function PlannedRow({ block, onStart, onCerrarPorHoy }: { block: PlannedBlock; o
         >
           Cerrar por hoy
         </button>
+      )}
+      {block.entregableId && (
+        <RegistrarSesionIconButton
+          entregableId={block.entregableId}
+          defaultDateKey={todayKey}
+          title="Ya lo hice · registrar sesión"
+        />
       )}
       <button
         onClick={onStart}
@@ -1011,6 +868,13 @@ function ArrastradoSection({
                     >
                       En espera
                     </button>
+                    {block.entregableId && (
+                      <RegistrarSesionIconButton
+                        entregableId={block.entregableId}
+                        defaultDateKey={todayKey}
+                        title="Ya lo hice · registrar sesión"
+                      />
+                    )}
                     {confirmDeleteFor === block.id ? (
                       <>
                         <button

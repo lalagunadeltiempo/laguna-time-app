@@ -5,6 +5,7 @@ import { AREA_COLORS, type Area, type MiembroInfo } from "@/lib/types";
 import MoveInlinePanel from "../shared/MoveInlinePanel";
 import { useAppState, useAppDispatch } from "@/lib/context";
 import { WeekDayChips } from "./WeekDayChips";
+import { RegistrarSesionPopover } from "../shared/RegistrarSesionPopover";
 
 const DAYS_SHORT = ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"];
 
@@ -46,6 +47,7 @@ export function WeekBlockSheet({
   block, onClose, onMove, onUnschedule, onSetResponsable, onMarkDone, onOpenProject,
 }: Props) {
   const [view, setView] = useState<SubView>("main");
+  const [showRegistrar, setShowRegistrar] = useState(false);
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
@@ -113,6 +115,7 @@ export function WeekBlockSheet({
               canChangeResp={canChangeResp} canMarkDone={canMarkDone}
               canOpenProject={canOpenProject}
               canMoveParent={canMoveParent}
+              canRegistrarSesion={!!block.entregableId}
               tieneActivePaso={block.tieneActivePaso}
               onMoveClick={() => setView("move")}
               onUnschedule={onUnschedule}
@@ -120,6 +123,7 @@ export function WeekBlockSheet({
               onMarkDone={onMarkDone}
               onOpenProject={onOpenProject}
               onMoveParentClick={() => setView("moveParent")}
+              onRegistrarSesion={() => setShowRegistrar(true)}
             />
           )}
           {view === "move" && (
@@ -154,21 +158,30 @@ export function WeekBlockSheet({
           )}
         </div>
       </div>
+      {showRegistrar && block.entregableId && (
+        <RegistrarSesionPopover
+          entregableId={block.entregableId}
+          defaultDateKey={block.dateKey}
+          onClose={() => setShowRegistrar(false)}
+        />
+      )}
     </div>
   );
 }
 
 /* ---------- MainMenu ---------- */
 function MainMenu({
-  canMove, canUnschedule, canChangeResp, canMarkDone, canOpenProject, canMoveParent,
+  canMove, canUnschedule, canChangeResp, canMarkDone, canOpenProject, canMoveParent, canRegistrarSesion,
   tieneActivePaso,
-  onMoveClick, onUnschedule, onRespClick, onMarkDone, onOpenProject, onMoveParentClick,
+  onMoveClick, onUnschedule, onRespClick, onMarkDone, onOpenProject, onMoveParentClick, onRegistrarSesion,
 }: {
   canMove: boolean; canUnschedule: boolean; canChangeResp: boolean;
   canMarkDone: boolean; canOpenProject: boolean; canMoveParent: boolean;
+  canRegistrarSesion: boolean;
   tieneActivePaso?: boolean;
   onMoveClick: () => void; onUnschedule: () => void; onRespClick: () => void;
   onMarkDone: () => void; onOpenProject: () => void; onMoveParentClick: () => void;
+  onRegistrarSesion: () => void;
 }) {
   return (
     <div className="space-y-0.5">
@@ -183,6 +196,9 @@ function MainMenu({
       )}
       {canMarkDone && (
         <ActionRow icon={<CheckIcon />} label="Marcar hecho" onClick={onMarkDone} />
+      )}
+      {canRegistrarSesion && (
+        <ActionRow icon={<ClockPlusIcon />} label="Registrar sesión realizada" onClick={onRegistrarSesion} />
       )}
       {!canMarkDone && tieneActivePaso && (
         <div className="flex items-center gap-3 rounded-lg px-3 py-2.5 opacity-40" title="Cierra primero el paso en Hoy">
@@ -205,6 +221,16 @@ function MoveIcon() {
   return (
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
       <path d="M5 12h14M12 5l7 7-7 7" />
+    </svg>
+  );
+}
+
+function ClockPlusIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="12" cy="12" r="9" />
+      <polyline points="12 7 12 12 15 14" />
+      <path d="M19 4v4M17 6h4" />
     </svg>
   );
 }

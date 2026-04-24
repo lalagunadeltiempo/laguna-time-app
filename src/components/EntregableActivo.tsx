@@ -10,6 +10,7 @@ import { toDateKey } from "@/lib/date-utils";
 import { Timer } from "./Timer";
 import { NotasSection } from "./shared/NotasSection";
 import { EditableText } from "./shared/EditableText";
+import { RegistrarSesionIconButton } from "./shared/RegistrarSesionPopover";
 
 interface Props {
   entregable: Entregable;
@@ -587,7 +588,28 @@ export function EntregableActivoCard({ entregable }: Props) {
           </div>
 
           {/* Historial de sesiones */}
-          {sesiones.length > 0 && <SesionesEntregableHistory sesiones={sesiones} borderColor={borderColor} />}
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between">
+              <p className="text-[10px] font-semibold uppercase tracking-wider text-zinc-400 dark:text-zinc-500">
+                Sesiones ({sesiones.length})
+              </p>
+              <RegistrarSesionIconButton
+                entregableId={entregable.id}
+                variant="ghost"
+                title="Añadir sesión a mano"
+              >
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <circle cx="12" cy="12" r="9" />
+                  <polyline points="12 7 12 12 15 14" />
+                  <path d="M19 4v4M17 6h4" />
+                </svg>
+                <span>+ Añadir sesión a mano</span>
+              </RegistrarSesionIconButton>
+            </div>
+            {sesiones.length > 0 && (
+              <SesionesEntregableHistory sesiones={sesiones} borderColor={borderColor} hideTitle />
+            )}
+          </div>
 
           {/* Acciones */}
           <div className="space-y-2">
@@ -642,7 +664,7 @@ export function EntregableActivoCard({ entregable }: Props) {
   );
 }
 
-function SesionesEntregableHistory({ sesiones, borderColor }: { sesiones: SesionEntregable[]; borderColor: string }) {
+function SesionesEntregableHistory({ sesiones, borderColor, hideTitle }: { sesiones: SesionEntregable[]; borderColor: string; hideTitle?: boolean }) {
   if (sesiones.length === 0) return null;
 
   const fmtTs = (ts: string) => {
@@ -669,7 +691,9 @@ function SesionesEntregableHistory({ sesiones, borderColor }: { sesiones: Sesion
 
   return (
     <div className="space-y-1">
-      <p className="text-[9px] font-semibold uppercase tracking-wider text-zinc-400 dark:text-zinc-500">Sesiones ({sesiones.length})</p>
+      {!hideTitle && (
+        <p className="text-[9px] font-semibold uppercase tracking-wider text-zinc-400 dark:text-zinc-500">Sesiones ({sesiones.length})</p>
+      )}
       <div className="space-y-1">
         {days.map((day) => (
           <div key={day} className="space-y-0.5">
