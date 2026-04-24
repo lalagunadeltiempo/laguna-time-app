@@ -51,10 +51,34 @@ export function PantallaHoy() {
     [entregablesEnCurso],
   );
 
+  /**
+   * Entregables que ya tienen una sesión CERRADA hoy (sin sesión abierta).
+   * Se consideran "ya trabajados hoy" y se ocultan de los listados de
+   * planificado / arrastrado: el trabajo del día ya está hecho. El
+   * entregable se sigue viendo en el bloque "Horario" de Plan > Hoy y
+   * permanece accesible abriendo su detalle (también se puede empezar
+   * otra sesión desde ahí).
+   */
+  const entregablesTrabajadosHoyIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const ent of state.entregables) {
+      if (entregablesEnCursoIds.has(ent.id)) continue;
+      if (ent.responsable && ent.responsable !== currentUser) continue;
+      const sesiones = Array.isArray(ent.sesiones) ? ent.sesiones : [];
+      const tieneSesionHoy = sesiones.some(
+        (s) => s.finTs !== null && (s.inicioTs ?? "").slice(0, 10) === todayKey,
+      );
+      if (tieneSesionHoy) ids.add(ent.id);
+    }
+    return ids;
+  }, [state.entregables, entregablesEnCursoIds, currentUser, todayKey]);
+
   const plannedBlocks = usePlannedBlocks(todayKey);
   const { hoy: blocksHoy, arrastrado: blocksArrastrado, enMarcha: blocksEnMarcha } = useMemo(
-    () => splitPlannedBlocks(plannedBlocks.filter((b) => !entregablesEnCursoIds.has(b.entregableId))),
-    [plannedBlocks, entregablesEnCursoIds],
+    () => splitPlannedBlocks(plannedBlocks.filter(
+      (b) => !entregablesEnCursoIds.has(b.entregableId) && !entregablesTrabajadosHoyIds.has(b.entregableId),
+    )),
+    [plannedBlocks, entregablesEnCursoIds, entregablesTrabajadosHoyIds],
   );
   const blocksPrincipalesAll = useMemo(() => {
     const combined = [...blocksHoy, ...blocksEnMarcha];
