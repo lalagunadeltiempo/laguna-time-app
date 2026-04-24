@@ -10,7 +10,7 @@ import { flushPendingCloudSave } from "@/lib/store";
 import { toDateKey } from "@/lib/date-utils";
 import type { RolUsuario } from "@/lib/types";
 import { PantallaHoy } from "@/components/PantallaHoy";
-import { PantallaPlan } from "@/components/PantallaPlan";
+import { PantallaPlan, type PlanTab } from "@/components/PantallaPlan";
 import { PantallaMapa } from "@/components/PantallaMapa";
 import { PantallaURLs } from "@/components/PantallaURLs";
 import { PantallaCuaderno } from "@/components/PantallaCuaderno";
@@ -19,6 +19,14 @@ import { Buscador } from "@/components/Buscador";
 import { PantallaAyuda } from "@/components/PantallaAyuda";
 
 type Vista = "hoy" | "plan" | "mapa" | "urls" | "cuaderno" | "ayuda" | "resultado";
+
+const PLAN_SUBNAV: { id: PlanTab; label: string }[] = [
+  { id: "hoy", label: "Hoy" },
+  { id: "semana", label: "Semana" },
+  { id: "mes", label: "Mes" },
+  { id: "trimestre", label: "Trimestre" },
+  { id: "anio", label: "Año" },
+];
 
 const NAV_ITEMS: { id: Vista; label: string; sublabel: string; icon: React.ReactNode }[] = [
   {
@@ -108,6 +116,7 @@ const MENTOR_VIEWS: Vista[] = ["mapa", "plan"];
 function AppShell({ userId, displayName }: { userId: string; displayName: string }) {
   const isMentorUser = userId === "mentor";
   const [vista, setVista] = useState<Vista>(isMentorUser ? "mapa" : "hoy");
+  const [planTab, setPlanTab] = useState<PlanTab>("hoy");
   const [collapsed, setCollapsed] = useState(false);
   const [showBuscador, setShowBuscador] = useState(false);
   const [detalleResultadoId, setDetalleResultadoId] = useState<string | null>(null);
@@ -127,6 +136,12 @@ function AppShell({ userId, displayName }: { userId: string; displayName: string
 
   function navigate(v: Vista) {
     setVista(v);
+    setDetalleResultadoId(null);
+  }
+
+  function navigateToPlan(sub: PlanTab) {
+    setPlanTab(sub);
+    setVista("plan");
     setDetalleResultadoId(null);
   }
 
@@ -178,34 +193,58 @@ function AppShell({ userId, displayName }: { userId: string; displayName: string
           <nav className="flex flex-1 flex-col gap-0.5 px-2 pt-4">
             {navItems.map((item) => {
               const active = activeVista === item.id;
+              const isPlan = item.id === "plan";
               return (
-                <button
-                  key={item.id}
-                  onClick={() => navigate(item.id)}
-                  className={`group flex items-center gap-3 rounded-lg px-3 py-2.5 text-left transition-colors ${
-                    active
-                      ? "bg-sidebar-active text-foreground"
-                      : "text-muted hover:bg-surface-hover hover:text-foreground"
-                  } ${collapsed ? "justify-center" : ""}`}
-                >
-                  <span className={`shrink-0 ${active ? "text-accent" : ""}`}>
-                    {item.icon}
-                  </span>
-                  {!collapsed && (
-                    <div className="flex flex-col">
-                      <span className={`text-sm font-medium leading-tight ${active ? "text-foreground" : ""}`}>
-                        {item.label}
-                      </span>
-                      <span className="text-[11px] leading-tight text-muted">
-                        {item.sublabel}
-                      </span>
+                <div key={item.id} className="flex flex-col">
+                  <button
+                    onClick={() => (isPlan ? navigateToPlan(planTab) : navigate(item.id))}
+                    className={`group flex items-center gap-3 rounded-lg px-3 py-2.5 text-left transition-colors ${
+                      active
+                        ? "bg-sidebar-active text-foreground"
+                        : "text-muted hover:bg-surface-hover hover:text-foreground"
+                    } ${collapsed ? "justify-center" : ""}`}
+                  >
+                    <span className={`shrink-0 ${active ? "text-accent" : ""}`}>
+                      {item.icon}
+                    </span>
+                    {!collapsed && (
+                      <div className="flex flex-col">
+                        <span className={`text-sm font-medium leading-tight ${active ? "text-foreground" : ""}`}>
+                          {item.label}
+                        </span>
+                        <span className="text-[11px] leading-tight text-muted">
+                          {item.sublabel}
+                        </span>
+                      </div>
+                    )}
+                    {item.id === "hoy" && !collapsed && <HoyBadge />}
+                    {active && !collapsed && (
+                      <span className="ml-auto h-1.5 w-1.5 rounded-full bg-accent" />
+                    )}
+                  </button>
+
+                  {/* Submenú de Plan: siempre visible (cuando no colapsado) */}
+                  {isPlan && !collapsed && (
+                    <div className="ml-9 mt-0.5 flex flex-col gap-0.5 border-l border-border/60 pl-2">
+                      {PLAN_SUBNAV.map((sub) => {
+                        const subActive = vista === "plan" && planTab === sub.id;
+                        return (
+                          <button
+                            key={sub.id}
+                            onClick={() => navigateToPlan(sub.id)}
+                            className={`flex items-center rounded-md px-2 py-1.5 text-left text-[12px] transition-colors ${
+                              subActive
+                                ? "bg-accent-soft font-semibold text-accent"
+                                : "text-muted hover:bg-surface-hover hover:text-foreground"
+                            }`}
+                          >
+                            {sub.label}
+                          </button>
+                        );
+                      })}
                     </div>
                   )}
-                  {item.id === "hoy" && !collapsed && <HoyBadge />}
-                  {active && !collapsed && (
-                    <span className="ml-auto h-1.5 w-1.5 rounded-full bg-accent" />
-                  )}
-                </button>
+                </div>
               );
             })}
           </nav>
@@ -241,7 +280,7 @@ function AppShell({ userId, displayName }: { userId: string; displayName: string
               </div>
             )}
             {vista === "plan" && (
-              <PantallaPlan onOpenInMapa={openInMapa} />
+              <PantallaPlan onOpenInMapa={openInMapa} tab={planTab} onTabChange={setPlanTab} />
             )}
             {vista === "mapa" && (
               <PantallaMapa onOpenDetalle={openDetalle} highlightId={highlightId} onClearHighlight={clearHighlight} />

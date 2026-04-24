@@ -7,7 +7,8 @@ import { PlanMes } from "./plan/PlanMes";
 import { PlanTrimestre } from "./plan/PlanTrimestre";
 import { PlanAnio } from "./plan/PlanAnio";
 
-type Tab = "hoy" | "semana" | "mes" | "trimestre" | "anio";
+export type PlanTab = "hoy" | "semana" | "mes" | "trimestre" | "anio";
+type Tab = PlanTab;
 
 const TABS: { id: Tab; label: string; sublabel: string }[] = [
   { id: "hoy", label: "Hoy", sublabel: "Operativo" },
@@ -80,8 +81,16 @@ function isCurrentPeriod(d: Date, tab: Tab): boolean {
   }
 }
 
-export function PantallaPlan({ onOpenInMapa }: { onOpenInMapa?: (proyectoId: string) => void } = {}) {
-  const [tab, setTab] = useState<Tab>("hoy");
+interface PantallaPlanProps {
+  onOpenInMapa?: (proyectoId: string) => void;
+  /** Pestaña controlada por el padre (sidebar). Si se omite, se usa estado interno. */
+  tab?: Tab;
+  onTabChange?: (tab: Tab) => void;
+}
+
+export function PantallaPlan({ onOpenInMapa, tab: tabProp, onTabChange }: PantallaPlanProps = {}) {
+  const [tabInternal, setTabInternal] = useState<Tab>("hoy");
+  const tab = tabProp ?? tabInternal;
   const [selectedDate, setSelectedDate] = useState(() => new Date());
   const dateRef = useRef<HTMLInputElement>(null);
 
@@ -93,7 +102,8 @@ export function PantallaPlan({ onOpenInMapa }: { onOpenInMapa?: (proyectoId: str
   const goToday = useCallback(() => setSelectedDate(new Date()), []);
 
   function handleTabChange(newTab: Tab) {
-    setTab(newTab);
+    if (tabProp === undefined) setTabInternal(newTab);
+    onTabChange?.(newTab);
   }
 
   function handleDatePick(e: React.ChangeEvent<HTMLInputElement>) {
@@ -161,7 +171,7 @@ export function PantallaPlan({ onOpenInMapa }: { onOpenInMapa?: (proyectoId: str
       {/* Tab content */}
       {tab === "hoy" && <PlanHoy selectedDate={selectedDate} />}
       {tab === "semana" && <PlanSemana selectedDate={selectedDate} onOpenInMapa={onOpenInMapa} />}
-      {tab === "mes" && <PlanMes selectedDate={selectedDate} onNavigateToWeek={(d) => { setSelectedDate(d); setTab("semana"); }} />}
+      {tab === "mes" && <PlanMes selectedDate={selectedDate} onNavigateToWeek={(d) => { setSelectedDate(d); handleTabChange("semana"); }} />}
       {tab === "trimestre" && <PlanTrimestre selectedDate={selectedDate} />}
       {tab === "anio" && <PlanAnio selectedDate={selectedDate} />}
     </div>

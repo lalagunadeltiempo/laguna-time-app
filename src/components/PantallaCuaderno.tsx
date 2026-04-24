@@ -4,7 +4,7 @@ import { useState, useMemo, useCallback } from "react";
 import { useAppState, useAppDispatch } from "@/lib/context";
 import { useIsMentor, useUsuario } from "@/lib/usuario";
 import type { ActivityEntry } from "@/lib/types";
-import { generateId, resolverDestinoParaAdjuntar } from "@/lib/store";
+import { generateId } from "@/lib/store";
 import HierarchyPicker, { type HierarchySelection } from "@/components/shared/HierarchyPicker";
 
 function groupByDate(entries: ActivityEntry[]): [string, ActivityEntry[]][] {
@@ -74,31 +74,15 @@ export function PantallaCuaderno() {
   const todayKey = toDateKey(new Date());
 
   const difundirNotaAEntregable = useCallback((texto: string, entregableId: string) => {
-    const destino = resolverDestinoParaAdjuntar(state, entregableId);
     const ent = state.entregables.find((e) => e.id === entregableId);
-    const nuevaNota = { id: generateId(), texto, autor: currentUser, creadoTs: new Date().toISOString() };
-    if (destino.tipo === "paso-existente") {
-      dispatch({ type: "ADD_NOTA", nivel: "paso", targetId: destino.pasoId, nota: nuevaNota });
-      const paso = state.pasos.find((p) => p.id === destino.pasoId);
-      setToast(`Nota añadida a ${paso?.nombre ?? "paso"}`);
+    if (!ent) return;
+    const yaEstaba = (ent.notas ?? []).some((n) => n.texto.trim() === texto.trim());
+    if (yaEstaba) {
+      setToast(`La nota ya estaba en ${ent.nombre}`);
     } else {
-      dispatch({
-        type: "ADD_PASO",
-        payload: {
-          id: generateId(),
-          entregableId,
-          nombre: `Pendiente · ${ent?.nombre ?? "Entregable"}`,
-          inicioTs: null,
-          finTs: null,
-          estado: "",
-          contexto: { urls: [], apps: [], notas: "" },
-          implicados: [{ tipo: "equipo", nombre: currentUser }],
-          pausas: [],
-          notas: [nuevaNota],
-          siguientePaso: null,
-        },
-      });
-      setToast(`Paso pendiente creado en ${ent?.nombre ?? "entregable"}`);
+      const nuevaNota = { id: generateId(), texto, autor: currentUser, creadoTs: new Date().toISOString() };
+      dispatch({ type: "ADD_NOTA", nivel: "entregable", targetId: entregableId, nota: nuevaNota });
+      setToast(`Nota añadida a ${ent.nombre}`);
     }
     setTimeout(() => setToast(null), 2500);
     setPickerForNota(null);
@@ -197,7 +181,7 @@ export function PantallaCuaderno() {
       {pickerForNota && (
         <HierarchyPicker
           depth="entregable"
-          title="Añadir nota a otro paso"
+          title="Añadir nota a otro entregable"
           onSelect={onPickerSelect}
           onCancel={() => setPickerForNota(null)}
         />
@@ -279,12 +263,12 @@ function EntryRow({ entry, onDifundirNota }: { entry: ActivityEntry; onDifundirN
                   type="button"
                   onClick={() => onDifundirNota(entry.detalle!)}
                   className="mt-2 inline-flex items-center gap-1 rounded-md border border-border bg-background px-2 py-1 text-[10px] font-medium text-muted transition-colors hover:bg-accent-soft hover:text-accent"
-                  title="Añadir esta nota a otro paso"
+                  title="Añadir esta nota a otro entregable"
                 >
                   <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
                     <path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48" />
                   </svg>
-                  Añadir a otro paso
+                  Añadir a otro entregable
                 </button>
               )}
             </div>

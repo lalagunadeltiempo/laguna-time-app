@@ -2,17 +2,18 @@
 
 import { useState, useMemo, useCallback } from "react";
 import { useAppState, useAppDispatch } from "@/lib/context";
-import { useIsMentor, useUsuario } from "@/lib/usuario";
+import { useIsMentor } from "@/lib/usuario";
 import {
   AREA_COLORS, AREAS_PERSONAL, AREAS_EMPRESA,
-  type Area, type Paso, type UrlRef,
+  type Area, type UrlRef,
 } from "@/lib/types";
-import { generateId, resolverDestinoParaAdjuntar } from "@/lib/store";
 import HierarchyPicker, { type HierarchySelection } from "@/components/shared/HierarchyPicker";
 
 const ALL_AREAS = [...AREAS_PERSONAL, ...AREAS_EMPRESA];
 
-interface PasoRef {
+interface UsoRef {
+  /** "paso" | "entregable" — qué entidad contiene esta URL */
+  tipo: "paso" | "entregable";
   id: string;
   nombre: string;
   fecha: string | null;
@@ -25,7 +26,7 @@ interface UrlEntry {
   url: string;
   nombre: string;
   descripcion: string;
-  pasos: PasoRef[];
+  usos: UsoRef[];
   areas: Set<Area>;
   proyectos: Set<string>;
 }
@@ -34,7 +35,6 @@ export function PantallaURLs() {
   const state = useAppState();
   const dispatch = useAppDispatch();
   const isMentor = useIsMentor();
-  const { nombre: currentUser } = useUsuario();
   const [filter, setFilter] = useState("");
   const [areaFilter, setAreaFilter] = useState<Area | null>(null);
   const [pickerForUrl, setPickerForUrl] = useState<UrlRef | null>(null);
@@ -48,6 +48,48 @@ export function PantallaURLs() {
     const resMap = new Map(resultados.map((r) => [r.id, r]));
     const projMap = new Map(proyectos.map((p) => [p.id, p]));
 
+    function addUrl(u: UrlRef, ref: UsoRef) {
+      if (!u.url) return;
+      const key = u.url.toLowerCase().replace(/\/+$/, "");
+      const existing = map.get(key);
+      if (existing) {
+        existing.usos.push(ref);
+        if (u.nombre && !existing.nombre) existing.nombre = u.nombre;
+        if (u.descripcion && !existing.descripcion) existing.descripcion = u.descripcion;
+        if (ref.area) existing.areas.add(ref.area);
+        if (ref.proyecto) existing.proyectos.add(ref.proyecto);
+      } else {
+        const areas = new Set<Area>();
+        if (ref.area) areas.add(ref.area);
+        const proyectoSet = new Set<string>();
+        if (ref.proyecto) proyectoSet.add(ref.proyecto);
+        map.set(key, { url: u.url, nombre: u.nombre || "", descripcion: u.descripcion || "", usos: [ref], areas, proyectos: proyectoSet });
+      }
+    }
+
+    // 1) URLs en entregables (modelo nuevo: las URLs viven en entregable.contexto.urls)
+    for (const ent of entregables) {
+      const urlsEnt = ent.contexto?.urls ?? [];
+      if (urlsEnt.length === 0) continue;
+      const res = resMap.get(ent.resultadoId);
+      const proj = res ? projMap.get(res.proyectoId) : undefined;
+      const area = proj?.area ?? null;
+      const proyNombre = proj?.nombre ?? "";
+      const persona = ent.responsable ?? "";
+      for (const u of urlsEnt) {
+        addUrl(u, {
+          tipo: "entregable",
+          id: ent.id,
+          nombre: ent.nombre,
+          fecha: ent.fechaInicio ?? ent.creado ?? null,
+          persona,
+          area,
+          proyecto: proyNombre,
+        });
+      }
+    }
+
+    // 2) URLs legacy en pasos
     for (const paso of pasos) {
       const persona = paso.implicados?.find((i) => i.tipo === "equipo")?.nombre ?? "";
       const ent = entMap.get(paso.entregableId);
@@ -55,34 +97,25 @@ export function PantallaURLs() {
       const proj = res ? projMap.get(res.proyectoId) : undefined;
       const area = proj?.area ?? null;
       const proyNombre = proj?.nombre ?? "";
-
       for (const u of paso.contexto.urls) {
-        if (!u.url) continue;
-        const key = u.url.toLowerCase().replace(/\/+$/, "");
-        const ref: PasoRef = { id: paso.id, nombre: paso.nombre, fecha: paso.inicioTs, persona, area, proyecto: proyNombre };
-        const existing = map.get(key);
-        if (existing) {
-          existing.pasos.push(ref);
-          if (u.nombre && !existing.nombre) existing.nombre = u.nombre;
-          if (u.descripcion && !existing.descripcion) existing.descripcion = u.descripcion;
-          if (area) existing.areas.add(area);
-          if (proyNombre) existing.proyectos.add(proyNombre);
-        } else {
-          const areas = new Set<Area>();
-          if (area) areas.add(area);
-          const proyectoSet = new Set<string>();
-          if (proyNombre) proyectoSet.add(proyNombre);
-          map.set(key, { url: u.url, nombre: u.nombre || "", descripcion: u.descripcion || "", pasos: [ref], areas, proyectos: proyectoSet });
-        }
+        addUrl(u, {
+          tipo: "paso",
+          id: paso.id,
+          nombre: paso.nombre,
+          fecha: paso.inicioTs,
+          persona,
+          area,
+          proyecto: proyNombre,
+        });
       }
     }
 
     return Array.from(map.values()).sort((a, b) => {
-      const lastA = a.pasos.reduce((max, p) => (p.fecha && p.fecha > max ? p.fecha : max), "");
-      const lastB = b.pasos.reduce((max, p) => (p.fecha && p.fecha > max ? p.fecha : max), "");
+      const lastA = a.usos.reduce((max, u) => (u.fecha && u.fecha > max ? u.fecha : max), "");
+      const lastB = b.usos.reduce((max, u) => (u.fecha && u.fecha > max ? u.fecha : max), "");
       return lastB.localeCompare(lastA);
     });
-  }, [state.pasos, state.entregables, state.resultados, state.proyectos]);
+  }, [state]);
 
   const filtered = useMemo(() => {
     let result = urls;
@@ -108,8 +141,9 @@ export function PantallaURLs() {
     return s;
   }, [urls]);
 
-  const updateUrlInAllPasos = useCallback((targetUrl: string, field: "nombre" | "descripcion", value: string) => {
+  const updateUrlEverywhere = useCallback((targetUrl: string, field: "nombre" | "descripcion", value: string) => {
     const normalizedTarget = targetUrl.toLowerCase().replace(/\/+$/, "");
+    // Pasos legacy
     for (const paso of state.pasos) {
       const idx = paso.contexto.urls.findIndex(
         (u) => u.url.toLowerCase().replace(/\/+$/, "") === normalizedTarget,
@@ -119,49 +153,48 @@ export function PantallaURLs() {
       newUrls[idx] = { ...newUrls[idx], [field]: value };
       dispatch({ type: "UPDATE_PASO_CONTEXTO", id: paso.id, contexto: { ...paso.contexto, urls: newUrls } });
     }
-  }, [state.pasos, dispatch]);
-
-  const difundirUrlAEntregable = useCallback((url: UrlRef, entregableId: string) => {
-    const destino = resolverDestinoParaAdjuntar(state, entregableId);
-    const normalizedTarget = url.url.toLowerCase().replace(/\/+$/, "");
-    const ent = state.entregables.find((e) => e.id === entregableId);
-    if (destino.tipo === "paso-existente") {
-      const paso = state.pasos.find((p) => p.id === destino.pasoId);
-      if (!paso) return;
-      const yaEstaba = paso.contexto.urls.some(
+    // Entregables (modelo nuevo)
+    for (const ent of state.entregables) {
+      const urlsEnt = ent.contexto?.urls ?? [];
+      const idx = urlsEnt.findIndex(
         (u) => u.url.toLowerCase().replace(/\/+$/, "") === normalizedTarget,
       );
-      if (yaEstaba) {
-        setToast(`La URL ya estaba en ${paso.nombre}`);
-      } else {
-        dispatch({
-          type: "UPDATE_PASO_CONTEXTO",
-          id: paso.id,
-          contexto: { ...paso.contexto, urls: [...paso.contexto.urls, { ...url }] },
-        });
-        setToast(`Añadida a ${paso.nombre}`);
-      }
-    } else {
+      if (idx === -1) continue;
+      const newUrls = [...urlsEnt];
+      newUrls[idx] = { ...newUrls[idx], [field]: value };
       dispatch({
-        type: "ADD_PASO",
-        payload: {
-          id: generateId(),
-          entregableId,
-          nombre: `Pendiente · ${ent?.nombre ?? "Entregable"}`,
-          inicioTs: null,
-          finTs: null,
-          estado: "",
-          contexto: { urls: [{ ...url }], apps: [], notas: "" },
-          implicados: [{ tipo: "equipo", nombre: currentUser }],
-          pausas: [],
-          siguientePaso: null,
+        type: "UPDATE_ENTREGABLE_CONTEXTO",
+        id: ent.id,
+        contexto: {
+          urls: newUrls,
+          apps: ent.contexto?.apps ?? [],
+          notas: ent.contexto?.notas ?? "",
         },
       });
-      setToast(`Paso pendiente creado en ${ent?.nombre ?? "entregable"}`);
+    }
+  }, [state.pasos, state.entregables, dispatch]);
+
+  const difundirUrlAEntregable = useCallback((url: UrlRef, entregableId: string) => {
+    const ent = state.entregables.find((e) => e.id === entregableId);
+    if (!ent) return;
+    const normalizedTarget = url.url.toLowerCase().replace(/\/+$/, "");
+    const ctxActual = ent.contexto ?? { urls: [], apps: [], notas: "" };
+    const yaEstaba = ctxActual.urls.some(
+      (u) => u.url.toLowerCase().replace(/\/+$/, "") === normalizedTarget,
+    );
+    if (yaEstaba) {
+      setToast(`La URL ya estaba en ${ent.nombre}`);
+    } else {
+      dispatch({
+        type: "UPDATE_ENTREGABLE_CONTEXTO",
+        id: entregableId,
+        contexto: { ...ctxActual, urls: [...ctxActual.urls, { ...url }] },
+      });
+      setToast(`Añadida a ${ent.nombre}`);
     }
     setTimeout(() => setToast(null), 2500);
     setPickerForUrl(null);
-  }, [state, dispatch, currentUser]);
+  }, [state.entregables, dispatch]);
 
   const onPickerSelect = useCallback((sel: HierarchySelection) => {
     if (pickerForUrl && sel.entregableId) {
@@ -171,21 +204,35 @@ export function PantallaURLs() {
     }
   }, [pickerForUrl, difundirUrlAEntregable]);
 
-  const removeUrlFromPaso = useCallback((pasoId: string, targetUrl: string) => {
-    const paso = state.pasos.find((p) => p.id === pasoId);
-    if (!paso) return;
+  const removeUrlFromUso = useCallback((uso: UsoRef, targetUrl: string) => {
     const normalizedTarget = targetUrl.toLowerCase().replace(/\/+$/, "");
-    const newUrls = paso.contexto.urls.filter(
-      (u) => u.url.toLowerCase().replace(/\/+$/, "") !== normalizedTarget,
-    );
-    dispatch({ type: "UPDATE_PASO_CONTEXTO", id: pasoId, contexto: { ...paso.contexto, urls: newUrls } });
-  }, [state.pasos, dispatch]);
+    if (uso.tipo === "paso") {
+      const paso = state.pasos.find((p) => p.id === uso.id);
+      if (!paso) return;
+      const newUrls = paso.contexto.urls.filter(
+        (u) => u.url.toLowerCase().replace(/\/+$/, "") !== normalizedTarget,
+      );
+      dispatch({ type: "UPDATE_PASO_CONTEXTO", id: uso.id, contexto: { ...paso.contexto, urls: newUrls } });
+    } else {
+      const ent = state.entregables.find((e) => e.id === uso.id);
+      if (!ent) return;
+      const ctxActual = ent.contexto ?? { urls: [], apps: [], notas: "" };
+      const newUrls = ctxActual.urls.filter(
+        (u) => u.url.toLowerCase().replace(/\/+$/, "") !== normalizedTarget,
+      );
+      dispatch({
+        type: "UPDATE_ENTREGABLE_CONTEXTO",
+        id: uso.id,
+        contexto: { ...ctxActual, urls: newUrls },
+      });
+    }
+  }, [state.pasos, state.entregables, dispatch]);
 
   return (
     <div className="px-6 py-8">
       <h1 className="mb-1 text-2xl font-bold text-foreground">Directorio de URLs</h1>
       <p className="mb-4 text-sm text-muted">
-        {urls.length} {urls.length === 1 ? "enlace" : "enlaces"} recopilados de tus pasos
+        {urls.length} {urls.length === 1 ? "enlace" : "enlaces"} recopilados de tus entregables
       </p>
 
       {/* Area filter chips */}
@@ -233,9 +280,9 @@ export function PantallaURLs() {
         <div className="space-y-3">
           {filtered.map((entry) => (
             <UrlCard key={entry.url} entry={entry} isMentor={isMentor}
-              onEditField={(field, value) => updateUrlInAllPasos(entry.url, field, value)}
-              onRemoveFromPaso={(pasoId) => removeUrlFromPaso(pasoId, entry.url)}
-              onAdjuntarAOtroPaso={() => setPickerForUrl({ url: entry.url, nombre: entry.nombre, descripcion: entry.descripcion })} />
+              onEditField={(field, value) => updateUrlEverywhere(entry.url, field, value)}
+              onRemoveFromUso={(uso) => removeUrlFromUso(uso, entry.url)}
+              onAdjuntarAOtroEntregable={() => setPickerForUrl({ url: entry.url, nombre: entry.nombre, descripcion: entry.descripcion })} />
           ))}
         </div>
       )}
@@ -243,7 +290,7 @@ export function PantallaURLs() {
       {pickerForUrl && (
         <HierarchyPicker
           depth="entregable"
-          title="Añadir URL a otro paso"
+          title="Añadir URL a otro entregable"
           onSelect={onPickerSelect}
           onCancel={() => setPickerForUrl(null)}
         />
@@ -286,11 +333,11 @@ function Favicon({ url }: { url: string }) {
 
 /* ─── URL Card ─── */
 
-function UrlCard({ entry, isMentor, onEditField, onRemoveFromPaso, onAdjuntarAOtroPaso }: {
+function UrlCard({ entry, isMentor, onEditField, onRemoveFromUso, onAdjuntarAOtroEntregable }: {
   entry: UrlEntry; isMentor: boolean;
   onEditField: (field: "nombre" | "descripcion", value: string) => void;
-  onRemoveFromPaso: (pasoId: string) => void;
-  onAdjuntarAOtroPaso: () => void;
+  onRemoveFromUso: (uso: UsoRef) => void;
+  onAdjuntarAOtroEntregable: () => void;
 }) {
   const [open, setOpen] = useState(false);
   const [editingField, setEditingField] = useState<"nombre" | "descripcion" | null>(null);
@@ -417,7 +464,7 @@ function UrlCard({ entry, isMentor, onEditField, onRemoveFromPaso, onAdjuntarAOt
               </svg>
             </a>
             {!isMentor && (
-              <button type="button" onClick={onAdjuntarAOtroPaso} title="Añadir a otro paso"
+              <button type="button" onClick={onAdjuntarAOtroEntregable} title="Añadir a otro entregable"
                 className="rounded-lg p-2 text-muted transition-colors hover:bg-accent-soft hover:text-accent">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
                   <path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48" />
@@ -425,61 +472,67 @@ function UrlCard({ entry, isMentor, onEditField, onRemoveFromPaso, onAdjuntarAOt
               </button>
             )}
           </div>
-          {/* People & paso count */}
+          {/* People & uso count */}
           <div className="flex items-center gap-1.5">
             {(() => {
-              const people = [...new Set(entry.pasos.map((p) => p.persona).filter(Boolean))];
+              const people = [...new Set(entry.usos.map((u) => u.persona).filter(Boolean))];
               return people.length > 0 ? <span className="text-[10px] text-muted">{people.join(", ")}</span> : null;
             })()}
             <button type="button" onClick={() => setOpen(!open)}
               className="rounded-lg px-2 py-0.5 text-[10px] text-muted transition-colors hover:bg-surface">
-              {entry.pasos.length} {entry.pasos.length === 1 ? "paso" : "pasos"}
+              {entry.usos.length} {entry.usos.length === 1 ? "uso" : "usos"}
               <span className="ml-1">{open ? "▲" : "▼"}</span>
             </button>
           </div>
         </div>
       </div>
 
-      {/* Expanded pasos list */}
+      {/* Expanded usos list */}
       {open && (
         <div className="mt-3 border-t border-border pt-3">
-          {entry.pasos.map((p) => (
-            <div key={p.id} className="flex items-center gap-2 py-1.5 text-xs text-muted">
-              {p.area && (
-                <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: AREA_COLORS[p.area]?.hex ?? "#888" }} />
-              )}
-              {!p.area && <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-muted" />}
-              {p.persona && (
-                <span className="shrink-0 rounded-full bg-accent-soft px-2 py-0.5 text-[10px] font-semibold text-accent">
-                  {p.persona}
+          {entry.usos.map((u) => {
+            const usoKey = `${u.tipo}-${u.id}`;
+            return (
+              <div key={usoKey} className="flex items-center gap-2 py-1.5 text-xs text-muted">
+                {u.area && (
+                  <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: AREA_COLORS[u.area]?.hex ?? "#888" }} />
+                )}
+                {!u.area && <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-muted" />}
+                <span className={`shrink-0 rounded-full px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide ${u.tipo === "entregable" ? "bg-accent-soft text-accent" : "bg-surface text-muted"}`}>
+                  {u.tipo === "entregable" ? "Entregable" : "Paso"}
                 </span>
-              )}
-              <span className="flex-1 truncate">{p.nombre}</span>
-              {p.proyecto && <span className="shrink-0 text-[10px] text-muted/70">{p.proyecto}</span>}
-              {p.fecha && (
-                <span className="shrink-0">
-                  {new Date(p.fecha).toLocaleDateString("es-ES", { day: "numeric", month: "short" })}
-                </span>
-              )}
-              {!isMentor && (
-                confirmRemove === p.id ? (
-                  <span className="flex shrink-0 items-center gap-1">
-                    <button type="button" onClick={() => { onRemoveFromPaso(p.id); setConfirmRemove(null); }}
-                      className="rounded bg-red-500 px-1.5 py-0.5 text-[10px] text-white">Sí</button>
-                    <button type="button" onClick={() => setConfirmRemove(null)}
-                      className="rounded border border-border px-1.5 py-0.5 text-[10px] text-muted">No</button>
+                {u.persona && (
+                  <span className="shrink-0 rounded-full bg-accent-soft px-2 py-0.5 text-[10px] font-semibold text-accent">
+                    {u.persona}
                   </span>
-                ) : (
-                  <button type="button" onClick={() => setConfirmRemove(p.id)} title="Quitar URL de este paso"
-                    className="shrink-0 rounded p-0.5 text-muted/50 transition-colors hover:text-red-500">
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
-                      <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
-                    </svg>
-                  </button>
-                )
-              )}
-            </div>
-          ))}
+                )}
+                <span className="flex-1 truncate">{u.nombre}</span>
+                {u.proyecto && <span className="shrink-0 text-[10px] text-muted/70">{u.proyecto}</span>}
+                {u.fecha && (
+                  <span className="shrink-0">
+                    {new Date(u.fecha).toLocaleDateString("es-ES", { day: "numeric", month: "short" })}
+                  </span>
+                )}
+                {!isMentor && (
+                  confirmRemove === usoKey ? (
+                    <span className="flex shrink-0 items-center gap-1">
+                      <button type="button" onClick={() => { onRemoveFromUso(u); setConfirmRemove(null); }}
+                        className="rounded bg-red-500 px-1.5 py-0.5 text-[10px] text-white">Sí</button>
+                      <button type="button" onClick={() => setConfirmRemove(null)}
+                        className="rounded border border-border px-1.5 py-0.5 text-[10px] text-muted">No</button>
+                    </span>
+                  ) : (
+                    <button type="button" onClick={() => setConfirmRemove(usoKey)} title={`Quitar URL de este ${u.tipo}`}
+                      className="shrink-0 rounded p-0.5 text-muted/50 transition-colors hover:text-red-500">
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+                        <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
+                      </svg>
+                    </button>
+                  )
+                )}
+              </div>
+            );
+          })}
         </div>
       )}
     </div>
