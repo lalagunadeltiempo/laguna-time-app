@@ -89,39 +89,31 @@ export function PlanTrimestre({ selectedDate }: Props) {
   function buildProjNode(p: Proyecto): ProjNode {
     const hex = AREA_COLORS[p.area]?.hex ?? "#888";
     const trimestreSet = new Set(qMonthKeys);
-    const allResultados = state.resultados.filter((r) => r.proyectoId === p.id);
-    const resIds = new Set(allResultados.map((r) => r.id));
+    const resultados = state.resultados.filter((r) => r.proyectoId === p.id);
+    const resIds = new Set(resultados.map((r) => r.id));
     const allEntregables = state.entregables.filter((e) => resIds.has(e.resultadoId));
 
     // Entregables del trimestre: tienen semana cuyo mes ∈ trimestre, O son hijos de un
-    // resultado cuyo mesesActivos intersecta el trimestre.
+    // resultado cuyo mesesActivos intersecta el trimestre. Las métricas done/total
+    // y la lista mostrada bajo cada resultado se calculan sobre este subconjunto.
     const resultadosEnTrim = new Set(
-      allResultados
+      resultados
         .filter((r) => (r.mesesActivos ?? []).some((m) => trimestreSet.has(m)))
         .map((r) => r.id),
     );
     const entregables = allEntregables.filter((e) => {
       const m = e.semana ? mesKey(e.semana) : null;
       if (m && trimestreSet.has(m)) return true;
-      // Si no tiene mes propio pero su resultado está en el trimestre, cuenta.
       if (!m && resultadosEnTrim.has(e.resultadoId)) return true;
       return false;
     });
-    const entIds = new Set(entregables.map((e) => e.id));
-
-    // Resultados visibles: en el trimestre o con al menos un entregable del trimestre.
-    const resultados = allResultados.filter(
-      (r) =>
-        resultadosEnTrim.has(r.id) ||
-        entregables.some((e) => e.resultadoId === r.id) ||
-        // Mantén también los resultados que tengan algún entregable visible (defensivo).
-        allEntregables.some((e) => e.resultadoId === r.id && entIds.has(e.id)),
-    );
 
     const done = entregables.filter((e) => e.estado === "hecho").length;
     const total = entregables.length;
     return {
       proyecto: p,
+      // Mostramos todos los resultados del proyecto (para poder asignarles mes
+      // de un clic). Los entregables sí van filtrados al trimestre.
       resultados,
       entregables,
       done,
