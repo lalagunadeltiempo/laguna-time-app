@@ -564,10 +564,10 @@ export function PlanHoy({ selectedDate }: Props) {
                               <button
                                 type="button"
                                 onClick={() => setDetalleEntregableId(block.entregableId!)}
-                                className="group min-w-0 flex-1 text-left"
+                                className="min-w-0 flex-1 text-left"
                                 title="Abrir entregable (notas, URLs, pasos…)"
                               >
-                                <p className="truncate text-[13px] font-medium text-foreground group-hover:text-accent group-hover:underline">
+                                <p className="truncate text-[13px] font-medium text-foreground hover:text-accent hover:underline underline-offset-2">
                                   {block.title}
                                 </p>
                                 {block.entregableNombre && block.entregableNombre !== block.title && (
@@ -584,6 +584,20 @@ export function PlanHoy({ selectedDate }: Props) {
                             )}
                             {!isMentor && (
                               <>
+                                {block.entregableId && (
+                                  <button
+                                    onClick={() => setDetalleEntregableId(block.entregableId!)}
+                                    className="flex items-center gap-1 rounded border border-border bg-background px-1.5 py-0.5 text-[10px] font-medium text-foreground transition-colors hover:border-accent hover:text-accent"
+                                    title="Abrir entregable (notas, URLs, pasos…)"
+                                  >
+                                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                                      <path d="M14 3h7v7" />
+                                      <path d="M10 14 21 3" />
+                                      <path d="M21 14v5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5" />
+                                    </svg>
+                                    Abrir
+                                  </button>
+                                )}
                                 <button
                                   onClick={() => planificarHoy(block)}
                                   className="rounded border border-border bg-surface px-1.5 py-0.5 text-[10px] font-medium text-foreground transition-colors hover:bg-accent-soft hover:text-accent"
@@ -991,26 +1005,11 @@ function PlannedBlockRow({ block, hex, isMentor, refDate, onSetTime, onReschedul
           <button
             type="button"
             onClick={onOpenDetalle}
-            className="group block w-full min-w-0 text-left"
+            className="block w-full min-w-0 text-left"
             title="Abrir entregable (notas, URLs, pasos…)"
           >
-            <p className="flex items-center gap-1 truncate text-sm font-medium text-foreground group-hover:text-accent group-hover:underline">
+            <p className="truncate text-sm font-medium text-foreground hover:text-accent hover:underline underline-offset-2">
               {block.title}
-              <svg
-                width="11"
-                height="11"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                className="shrink-0 opacity-0 transition-opacity group-hover:opacity-100"
-                aria-hidden="true"
-              >
-                <path d="M7 17 17 7" />
-                <path d="M7 7h10v10" />
-              </svg>
             </p>
             <p className="truncate text-xs text-muted">{block.subtitle}</p>
           </button>
@@ -1054,6 +1053,21 @@ function PlannedBlockRow({ block, hex, isMentor, refDate, onSetTime, onReschedul
       </div>
       {!isMentor && (
         <div className="flex shrink-0 flex-wrap items-center justify-end gap-1">
+          {onOpenDetalle && (
+            <button
+              type="button"
+              onClick={onOpenDetalle}
+              className="flex items-center gap-1 rounded-lg border border-border bg-background px-2 py-2 text-[11px] font-medium text-foreground transition-colors hover:border-accent hover:text-accent"
+              title="Abrir entregable (notas, URLs, pasos…)"
+            >
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M14 3h7v7" />
+                <path d="M10 14 21 3" />
+                <path d="M21 14v5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5" />
+              </svg>
+              Abrir
+            </button>
+          )}
           <button type="button" onClick={onSetTime}
             className="rounded-lg border border-border px-2.5 py-2 text-[11px] font-medium text-foreground hover:bg-surface"
             title={horaPlan ? "Editar hora planificada" : "Asignar hora planificada"}>
