@@ -10,6 +10,7 @@ import {
   type Area, type Entregable, type Ambito,
 } from "@/lib/types";
 import { daysBetweenKeys, addDaysToKey } from "@/lib/date-utils";
+import { EntregableActivoCard } from "../EntregableActivo";
 
 function addDays(d: Date, n: number) { const r = new Date(d); r.setDate(r.getDate() + n); return r; }
 
@@ -88,6 +89,7 @@ export function PlanHoy({ selectedDate }: Props) {
   const [showDrillDown, setShowDrillDown] = useState(false);
   const [editingBlock, setEditingBlock] = useState<Block | null>(null);
   const [timeBlock, setTimeBlock] = useState<Block | null>(null);
+  const [detalleEntregableId, setDetalleEntregableId] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   const dateKey = useMemo(() => toDateKey(selectedDate), [selectedDate]);
@@ -431,6 +433,7 @@ export function PlanHoy({ selectedDate }: Props) {
                   )}
                   <PlannedBlockRow block={block} hex={hex} isMentor={isMentor} refDate={selectedDate}
                     onSetTime={() => setTimeBlock(block)}
+                    onOpenDetalle={block.entregableId ? () => setDetalleEntregableId(block.entregableId!) : undefined}
                     onReschedule={(newDate) => {
                       if (block.id.startsWith("pending-") && block.pasoId) {
                         if (!newDate) dispatch({ type: "DELETE_PASO", id: block.pasoId });
@@ -484,6 +487,7 @@ export function PlanHoy({ selectedDate }: Props) {
                         )}
                         <PlannedBlockRow block={block} hex={hex} isMentor={isMentor} refDate={selectedDate}
                           onSetTime={() => setTimeBlock(block)}
+                          onOpenDetalle={block.entregableId ? () => setDetalleEntregableId(block.entregableId!) : undefined}
                           onReschedule={(newDate) => {
                             if (block.id.startsWith("pending-") && block.pasoId) {
                               if (!newDate) dispatch({ type: "DELETE_PASO", id: block.pasoId });
@@ -556,12 +560,28 @@ export function PlanHoy({ selectedDate }: Props) {
                             className="flex flex-wrap items-center gap-1.5 rounded-md border-l-[3px] bg-background px-2 py-1.5"
                             style={{ borderLeftColor: block.hex ?? g.hex }}
                           >
-                            <div className="min-w-0 flex-1">
-                              <p className="truncate text-[13px] font-medium text-foreground">{block.title}</p>
-                              {block.entregableNombre && block.entregableNombre !== block.title && (
-                                <p className="truncate text-[10px] text-muted">{block.entregableNombre}</p>
-                              )}
-                            </div>
+                            {block.entregableId ? (
+                              <button
+                                type="button"
+                                onClick={() => setDetalleEntregableId(block.entregableId!)}
+                                className="group min-w-0 flex-1 text-left"
+                                title="Abrir entregable (notas, URLs, pasos…)"
+                              >
+                                <p className="truncate text-[13px] font-medium text-foreground group-hover:text-accent group-hover:underline">
+                                  {block.title}
+                                </p>
+                                {block.entregableNombre && block.entregableNombre !== block.title && (
+                                  <p className="truncate text-[10px] text-muted">{block.entregableNombre}</p>
+                                )}
+                              </button>
+                            ) : (
+                              <div className="min-w-0 flex-1">
+                                <p className="truncate text-[13px] font-medium text-foreground">{block.title}</p>
+                                {block.entregableNombre && block.entregableNombre !== block.title && (
+                                  <p className="truncate text-[10px] text-muted">{block.entregableNombre}</p>
+                                )}
+                              </div>
+                            )}
                             {!isMentor && (
                               <>
                                 <button
@@ -779,6 +799,56 @@ export function PlanHoy({ selectedDate }: Props) {
           onClear={() => { asignarHora(timeBlock, null); setTimeBlock(null); }}
         />
       )}
+
+      {/* Detalle del entregable (notas, URLs, pasos, historial) */}
+      {detalleEntregableId && (() => {
+        const ent = state.entregables.find((e) => e.id === detalleEntregableId);
+        if (!ent) return null;
+        return (
+          <EntregableDetalleDialog entregable={ent} onClose={() => setDetalleEntregableId(null)} />
+        );
+      })()}
+    </div>
+  );
+}
+
+/* ============================================================
+   ENTREGABLE DETALLE DIALOG — abre notas, URLs, pasos, historial
+   ============================================================ */
+
+function EntregableDetalleDialog({ entregable, onClose }: { entregable: Entregable; onClose: () => void }) {
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    document.addEventListener("keydown", handler);
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.removeEventListener("keydown", handler);
+      document.body.style.overflow = prev;
+    };
+  }, [onClose]);
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/30 px-4 py-8 backdrop-blur-sm"
+      role="dialog"
+      aria-modal="true"
+      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+    >
+      <div className="w-full max-w-2xl" onClick={(e) => e.stopPropagation()}>
+        <div className="mb-2 flex items-center justify-end">
+          <button
+            onClick={onClose}
+            className="flex h-8 w-8 items-center justify-center rounded-lg bg-background text-muted shadow-md transition-colors hover:bg-surface hover:text-foreground"
+            aria-label="Cerrar"
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+              <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
+            </svg>
+          </button>
+        </div>
+        <EntregableActivoCard entregable={entregable} mode="detalle" />
+      </div>
     </div>
   );
 }
@@ -896,9 +966,11 @@ function EditBlockTimesDialog({ block, pasoId, onClose }: { block: Block; pasoId
    PLANNED BLOCK ROW with reschedule/delete
    ============================================================ */
 
-function PlannedBlockRow({ block, hex, isMentor, refDate, onSetTime, onReschedule }: {
+function PlannedBlockRow({ block, hex, isMentor, refDate, onSetTime, onReschedule, onOpenDetalle }: {
   block: Block; hex: string; isMentor: boolean; refDate: Date;
   onSetTime: () => void; onReschedule: (newDate: string | null) => void;
+  /** Si se proporciona, el título es clickable y abre el detalle del entregable. */
+  onOpenDetalle?: () => void;
 }) {
   const [showMenu, setShowMenu] = useState(false);
   const [showDatePicker, setShowDatePicker] = useState(false);
@@ -915,8 +987,39 @@ function PlannedBlockRow({ block, hex, isMentor, refDate, onSetTime, onReschedul
         <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: hex }} />
       )}
       <div className="flex-1 min-w-0">
-        <p className="truncate text-sm font-medium text-foreground">{block.title}</p>
-        <p className="truncate text-xs text-muted">{block.subtitle}</p>
+        {onOpenDetalle ? (
+          <button
+            type="button"
+            onClick={onOpenDetalle}
+            className="group block w-full min-w-0 text-left"
+            title="Abrir entregable (notas, URLs, pasos…)"
+          >
+            <p className="flex items-center gap-1 truncate text-sm font-medium text-foreground group-hover:text-accent group-hover:underline">
+              {block.title}
+              <svg
+                width="11"
+                height="11"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                className="shrink-0 opacity-0 transition-opacity group-hover:opacity-100"
+                aria-hidden="true"
+              >
+                <path d="M7 17 17 7" />
+                <path d="M7 7h10v10" />
+              </svg>
+            </p>
+            <p className="truncate text-xs text-muted">{block.subtitle}</p>
+          </button>
+        ) : (
+          <>
+            <p className="truncate text-sm font-medium text-foreground">{block.title}</p>
+            <p className="truncate text-xs text-muted">{block.subtitle}</p>
+          </>
+        )}
         {/* Inline actions */}
         {showMenu && !isMentor && (
           <div className="mt-2 flex flex-wrap gap-1.5">

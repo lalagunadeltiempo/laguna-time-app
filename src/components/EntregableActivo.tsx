@@ -14,6 +14,14 @@ import { RegistrarSesionIconButton } from "./shared/RegistrarSesionPopover";
 
 interface Props {
   entregable: Entregable;
+  /**
+   * "trabajo" (default): tarjeta de sesión activa con cronómetro, pausa y
+   * botones de cerrar/descartar sesión.
+   * "detalle": se usa cuando queremos ver/editar el entregable desde
+   * planificación (pasos, notas, URLs, historial). Sin cronómetro ni acciones
+   * de cierre de sesión; se abre siempre expandido.
+   */
+  mode?: "trabajo" | "detalle";
 }
 
 const EMPTY_CONTEXTO: Contexto = { urls: [], apps: [], notas: "" };
@@ -26,7 +34,8 @@ function fmtPasoDuration(inicioTs: string, finTs: string): string {
   return h > 0 ? `${h}h ${m}m` : `${m}m`;
 }
 
-export function EntregableActivoCard({ entregable }: Props) {
+export function EntregableActivoCard({ entregable, mode = "trabajo" }: Props) {
+  const isDetalle = mode === "detalle";
   const state = useAppState();
   const dispatch = useAppDispatch();
   const { resultado, proyecto } = useArbol(entregable.id);
@@ -102,7 +111,7 @@ export function EntregableActivoCard({ entregable }: Props) {
   const pausasSesion: PausaEntry[] = sesionAbierta?.pausas ?? [];
   const isPaused = !!pausasSesion.length && !pausasSesion[pausasSesion.length - 1].resumeTs;
 
-  const [expanded, setExpanded] = useState(false);
+  const [expanded, setExpanded] = useState(isDetalle);
   const [showCloseOptions, setShowCloseOptions] = useState(false);
   const [showAddExterno, setShowAddExterno] = useState(false);
   const [externoNombre, setExternoNombre] = useState("");
@@ -280,10 +289,10 @@ export function EntregableActivoCard({ entregable }: Props) {
       <div className="flex w-full items-center gap-3 p-3" style={{ backgroundColor: `${borderColor}10` }}>
         <button type="button" onClick={() => setExpanded((e) => !e)} className="flex min-w-0 flex-1 items-center gap-3 text-left">
           <span className="relative flex h-3 w-3 shrink-0">
-            {!isPaused && sesionAbierta && (
+            {!isPaused && sesionAbierta && !isDetalle && (
               <span className="absolute inline-flex h-full w-full animate-ping rounded-full opacity-75" style={{ backgroundColor: borderColor }} />
             )}
-            <span className="relative inline-flex h-3 w-3 rounded-full" style={{ backgroundColor: isPaused ? "#f59e0b" : borderColor }} />
+            <span className="relative inline-flex h-3 w-3 rounded-full" style={{ backgroundColor: isPaused && !isDetalle ? "#f59e0b" : borderColor }} />
           </span>
           <div className="min-w-0 flex-1">
             <p className="truncate text-xs font-semibold text-zinc-800 dark:text-zinc-200">{entregable.nombre}</p>
@@ -292,20 +301,22 @@ export function EntregableActivoCard({ entregable }: Props) {
             </p>
           </div>
         </button>
-        <button
-          type="button"
-          onClick={(e) => { e.stopPropagation(); isPaused ? handleResume() : handlePause(); }}
-          className="shrink-0 rounded-lg p-1.5 transition-colors"
-          style={{ backgroundColor: isPaused ? `${borderColor}30` : "#fef3c7", color: isPaused ? borderColor : "#d97706" }}
-          title={isPaused ? "Reanudar" : "Pausar"}
-        >
-          {isPaused ? (
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3" /></svg>
-          ) : (
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16" /><rect x="14" y="4" width="4" height="16" /></svg>
-          )}
-        </button>
-        {sesionAbierta && <Timer startTime={sesionAbierta.inicioTs} pausas={pausasSesion} compact />}
+        {!isDetalle && sesionAbierta && (
+          <button
+            type="button"
+            onClick={(e) => { e.stopPropagation(); isPaused ? handleResume() : handlePause(); }}
+            className="shrink-0 rounded-lg p-1.5 transition-colors"
+            style={{ backgroundColor: isPaused ? `${borderColor}30` : "#fef3c7", color: isPaused ? borderColor : "#d97706" }}
+            title={isPaused ? "Reanudar" : "Pausar"}
+          >
+            {isPaused ? (
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3" /></svg>
+            ) : (
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16" /><rect x="14" y="4" width="4" height="16" /></svg>
+            )}
+          </button>
+        )}
+        {!isDetalle && sesionAbierta && <Timer startTime={sesionAbierta.inicioTs} pausas={pausasSesion} compact />}
         <button type="button" onClick={() => setExpanded((e) => !e)} className="shrink-0 text-zinc-400" aria-label={expanded ? "Contraer" : "Expandir"}>
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"
             className={`transition-transform ${expanded ? "rotate-180" : ""}`}>
@@ -612,6 +623,7 @@ export function EntregableActivoCard({ entregable }: Props) {
           </div>
 
           {/* Acciones */}
+          {!isDetalle && (
           <div className="space-y-2">
             {!showCloseOptions ? (
               <button
@@ -658,6 +670,7 @@ export function EntregableActivoCard({ entregable }: Props) {
               </div>
             )}
           </div>
+          )}
         </div>
       )}
     </div>
