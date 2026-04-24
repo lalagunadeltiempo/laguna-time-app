@@ -1,10 +1,10 @@
 "use client";
 
-import { useState, useCallback, useRef, useMemo } from "react";
+import { useState, useCallback, useRef, useMemo, useEffect } from "react";
 import { useAppState, useAppDispatch } from "@/lib/context";
 import { useArbol } from "@/lib/hooks";
 import { generateId } from "@/lib/store";
-import type { Contexto, Implicado, UrlRef, Entregable, Paso, SesionEntregable, PausaEntry } from "@/lib/types";
+import type { Contexto, Implicado, UrlRef, Entregable, Paso, SesionEntregable, PausaEntry, Nota } from "@/lib/types";
 import { AREA_COLORS } from "@/lib/types";
 import { toDateKey } from "@/lib/date-utils";
 import { Timer } from "./Timer";
@@ -45,6 +45,54 @@ export function EntregableActivoCard({ entregable }: Props) {
 
   const contexto: Contexto = entregable.contexto ?? EMPTY_CONTEXTO;
   const implicados: Implicado[] = entregable.implicados ?? [];
+
+  // Promoción automática (one-shot por sesión): cuando se abre un entregable,
+  // las notas y URLs que vivían en sus pasos antiguos se promocionan al
+  // entregable, sin duplicar lo ya presente. Idempotente.
+  const promotedRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (promotedRef.current === entregable.id) return;
+    promotedRef.current = entregable.id;
+    if (pasosDelEntregable.length === 0) return;
+
+    const ctxActual = entregable.contexto ?? EMPTY_CONTEXTO;
+    const norm = (u: string) => u.toLowerCase().replace(/\/+$/, "");
+    const urlsExistentes = new Set(ctxActual.urls.map((u) => norm(u.url)));
+    const notasExistentes = new Set((entregable.notas ?? []).map((n) => n.texto.trim()));
+
+    const urlsNuevas: UrlRef[] = [];
+    const notasNuevas: Nota[] = [];
+
+    for (const paso of pasosDelEntregable) {
+      for (const u of paso.contexto?.urls ?? []) {
+        if (!u.url) continue;
+        const k = norm(u.url);
+        if (urlsExistentes.has(k)) continue;
+        urlsExistentes.add(k);
+        urlsNuevas.push({ ...u });
+      }
+      for (const n of paso.notas ?? []) {
+        const t = n.texto.trim();
+        if (!t || notasExistentes.has(t)) continue;
+        notasExistentes.add(t);
+        notasNuevas.push({ ...n });
+      }
+    }
+
+    if (urlsNuevas.length > 0) {
+      dispatch({
+        type: "UPDATE_ENTREGABLE_CONTEXTO",
+        id: entregable.id,
+        contexto: { ...ctxActual, urls: [...ctxActual.urls, ...urlsNuevas] },
+      });
+    }
+    for (const nota of notasNuevas) {
+      dispatch({ type: "ADD_NOTA", nivel: "entregable", targetId: entregable.id, nota });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [entregable.id]);
+
+
   const sesiones: SesionEntregable[] = useMemo(
     () => Array.isArray(entregable.sesiones) ? entregable.sesiones : [],
     [entregable.sesiones],
