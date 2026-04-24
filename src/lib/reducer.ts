@@ -51,6 +51,7 @@ export type Action =
   | { type: "END_ENTREGABLE_SESION"; id: string; ts?: string }
   | { type: "FINISH_ENTREGABLE"; id: string; ts?: string }
   | { type: "DISCARD_ENTREGABLE_SESION"; id: string }
+  | { type: "APPEND_SESION_ENTREGABLE"; id: string; inicioTs: string; finTs: string }
   | { type: "UPDATE_ENTREGABLE_CONTEXTO"; id: string; contexto: Entregable["contexto"] }
   | { type: "UPDATE_ENTREGABLE_IMPLICADOS"; id: string; implicados: Entregable["implicados"] }
   | { type: "SET_ENTREGABLE_PLAN_INICIO"; id: string; ts: string | null }
@@ -502,6 +503,23 @@ export function reducer(state: AppState, action: Action): AppState {
           const idx = sesiones.map((s, i) => ({ s, i })).reverse().find(({ s }) => s.finTs === null)?.i;
           if (idx === undefined) return e;
           sesiones.splice(idx, 1);
+          return { ...e, sesiones };
+        }),
+      };
+    }
+
+    case "APPEND_SESION_ENTREGABLE": {
+      const { id, inicioTs, finTs } = action;
+      if (!inicioTs || !finTs) return state;
+      if (new Date(finTs).getTime() <= new Date(inicioTs).getTime()) return state;
+      return {
+        ...state,
+        entregables: state.entregables.map((e) => {
+          if (e.id !== id) return e;
+          const sesiones = Array.isArray(e.sesiones) ? [...e.sesiones] : [];
+          sesiones.push({ inicioTs, finTs, pausas: [] });
+          // Ordenamos por inicioTs ascendente para mantener coherencia histórica.
+          sesiones.sort((a, b) => a.inicioTs.localeCompare(b.inicioTs));
           return { ...e, sesiones };
         }),
       };
