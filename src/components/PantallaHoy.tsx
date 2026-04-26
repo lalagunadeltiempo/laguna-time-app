@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useRef } from "react";
 import { useAppState, useAppDispatch } from "@/lib/context";
 import { usePasosActivos, useDependenciasEntrantes, useEsperandoRespuesta, usePlannedBlocks, splitPlannedBlocks, useFocoProyectos, buildClosedPaso, type PlannedBlock } from "@/lib/hooks";
 import { generateId } from "@/lib/store";
@@ -47,7 +47,11 @@ export function PantallaHoy() {
    * cerraron, descartable.
    */
   const [autoClosedNotice, setAutoClosedNotice] = useState<{ count: number; ts: string } | null>(null);
+  // Evita re-ejecutar el auto-cierre dentro del mismo día tras el primer disparo:
+  // sólo nos interesa el primer barrido del día (cuando aún hay sesiones stale).
+  const autoCloseDoneForDayRef = useRef<string | null>(null);
   useEffect(() => {
+    if (autoCloseDoneForDayRef.current === todayKey) return;
     const stale: { entregableId: string; inicioTs: string }[] = [];
     for (const e of state.entregables) {
       if (!Array.isArray(e.sesiones)) continue;
@@ -58,11 +62,17 @@ export function PantallaHoy() {
         stale.push({ entregableId: e.id, inicioTs: s.inicioTs });
       }
     }
-    if (stale.length === 0) return;
+    if (stale.length === 0) {
+      // Sin sesiones stale: si hay entregables cargados (state hidratado), marcamos
+      // el día como ya barrido para no volver a procesar. Si state aún está vacío
+      // (carga en curso), dejamos abierto para reintentar cuando llegue el state.
+      if (state.entregables.length > 0) autoCloseDoneForDayRef.current = todayKey;
+      return;
+    }
     dispatch({ type: "AUTO_CLOSE_STALE_SESIONES", todayKey });
     setAutoClosedNotice({ count: stale.length, ts: new Date().toISOString() });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [todayKey]);
+    autoCloseDoneForDayRef.current = todayKey;
+  }, [todayKey, state.entregables, dispatch]);
 
   // Entregables con sesión abierta (aparecen arriba como "en curso").
   const entregablesEnCurso: Entregable[] = useMemo(() => {
