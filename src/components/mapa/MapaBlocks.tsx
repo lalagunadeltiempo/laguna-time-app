@@ -11,11 +11,11 @@ import ProgramacionPicker from "../shared/ProgramacionPicker";
 import HierarchyPicker from "../shared/HierarchyPicker";
 import MoveInlinePanel from "../shared/MoveInlinePanel";
 import { RegistrarSesionIconButton } from "../shared/RegistrarSesionPopover";
-import { ProyectoPlanner } from "../plan/ProyectoPlanner";
 import { ProyectoTimeline } from "../plan/ProyectoTimeline";
-import { TrimestreSelector } from "./TrimestreSelector";
 import { computeProyectoRitmo, ritmoColor, ritmoLabel, ritmoLabelCorto, ritmoExplicacion, inferDateRange, type DateRange } from "@/lib/proyecto-stats";
-import { rangoProyectoMapa, rangoResultadoMapa, rangoEntregableMapa } from "@/lib/fechas-efectivas";
+import { rangoProyectoMapa } from "@/lib/fechas-efectivas";
+import { mesesDeTrimestre, semanasDeMeses, etiquetaSemanaIso, etiquetaMesCorta, rangoSemanaCorto } from "@/lib/semana-utils";
+import { COLOR_TRIMESTRE, colorMes, colorSemana, chipStylesFromHex } from "@/lib/colores-tiempo";
 import {
   AREAS_PERSONAL,
   AREAS_EMPRESA,
@@ -474,7 +474,7 @@ function TimelineInline({ proyecto, resultados, entregables }: { proyecto: Proye
    AREA SECTION
    ============================================================ */
 
-export function AreaSection({ areaId, hideSops }: { areaId: Area; hideSops?: boolean }) {
+export function AreaSection({ areaId, hideSops, forceOpen }: { areaId: Area; hideSops?: boolean; forceOpen?: boolean }) {
   const state = useAppState();
   const dispatch = useAppDispatch();
   const isMentor = useIsMentor();
@@ -498,10 +498,13 @@ export function AreaSection({ areaId, hideSops }: { areaId: Area; hideSops?: boo
   useEffect(() => {
     if (highlight?.ancestors.has(areaId)) { setOpen(true); setOpenProj(true); }
   }, [highlight, areaId]);
+  useEffect(() => {
+    if (forceOpen) { setOpen(true); setOpenProj(true); }
+  }, [forceOpen]);
   const sops = state.plantillas.filter((pl) => pl.area === areaId);
 
   return (
-    <section className="mb-6">
+    <section id={`mapa-area-${areaId}`} className="mb-6 scroll-mt-20">
       <button onClick={() => setOpen(!open)}
         className="mb-2 flex w-full items-center gap-3 rounded-xl px-4 py-3.5 text-left transition-colors hover:bg-surface">
         <span className={`inline-flex h-9 w-9 items-center justify-center rounded-lg text-sm font-bold text-white ${c.dot}`}>{c.initial}</span>
@@ -645,6 +648,305 @@ function RitmoBanner({ ritmo, deadline }: { ritmo: import("@/lib/proyecto-stats"
 }
 
 /* ============================================================
+   COMPONENTES DE CHIPS DE PLANIFICACIÓN (TRIMESTRE / MES / SEMANA)
+   ============================================================ */
+
+function OnOffToggle({ on, onToggle, disabled, titleOn, titleOff }: {
+  on: boolean;
+  onToggle: () => void;
+  disabled?: boolean;
+  titleOn?: string;
+  titleOff?: string;
+}) {
+  return (
+    <button
+      type="button"
+      disabled={disabled}
+      onClick={(e) => { e.stopPropagation(); if (!disabled) onToggle(); }}
+      className={`flex h-6 items-center rounded-md px-2 text-[10px] font-bold tracking-wide transition-colors ${
+        on
+          ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-300"
+          : "bg-gray-200 text-gray-500 dark:bg-gray-700 dark:text-gray-400"
+      } ${disabled ? "opacity-60 cursor-not-allowed" : "cursor-pointer hover:brightness-95"}`}
+      title={on ? (titleOn ?? "Pausar") : (titleOff ?? "Reactivar")}
+    >
+      {on ? "ON" : "OFF"}
+    </button>
+  );
+}
+
+function QuarterChips({ proyecto }: { proyecto: Proyecto }) {
+  const dispatch = useAppDispatch();
+  const isMentor = useIsMentor();
+  const activos = useMemo(
+    () => new Set<string>(proyecto.trimestresActivos ?? []),
+    [proyecto.trimestresActivos]
+  );
+  const [year, setYear] = useState<number>(() => {
+    if (activos.size > 0) {
+      const first = [...activos].sort()[0];
+      const y = parseInt(first.slice(0, 4), 10);
+      if (Number.isFinite(y)) return y;
+    }
+    return new Date().getFullYear();
+  });
+
+  const otrosAnios = useMemo(
+    () => [...activos].filter((k) => !k.startsWith(`${year}-`)).sort(),
+    [activos, year]
+  );
+
+  if (isMentor) {
+    if (activos.size === 0) return null;
+    return (
+      <div className="flex flex-wrap items-center gap-1">
+        {[...activos].sort().map((k) => {
+          const q = parseInt(k.slice(-1), 10) as 1 | 2 | 3 | 4;
+          return (
+            <span
+              key={k}
+              className="rounded-md border px-1.5 py-0.5 text-[10px] font-bold"
+              style={chipStylesFromHex(COLOR_TRIMESTRE[q], true)}
+              title={`${k}`}
+            >
+              Q{q}{k.slice(2, 4) !== String(new Date().getFullYear()).slice(2) ? `'${k.slice(2, 4)}` : ""}
+            </span>
+          );
+        })}
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-wrap items-center gap-1" onClick={(e) => e.stopPropagation()}>
+      <button
+        type="button"
+        onClick={() => setYear((y) => y - 1)}
+        className="rounded px-1 text-[10px] text-muted hover:text-foreground"
+        title="Año anterior"
+      >‹</button>
+      <span className="text-[10px] text-muted tabular-nums">{year}</span>
+      <button
+        type="button"
+        onClick={() => setYear((y) => y + 1)}
+        className="rounded px-1 text-[10px] text-muted hover:text-foreground"
+        title="Año siguiente"
+      >›</button>
+      {[1, 2, 3, 4].map((q) => {
+        const key = `${year}-Q${q}`;
+        const active = activos.has(key);
+        return (
+          <button
+            key={key}
+            type="button"
+            onClick={() => dispatch({ type: "TOGGLE_PROYECTO_TRIMESTRE", id: proyecto.id, trimestre: key })}
+            className="rounded-md border px-1.5 py-0.5 text-[10px] font-bold transition-colors"
+            style={chipStylesFromHex(COLOR_TRIMESTRE[q as 1 | 2 | 3 | 4], active)}
+            title={`${active ? "Quitar" : "Activar"} Q${q} ${year}`}
+          >
+            Q{q}
+          </button>
+        );
+      })}
+      {otrosAnios.map((k) => {
+        const q = parseInt(k.slice(-1), 10) as 1 | 2 | 3 | 4;
+        const y2 = k.slice(0, 4);
+        return (
+          <button
+            key={k}
+            type="button"
+            onClick={() => dispatch({ type: "TOGGLE_PROYECTO_TRIMESTRE", id: proyecto.id, trimestre: k })}
+            className="rounded-md border px-1.5 py-0.5 text-[10px] font-bold transition-colors"
+            style={chipStylesFromHex(COLOR_TRIMESTRE[q], true)}
+            title={`Quitar Q${q} ${y2}`}
+          >
+            {`Q${q}'${y2.slice(2)}`}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+function MesChips({ resultado, proyecto }: { resultado: Resultado; proyecto: Proyecto | null | undefined }) {
+  const dispatch = useAppDispatch();
+  const isMentor = useIsMentor();
+  const mesesPermitidos = useMemo<string[]>(() => {
+    const base = new Set<string>();
+    for (const q of proyecto?.trimestresActivos ?? []) {
+      for (const m of mesesDeTrimestre(q)) base.add(m);
+    }
+    for (const m of proyecto?.mesesActivos ?? []) base.add(m);
+    return [...base].sort();
+  }, [proyecto?.trimestresActivos, proyecto?.mesesActivos]);
+  const activos = new Set(resultado.mesesActivos ?? []);
+
+  if (mesesPermitidos.length === 0) {
+    if (isMentor) return null;
+    return (
+      <span className="text-[10px] italic text-muted/80">
+        Asigna trimestres al proyecto para planificar meses
+      </span>
+    );
+  }
+
+  if (isMentor) {
+    if (activos.size === 0) return null;
+    return (
+      <div className="flex flex-wrap items-center gap-1">
+        {mesesPermitidos.filter((m) => activos.has(m)).map((m) => (
+          <span
+            key={m}
+            className="rounded-md border px-1.5 py-0.5 text-[10px] font-bold uppercase"
+            style={chipStylesFromHex(colorMes(m), true)}
+          >
+            {etiquetaMesCorta(m)}
+          </span>
+        ))}
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-wrap items-center gap-1" onClick={(e) => e.stopPropagation()}>
+      {mesesPermitidos.map((m) => {
+        const active = activos.has(m);
+        return (
+          <button
+            key={m}
+            type="button"
+            onClick={() => dispatch({ type: "TOGGLE_RESULTADO_MES", id: resultado.id, mes: m })}
+            className="rounded-md border px-1.5 py-0.5 text-[10px] font-bold uppercase transition-colors"
+            style={chipStylesFromHex(colorMes(m), active)}
+            title={`${active ? "Quitar" : "Activar"} ${etiquetaMesCorta(m, false)} en este resultado`}
+          >
+            {etiquetaMesCorta(m)}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+function SemanaIsoChips({ entregable, resultado }: { entregable: Entregable; resultado: Resultado | null | undefined }) {
+  const dispatch = useAppDispatch();
+  const isMentor = useIsMentor();
+  const semanasPermitidas = useMemo<string[]>(() => {
+    const meses = resultado?.mesesActivos ?? [];
+    return semanasDeMeses(meses);
+  }, [resultado?.mesesActivos]);
+  const activos = new Set<string>(entregable.semanasActivas ?? []);
+
+  if (semanasPermitidas.length === 0) {
+    if (isMentor) return null;
+    return (
+      <span className="text-[10px] italic text-muted/80">
+        Asigna meses al resultado para planificar semanas
+      </span>
+    );
+  }
+
+  if (isMentor) {
+    if (activos.size === 0) return null;
+    return (
+      <div className="flex flex-wrap items-center gap-1">
+        {semanasPermitidas.filter((m) => activos.has(m)).map((monday) => (
+          <span
+            key={monday}
+            className="rounded-md border px-1.5 py-0.5 text-[10px] font-bold tabular-nums"
+            style={chipStylesFromHex(colorSemana(monday), true)}
+            title={rangoSemanaCorto(monday)}
+          >
+            {etiquetaSemanaIso(monday)}
+          </span>
+        ))}
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-wrap items-center gap-1" onClick={(e) => e.stopPropagation()}>
+      {semanasPermitidas.map((monday) => {
+        const active = activos.has(monday);
+        return (
+          <button
+            key={monday}
+            type="button"
+            onClick={() => dispatch({ type: "TOGGLE_ENTREGABLE_SEMANA", id: entregable.id, semana: monday })}
+            className="rounded-md border px-1.5 py-0.5 text-[10px] font-bold tabular-nums transition-colors"
+            style={chipStylesFromHex(colorSemana(monday), active)}
+            title={`${active ? "Quitar" : "Activar"} ${etiquetaSemanaIso(monday)} (${rangoSemanaCorto(monday)})`}
+          >
+            {etiquetaSemanaIso(monday)}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+function FechaCompromisoChip({ entregable }: { entregable: Entregable }) {
+  const dispatch = useAppDispatch();
+  const isMentor = useIsMentor();
+  const [editing, setEditing] = useState(false);
+  const fc = entregable.fechaCompromiso ?? null;
+  const label = fc
+    ? `Compromiso: ${new Date(fc + "T12:00:00").toLocaleDateString("es-ES", { day: "numeric", month: "short" })}`
+    : "Compromiso";
+
+  if (isMentor) {
+    if (!fc) return null;
+    return (
+      <span className="rounded-md bg-amber-50 px-2 py-0.5 text-[10px] font-medium text-amber-700 dark:bg-amber-500/10 dark:text-amber-300">
+        {label}
+      </span>
+    );
+  }
+
+  if (editing) {
+    return (
+      <span className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
+        <input
+          type="date"
+          value={fc ?? ""}
+          autoFocus
+          onChange={(e) =>
+            dispatch({ type: "SET_ENTREGABLE_FECHA_COMPROMISO", id: entregable.id, fecha: e.target.value || null })
+          }
+          onBlur={() => setEditing(false)}
+          className="h-6 rounded-md border border-border bg-background px-1 text-[10px]"
+        />
+        {fc && (
+          <button
+            onClick={() => {
+              dispatch({ type: "SET_ENTREGABLE_FECHA_COMPROMISO", id: entregable.id, fecha: null });
+              setEditing(false);
+            }}
+            className="rounded px-1 text-[10px] text-red-500 hover:bg-red-50"
+            title="Quitar compromiso"
+          >×</button>
+        )}
+      </span>
+    );
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={(e) => { e.stopPropagation(); setEditing(true); }}
+      className={`rounded-md px-2 py-0.5 text-[10px] font-medium transition-colors ${
+        fc
+          ? "bg-amber-50 text-amber-700 hover:bg-amber-100 dark:bg-amber-500/10 dark:text-amber-300"
+          : "text-muted opacity-60 hover:opacity-100 hover:bg-surface"
+      }`}
+      title="Compromiso (informativo, no afecta a la planificación)"
+    >
+      {label}
+    </button>
+  );
+}
+
+/* ============================================================
    PROYECTO
    ============================================================ */
 
@@ -663,10 +965,7 @@ function ProyectoBlock({ proyecto, index, total }: { proyecto: Proyecto; index: 
   const [open, setOpen] = useState(false);
   const [confirm, setConfirm] = useState(false);
   const [showNotas, setShowNotas] = useState(false);
-  const [showDatePicker, setShowDatePicker] = useState(false);
   const [showMoveArea, setShowMoveArea] = useState(false);
-  const [showPlanner, setShowPlanner] = useState(false);
-  const isEmpresa = ambitoDeArea(proyecto.area) === "empresa";
   const hlRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => { if (isAncestor || isTarget) setOpen(true); }, [isAncestor, isTarget]);
@@ -681,21 +980,26 @@ function ProyectoBlock({ proyecto, index, total }: { proyecto: Proyecto; index: 
   const projEntregables = state.entregables.filter((e) => resIds.has(e.resultadoId));
   const hasActiveWork = projEntregables.some((e) => e.estado === "en_proceso" || state.pasos.some((p) => p.entregableId === e.id && p.inicioTs && !p.finTs));
   const notasCount = (proyecto.notas ?? []).length;
-  const isProgrammed = !!proyecto.fechaInicio;
   const projEstado = proyecto.estado ?? "plan";
-  const isInactive = projEstado === "completado" || projEstado === "pausado";
+  const isOff = projEstado === "pausado";
+
+  // Y/X: Y = resultados con todos sus entregables en estado "hecho" (y al menos uno).
+  const resultadosCompletados = useMemo(() => {
+    return allResultados.filter((r) => {
+      const ents = projEntregables.filter((e) => e.resultadoId === r.id);
+      return ents.length > 0 && ents.every((e) => e.estado === "hecho");
+    }).length;
+  }, [allResultados, projEntregables]);
+  const totalResultados = allResultados.length;
+  const proyectoCompletado = totalResultados > 0 && resultadosCompletados === totalResultados;
+  const isInactive = isOff || proyectoCompletado;
 
   const ritmo = useMemo(() => showRitmo ? computeProyectoRitmo(proyecto, projEntregables, allResultados, new Date(), state.miembros, state.pasos, state.planConfig) : null, [showRitmo, proyecto, projEntregables, allResultados, state.miembros, state.pasos, state.planConfig]);
 
-  // Rango efectivo derivado del planning (trimestres, semanas, entregables).
+  // Rango efectivo derivado del planning (trimestres, semanas, entregables) — sólo informativo en RitmoBanner.
   const rangoProy = useMemo(() => rangoProyectoMapa(proyecto, allResultados, projEntregables), [proyecto, allResultados, projEntregables]);
 
   if (hideFiltered && !inFilter) return null;
-
-  function handlePlanSelect(fechaInicio: string, planNivel: PlanNivel) {
-    dispatch({ type: "UPDATE_PROYECTO", id: proyecto.id, changes: { fechaInicio, planNivel } });
-    setShowDatePicker(false);
-  }
 
   return (
     <div ref={hlRef} className={`rounded-xl border border-border bg-background transition-all duration-700${filter && !inFilter && !hideFiltered ? " opacity-40" : ""}${isInactive ? " opacity-50" : ""}${isTarget ? " ring-2 ring-accent ring-offset-2 animate-pulse" : ""}`}>
@@ -704,70 +1008,32 @@ function ProyectoBlock({ proyecto, index, total }: { proyecto: Proyecto; index: 
           ? <span className={`text-lg font-semibold ${isInactive ? "text-muted line-through" : "text-foreground"}`}>{proyecto.nombre}</span>
           : <EditableText value={proyecto.nombre} onChange={(v) => dispatch({ type: "RENAME_PROYECTO", id: proyecto.id, nombre: v })} className={`text-lg font-semibold ${isInactive ? "text-muted" : "text-foreground"}`} />
         }
-        {projEstado === "completado" && (
-          <span className="rounded-md bg-emerald-100 px-2 py-0.5 text-[11px] font-semibold text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-400">Completado</span>
-        )}
-        {projEstado === "pausado" && (
-          <span className="rounded-md bg-gray-200 px-2 py-0.5 text-[11px] font-semibold text-gray-600 dark:bg-gray-700/30 dark:text-gray-400">Pausado</span>
-        )}
-        {projEstado === "plan" && (
-          <span className="rounded-md bg-gray-100 px-2 py-0.5 text-[11px] font-medium text-gray-500 dark:bg-gray-700/20 dark:text-gray-400">Plan</span>
-        )}
-        {projEstado === "en_marcha" && (
-          <span className="rounded-md bg-blue-100 px-2 py-0.5 text-[11px] font-semibold text-blue-700 dark:bg-blue-500/10 dark:text-blue-400">En marcha</span>
-        )}
         <ReviewBadge review={proyecto.review} nivel="proyecto" targetId={proyecto.id} />
-        {isEmpresa && <ResponsableBadge nombre={proyecto.responsable} editable={!isMentor} miembros={state.miembros} onChange={(v) => dispatch({ type: "UPDATE_PROYECTO", id: proyecto.id, changes: { responsable: v } })} />}
-        <span className="rounded-full bg-surface px-3 py-1 text-xs font-medium text-muted">{allResultados.length} result.</span>
-        {(rangoProy.inicio || rangoProy.fin) && (
-          <span className="hidden sm:inline rounded-md bg-surface px-2 py-0.5 text-[11px] text-muted" title="Rango derivado del planning">
-            {formatDateRange(rangoProy.inicio, rangoProy.fin)}
-          </span>
-        )}
-        {!rangoProy.inicio && !rangoProy.fin && projEstado !== "completado" && (
-          <span className="hidden sm:inline rounded-md bg-amber-50 px-2 py-0.5 text-[10px] text-amber-600 dark:bg-amber-500/10 dark:text-amber-400">Sin fechas</span>
-        )}
+        <OnOffToggle
+          on={!isOff}
+          disabled={isMentor}
+          onToggle={() => dispatch({ type: "UPDATE_PROYECTO", id: proyecto.id, changes: { estado: isOff ? "en_marcha" : "pausado" } })}
+          titleOn="Pausar proyecto"
+          titleOff="Reactivar proyecto"
+        />
+        <span
+          className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${
+            proyectoCompletado
+              ? "bg-green-100 text-green-700 dark:bg-green-500/10 dark:text-green-400"
+              : "bg-surface text-muted"
+          }`}
+          title="Resultados completados / totales"
+        >
+          {resultadosCompletados}/{totalResultados}
+        </span>
+        <QuarterChips proyecto={proyecto} />
         {isMentor
           ? <CommentIcon count={notasCount} onClick={() => toggleOrSheet(showNotas, setShowNotas, openSheet, { title: proyecto.nombre, nivel: "proyecto", targetId: proyecto.id })} />
           : <NotasIcon count={notasCount} onClick={() => toggleOrSheet(showNotas, setShowNotas, openSheet, { title: proyecto.nombre, nivel: "proyecto", targetId: proyecto.id })} />}
         {!isMentor && (
-          <button onClick={(e) => { e.stopPropagation(); setShowDatePicker(!showDatePicker); }}
-            className={`flex h-7 items-center gap-1 rounded-md px-2 text-xs transition-all hover:bg-accent-soft hover:text-accent ${isProgrammed ? "text-accent" : "text-muted opacity-60 hover:opacity-100"}`}
-            title="Asignar trimestres">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-              <rect x="3" y="4" width="18" height="18" rx="2" /><line x1="16" y1="2" x2="16" y2="6" /><line x1="8" y1="2" x2="8" y2="6" /><line x1="3" y1="10" x2="21" y2="10" />
-            </svg>
-          </button>
-        )}
-        {!isMentor && (
-          <button onClick={(e) => { e.stopPropagation(); setShowPlanner(true); }}
-            className="flex h-7 items-center gap-1 rounded-md px-2 text-xs text-muted opacity-60 transition-all hover:bg-accent-soft hover:text-accent hover:opacity-100"
-            title="Planificar proyecto (detalle)">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" /><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" /></svg>
-          </button>
-        )}
-        {!isMentor && (
           <button onClick={(e) => { e.stopPropagation(); setShowMoveArea(!showMoveArea); }}
             className="flex h-6 items-center gap-0.5 rounded px-1.5 text-[10px] text-muted transition-colors hover:bg-surface hover:text-foreground" title="Mover a otra área">
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M5 12h14M12 5l7 7-7 7" /></svg>
-          </button>
-        )}
-        {!isMentor && !isInactive && (
-          <button onClick={(e) => { e.stopPropagation(); dispatch({ type: "UPDATE_PROYECTO", id: proyecto.id, changes: { estado: "completado" } }); }}
-            className="flex h-6 items-center gap-0.5 rounded px-1.5 text-[10px] text-muted transition-colors hover:bg-emerald-50 hover:text-emerald-600" title="Completar proyecto">
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><polyline points="20 6 9 17 4 12" /></svg>
-          </button>
-        )}
-        {!isMentor && !isInactive && (
-          <button onClick={(e) => { e.stopPropagation(); dispatch({ type: "UPDATE_PROYECTO", id: proyecto.id, changes: { estado: "pausado" } }); }}
-            className="flex h-6 items-center gap-0.5 rounded px-1.5 text-[10px] text-muted transition-colors hover:bg-gray-100 hover:text-gray-600" title="Pausar proyecto">
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><rect x="6" y="4" width="4" height="16" /><rect x="14" y="4" width="4" height="16" /></svg>
-          </button>
-        )}
-        {!isMentor && isInactive && (
-          <button onClick={(e) => { e.stopPropagation(); dispatch({ type: "UPDATE_PROYECTO", id: proyecto.id, changes: { estado: "en_marcha" } }); }}
-            className="flex h-6 items-center gap-0.5 rounded px-1.5 text-[10px] text-emerald-600 transition-colors hover:bg-emerald-50" title="Reactivar proyecto">
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><polygon points="5 3 19 12 5 21 5 3" /></svg>
           </button>
         )}
         {!isMentor && <MoveArrows canUp={index > 0} canDown={index < total - 1}
@@ -781,7 +1047,7 @@ function ProyectoBlock({ proyecto, index, total }: { proyecto: Proyecto; index: 
       )}
 
       {ritmo && (
-        <RitmoBanner ritmo={ritmo} deadline={proyecto.fechaLimite} />
+        <RitmoBanner ritmo={ritmo} deadline={rangoProy.fin ?? proyecto.fechaLimite} />
       )}
 
       {showMoveArea && (
@@ -800,20 +1066,6 @@ function ProyectoBlock({ proyecto, index, total }: { proyecto: Proyecto; index: 
             })}
           </div>
         </div>
-      )}
-
-      {showDatePicker && (
-        <TrimestreSelector
-          trimestresActivos={proyecto.trimestresActivos ?? []}
-          fechaInicio={proyecto.fechaInicio}
-          fechaLimite={proyecto.fechaLimite}
-          onChange={(trimestres) => dispatch({ type: "SET_PROYECTO_TRIMESTRES", id: proyecto.id, trimestres })}
-          onClose={() => setShowDatePicker(false)}
-        />
-      )}
-
-      {showPlanner && (
-        <ProyectoPlanner proyectoId={proyecto.id} onClose={() => setShowPlanner(false)} />
       )}
 
       {confirm && <ConfirmDelete label={proyecto.nombre}
@@ -880,7 +1132,6 @@ function ResultadoBlock({ resultado, index, total }: { resultado: Resultado; ind
   const [confirm, setConfirm] = useState(false);
   const [showNotas, setShowNotas] = useState(false);
   const [showMove, setShowMove] = useState(false);
-  const [showDatePicker, setShowDatePicker] = useState(false);
   const hlRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => { if (isAncestor || isTarget) setOpen(true); }, [isAncestor, isTarget]);
@@ -891,58 +1142,37 @@ function ResultadoBlock({ resultado, index, total }: { resultado: Resultado; ind
   const allEntregables = state.entregables.filter((e) => e.resultadoId === resultado.id);
   const hechos = allEntregables.filter((e) => e.estado === "hecho").length;
   const totalEnts = allEntregables.length;
-  const computedEstado = totalEnts === 0 ? "plan" : hechos === totalEnts ? "completado" : allEntregables.some((e) => e.estado === "en_proceso" || e.estado === "en_espera") ? "en_marcha" : "plan";
+  const completado = totalEnts > 0 && hechos === totalEnts;
+  const isInactive = completado;
   const parentProj = state.proyectos.find((p) => p.id === resultado.proyectoId);
   const isEmpresa = parentProj ? ambitoDeArea(parentProj.area) === "empresa" : false;
   const notasCount = (resultado.notas ?? []).length;
-  const isProgrammed = !!resultado.fechaInicio;
-  const rangoRes = useMemo(() => rangoResultadoMapa(resultado, allEntregables), [resultado, allEntregables]);
 
   if (hideFiltered && !inFilter) return null;
 
-  function handlePlanSelect(fechaInicio: string, planNivel: PlanNivel) {
-    dispatch({ type: "UPDATE_RESULTADO", id: resultado.id, changes: { fechaInicio, planNivel } });
-    setShowDatePicker(false);
-  }
-
   return (
-    <div ref={hlRef} className={`rounded-xl border border-border/50 bg-surface/30 transition-all duration-700${filter && !inFilter && !hideFiltered ? " opacity-40" : ""}${computedEstado === "completado" ? " opacity-60" : ""}${isTarget ? " ring-2 ring-accent ring-offset-2 animate-pulse" : ""}`}>
+    <div ref={hlRef} className={`rounded-xl border border-border/50 bg-surface/30 transition-all duration-700${filter && !inFilter && !hideFiltered ? " opacity-40" : ""}${isInactive ? " opacity-60" : ""}${isTarget ? " ring-2 ring-accent ring-offset-2 animate-pulse" : ""}`}>
       <ToggleRow open={open} onToggle={() => setOpen(!open)}>
         {isMentor
-          ? <span className={`text-base font-medium ${computedEstado === "completado" ? "text-muted line-through" : "text-foreground"}`}>{resultado.nombre}</span>
-          : <EditableText value={resultado.nombre} onChange={(v) => dispatch({ type: "RENAME_RESULTADO", id: resultado.id, nombre: v })} className={`text-base font-medium ${computedEstado === "completado" ? "text-muted line-through" : "text-foreground"}`} />
+          ? <span className={`text-base font-medium ${completado ? "text-muted line-through" : "text-foreground"}`}>{resultado.nombre}</span>
+          : <EditableText value={resultado.nombre} onChange={(v) => dispatch({ type: "RENAME_RESULTADO", id: resultado.id, nombre: v })} className={`text-base font-medium ${completado ? "text-muted line-through" : "text-foreground"}`} />
         }
         <ReviewBadge review={resultado.review} nivel="resultado" targetId={resultado.id} />
         {isEmpresa && <ResponsableBadge nombre={resultado.responsable ?? parentProj?.responsable} editable={!isMentor} miembros={state.miembros} onChange={(v) => dispatch({ type: "UPDATE_RESULTADO", id: resultado.id, changes: { responsable: v } })} />}
-        {totalEnts > 0 && (
-          <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${computedEstado === "completado" ? "bg-green-100 text-green-700 dark:bg-green-500/10 dark:text-green-400" : "bg-surface text-muted"}`}>
-            {hechos}/{totalEnts}
-          </span>
-        )}
-        {totalEnts === 0 && <span className="rounded-full bg-surface px-2.5 py-0.5 text-xs text-muted">0 entreg.</span>}
-        {computedEstado === "en_marcha" && (
-          <span className="rounded-md bg-blue-100 px-2 py-0.5 text-[11px] font-semibold text-blue-700 dark:bg-blue-500/10 dark:text-blue-400">En marcha</span>
-        )}
-        {computedEstado === "completado" && (
-          <span className="rounded-md bg-green-100 px-2 py-0.5 text-[11px] font-semibold text-green-700 dark:bg-green-500/10 dark:text-green-400">Completado</span>
-        )}
-        {(rangoRes.inicio || rangoRes.fin) && computedEstado !== "completado" && (
-          <span className="hidden sm:inline rounded-md bg-surface px-2 py-0.5 text-[11px] text-muted" title="Rango derivado del planning">
-            {formatDateRange(rangoRes.inicio, rangoRes.fin)}
-          </span>
-        )}
+        <span
+          className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${
+            completado
+              ? "bg-green-100 text-green-700 dark:bg-green-500/10 dark:text-green-400"
+              : "bg-surface text-muted"
+          }`}
+          title="Entregables hechos / totales"
+        >
+          {hechos}/{totalEnts}
+        </span>
+        <MesChips resultado={resultado} proyecto={parentProj} />
         {isMentor
           ? <CommentIcon count={notasCount} onClick={() => toggleOrSheet(showNotas, setShowNotas, openSheet, { title: resultado.nombre, nivel: "resultado", targetId: resultado.id })} />
           : <NotasIcon count={notasCount} onClick={() => toggleOrSheet(showNotas, setShowNotas, openSheet, { title: resultado.nombre, nivel: "resultado", targetId: resultado.id })} />}
-        {!isMentor && (
-          <button onClick={(e) => { e.stopPropagation(); setShowDatePicker(!showDatePicker); }}
-            className={`flex h-7 items-center gap-1 rounded-md px-2 text-xs transition-all hover:bg-accent-soft hover:text-accent ${isProgrammed ? "text-accent" : "text-muted opacity-60 hover:opacity-100"}`}
-            title="Planificar resultado">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-              <rect x="3" y="4" width="18" height="18" rx="2" /><line x1="16" y1="2" x2="16" y2="6" /><line x1="8" y1="2" x2="8" y2="6" /><line x1="3" y1="10" x2="21" y2="10" />
-            </svg>
-          </button>
-        )}
         {!isMentor && (
           <button onClick={(e) => { e.stopPropagation(); setShowMove((v) => !v); }}
             className="flex h-6 items-center gap-0.5 rounded px-1.5 text-[10px] text-muted transition-colors hover:bg-surface hover:text-foreground" title="Mover a otro proyecto">
@@ -960,10 +1190,6 @@ function ResultadoBlock({ resultado, index, total }: { resultado: Resultado; ind
           target={{ kind: "resultado", id: resultado.id, currentProyectoId: resultado.proyectoId }}
           onDone={() => setShowMove(false)}
         />
-      )}
-
-      {showDatePicker && (
-        <PlanPicker onSelect={handlePlanSelect} onCancel={() => setShowDatePicker(false)} showDayLevel={false} />
       )}
 
       {confirm && <ConfirmDelete label={resultado.nombre}
@@ -1014,16 +1240,13 @@ function EntregableBlock({ entregable, index, total }: { entregable: Entregable;
   const inFilter = !filter || filter.entregables.has(entregable.id);
   const [open, setOpen] = useState(false);
   const [confirm, setConfirm] = useState(false);
-  const [showDatePicker, setShowDatePicker] = useState(false);
-  const [justAssigned, setJustAssigned] = useState(false);
   const [showMove, setShowMove] = useState(false);
   const [synced, setSynced] = useState(false);
   const [showSyncPrompt, setShowSyncPrompt] = useState(false);
-  const justAssignedTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
   const syncedTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
   const prevEstadoRef = useRef(entregable.estado);
   const hlRef = useRef<HTMLDivElement>(null);
-  useEffect(() => () => { clearTimeout(justAssignedTimer.current); clearTimeout(syncedTimer.current); }, []);
+  useEffect(() => () => { clearTimeout(syncedTimer.current); }, []);
 
   useEffect(() => {
     if (prevEstadoRef.current !== "hecho" && entregable.estado === "hecho" && entregable.plantillaId) {
@@ -1060,20 +1283,6 @@ function EntregableBlock({ entregable, index, total }: { entregable: Entregable;
   const isEmpresa = parentProj ? ambitoDeArea(parentProj.area) === "empresa" : false;
   const notasCount = (entregable.notas ?? []).length;
 
-  const rangoEnt = rangoEntregableMapa(entregable);
-  const isProgrammed = !!(rangoEnt.inicio || entregable.fechaInicio);
-  const programLabel = entregable.semana
-    ? formatDateRange(rangoEnt.inicio, rangoEnt.fin)
-    : (entregable.fechaInicio ? formatFechaInicio(entregable.fechaInicio, entregable.planNivel) : null);
-
-  function handlePlanSelect(fechaInicio: string, planNivel: PlanNivel) {
-    const newEstado = computeEstadoOnPlan(planNivel, fechaInicio, entregable.estado);
-    dispatch({ type: "UPDATE_ENTREGABLE", id: entregable.id, changes: { fechaInicio, planNivel, estado: newEstado } });
-    setShowDatePicker(false);
-    setJustAssigned(true);
-    clearTimeout(justAssignedTimer.current);
-    justAssignedTimer.current = setTimeout(() => setJustAssigned(false), 2500);
-  }
 
   return (
     <div ref={hlRef} className={`transition-all duration-700${filter && !inFilter && !hideFiltered ? " opacity-40" : ""}${isDone ? " opacity-60" : ""}${isTarget ? " rounded-lg ring-2 ring-accent ring-offset-2 animate-pulse" : ""}`}>
@@ -1099,12 +1308,8 @@ function EntregableBlock({ entregable, index, total }: { entregable: Entregable;
         {tipoTag && <span className="rounded-md px-2 py-0.5 text-[11px] font-bold" style={{ backgroundColor: entAreaHex + "15", color: entAreaHex }}>{tipoTag}</span>}
         {isDone && <span className="rounded-md bg-green-100 px-2 py-0.5 text-[11px] font-semibold text-green-700 dark:bg-green-500/10 dark:text-green-400">Hecho</span>}
         {isEmpresa && <ResponsableBadge nombre={entregable.responsable} editable={!isMentor} miembros={state.miembros} onChange={(v) => dispatch({ type: "UPDATE_ENTREGABLE", id: entregable.id, changes: { responsable: v } })} />}
-        {programLabel && !isDone && (
-          <span className="rounded-md bg-accent/10 px-2 py-0.5 text-[11px] font-medium text-accent">{programLabel}</span>
-        )}
-        {justAssigned && (
-          <span className="animate-pulse rounded-md bg-green-100 px-2 py-0.5 text-[11px] font-bold text-green-700">Planificado</span>
-        )}
+        <SemanaIsoChips entregable={entregable} resultado={parentRes} />
+        <FechaCompromisoChip entregable={entregable} />
         {!isMentor && (
           <DaysInput value={entregable.diasEstimados} onChange={(v) => dispatch({ type: "UPDATE_ENTREGABLE", id: entregable.id, changes: { diasEstimados: v } })} />
         )}
@@ -1113,18 +1318,6 @@ function EntregableBlock({ entregable, index, total }: { entregable: Entregable;
         {isMentor
           ? <CommentIcon count={notasCount} onClick={() => toggleOrSheet(showNotas, setShowNotas, openSheet, { title: entregable.nombre, nivel: "entregable", targetId: entregable.id })} />
           : <NotasIcon count={notasCount} onClick={() => toggleOrSheet(showNotas, setShowNotas, openSheet, { title: entregable.nombre, nivel: "entregable", targetId: entregable.id })} />}
-
-        {!isMentor && (
-          <button
-            onClick={(e) => { e.stopPropagation(); setShowDatePicker(!showDatePicker); }}
-            className={`flex h-7 items-center gap-1 rounded-md px-2 text-xs transition-all hover:bg-accent-soft hover:text-accent ${isProgrammed ? "text-accent" : "text-muted opacity-60 hover:opacity-100"}`}
-            title="Asignar a un periodo"
-          >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-              <rect x="3" y="4" width="18" height="18" rx="2" /><line x1="16" y1="2" x2="16" y2="6" /><line x1="8" y1="2" x2="8" y2="6" /><line x1="3" y1="10" x2="21" y2="10" />
-            </svg>
-          </button>
-        )}
         {!isMentor && (
           <RegistrarSesionIconButton
             entregableId={entregable.id}
@@ -1185,10 +1378,6 @@ function EntregableBlock({ entregable, index, total }: { entregable: Entregable;
           target={{ kind: "entregable", id: entregable.id, currentResultadoId: entregable.resultadoId }}
           onDone={() => setShowMove(false)}
         />
-      )}
-
-      {showDatePicker && (
-        <PlanPicker onSelect={handlePlanSelect} onCancel={() => setShowDatePicker(false)} />
       )}
 
       {confirm && <ConfirmDelete label={entregable.nombre}

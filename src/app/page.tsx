@@ -8,7 +8,8 @@ import { UsuarioContext, useUsuario } from "@/lib/usuario";
 import { getSupabase } from "@/lib/supabase";
 import { flushPendingCloudSave } from "@/lib/store";
 import { toDateKey } from "@/lib/date-utils";
-import type { RolUsuario } from "@/lib/types";
+import type { RolUsuario, Area } from "@/lib/types";
+import { AREAS_EMPRESA, AREAS_PERSONAL } from "@/lib/types";
 import { PantallaHoy } from "@/components/PantallaHoy";
 import { PantallaPlan, type PlanTab } from "@/components/PantallaPlan";
 import { PantallaMapa } from "@/components/PantallaMapa";
@@ -26,6 +27,25 @@ const PLAN_SUBNAV: { id: PlanTab; label: string }[] = [
   { id: "mes", label: "Mes" },
   { id: "trimestre", label: "Trimestre" },
   { id: "anio", label: "Año" },
+];
+
+interface MapaSubGroup {
+  group: "empresa" | "personal";
+  label: string;
+  items: { id: Area; label: string }[];
+}
+
+const MAPA_SUBNAV: MapaSubGroup[] = [
+  {
+    group: "empresa",
+    label: "Empresa",
+    items: AREAS_EMPRESA.map((a) => ({ id: a.id as Area, label: a.label })),
+  },
+  {
+    group: "personal",
+    label: "Personal",
+    items: AREAS_PERSONAL.map((a) => ({ id: a.id as Area, label: a.label })),
+  },
 ];
 
 const NAV_ITEMS: { id: Vista; label: string; sublabel: string; icon: React.ReactNode }[] = [
@@ -121,7 +141,9 @@ function AppShell({ userId, displayName }: { userId: string; displayName: string
   const [showBuscador, setShowBuscador] = useState(false);
   const [detalleResultadoId, setDetalleResultadoId] = useState<string | null>(null);
   const [highlightId, setHighlightId] = useState<string | null>(null);
+  const [mapaAreaId, setMapaAreaId] = useState<Area | null>(null);
   const clearHighlight = useCallback(() => setHighlightId(null), []);
+  const clearMapaArea = useCallback(() => setMapaAreaId(null), []);
   const openInMapa = useCallback((id: string) => {
     setVista("mapa");
     setHighlightId(id);
@@ -143,6 +165,12 @@ function AppShell({ userId, displayName }: { userId: string; displayName: string
     setPlanTab(sub);
     setVista("plan");
     setDetalleResultadoId(null);
+  }
+
+  function navigateToMapaArea(area: Area | null) {
+    setVista("mapa");
+    setDetalleResultadoId(null);
+    setMapaAreaId(area);
   }
 
   const activeVista = vista === "resultado" ? "hoy" : vista;
@@ -190,14 +218,19 @@ function AppShell({ userId, displayName }: { userId: string; displayName: string
           )}
 
           {/* Nav links */}
-          <nav className="flex flex-1 flex-col gap-0.5 px-2 pt-4">
+          <nav className="flex flex-1 flex-col gap-0.5 overflow-y-auto px-2 pt-4">
             {navItems.map((item) => {
               const active = activeVista === item.id;
               const isPlan = item.id === "plan";
+              const isMapa = item.id === "mapa";
               return (
                 <div key={item.id} className="flex flex-col">
                   <button
-                    onClick={() => (isPlan ? navigateToPlan(planTab) : navigate(item.id))}
+                    onClick={() => {
+                      if (isPlan) navigateToPlan(planTab);
+                      else if (isMapa) navigateToMapaArea(null);
+                      else navigate(item.id);
+                    }}
                     className={`group flex items-center gap-3 rounded-lg px-3 py-2.5 text-left transition-colors ${
                       active
                         ? "bg-sidebar-active text-foreground"
@@ -244,6 +277,37 @@ function AppShell({ userId, displayName }: { userId: string; displayName: string
                       })}
                     </div>
                   )}
+
+                  {/* Submenú de Mapa: ir a un área concreta */}
+                  {isMapa && !collapsed && (
+                    <div className="ml-9 mt-0.5 flex flex-col gap-0.5 border-l border-border/60 pl-2">
+                      {MAPA_SUBNAV
+                        .filter((g) => !isMentorUser || g.group === "empresa")
+                        .map((group) => (
+                          <div key={group.group} className="mt-1 first:mt-0">
+                            <p className="px-2 pt-0.5 pb-0.5 text-[10px] font-semibold uppercase tracking-wider text-muted/70">
+                              {group.label}
+                            </p>
+                            {group.items.map((sub) => {
+                              const subActive = vista === "mapa" && mapaAreaId === sub.id;
+                              return (
+                                <button
+                                  key={sub.id}
+                                  onClick={() => navigateToMapaArea(sub.id)}
+                                  className={`flex items-center rounded-md px-2 py-1.5 text-left text-[12px] transition-colors ${
+                                    subActive
+                                      ? "bg-accent-soft font-semibold text-accent"
+                                      : "text-muted hover:bg-surface-hover hover:text-foreground"
+                                  }`}
+                                >
+                                  {sub.label}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        ))}
+                    </div>
+                  )}
                 </div>
               );
             })}
@@ -283,7 +347,13 @@ function AppShell({ userId, displayName }: { userId: string; displayName: string
               <PantallaPlan onOpenInMapa={openInMapa} tab={planTab} onTabChange={setPlanTab} />
             )}
             {vista === "mapa" && (
-              <PantallaMapa onOpenDetalle={openDetalle} highlightId={highlightId} onClearHighlight={clearHighlight} />
+              <PantallaMapa
+                onOpenDetalle={openDetalle}
+                highlightId={highlightId}
+                onClearHighlight={clearHighlight}
+                scrollToAreaId={mapaAreaId}
+                onClearScrollToArea={clearMapaArea}
+              />
             )}
             {vista === "urls" && (
               <div className="mx-auto max-w-4xl">

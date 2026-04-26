@@ -9,7 +9,7 @@ import {
   type TipoEntregable,
 } from "@/lib/types";
 import { computeProyectoRitmo } from "@/lib/proyecto-stats";
-import { mesKey as mesKeyOf, weeksOfMonth, type WeekInfo } from "@/lib/semana-utils";
+import { mesKey as mesKeyOf, weeksOfMonth, etiquetaSemanaIso, type WeekInfo } from "@/lib/semana-utils";
 import { GanttMultiProyecto, type GanttProject } from "./GanttMultiProyecto";
 import { InlineNombre, ResponsableSelect } from "./InlineEditors";
 import { generateId } from "@/lib/store";
@@ -464,15 +464,16 @@ function ResultadoCard({ card, week, weeks, mesK, showDone, respFilter, currentU
           <span className="mr-0.5 text-[8px] uppercase tracking-wider text-muted">Sem:</span>
           {weeks.map((w) => {
             const active = semanasActivas.includes(w.monday);
+            const lbl = etiquetaSemanaIso(w.monday);
             return (
               <button key={w.idx}
                 onClick={() => dispatch({ type: "TOGGLE_RESULTADO_SEMANA_ACTIVA", id: resultado.id, semana: w.monday })}
-                title={`${w.label} · ${w.rangeLabel}`}
+                title={`${lbl} · ${w.rangeLabel}`}
                 className={`rounded px-1 py-0.5 text-[8px] font-semibold transition-colors ${
                   active ? "bg-accent text-white" : "border border-border text-muted hover:border-accent hover:text-accent"
                 }`}
               >
-                {w.label}
+                {lbl}
               </button>
             );
           })}
@@ -492,7 +493,7 @@ function ResultadoCard({ card, week, weeks, mesK, showDone, respFilter, currentU
                     <EntregableWeekChips
                       entId={ent.id}
                       weeks={weeks}
-                      current={ent.semana ?? null}
+                      activos={ent.semanasActivas ?? (ent.semana ? [ent.semana] : [])}
                     />
                   </div>
                 )}
@@ -512,38 +513,31 @@ function ResultadoCard({ card, week, weeks, mesK, showDone, respFilter, currentU
 }
 
 /* ============================================================
-   Week chips: single-toggle para entregables (ent.semana)
+   Week chips: multi-toggle para entregables (ent.semanasActivas)
    ============================================================ */
 
-function EntregableWeekChips({ entId, weeks, current }: {
-  entId: string; weeks: WeekInfo[]; current: string | null;
+function EntregableWeekChips({ entId, weeks, activos }: {
+  entId: string; weeks: WeekInfo[]; activos: string[];
 }) {
   const dispatch = useAppDispatch();
+  const setActivos = new Set(activos);
   return (
     <div className="flex shrink-0 items-center gap-0.5">
       {weeks.map((w) => {
-        const active = current === w.monday;
+        const active = setActivos.has(w.monday);
+        const lbl = etiquetaSemanaIso(w.monday);
         return (
           <button key={w.idx}
-            onClick={() => dispatch({ type: "SET_ENTREGABLE_SEMANA", id: entId, semana: w.monday })}
-            title={`${w.label} · ${w.rangeLabel}`}
+            onClick={() => dispatch({ type: "TOGGLE_ENTREGABLE_SEMANA", id: entId, semana: w.monday })}
+            title={`${lbl} · ${w.rangeLabel}`}
             className={`rounded px-1.5 py-0.5 text-[9px] font-semibold transition-colors ${
               active ? "bg-accent text-white" : "border border-border text-muted hover:border-accent hover:text-accent"
             }`}
           >
-            {w.label}
+            {lbl}
           </button>
         );
       })}
-      <button
-        onClick={() => dispatch({ type: "SET_ENTREGABLE_SEMANA", id: entId, semana: null })}
-        title="Sin semana"
-        className={`rounded px-1.5 py-0.5 text-[9px] font-semibold transition-colors ${
-          current == null ? "bg-surface text-foreground" : "border border-border text-muted hover:border-red-300 hover:text-red-500"
-        }`}
-      >
-        −
-      </button>
     </div>
   );
 }

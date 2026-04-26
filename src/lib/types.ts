@@ -112,10 +112,14 @@ export interface Resultado {
   descripcion: string | null;
   proyectoId: string;
   creado: string;
+  /** @deprecated Se mantiene por compatibilidad. Usar `semanasActivas`. */
   semana: string | null;
+  /** @deprecated Se mantiene como compromiso informativo solamente. */
   fechaLimite: string | null;
+  /** @deprecated Se mantiene por compatibilidad. Usar `semanasActivas` / `mesesActivos`. */
   fechaInicio: string | null;
   diasEstimados: number | null;
+  /** @deprecated Se calcula a partir de `semanasActivas`/`mesesActivos`. */
   planNivel?: PlanNivel;
   responsable?: string;
   notas?: Nota[];
@@ -142,12 +146,22 @@ export interface Entregable {
   responsable: MiembroEquipo;
   estado: EstadoEntregable;
   creado: string;
+  /** @deprecated Compatibilidad. Usar `semanasActivas` (lista de lunes ISO). */
   semana: string | null;
+  /** @deprecated No condiciona la programación. Usar `fechaCompromiso` para fecha-evento. */
   fechaLimite: string | null;
+  /** @deprecated Usar `diasPlanificados` (días) o `semanasActivas` (semanas). */
   fechaInicio: string | null;
+  /** @deprecated Se calcula a partir de `semanasActivas`/`diasPlanificados`. */
   planNivel?: PlanNivel;
   notas?: Nota[];
   review?: ReviewMark;
+  /** Claves de lunes ISO ("YYYY-MM-DD") de semanas en las que el entregable está activo
+   *  (plural; fuente de verdad para programación semanal). */
+  semanasActivas?: string[];
+  /** Fecha-evento informativa (taller, reunión, entrega) en formato "YYYY-MM-DD".
+   *  NO condiciona la programación; sólo es un dato visible para el equipo. */
+  fechaCompromiso?: string | null;
   /** Si está definido, el entregable se oculta de HOY operativo hasta que `dateKey` actual > este valor.
    *  Formato "YYYY-MM-DD". Permite "Cerrar por hoy" (setea dateKey de hoy) sin marcar el entregable como en_espera. */
   ocultoHasta?: string | null;

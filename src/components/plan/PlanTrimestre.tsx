@@ -16,7 +16,7 @@ import {
   type Objetivo,
 } from "@/lib/types";
 import { AmbitoToggle, ResponsableToggle, matchesResponsable, type AmbitoFilter, type ResponsableFilter } from "./PlanMes";
-import { mesKey, etiquetaMesCorta, mesesDeTrimestre, primerLunesDeMes } from "@/lib/semana-utils";
+import { mesKey, etiquetaMesCorta, mesesDeTrimestre } from "@/lib/semana-utils";
 import { InlineNombre, ResponsableSelect } from "./InlineEditors";
 import type { MiembroInfo } from "@/lib/types";
 
@@ -521,20 +521,8 @@ function ResultadoRow({ resultado, entregables, qMonthKeys, isMentor, hex, miemb
 function EntregableRowTrimestre({ ent, qMonthKeys, isMentor }: {
   ent: Entregable; qMonthKeys: string[]; isMentor: boolean;
 }) {
+  void qMonthKeys;
   const dispatch = useAppDispatch();
-  const mesEnt = ent.semana ? mesKey(ent.semana) : null;
-
-  function toggleMes(mes: string) {
-    if (mesEnt === mes) {
-      // Deseleccionar el mes actual → entregable sin semana asignada
-      dispatch({ type: "UPDATE_ENTREGABLE", id: ent.id, changes: { semana: null } });
-    } else {
-      const nuevoLunes = primerLunesDeMes(mes);
-      if (nuevoLunes) {
-        dispatch({ type: "UPDATE_ENTREGABLE", id: ent.id, changes: { semana: nuevoLunes } });
-      }
-    }
-  }
 
   return (
     <div className="flex flex-wrap items-center gap-1 text-[10px]">
@@ -552,31 +540,7 @@ function EntregableRowTrimestre({ ent, qMonthKeys, isMentor }: {
           inputClassName="text-[10px] text-foreground"
         />
       </div>
-      {!isMentor ? (
-        <div className="flex shrink-0 items-center gap-0.5">
-          {qMonthKeys.map((mk) => {
-            const active = mesEnt === mk;
-            return (
-              <button
-                key={mk}
-                onClick={() => toggleMes(mk)}
-                title={`Asignar a ${etiquetaMesCorta(mk)}${active ? " (clic para quitar)" : ""}`}
-                className={`rounded px-1 py-0.5 text-[8px] font-semibold transition-colors ${
-                  active ? "bg-accent text-white" : "border border-border text-muted hover:border-accent hover:text-accent"
-                }`}
-              >
-                {etiquetaMesCorta(mk)}
-              </button>
-            );
-          })}
-        </div>
-      ) : (
-        ent.semana && (
-          <span className="shrink-0 rounded bg-background px-1 py-0.5 text-[8px] text-muted">
-            {mesEnt ? etiquetaMesCorta(mesEnt) : ""}
-          </span>
-        )
-      )}
+      {/* En Plan Trimestre los entregables son sólo informativos: se planifican por semana/día. */}
     </div>
   );
 }

@@ -154,3 +154,65 @@ export function trimestreDeMes(mes: string): string | null {
   const q = Math.floor((month - 1) / 3) + 1;
   return `${year}-Q${q}`;
 }
+
+/**
+ * ISO 8601 week number (1..53) de una fecha o monday key.
+ * Lunes es el primer día de la semana, y la semana 1 es la que contiene el primer jueves del año.
+ */
+export function isoWeekNumber(dateOrKey: Date | string | null | undefined): number | null {
+  if (!dateOrKey) return null;
+  const d = typeof dateOrKey === "string" ? parseLocalDateKey(dateOrKey) : new Date(dateOrKey);
+  if (!d || Number.isNaN(d.getTime())) return null;
+  // Trabajar en UTC para evitar desfases por DST.
+  const target = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+  const dayNum = target.getUTCDay() || 7;
+  target.setUTCDate(target.getUTCDate() + 4 - dayNum);
+  const yearStart = new Date(Date.UTC(target.getUTCFullYear(), 0, 1));
+  const week = Math.ceil((((target.getTime() - yearStart.getTime()) / 86400000) + 1) / 7);
+  return week;
+}
+
+/** Etiqueta corta tipo "S18" a partir de un monday key (o cualquier fecha). */
+export function etiquetaSemanaIso(monday: string | null | undefined): string {
+  const n = isoWeekNumber(monday);
+  return n ? `S${n}` : "";
+}
+
+/** Devuelve el rango legible "27 abr – 3 may" de un monday key. */
+export function rangoSemanaCorto(monday: string): string {
+  const m = parseLocalDateKey(monday);
+  if (!m) return monday;
+  const d = new Date(m); d.setDate(d.getDate() + 6);
+  const lun = m.toLocaleDateString("es-ES", { day: "numeric", month: "short" });
+  const dom = d.toLocaleDateString("es-ES", { day: "numeric", month: "short" });
+  return `${lun} – ${dom}`;
+}
+
+/**
+ * Lista de monday keys (lunes ISO) de todas las semanas que contienen al menos
+ * un día dentro del mes "YYYY-MM" dado. Ordenadas ascendentes.
+ */
+export function semanasDeMes(mes: string): string[] {
+  const m = /^(\d{4})-(\d{2})$/.exec(mes);
+  if (!m) return [];
+  const year = Number(m[1]);
+  const month = Number(m[2]) - 1;
+  if (month < 0 || month > 11) return [];
+  const weeks = weeksOfMonth(year, month);
+  return weeks.map((w) => w.monday);
+}
+
+/** Lista de monday keys de todas las semanas de un conjunto de meses (sin duplicados, ordenadas). */
+export function semanasDeMeses(meses: Iterable<string>): string[] {
+  const set = new Set<string>();
+  for (const m of meses) for (const wk of semanasDeMes(m)) set.add(wk);
+  return [...set].sort();
+}
+
+/** Mes principal de una semana: el mes que contiene su jueves (regla ISO). */
+export function mesPrincipalDeSemana(monday: string): string | null {
+  const d = parseLocalDateKey(monday);
+  if (!d) return null;
+  const j = new Date(d); j.setDate(j.getDate() + 3);
+  return `${j.getFullYear()}-${pad(j.getMonth() + 1)}`;
+}

@@ -1,7 +1,7 @@
 import type { Proyecto, Entregable, Resultado, MiembroInfo, Paso, PlanConfig } from "./types";
 import { PLAN_CONFIG_DEFAULT } from "./types";
 import { laborablesEntre, resolverMiembro } from "./auto-planner";
-import { sesionesEfectivasEntregable } from "./fechas-efectivas";
+import { sesionesEfectivasEntregable, rangoProyectoMapa, rangoResultadoMapa } from "./fechas-efectivas";
 
 export type EstadoRitmo = "verde" | "amarillo" | "rojo" | "imposible" | "sin-deadline" | "completado" | "vacio" | "vencido";
 
@@ -198,13 +198,17 @@ function computeRitmo(
 export function computeProyectoRitmo(
   proyecto: Proyecto,
   entregables: Entregable[],
-  _resultados: Resultado[],
+  resultados: Resultado[],
   hoy: Date,
   miembros: MiembroInfo[] = [],
   pasos: Paso[] = [],
   config: PlanConfig = PLAN_CONFIG_DEFAULT,
 ): ProyectoRitmo {
-  return computeRitmo(proyecto.fechaLimite ?? null, entregables, hoy, { miembros, pasos, config });
+  // Deadline efectivo: priorizar el final del rango por chips (último día del último
+  // mes/trimestre activo). Sólo si no hay chips usamos el legacy `fechaLimite`.
+  const rango = rangoProyectoMapa(proyecto, resultados, entregables);
+  const deadline = rango.fin ?? proyecto.fechaLimite ?? null;
+  return computeRitmo(deadline, entregables, hoy, { miembros, pasos, config });
 }
 
 export function computeResultadoRitmo(
@@ -216,7 +220,9 @@ export function computeResultadoRitmo(
   config: PlanConfig = PLAN_CONFIG_DEFAULT,
 ): ProyectoRitmo {
   const propia = entregables.filter((e) => e.resultadoId === resultado.id);
-  const deadline = resultado.fechaLimite ?? inferDateRange(propia).fin;
+  // Deadline efectivo: chips primero, luego legacy, finalmente inferido.
+  const rango = rangoResultadoMapa(resultado, propia);
+  const deadline = rango.fin ?? resultado.fechaLimite ?? inferDateRange(propia).fin;
   return computeRitmo(deadline, propia, hoy, { miembros, pasos, config });
 }
 

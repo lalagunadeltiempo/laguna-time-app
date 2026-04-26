@@ -335,7 +335,11 @@ export function PlanSemana({ selectedDate, onOpenInMapa }: Props) {
     if (!monday) return;
     const newSemana = toDateKey(monday);
     for (const c of carryOverCandidates) {
-      dispatch({ type: "UPDATE_ENTREGABLE", id: c.ent.id, changes: { semana: newSemana } });
+      // Activar la semana actual en el entregable (la cascada propaga al resultado/proyecto).
+      const yaActiva = (c.ent.semanasActivas ?? []).includes(newSemana);
+      if (!yaActiva) {
+        dispatch({ type: "TOGGLE_ENTREGABLE_SEMANA", id: c.ent.id, semana: newSemana });
+      }
     }
     dismissCarryOver();
   }
@@ -366,7 +370,14 @@ export function PlanSemana({ selectedDate, onOpenInMapa }: Props) {
   function assignToPlan(ent: Entregable) {
     if (!pickDay) return;
     const newEstado = (ent.estado === "a_futuro" || ent.estado === "planificado") ? "en_proceso" : ent.estado;
-    dispatch({ type: "UPDATE_ENTREGABLE", id: ent.id, changes: { fechaInicio: pickDay, planNivel: "dia", estado: newEstado } });
+    // Toggle del día (cascada hacia arriba activa la semana, mes y trimestre).
+    const yaActivo = (ent.diasPlanificados ?? []).includes(pickDay);
+    if (!yaActivo) {
+      dispatch({ type: "TOGGLE_ENTREGABLE_DIA", id: ent.id, dateKey: pickDay });
+    }
+    if (ent.estado !== newEstado) {
+      dispatch({ type: "UPDATE_ENTREGABLE", id: ent.id, changes: { estado: newEstado } });
+    }
     setPickDay(null);
   }
 
@@ -381,9 +392,22 @@ export function PlanSemana({ selectedDate, onOpenInMapa }: Props) {
 
   function handleMove(b: WeekBlock, newDate: string) {
     if (b.origen === "ent" && b.entregableId) {
-      const isPastOrToday = newDate <= todayKey;
-      dispatch({ type: "UPDATE_ENTREGABLE", id: b.entregableId,
-        changes: { fechaInicio: newDate, planNivel: "dia", estado: isPastOrToday ? "en_proceso" : "planificado" } });
+      const ent = state.entregables.find((e) => e.id === b.entregableId);
+      if (ent) {
+        // Quitar el día anterior y activar el nuevo (cascada hacia arriba).
+        const oldDay = b.dateKey;
+        if (oldDay && (ent.diasPlanificados ?? []).includes(oldDay)) {
+          dispatch({ type: "TOGGLE_ENTREGABLE_DIA", id: ent.id, dateKey: oldDay });
+        }
+        if (!(ent.diasPlanificados ?? []).includes(newDate)) {
+          dispatch({ type: "TOGGLE_ENTREGABLE_DIA", id: ent.id, dateKey: newDate });
+        }
+        const isPastOrToday = newDate <= todayKey;
+        const newEstado = isPastOrToday ? "en_proceso" : "planificado";
+        if (ent.estado !== newEstado && ent.estado !== "hecho") {
+          dispatch({ type: "UPDATE_ENTREGABLE", id: ent.id, changes: { estado: newEstado } });
+        }
+      }
     } else if (b.origen === "paso-next" && b.pasoId) {
       dispatch({ type: "RESCHEDULE_NEXT_PASO", pasoId: b.pasoId, newDate });
     }
@@ -392,8 +416,15 @@ export function PlanSemana({ selectedDate, onOpenInMapa }: Props) {
 
   function handleUnschedule(b: WeekBlock) {
     if (b.origen === "ent" && b.entregableId) {
-      dispatch({ type: "UPDATE_ENTREGABLE", id: b.entregableId,
-        changes: { fechaInicio: null, planNivel: undefined, estado: b.type === "done" ? "hecho" : "a_futuro" } });
+      const ent = state.entregables.find((e) => e.id === b.entregableId);
+      if (ent && b.dateKey && (ent.diasPlanificados ?? []).includes(b.dateKey)) {
+        dispatch({ type: "TOGGLE_ENTREGABLE_DIA", id: ent.id, dateKey: b.dateKey });
+      }
+      if (b.type === "done") {
+        dispatch({ type: "UPDATE_ENTREGABLE", id: b.entregableId, changes: { estado: "hecho" } });
+      } else if (ent && ent.estado !== "a_futuro") {
+        dispatch({ type: "UPDATE_ENTREGABLE", id: b.entregableId, changes: { estado: "a_futuro" } });
+      }
     } else if (b.origen === "paso-next" && b.pasoId) {
       dispatch({ type: "RESCHEDULE_NEXT_PASO", pasoId: b.pasoId, newDate: null });
     }

@@ -3,97 +3,23 @@ import { PLAN_CONFIG_DEFAULT } from "./types";
 import { sesionesAutomaticas, type PlanSugerido } from "./auto-planner";
 import { mesesDeTrimestre } from "./semana-utils";
 
-export interface FechaEfectiva {
-  inicio: string | null;
-  fin: string | null;
-  fuente: "propia" | "auto-plan" | "padre" | "ninguna";
-}
-
-/**
- * Devuelve la ventana efectiva de un resultado:
- *   - propia (sus fechas) > auto-plan (calculada) > padre (proyecto) > ninguna
- */
-export function fechaEfectivaResultado(
-  resultado: Resultado,
-  proyecto: Proyecto | undefined | null,
-  planSugerido?: PlanSugerido | null,
-): FechaEfectiva {
-  if (resultado.fechaInicio || resultado.fechaLimite) {
-    return {
-      inicio: resultado.fechaInicio,
-      fin: resultado.fechaLimite,
-      fuente: "propia",
-    };
-  }
-  const auto = planSugerido?.ventanas[resultado.id];
-  if (auto) {
-    return { inicio: auto.inicio, fin: auto.fin, fuente: "auto-plan" };
-  }
-  if (proyecto) {
-    return {
-      inicio: proyecto.fechaInicio ?? null,
-      fin: proyecto.fechaLimite ?? null,
-      fuente: "padre",
-    };
-  }
-  return { inicio: null, fin: null, fuente: "ninguna" };
-}
-
-/**
- * Devuelve la ventana efectiva de un entregable:
- *   - propia > resultado efectiva > proyecto > ninguna
- */
-export function fechaEfectivaEntregable(
-  entregable: Entregable,
-  resultado: Resultado | undefined | null,
-  proyecto: Proyecto | undefined | null,
-  planSugerido?: PlanSugerido | null,
-): FechaEfectiva {
-  if (entregable.fechaInicio || entregable.fechaLimite) {
-    return {
-      inicio: entregable.fechaInicio,
-      fin: entregable.fechaLimite,
-      fuente: "propia",
-    };
-  }
-  if (resultado) {
-    const r = fechaEfectivaResultado(resultado, proyecto ?? null, planSugerido);
-    if (r.inicio || r.fin) return { inicio: r.inicio, fin: r.fin, fuente: r.fuente === "propia" ? "padre" : r.fuente };
-  }
-  if (proyecto) {
-    return {
-      inicio: proyecto.fechaInicio ?? null,
-      fin: proyecto.fechaLimite ?? null,
-      fuente: "padre",
-    };
-  }
-  return { inicio: null, fin: null, fuente: "ninguna" };
-}
-
-/**
- * Devuelve las sesiones efectivas de un entregable.
- * Si el entregable tiene `diasEstimados > 0`, manda. Si no, calcula automáticamente
- * según el número de pasos.
- */
-export function sesionesEfectivasEntregable(
-  entregable: Entregable,
-  pasos: Paso[],
-  config: PlanConfig = PLAN_CONFIG_DEFAULT,
-): number {
-  if (entregable.diasEstimados > 0) return entregable.diasEstimados;
-  const numPasos = pasos.filter((p) => p.entregableId === entregable.id).length;
-  return sesionesAutomaticas(numPasos, config);
-}
-
 /* ============================================================
-   Rangos derivados para MAPA (basados en planning de unidades:
-   trimestres / mesesActivos / semanasActivas / ent.semana).
-   Se ignoran las fechaInicio/fechaLimite explícitas salvo fallback.
+   Modelo unificado de "rango efectivo".
+   Todas las funciones leen ÚNICAMENTE los chips canónicos:
+     - Proyecto.trimestresActivos / mesesActivos
+     - Resultado.semanasActivas / mesesActivos
+     - Entregable.semanasActivas / diasPlanificados
+   Las fechas legacy (fechaInicio/fechaLimite/semana) se ignoran salvo
+   como fallback explícito mientras dura la migración.
    ============================================================ */
 
 export interface Rango {
   inicio: string | null;
   fin: string | null;
+}
+
+export interface FechaEfectiva extends Rango {
+  fuente: "propia" | "auto-plan" | "padre" | "ninguna";
 }
 
 function pad(n: number): string { return String(n).padStart(2, "0"); }
@@ -133,26 +59,41 @@ function maxIso(a: string | null, b: string | null): string | null {
 }
 
 /**
- * Rango derivado para un entregable. Usa primero `ent.semana` (lunes→domingo),
- * y si no, hace fallback a sus fechas explícitas.
+ * Rango canónico de un entregable derivado SOLO de chips:
+ *   - Si tiene `semanasActivas`: rango = unión de todas las semanas.
+ *   - Si no, pero tiene `diasPlanificados`: rango = [min, max] de los días.
+ *   - Si nada de eso: null/null.
+ *
+ * Compat: si el entregable NO tiene chips pero sí `semana` (legado), la
+ * usamos como semana única; si tampoco, caemos a `fechaInicio`/`fechaLimite`.
  */
 export function rangoEntregableMapa(ent: Entregable): Rango {
-  if (ent.semana) {
-    return { inicio: ent.semana, fin: addDaysIso(ent.semana, 6) };
+  const semanas = (ent.semanasActivas && ent.semanasActivas.length > 0)
+    ? ent.semanasActivas
+    : (ent.semana ? [ent.semana] : []);
+  if (semanas.length > 0) {
+    let inicio: string | null = null;
+    let fin: string | null = null;
+    for (const monday of semanas) {
+      inicio = minIso(inicio, monday);
+      fin = maxIso(fin, addDaysIso(monday, 6));
+    }
+    return { inicio, fin };
   }
+  const dias = ent.diasPlanificados ?? [];
+  if (dias.length > 0) {
+    const sorted = [...dias].sort();
+    return { inicio: sorted[0], fin: sorted[sorted.length - 1] };
+  }
+  // Compat: legacy
   return { inicio: ent.fechaInicio ?? null, fin: ent.fechaLimite ?? null };
 }
 
 /**
- * Rango derivado para un resultado en MAPA.
- *
- * Criterio estricto:
- *  - Si el resultado tiene `semanasActivas` (o `semana` legada), el rango es EXACTAMENTE
- *    la unión de esas semanas [lunes, domingo]. Se ignoran entregables y fechas legacy.
- *  - Si no tiene planning por semanas, se combinan los rangos de sus entregables
- *    (que a su vez priorizan `ent.semana` y caen a `ent.fechaInicio/fechaLimite` si no).
- *
- * Siempre se ignoran `res.fechaInicio`/`res.fechaLimite`.
+ * Rango canónico de un resultado:
+ *  - Si tiene `semanasActivas`: rango = unión.
+ *  - Si tiene `mesesActivos` (pero no semanasActivas): rango = unión de meses.
+ *  - Si nada: combinación de rangos de entregables.
  */
 export function rangoResultadoMapa(res: Resultado, entregables: Entregable[]): Rango {
   const semanas = (res.semanasActivas && res.semanasActivas.length > 0)
@@ -169,6 +110,17 @@ export function rangoResultadoMapa(res: Resultado, entregables: Entregable[]): R
     return { inicio, fin };
   }
 
+  const meses = res.mesesActivos ?? [];
+  if (meses.length > 0) {
+    let inicio: string | null = null;
+    let fin: string | null = null;
+    for (const m of meses) {
+      inicio = minIso(inicio, primerDiaMes(m));
+      fin = maxIso(fin, ultimoDiaMes(m));
+    }
+    return { inicio, fin };
+  }
+
   let inicio: string | null = null;
   let fin: string | null = null;
   for (const ent of entregables) {
@@ -180,16 +132,9 @@ export function rangoResultadoMapa(res: Resultado, entregables: Entregable[]): R
 }
 
 /**
- * Rango derivado para un proyecto en MAPA.
- *
- * Criterio estricto:
- *  - Si el proyecto tiene `mesesActivos` o `trimestresActivos`, el rango es EXACTAMENTE
- *    la unión de esos meses [día 1, último día]. Se ignoran resultados/entregables que
- *    "se salgan" del rango del planning y cualquier fecha legacy.
- *  - Si el proyecto no tiene planning por meses/trimestres, caemos a combinar rangos
- *    de sus resultados (que a su vez siguen el criterio de `rangoResultadoMapa`).
- *
- * Siempre se ignoran `proy.fechaInicio`/`proy.fechaLimite`.
+ * Rango canónico de un proyecto:
+ *  - Si tiene `mesesActivos` o `trimestresActivos`: unión de los meses derivados.
+ *  - Si no: combinación de rangos de resultados.
  */
 export function rangoProyectoMapa(proy: Proyecto, resultados: Resultado[], entregables: Entregable[]): Rango {
   const meses = new Set<string>(proy.mesesActivos ?? []);
@@ -218,4 +163,64 @@ export function rangoProyectoMapa(proy: Proyecto, resultados: Resultado[], entre
     fin = maxIso(fin, r.fin);
   }
   return { inicio, fin };
+}
+
+/* ============================================================
+   API histórica: `fechaEfectiva*`.
+   Se mantiene para no romper imports. Internamente delega en las
+   funciones canónicas de arriba; el campo `fuente` es informativo.
+   ============================================================ */
+
+export function fechaEfectivaResultado(
+  resultado: Resultado,
+  proyecto: Proyecto | undefined | null,
+  planSugerido?: PlanSugerido | null,
+): FechaEfectiva {
+  // Fuente canónica de chips
+  const r = rangoResultadoMapa(resultado, []);
+  if (r.inicio || r.fin) return { ...r, fuente: "propia" };
+
+  const auto = planSugerido?.ventanas[resultado.id];
+  if (auto) {
+    return { inicio: auto.inicio, fin: auto.fin, fuente: "auto-plan" };
+  }
+  if (proyecto) {
+    const rp = rangoProyectoMapa(proyecto, [resultado], []);
+    if (rp.inicio || rp.fin) return { ...rp, fuente: "padre" };
+  }
+  return { inicio: null, fin: null, fuente: "ninguna" };
+}
+
+export function fechaEfectivaEntregable(
+  entregable: Entregable,
+  resultado: Resultado | undefined | null,
+  proyecto: Proyecto | undefined | null,
+  planSugerido?: PlanSugerido | null,
+): FechaEfectiva {
+  const r = rangoEntregableMapa(entregable);
+  if (r.inicio || r.fin) return { ...r, fuente: "propia" };
+  if (resultado) {
+    const rr = fechaEfectivaResultado(resultado, proyecto ?? null, planSugerido);
+    if (rr.inicio || rr.fin) return { ...rr, fuente: rr.fuente === "propia" ? "padre" : rr.fuente };
+  }
+  if (proyecto) {
+    const rp = rangoProyectoMapa(proyecto, resultado ? [resultado] : [], [entregable]);
+    if (rp.inicio || rp.fin) return { ...rp, fuente: "padre" };
+  }
+  return { inicio: null, fin: null, fuente: "ninguna" };
+}
+
+/**
+ * Devuelve las sesiones efectivas de un entregable.
+ * Si el entregable tiene `diasEstimados > 0`, manda. Si no, calcula automáticamente
+ * según el número de pasos.
+ */
+export function sesionesEfectivasEntregable(
+  entregable: Entregable,
+  pasos: Paso[],
+  config: PlanConfig = PLAN_CONFIG_DEFAULT,
+): number {
+  if (entregable.diasEstimados > 0) return entregable.diasEstimados;
+  const numPasos = pasos.filter((p) => p.entregableId === entregable.id).length;
+  return sesionesAutomaticas(numPasos, config);
 }

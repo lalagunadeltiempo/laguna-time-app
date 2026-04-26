@@ -13,11 +13,10 @@ import {
   type Objetivo,
   type Proyecto,
 } from "@/lib/types";
+import { mesesDeTrimestre } from "@/lib/semana-utils";
 import { AmbitoToggle, type AmbitoFilter } from "./PlanMes";
 
 const MONTHS_ES = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"];
-
-function pad(n: number) { return String(n).padStart(2, "0"); }
 
 interface ProjectRoad {
   proyecto: Proyecto;
@@ -63,6 +62,27 @@ export function PlanAnio({ selectedDate }: Props) {
     });
   }, [state, allAreas]);
 
+  // Calcula los meses (0..11) que el proyecto tiene activos en este año,
+  // a partir de trimestresActivos y mesesActivos. Devuelve null si no hay actividad
+  // planificada en este año.
+  function mesesDelAnio(proj: Proyecto, anio: number): number[] {
+    const set = new Set<number>();
+    const yearPrefix = `${anio}-`;
+    for (const t of proj.trimestresActivos ?? []) {
+      if (!t.startsWith(yearPrefix)) continue;
+      for (const m of mesesDeTrimestre(t)) {
+        const mm = parseInt(m.slice(5, 7), 10);
+        if (Number.isFinite(mm)) set.add(mm - 1);
+      }
+    }
+    for (const m of proj.mesesActivos ?? []) {
+      if (!m.startsWith(yearPrefix)) continue;
+      const mm = parseInt(m.slice(5, 7), 10);
+      if (Number.isFinite(mm)) set.add(mm - 1);
+    }
+    return [...set].sort((a, b) => a - b);
+  }
+
   const roadmap = useMemo(() => {
     const items: ProjectRoad[] = [];
     for (const proj of state.proyectos) {
@@ -74,31 +94,15 @@ export function PlanAnio({ selectedDate }: Props) {
       const total = entregs.length;
       const percent = total > 0 ? Math.round((done / total) * 100) : 0;
 
-      if (entregs.length === 0 && !proj.fechaInicio) continue;
-
-      let startMonth = currentMonth >= 0 ? currentMonth : 0;
-      if (proj.fechaInicio) {
-        const s = new Date(proj.fechaInicio + "T12:00:00");
-        if (s.getFullYear() === year) startMonth = s.getMonth();
-        else if (s.getFullYear() < year) startMonth = 0;
-        else continue;
-      }
-
-      let endMonth = 11;
-      if (proj.fechaLimite) {
-        const e = new Date(proj.fechaLimite + "T12:00:00");
-        if (e.getFullYear() === year) endMonth = e.getMonth();
-        else if (e.getFullYear() < year) continue;
-      } else {
-        const est = results.reduce((a, r) => a + (r.diasEstimados ?? 30), 0);
-        endMonth = Math.min(11, startMonth + Math.max(0, Math.ceil(est / 30) - 1));
-      }
-      if (endMonth < startMonth) endMonth = startMonth;
+      const mesesAnio = mesesDelAnio(proj, year);
+      if (mesesAnio.length === 0) continue;
+      const startMonth = mesesAnio[0];
+      const endMonth = mesesAnio[mesesAnio.length - 1];
 
       items.push({ proyecto: proj, startMonth, endMonth, percent, total, done });
     }
     return items.sort((a, b) => a.startMonth - b.startMonth);
-  }, [state, filtro, year, currentMonth]);
+  }, [state, filtro, year]);
 
   const totalEntregables = areaSummaries.reduce((s, a) => s + a.total, 0);
   const totalCompletados = areaSummaries.reduce((s, a) => s + a.completados, 0);
@@ -122,9 +126,8 @@ export function PlanAnio({ selectedDate }: Props) {
     setNewObjArea("");
   }
 
-  function assignProjectToQuarter(projId: string, q: number) {
-    const firstMonth = q * 3;
-    dispatch({ type: "UPDATE_PROYECTO", id: projId, changes: { fechaInicio: `${year}-${pad(firstMonth + 1)}-01`, planNivel: "trimestre" } });
+  function toggleProjectQuarter(projId: string, q: number) {
+    dispatch({ type: "TOGGLE_PROYECTO_TRIMESTRE", id: projId, trimestre: `${year}-Q${q + 1}` });
   }
 
   const areaHex = (a: Area) => AREA_COLORS[a]?.hex ?? "#888";
@@ -284,14 +287,24 @@ export function PlanAnio({ selectedDate }: Props) {
                             <span className="absolute right-1.5 text-[10px] font-bold text-foreground">{r.percent}%</span>
                           </div>
                         </div>
-                        {!isMentor && (
-                          <div className="hidden gap-0.5 group-hover:flex">
-                            {[0, 1, 2, 3].map((q) => (
-                              <button key={q} onClick={() => assignProjectToQuarter(r.proyecto.id, q)}
-                                className="rounded border border-border px-1 py-0.5 text-[9px] text-muted hover:border-accent hover:text-accent">Q{q + 1}</button>
-                            ))}
-                          </div>
-                        )}
+                        {!isMentor && (() => {
+                          const activos = new Set(r.proyecto.trimestresActivos ?? []);
+                          return (
+                            <div className="hidden gap-0.5 group-hover:flex">
+                              {[0, 1, 2, 3].map((q) => {
+                                const key = `${year}-Q${q + 1}`;
+                                const active = activos.has(key);
+                                return (
+                                  <button key={q} onClick={() => toggleProjectQuarter(r.proyecto.id, q)}
+                                    className={`rounded border px-1 py-0.5 text-[9px] transition-colors ${active ? "border-accent bg-accent text-white" : "border-border text-muted hover:border-accent hover:text-accent"}`}
+                                    title={`${active ? "Quitar" : "Activar"} Q${q + 1} ${year}`}>
+                                    Q{q + 1}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          );
+                        })()}
                       </div>
                     );
                   })}

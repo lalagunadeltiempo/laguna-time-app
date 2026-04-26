@@ -5,7 +5,7 @@ import { buildPersonalSeedData } from "./seed-personal";
 import { buildEmpresaSeedProyectos } from "./seed-proyectos-empresa";
 import { mondayKey, mesKey, mesesDeTrimestre } from "./semana-utils";
 
-export const CURRENT_MIGRATION = 17;
+export const CURRENT_MIGRATION = 18;
 
 type Dispatch = (action: Action) => void;
 
@@ -43,6 +43,10 @@ export function runMigrations(state: AppState, dispatch: Dispatch): void {
 
   if (version < 17) {
     migrateSemanasActivasYTrimestreAMeses(state, dispatch);
+  }
+
+  if (version < 18) {
+    migrateEntregableSemanasActivas(state, dispatch);
   }
 
   if (version < CURRENT_MIGRATION) {
@@ -165,6 +169,31 @@ function migrateSemanasActivasYTrimestreAMeses(state: AppState, dispatch: Dispat
     const prev = [...(proj.mesesActivos ?? [])].sort();
     if (next.length !== prev.length || next.some((m, i) => m !== prev[i])) {
       dispatch({ type: "UPDATE_PROYECTO", id: proj.id, changes: { mesesActivos: next } });
+    }
+  }
+}
+
+/**
+ * Migración v18: introducir Entregable.semanasActivas como fuente de verdad.
+ *  - Si entregable tiene `semana` y no `semanasActivas` → semanasActivas = [semana].
+ *  - Si entregable tiene `diasPlanificados` y no `semanasActivas` → derivar lunes ISO.
+ */
+function migrateEntregableSemanasActivas(state: AppState, dispatch: Dispatch): void {
+  for (const ent of state.entregables) {
+    const ya = ent.semanasActivas ?? [];
+    if (ya.length > 0) continue;
+    const semanas = new Set<string>();
+    if (ent.semana) semanas.add(ent.semana);
+    for (const d of ent.diasPlanificados ?? []) {
+      const mk = mondayKey(d);
+      if (mk) semanas.add(mk);
+    }
+    if (semanas.size > 0) {
+      dispatch({
+        type: "UPDATE_ENTREGABLE",
+        id: ent.id,
+        changes: { semanasActivas: [...semanas].sort() },
+      });
     }
   }
 }

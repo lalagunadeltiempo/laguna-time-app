@@ -22,7 +22,7 @@ import type {
 import { PLAN_CONFIG_DEFAULT } from "./types";
 import { minutosEfectivos } from "./duration";
 import { toDateKey } from "./date-utils";
-import { mesKey, mesesDeTrimestre, mondayKey } from "./semana-utils";
+import { mesKey, mesesDeTrimestre, mondayKey, trimestreDeMes } from "./semana-utils";
 
 export type Action =
   | { type: "INIT"; state: AppState }
@@ -42,7 +42,7 @@ export type Action =
   | { type: "UPDATE_PASO_TIMES"; id: string; inicioTs: string; finTs: string | null }
   | { type: "DELETE_PASO"; id: string }
   | { type: "RENAME_ENTREGABLE"; id: string; nombre: string }
-  | { type: "UPDATE_ENTREGABLE"; id: string; changes: Partial<Pick<Entregable, "nombre" | "responsable" | "tipo" | "plantillaId" | "diasEstimados" | "estado" | "fechaLimite" | "fechaInicio" | "planNivel" | "semana">> }
+  | { type: "UPDATE_ENTREGABLE"; id: string; changes: Partial<Pick<Entregable, "nombre" | "responsable" | "tipo" | "plantillaId" | "diasEstimados" | "estado" | "fechaLimite" | "fechaInicio" | "planNivel" | "semana" | "fechaCompromiso" | "semanasActivas">> }
   | { type: "OCULTAR_ENTREGABLE_HASTA"; id: string; hasta: string | null }
   // --- Sesiones del entregable (cronómetro al nivel de entregable) ---
   | { type: "START_ENTREGABLE"; id: string; ts?: string }
@@ -67,6 +67,16 @@ export type Action =
   | { type: "SET_ENTREGABLE_PLAN_INICIO"; id: string; ts: string | null }
   | { type: "TOGGLE_ENTREGABLE_DIA"; id: string; dateKey: string }
   | { type: "SET_ENTREGABLE_DIAS"; id: string; dias: string[] }
+  /** Toggle de una semana (lunes ISO) en `Entregable.semanasActivas`. Cascada hacia arriba:
+   *  añade su mes al `Resultado.mesesActivos` y `Resultado.semanasActivas`, y
+   *  añade ese mes y trimestre al `Proyecto.mesesActivos`/`trimestresActivos`. */
+  | { type: "TOGGLE_ENTREGABLE_SEMANA"; id: string; semana: string }
+  /** Toggle de un trimestre (e.g. "2026-Q2") en `Proyecto.trimestresActivos`.
+   *  Activarlo añade los 3 meses del trimestre a `mesesActivos`.
+   *  Desactivarlo quita los 3 meses + meses huérfanos en cascada hacia abajo. */
+  | { type: "TOGGLE_PROYECTO_TRIMESTRE"; id: string; trimestre: string }
+  /** Establece la fecha-compromiso informativa (taller, reunión, entrega…) sin tocar la planificación. */
+  | { type: "SET_ENTREGABLE_FECHA_COMPROMISO"; id: string; fecha: string | null }
   // --- Checklist de pasos ---
   | { type: "CHECK_PASO"; id: string; ts?: string }
   | { type: "UNCHECK_PASO"; id: string }
@@ -191,6 +201,53 @@ function autoTransitionToEnMarcha(s: AppState, entregableId: string): AppState {
   const proj = s.proyectos.find((p) => p.id === res.proyectoId);
   if (!proj || (proj.estado !== "plan" && proj.estado !== undefined)) return s;
   return { ...s, proyectos: s.proyectos.map((p) => p.id === proj.id ? { ...p, estado: "en_marcha" as const } : p) };
+}
+
+/**
+ * Propaga hacia arriba la activación de una semana (lunes ISO) para un entregable:
+ *   - Añade `monday` a `Resultado.semanasActivas` (padre del entregable).
+ *   - Añade su mes a `Resultado.mesesActivos` y `Proyecto.mesesActivos`.
+ *   - Añade el trimestre derivado a `Proyecto.trimestresActivos`.
+ * NO desactiva nada al "quitar" semanas: si un entregable deja de tener una semana,
+ * otros entregables del mismo resultado pueden seguir necesitándola; la limpieza
+ * desde arriba (TOGGLE_PROYECTO_MES / TOGGLE_PROYECTO_TRIMESTRE) ya hace cascada
+ * hacia abajo cuando hace falta.
+ */
+function propagarSemanaArriba(state: AppState, entregableId: string, monday: string): AppState {
+  const ent = state.entregables.find((e) => e.id === entregableId);
+  if (!ent) return state;
+  const res = state.resultados.find((r) => r.id === ent.resultadoId);
+  if (!res) return state;
+  const proj = state.proyectos.find((p) => p.id === res.proyectoId);
+  const mes = mesKey(monday);
+  const trimestre = mes ? trimestreDeMes(mes) : null;
+
+  const nuevosResultados = state.resultados.map((r) => {
+    if (r.id !== res.id) return r;
+    const semanasActivas = (r.semanasActivas ?? []).includes(monday)
+      ? r.semanasActivas ?? []
+      : [...(r.semanasActivas ?? []), monday].sort();
+    const mesesActivos = mes && !(r.mesesActivos ?? []).includes(mes)
+      ? [...(r.mesesActivos ?? []), mes].sort()
+      : r.mesesActivos ?? [];
+    return { ...r, semanasActivas, mesesActivos };
+  });
+
+  let nuevosProyectos = state.proyectos;
+  if (proj) {
+    nuevosProyectos = state.proyectos.map((p) => {
+      if (p.id !== proj.id) return p;
+      const mesesActivos = mes && !(p.mesesActivos ?? []).includes(mes)
+        ? [...(p.mesesActivos ?? []), mes].sort()
+        : p.mesesActivos ?? [];
+      const trimestresActivos = trimestre && !(p.trimestresActivos ?? []).includes(trimestre)
+        ? [...(p.trimestresActivos ?? []), trimestre].sort()
+        : p.trimestresActivos ?? [];
+      return { ...p, mesesActivos, trimestresActivos };
+    });
+  }
+
+  return { ...state, resultados: nuevosResultados, proyectos: nuevosProyectos };
 }
 
 export function reducer(state: AppState, action: Action): AppState {
@@ -611,31 +668,146 @@ export function reducer(state: AppState, action: Action): AppState {
       };
 
     case "TOGGLE_ENTREGABLE_DIA": {
-      return {
+      const ent = state.entregables.find((e) => e.id === action.id);
+      if (!ent) return state;
+      const current = Array.isArray(ent.diasPlanificados) ? ent.diasPlanificados : [];
+      const has = current.includes(action.dateKey);
+      const nextDias = has
+        ? current.filter((k) => k !== action.dateKey)
+        : [...current, action.dateKey].sort();
+      const monday = mondayKey(action.dateKey);
+      const semanasActivas = Array.isArray(ent.semanasActivas) ? ent.semanasActivas : [];
+      const semanasNext = !has && monday && !semanasActivas.includes(monday)
+        ? [...semanasActivas, monday].sort()
+        : semanasActivas;
+      const newSemana = !ent.semana && !has ? monday : ent.semana;
+
+      let nextState: AppState = {
         ...state,
-        entregables: state.entregables.map((e) => {
-          if (e.id !== action.id) return e;
-          const current = Array.isArray(e.diasPlanificados) ? e.diasPlanificados : [];
-          const has = current.includes(action.dateKey);
-          const nextDias = has
-            ? current.filter((k) => k !== action.dateKey)
-            : [...current, action.dateKey].sort();
-          const newSemana = !e.semana && !has ? mondayKey(action.dateKey) : e.semana;
-          return { ...e, diasPlanificados: nextDias, semana: newSemana };
-        }),
+        entregables: state.entregables.map((e) => e.id === action.id
+          ? { ...e, diasPlanificados: nextDias, semana: newSemana, semanasActivas: semanasNext }
+          : e),
       };
+
+      if (!has && monday) {
+        nextState = propagarSemanaArriba(nextState, action.id, monday);
+      }
+      return nextState;
     }
 
     case "SET_ENTREGABLE_DIAS": {
       const sorted = [...new Set(action.dias)].sort();
+      const ent = state.entregables.find((e) => e.id === action.id);
+      if (!ent) return state;
+      const semanasNuevas = new Set<string>(ent.semanasActivas ?? []);
+      for (const d of sorted) {
+        const mk = mondayKey(d);
+        if (mk) semanasNuevas.add(mk);
+      }
+      const newSemana = !ent.semana && sorted.length > 0 ? mondayKey(sorted[0]) : ent.semana;
+      let nextState: AppState = {
+        ...state,
+        entregables: state.entregables.map((e) => e.id === action.id
+          ? { ...e, diasPlanificados: sorted, semana: newSemana, semanasActivas: [...semanasNuevas].sort() }
+          : e),
+      };
+      for (const wk of semanasNuevas) {
+        nextState = propagarSemanaArriba(nextState, action.id, wk);
+      }
+      return nextState;
+    }
+
+    case "TOGGLE_ENTREGABLE_SEMANA": {
+      const ent = state.entregables.find((e) => e.id === action.id);
+      if (!ent) return state;
+      const semanasActivas = Array.isArray(ent.semanasActivas) ? ent.semanasActivas : [];
+      const has = semanasActivas.includes(action.semana);
+      const next = has
+        ? semanasActivas.filter((s) => s !== action.semana)
+        : [...semanasActivas, action.semana].sort();
+      // Si se quita esa semana, también limpiamos los días planificados que pertenezcan a ella.
+      const diasFiltrados = has
+        ? (ent.diasPlanificados ?? []).filter((d) => mondayKey(d) !== action.semana)
+        : ent.diasPlanificados ?? [];
+      // Mantener `semana` (legado) coherente: si se quita la única semana activa, vaciar.
+      const nuevoSemanaLegado = has
+        ? (next.length > 0 ? next[0] : null)
+        : (ent.semana ?? action.semana);
+
+      let nextState: AppState = {
+        ...state,
+        entregables: state.entregables.map((e) => e.id === action.id
+          ? { ...e, semanasActivas: next, diasPlanificados: diasFiltrados, semana: nuevoSemanaLegado }
+          : e),
+      };
+      if (!has) nextState = propagarSemanaArriba(nextState, action.id, action.semana);
+      return nextState;
+    }
+
+    case "SET_ENTREGABLE_FECHA_COMPROMISO": {
       return {
         ...state,
-        entregables: state.entregables.map((e) => {
-          if (e.id !== action.id) return e;
-          const newSemana = !e.semana && sorted.length > 0 ? mondayKey(sorted[0]) : e.semana;
-          return { ...e, diasPlanificados: sorted, semana: newSemana };
-        }),
+        entregables: state.entregables.map((e) => e.id === action.id
+          ? { ...e, fechaCompromiso: action.fecha }
+          : e),
       };
+    }
+
+    case "TOGGLE_PROYECTO_TRIMESTRE": {
+      const proyecto = state.proyectos.find((p) => p.id === action.id);
+      if (!proyecto) return state;
+      const curr = proyecto.trimestresActivos ?? [];
+      const removing = curr.includes(action.trimestre);
+      const nextTrimestres = removing
+        ? curr.filter((t) => t !== action.trimestre)
+        : [...curr, action.trimestre].sort();
+
+      const mesesDelQ = mesesDeTrimestre(action.trimestre);
+      const mesesActivosCurr = proyecto.mesesActivos ?? [];
+      const nextMeses = removing
+        ? mesesActivosCurr.filter((m) => !mesesDelQ.includes(m))
+        : [...new Set([...mesesActivosCurr, ...mesesDelQ])].sort();
+
+      let nextState: AppState = {
+        ...state,
+        proyectos: state.proyectos.map((p) => p.id === action.id
+          ? { ...p, trimestresActivos: nextTrimestres, mesesActivos: nextMeses }
+          : p),
+      };
+
+      if (removing) {
+        // Cascada hacia abajo: limpiar resultados / entregables de los meses retirados.
+        const mesesRetirados = new Set(mesesDelQ);
+        const resIds = new Set(state.resultados.filter((r) => r.proyectoId === action.id).map((r) => r.id));
+        nextState = {
+          ...nextState,
+          resultados: nextState.resultados.map((r) => {
+            if (!resIds.has(r.id)) return r;
+            const semanasActivas = (r.semanasActivas ?? []).filter((sk) => {
+              const m = mesKey(sk);
+              return !m || !mesesRetirados.has(m);
+            });
+            const mesesActivos = (r.mesesActivos ?? []).filter((m) => !mesesRetirados.has(m));
+            return { ...r, semanasActivas, mesesActivos };
+          }),
+          entregables: nextState.entregables.map((e) => {
+            if (!resIds.has(e.resultadoId)) return e;
+            const semanasActivas = (e.semanasActivas ?? []).filter((sk) => {
+              const m = mesKey(sk);
+              return !m || !mesesRetirados.has(m);
+            });
+            const diasPlanificados = (e.diasPlanificados ?? []).filter((d) => {
+              const m = mesKey(d);
+              return !m || !mesesRetirados.has(m);
+            });
+            const semanaLegado = e.semana && mesesRetirados.has(mesKey(e.semana) ?? "")
+              ? null : e.semana;
+            return { ...e, semanasActivas, diasPlanificados, semana: semanaLegado };
+          }),
+        };
+      }
+
+      return nextState;
     }
 
     // --- Checklist de pasos ---
@@ -1239,8 +1411,10 @@ export function reducer(state: AppState, action: Action): AppState {
           ...nextState,
           entregables: nextState.entregables.map((e) => {
             if (!resIds.has(e.resultadoId)) return e;
-            if (!e.semana) return e;
-            return mesKey(e.semana) === action.mes ? { ...e, semana: null } : e;
+            const semanasActivas = (e.semanasActivas ?? []).filter((sk) => mesKey(sk) !== action.mes);
+            const diasPlanificados = (e.diasPlanificados ?? []).filter((d) => mesKey(d) !== action.mes);
+            const nuevoSemanaLegado = e.semana && mesKey(e.semana) === action.mes ? null : e.semana;
+            return { ...e, semanasActivas, diasPlanificados, semana: nuevoSemanaLegado };
           }),
           resultados: nextState.resultados.map((r) => {
             if (r.proyectoId !== action.id) return r;
@@ -1278,8 +1452,10 @@ export function reducer(state: AppState, action: Action): AppState {
           ...nextState,
           entregables: nextState.entregables.map((e) => {
             if (e.resultadoId !== action.id) return e;
-            if (!e.semana) return e;
-            return mesKey(e.semana) === action.mes ? { ...e, semana: null } : e;
+            const semanasActivas = (e.semanasActivas ?? []).filter((sk) => mesKey(sk) !== action.mes);
+            const diasPlanificados = (e.diasPlanificados ?? []).filter((d) => mesKey(d) !== action.mes);
+            const nuevoSemanaLegado = e.semana && mesKey(e.semana) === action.mes ? null : e.semana;
+            return { ...e, semanasActivas, diasPlanificados, semana: nuevoSemanaLegado };
           }),
         };
       }
@@ -1340,6 +1516,7 @@ export function reducer(state: AppState, action: Action): AppState {
         : [...curr, action.semana].sort();
 
       let newProyectos = state.proyectos;
+      let newEntregables = state.entregables;
       const newResultados = state.resultados.map((r) => {
         if (r.id !== action.id) return r;
         let mesesActivos = r.mesesActivos ?? [];
@@ -1352,16 +1529,27 @@ export function reducer(state: AppState, action: Action): AppState {
 
       if (!removing) {
         const m = mesKey(action.semana);
-        if (m) {
-          newProyectos = state.proyectos.map((p) => {
-            if (p.id !== resultado.proyectoId) return p;
-            if ((p.mesesActivos ?? []).includes(m)) return p;
-            return { ...p, mesesActivos: [...(p.mesesActivos ?? []), m].sort() };
-          });
-        }
+        const t = m ? trimestreDeMes(m) : null;
+        newProyectos = state.proyectos.map((p) => {
+          if (p.id !== resultado.proyectoId) return p;
+          let mesesActivos = p.mesesActivos ?? [];
+          let trimestresActivos = p.trimestresActivos ?? [];
+          if (m && !mesesActivos.includes(m)) mesesActivos = [...mesesActivos, m].sort();
+          if (t && !trimestresActivos.includes(t)) trimestresActivos = [...trimestresActivos, t].sort();
+          return { ...p, mesesActivos, trimestresActivos };
+        });
+      } else {
+        // Limpiar entregables del resultado que tenían planificación en esa semana.
+        newEntregables = state.entregables.map((e) => {
+          if (e.resultadoId !== action.id) return e;
+          const semanasActivas = (e.semanasActivas ?? []).filter((sk) => sk !== action.semana);
+          const diasPlanificados = (e.diasPlanificados ?? []).filter((d) => mondayKey(d) !== action.semana);
+          const nuevoSemanaLegado = e.semana === action.semana ? null : e.semana;
+          return { ...e, semanasActivas, diasPlanificados, semana: nuevoSemanaLegado };
+        });
       }
 
-      return { ...state, proyectos: newProyectos, resultados: newResultados };
+      return { ...state, proyectos: newProyectos, resultados: newResultados, entregables: newEntregables };
     }
 
     case "SET_RESULTADO_SEMANAS": {
