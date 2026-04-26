@@ -5,7 +5,7 @@ import { useAppState, useAppDispatch } from "@/lib/context";
 import { usePasosActivos, useDependenciasEntrantes, useEsperandoRespuesta, usePlannedBlocks, splitPlannedBlocks, useFocoProyectos, buildClosedPaso, type PlannedBlock } from "@/lib/hooks";
 import { generateId } from "@/lib/store";
 import { useUsuario, useIsMentor } from "@/lib/usuario";
-import { toDateKey, daysBetweenKeys, addDaysToKey } from "@/lib/date-utils";
+import { toDateKey } from "@/lib/date-utils";
 import type { InboxItem, Paso, Entregable } from "@/lib/types";
 import { PasoActivoCard } from "./PasoActivo";
 import { EntregableActivoCard } from "./EntregableActivo";
@@ -126,7 +126,10 @@ export function PantallaHoy() {
   }, [state.entregables, state.pasos, entregablesEnCursoIds, targetUser, todayKey]);
 
   const plannedBlocks = usePlannedBlocks(todayKey, targetUser);
-  const { hoy: blocksHoy, arrastrado: blocksArrastrado, enMarcha: blocksEnMarcha } = useMemo(
+  // En la vista Hoy ya no mostramos la sección "arrastrado de días anteriores":
+  // la revisión semanal va por trimestre → mes → semana → hoy, así que aquí
+  // sólo nos interesan los bloques planificados para hoy y los ya en marcha.
+  const { hoy: blocksHoy, enMarcha: blocksEnMarcha } = useMemo(
     () => splitPlannedBlocks(plannedBlocks.filter(
       (b) => !entregablesEnCursoIds.has(b.entregableId) && !entregablesTrabajadosHoyIds.has(b.entregableId),
     )),
@@ -184,7 +187,7 @@ export function PantallaHoy() {
 
   if (isMentor) return <div className="p-8 text-center text-muted">Vista no disponible para mentor.</div>;
 
-  const isEmpty = pasosActivos.length === 0 && entregablesEnCurso.length === 0 && blocksPrincipalesAll.length === 0 && blocksArrastrado.length === 0;
+  const isEmpty = pasosActivos.length === 0 && entregablesEnCurso.length === 0 && blocksPrincipalesAll.length === 0;
   const hasOpenWork = pasosActivos.length > 0 || entregablesEnCurso.length > 0 || pendingInbox > 0;
 
   function captureIdea() {
@@ -390,16 +393,6 @@ export function PantallaHoy() {
             </div>
           )}
         </section>
-      )}
-
-      {/* Arrastrados desde días anteriores */}
-      {blocksArrastrado.length > 0 && (
-        <ArrastradoSection
-          blocks={blocksArrastrado}
-          todayKey={todayKey}
-          onStart={startPlannedBlock}
-          pasoBadgeLabel={pasoBadgeLabel}
-        />
       )}
 
       {/* CTA: Start step */}
@@ -746,7 +739,7 @@ function EndOfDayFlow({
 }
 
 /* ============================================================
-   PlannedRow / ArrastradoSection — UI para "Planificados para hoy"
+   PlannedRow — UI para "Planificados para hoy"
    ============================================================ */
 
 function PlannedRow({ block, onStart, onCerrarPorHoy, todayKey, pasoBadgeLabel = "Paso tuyo" }: { block: PlannedBlock; onStart: () => void; onCerrarPorHoy?: (block: PlannedBlock) => void; todayKey: string; pasoBadgeLabel?: string }) {
@@ -814,249 +807,3 @@ function PlannedRow({ block, onStart, onCerrarPorHoy, todayKey, pasoBadgeLabel =
   );
 }
 
-function ArrastradoSection({
-  blocks,
-  todayKey,
-  onStart,
-  pasoBadgeLabel = "Paso tuyo",
-}: {
-  blocks: PlannedBlock[];
-  todayKey: string;
-  onStart: (block: PlannedBlock) => void;
-  pasoBadgeLabel?: string;
-}) {
-  const state = useAppState();
-  const dispatch = useAppDispatch();
-  const [open, setOpen] = useState(false);
-  const [fechaPickerFor, setFechaPickerFor] = useState<string | null>(null);
-  const [confirmDeleteFor, setConfirmDeleteFor] = useState<string | null>(null);
-
-  const grupos = useMemo(() => {
-    const map = new Map<string, { proyectoId: string; proyectoNombre: string; hex: string; items: PlannedBlock[] }>();
-    for (const b of blocks) {
-      const key = b.proyectoId ?? "sin-proyecto";
-      const existing = map.get(key);
-      if (existing) {
-        existing.items.push(b);
-      } else {
-        map.set(key, {
-          proyectoId: key,
-          proyectoNombre: b.proyectoNombre ?? "Sin proyecto",
-          hex: b.hex,
-          items: [b],
-        });
-      }
-    }
-    return Array.from(map.values()).sort((a, b) => b.items.length - a.items.length);
-  }, [blocks]);
-
-  function planificarHoy(block: PlannedBlock) {
-    if (block.id.startsWith("next-") && block.pasoId) {
-      dispatch({ type: "RESCHEDULE_NEXT_PASO", pasoId: block.pasoId, newDate: todayKey });
-      return;
-    }
-    if (!block.entregableId) return;
-    dispatch({
-      type: "UPDATE_ENTREGABLE",
-      id: block.entregableId,
-      changes: { fechaInicio: todayKey, planNivel: "dia" },
-    });
-  }
-
-  function posponerManana(block: PlannedBlock) {
-    const d = new Date(todayKey + "T12:00:00");
-    d.setDate(d.getDate() + 1);
-    const manana = toDateKey(d);
-    if (block.id.startsWith("next-") && block.pasoId) {
-      dispatch({ type: "RESCHEDULE_NEXT_PASO", pasoId: block.pasoId, newDate: manana });
-      return;
-    }
-    if (!block.entregableId) return;
-    dispatch({
-      type: "UPDATE_ENTREGABLE",
-      id: block.entregableId,
-      changes: { fechaInicio: manana, planNivel: "dia" },
-    });
-  }
-
-  function ponerEnEspera(block: PlannedBlock) {
-    if (!block.entregableId) return;
-    dispatch({
-      type: "UPDATE_ENTREGABLE",
-      id: block.entregableId,
-      changes: { estado: "en_espera" },
-    });
-  }
-
-  function reprogramar(block: PlannedBlock, nuevaFechaInicio: string) {
-    if (!block.entregableId) return;
-    const ent = state.entregables.find((e) => e.id === block.entregableId);
-    if (!ent) return;
-    const changes: Record<string, unknown> = { fechaInicio: nuevaFechaInicio, planNivel: "dia" };
-    if (ent.fechaInicio && ent.fechaLimite) {
-      const offsetDias = daysBetweenKeys(ent.fechaInicio, nuevaFechaInicio);
-      changes.fechaLimite = addDaysToKey(ent.fechaLimite, offsetDias);
-    }
-    dispatch({ type: "UPDATE_ENTREGABLE", id: block.entregableId, changes });
-    if (block.id.startsWith("next-") && block.pasoId) {
-      dispatch({ type: "RESCHEDULE_NEXT_PASO", pasoId: block.pasoId, newDate: nuevaFechaInicio });
-    }
-    setFechaPickerFor(null);
-  }
-
-  function eliminar(block: PlannedBlock) {
-    if (!block.entregableId) return;
-    dispatch({ type: "DELETE_ENTREGABLE", id: block.entregableId });
-    setConfirmDeleteFor(null);
-  }
-
-  return (
-    <section className="mb-5">
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        className="flex w-full items-center gap-2 rounded-xl border border-dashed border-border bg-surface/30 px-3 py-2.5 text-left transition-colors hover:bg-surface/60"
-      >
-        <svg
-          width="14"
-          height="14"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2.5"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          className={`shrink-0 text-muted transition-transform ${open ? "rotate-90" : ""}`}
-        >
-          <polyline points="9 18 15 12 9 6" />
-        </svg>
-        <div className="min-w-0 flex-1">
-          <p className="text-xs font-semibold uppercase tracking-wider text-muted">
-            Abierto desde días anteriores ({blocks.length})
-          </p>
-          <p className="mt-0.5 truncate text-[11px] text-muted/70">
-            {grupos
-              .slice(0, 3)
-              .map((g) => `${g.proyectoNombre} · ${g.items.length}`)
-              .join("  ·  ")}
-            {grupos.length > 3 ? `  ·  +${grupos.length - 3}` : ""}
-          </p>
-        </div>
-      </button>
-      {open && (
-        <div className="mt-2 space-y-3">
-          {grupos.map((g) => (
-            <div key={g.proyectoId} className="rounded-xl border border-border/60 bg-surface/30 p-2">
-              <div className="mb-1.5 flex items-center gap-2 px-1">
-                <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: g.hex }} />
-                <p className="flex-1 truncate text-[11px] font-semibold uppercase tracking-wider text-foreground/70">
-                  {g.proyectoNombre}
-                </p>
-                <span className="text-[10px] text-muted">{g.items.length} abiertos</span>
-              </div>
-              <div className="space-y-1.5">
-                {g.items.map((block) => (
-                  <div
-                    key={block.id}
-                    className="flex flex-wrap items-center gap-1.5 rounded-lg border-l-[3px] bg-background px-2.5 py-2"
-                    style={{ borderLeftColor: block.hex }}
-                  >
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm font-medium text-foreground">
-                        {block.title}
-                        {block.pasoTuyo && (
-                          <span className="ml-1.5 rounded bg-amber-100 px-1.5 py-0.5 text-[9px] font-semibold uppercase text-amber-700 dark:bg-amber-500/20 dark:text-amber-300">{pasoBadgeLabel}</span>
-                        )}
-                      </p>
-                      <p className="truncate text-[11px] text-muted">{block.subtitle}</p>
-                    </div>
-                    <button
-                      onClick={() => planificarHoy(block)}
-                      className="rounded-md border border-border bg-surface px-2 py-1 text-[10px] font-medium text-foreground transition-colors hover:bg-accent-soft hover:text-accent"
-                      title="Fijar hoy como fecha de inicio"
-                    >
-                      Hoy
-                    </button>
-                    <button
-                      onClick={() => posponerManana(block)}
-                      className="rounded-md border border-border bg-surface px-2 py-1 text-[10px] font-medium text-foreground transition-colors hover:bg-accent-soft hover:text-accent"
-                      title="Mover la fecha de inicio a mañana"
-                    >
-                      Mañana
-                    </button>
-                    {fechaPickerFor === block.id ? (
-                      <input
-                        type="date"
-                        autoFocus
-                        defaultValue={todayKey}
-                        onBlur={() => setFechaPickerFor(null)}
-                        onChange={(e) => {
-                          const v = e.target.value;
-                          if (v) reprogramar(block, v);
-                        }}
-                        className="rounded-md border border-border bg-surface px-1.5 py-0.5 text-[10px]"
-                      />
-                    ) : (
-                      <button
-                        onClick={() => setFechaPickerFor(block.id)}
-                        className="rounded-md border border-border bg-surface px-2 py-1 text-[10px] font-medium text-foreground transition-colors hover:bg-accent-soft hover:text-accent"
-                        title="Reprogramar a otra fecha (mueve inicio y fin)"
-                      >
-                        Fecha…
-                      </button>
-                    )}
-                    <button
-                      onClick={() => ponerEnEspera(block)}
-                      className="rounded-md border border-border bg-surface px-2 py-1 text-[10px] font-medium text-foreground transition-colors hover:bg-amber-100 hover:text-amber-700"
-                      title="Marcar como en_espera para que deje de aparecer"
-                    >
-                      En espera
-                    </button>
-                    {block.entregableId && (
-                      <RegistrarSesionIconButton
-                        entregableId={block.entregableId}
-                        defaultDateKey={todayKey}
-                        title="Ya lo hice · registrar sesión"
-                      />
-                    )}
-                    {confirmDeleteFor === block.id ? (
-                      <>
-                        <button
-                          onClick={() => eliminar(block)}
-                          className="rounded-md border border-red-300 bg-red-50 px-2 py-1 text-[10px] font-semibold text-red-700 hover:bg-red-100"
-                        >
-                          ¿Eliminar?
-                        </button>
-                        <button
-                          onClick={() => setConfirmDeleteFor(null)}
-                          className="rounded-md border border-border bg-surface px-2 py-1 text-[10px] text-muted hover:bg-accent-soft"
-                        >
-                          No
-                        </button>
-                      </>
-                    ) : (
-                      <button
-                        onClick={() => setConfirmDeleteFor(block.id)}
-                        className="rounded-md border border-border bg-surface px-2 py-1 text-[10px] font-medium text-foreground transition-colors hover:bg-red-50 hover:text-red-700"
-                        title="Eliminar este entregable"
-                      >
-                        Eliminar
-                      </button>
-                    )}
-                    <button
-                      onClick={() => onStart(block)}
-                      className="shrink-0 rounded-md px-2.5 py-1 text-[10px] font-semibold text-white hover:brightness-110"
-                      style={{ backgroundColor: block.hex }}
-                    >
-                      Empezar
-                    </button>
-                  </div>
-                ))}
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-    </section>
-  );
-}
