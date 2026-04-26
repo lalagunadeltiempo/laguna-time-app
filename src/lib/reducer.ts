@@ -43,7 +43,7 @@ export type Action =
   | { type: "UPDATE_PASO"; id: string; changes: Partial<Pick<Paso, "nombre" | "responsable">> }
   | { type: "DELETE_PASO"; id: string }
   | { type: "RENAME_ENTREGABLE"; id: string; nombre: string }
-  | { type: "UPDATE_ENTREGABLE"; id: string; changes: Partial<Pick<Entregable, "nombre" | "responsable" | "tipo" | "plantillaId" | "diasEstimados" | "estado" | "fechaLimite" | "fechaInicio" | "planNivel" | "semana" | "fechaCompromiso" | "semanasActivas">> }
+  | { type: "UPDATE_ENTREGABLE"; id: string; changes: Partial<Pick<Entregable, "nombre" | "responsable" | "tipo" | "plantillaId" | "diasEstimados" | "estado" | "fechaLimite" | "fechaInicio" | "planNivel" | "semana" | "fechaCompromiso" | "semanasActivas" | "diasPlanificados" | "planInicioTs" | "diasPlanificadosByUser" | "planInicioTsByUser">> }
   | { type: "OCULTAR_ENTREGABLE_HASTA"; id: string; hasta: string | null }
   // --- Sesiones del entregable (cronómetro al nivel de entregable) ---
   | { type: "START_ENTREGABLE"; id: string; ts?: string }
@@ -65,9 +65,9 @@ export type Action =
   | { type: "AUTO_CLOSE_STALE_SESIONES"; todayKey: string }
   | { type: "UPDATE_ENTREGABLE_CONTEXTO"; id: string; contexto: Entregable["contexto"] }
   | { type: "UPDATE_ENTREGABLE_IMPLICADOS"; id: string; implicados: Entregable["implicados"] }
-  | { type: "SET_ENTREGABLE_PLAN_INICIO"; id: string; ts: string | null }
-  | { type: "TOGGLE_ENTREGABLE_DIA"; id: string; dateKey: string }
-  | { type: "SET_ENTREGABLE_DIAS"; id: string; dias: string[] }
+  | { type: "SET_ENTREGABLE_PLAN_INICIO"; id: string; ts: string | null; usuario: string }
+  | { type: "TOGGLE_ENTREGABLE_DIA"; id: string; dateKey: string; usuario: string }
+  | { type: "SET_ENTREGABLE_DIAS"; id: string; dias: string[]; usuario: string }
   /** Toggle de una semana (lunes ISO) en `Entregable.semanasActivas`. Cascada hacia arriba:
    *  añade su mes al `Resultado.mesesActivos` y `Resultado.semanasActivas`, y
    *  añade ese mes y trimestre al `Proyecto.mesesActivos`/`trimestresActivos`. */
@@ -666,34 +666,43 @@ export function reducer(state: AppState, action: Action): AppState {
       };
 
     case "SET_ENTREGABLE_PLAN_INICIO": {
-      // Mantenemos `diasPlanificados` sincronizado con la asignación de hora.
-      // Si nos asignan hora para un día que no está en la planificación
-      // semanal, lo añadimos (reusando TOGGLE_ENTREGABLE_DIA con su cascada
-      // hacia arriba). Esto garantiza que Plan Hoy y Plan Semana siempre
-      // estén de acuerdo sobre los días en los que toca trabajar.
+      // Hora planificada PERSONAL por usuario. Mantenemos `diasPlanificadosByUser`
+      // sincronizado: si la hora apunta a un día que el usuario aún no tiene
+      // marcado, lo añadimos (cascada estándar de TOGGLE_ENTREGABLE_DIA por
+      // semana → mes → trimestre).
+      const usuario = action.usuario;
       let next = state;
       if (action.ts) {
         const ent = state.entregables.find((e) => e.id === action.id);
         const dia = action.ts.slice(0, 10);
-        const dias = ent?.diasPlanificados ?? [];
+        const dias = ent?.diasPlanificadosByUser?.[usuario] ?? [];
         if (ent && !dias.includes(dia)) {
-          next = reducer(next, { type: "TOGGLE_ENTREGABLE_DIA", id: action.id, dateKey: dia });
+          next = reducer(next, { type: "TOGGLE_ENTREGABLE_DIA", id: action.id, dateKey: dia, usuario });
         }
       }
       return {
         ...next,
-        entregables: next.entregables.map((e) => e.id === action.id ? { ...e, planInicioTs: action.ts } : e),
+        entregables: next.entregables.map((e) => {
+          if (e.id !== action.id) return e;
+          const prev = e.planInicioTsByUser ?? {};
+          const planInicioTsByUser = { ...prev, [usuario]: action.ts };
+          return { ...e, planInicioTsByUser };
+        }),
       };
     }
 
     case "TOGGLE_ENTREGABLE_DIA": {
+      const usuario = action.usuario;
       const ent = state.entregables.find((e) => e.id === action.id);
       if (!ent) return state;
-      const current = Array.isArray(ent.diasPlanificados) ? ent.diasPlanificados : [];
+      const byUser = ent.diasPlanificadosByUser ?? {};
+      const current = Array.isArray(byUser[usuario]) ? byUser[usuario] : [];
       const has = current.includes(action.dateKey);
       const nextDias = has
         ? current.filter((k) => k !== action.dateKey)
         : [...current, action.dateKey].sort();
+      const diasPlanificadosByUser: Record<string, string[]> = { ...byUser, [usuario]: nextDias };
+
       const monday = mondayKey(action.dateKey);
       const semanasActivas = Array.isArray(ent.semanasActivas) ? ent.semanasActivas : [];
       const semanasNext = !has && monday && !semanasActivas.includes(monday)
@@ -701,23 +710,23 @@ export function reducer(state: AppState, action: Action): AppState {
         : semanasActivas;
       const newSemana = !ent.semana && !has ? monday : ent.semana;
 
-      // Si quitamos el día y `planInicioTs` o `fechaInicio` legacy apuntaban
-      // exactamente a ese día, los limpiamos. Eso evita que un toggle en
-      // Plan Semana deje una hora "rancia" que vuelva a colarse en Hoy.
-      const planKey = ent.planInicioTs ? ent.planInicioTs.slice(0, 10) : null;
-      const planInicioTsNext = has && planKey === action.dateKey ? null : ent.planInicioTs ?? null;
-      const fechaInicioNext = has && ent.fechaInicio === action.dateKey ? null : ent.fechaInicio ?? null;
+      // Al quitar día, limpiar la hora del usuario actual si apuntaba a ese día.
+      const planByUser = ent.planInicioTsByUser ?? {};
+      const planUsuario = planByUser[usuario] ?? null;
+      const planKeyUsuario = planUsuario ? planUsuario.slice(0, 10) : null;
+      const planInicioTsByUser = has && planKeyUsuario === action.dateKey
+        ? { ...planByUser, [usuario]: null }
+        : planByUser;
 
       let nextState: AppState = {
         ...state,
         entregables: state.entregables.map((e) => e.id === action.id
           ? {
               ...e,
-              diasPlanificados: nextDias,
+              diasPlanificadosByUser,
               semana: newSemana,
               semanasActivas: semanasNext,
-              planInicioTs: planInicioTsNext,
-              fechaInicio: fechaInicioNext,
+              planInicioTsByUser,
             }
           : e),
       };
@@ -729,6 +738,7 @@ export function reducer(state: AppState, action: Action): AppState {
     }
 
     case "SET_ENTREGABLE_DIAS": {
+      const usuario = action.usuario;
       const sorted = [...new Set(action.dias)].sort();
       const ent = state.entregables.find((e) => e.id === action.id);
       if (!ent) return state;
@@ -738,10 +748,12 @@ export function reducer(state: AppState, action: Action): AppState {
         if (mk) semanasNuevas.add(mk);
       }
       const newSemana = !ent.semana && sorted.length > 0 ? mondayKey(sorted[0]) : ent.semana;
+      const byUser = ent.diasPlanificadosByUser ?? {};
+      const diasPlanificadosByUser: Record<string, string[]> = { ...byUser, [usuario]: sorted };
       let nextState: AppState = {
         ...state,
         entregables: state.entregables.map((e) => e.id === action.id
-          ? { ...e, diasPlanificados: sorted, semana: newSemana, semanasActivas: [...semanasNuevas].sort() }
+          ? { ...e, diasPlanificadosByUser, semana: newSemana, semanasActivas: [...semanasNuevas].sort() }
           : e),
       };
       for (const wk of semanasNuevas) {
@@ -758,10 +770,19 @@ export function reducer(state: AppState, action: Action): AppState {
       const next = has
         ? semanasActivas.filter((s) => s !== action.semana)
         : [...semanasActivas, action.semana].sort();
-      // Si se quita esa semana, también limpiamos los días planificados que pertenezcan a ella.
+      // Si se quita esa semana, también limpiamos los días planificados que pertenezcan a ella
+      // — tanto en el legacy `diasPlanificados` como en el nuevo per-usuario.
       const diasFiltrados = has
         ? (ent.diasPlanificados ?? []).filter((d) => mondayKey(d) !== action.semana)
         : ent.diasPlanificados ?? [];
+      let diasPlanificadosByUserNext = ent.diasPlanificadosByUser ?? {};
+      if (has) {
+        const filtrado: Record<string, string[]> = {};
+        for (const [u, dias] of Object.entries(diasPlanificadosByUserNext)) {
+          filtrado[u] = (dias ?? []).filter((d) => mondayKey(d) !== action.semana);
+        }
+        diasPlanificadosByUserNext = filtrado;
+      }
       // Mantener `semana` (legado) coherente: si se quita la única semana activa, vaciar.
       const nuevoSemanaLegado = has
         ? (next.length > 0 ? next[0] : null)
@@ -770,7 +791,13 @@ export function reducer(state: AppState, action: Action): AppState {
       let nextState: AppState = {
         ...state,
         entregables: state.entregables.map((e) => e.id === action.id
-          ? { ...e, semanasActivas: next, diasPlanificados: diasFiltrados, semana: nuevoSemanaLegado }
+          ? {
+              ...e,
+              semanasActivas: next,
+              diasPlanificados: diasFiltrados,
+              diasPlanificadosByUser: diasPlanificadosByUserNext,
+              semana: nuevoSemanaLegado,
+            }
           : e),
       };
       if (!has) nextState = propagarSemanaArriba(nextState, action.id, action.semana);

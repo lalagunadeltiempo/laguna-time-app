@@ -14,6 +14,46 @@ const AREA_LABELS: Record<string, string> = Object.fromEntries([
   ...AREAS_EMPRESA.map((a) => [a.id, a.label]),
 ]);
 
+/**
+ * Días planificados de un entregable PARA UN USUARIO concreto.
+ *
+ * - `user === null`: se devuelve la unión de los días de TODOS los miembros más
+ *   los del campo legacy `diasPlanificados` (datos pre-migración 20). Útil para
+ *   filtros "Todos / Equipo" donde queremos ver "qué se trabaja en este día"
+ *   independientemente de quién.
+ * - `user` definido: solo los días de ese usuario. Si el campo nuevo no existe,
+ *   se vuelve al legacy `diasPlanificados` para no perder la planificación
+ *   antigua antes de que la migración la mueva (no debería ocurrir, pero es un
+ *   fallback de seguridad).
+ */
+export function diasDe(ent: Entregable, user: string | null): string[] {
+  const byUser = ent.diasPlanificadosByUser ?? {};
+  if (user === null) {
+    const set = new Set<string>();
+    for (const arr of Object.values(byUser)) for (const k of arr ?? []) set.add(k);
+    for (const k of ent.diasPlanificados ?? []) set.add(k);
+    return [...set];
+  }
+  const slot = byUser[user];
+  if (Array.isArray(slot)) return slot;
+  return ent.diasPlanificados ?? [];
+}
+
+/**
+ * Hora planificada de un entregable PARA UN USUARIO concreto.
+ *
+ * - `user === null`: vista "Todos" → no devolvemos hora (no tendría sentido
+ *   mezclar las de varias personas en el mismo badge).
+ * - `user` definido: hora del usuario; fallback al legacy `planInicioTs` si el
+ *   nuevo campo aún no se ha rellenado para ese usuario.
+ */
+export function planTsDe(ent: Entregable, user: string | null): string | null {
+  if (user === null) return null;
+  const byUser = ent.planInicioTsByUser ?? {};
+  if (user in byUser) return byUser[user] ?? null;
+  return ent.planInicioTs ?? null;
+}
+
 export function useArbol(entregableId: string | undefined) {
   const state = useAppState();
 
@@ -453,32 +493,29 @@ export function usePlannedBlocks(dateKey: string, targetUser?: string | null): P
       let hoy = false;
       let arrastrado = false;
 
-      const usaDias = Array.isArray(ent.diasPlanificados) && ent.diasPlanificados.length > 0;
+      // Señal canónica per-usuario: `diasPlanificadosByUser[effectiveTarget]`
+      // (o la unión cuando `effectiveTarget === null`, vista Equipo). Cuando hay
+      // días, IGNORA legacy fechaInicio/planInicioTs para decidir hoy/arrastrado.
+      const diasUsuario = diasDe(ent, effectiveTarget);
+      const usaDias = diasUsuario.length > 0;
 
-      // Señal canónica: diasPlanificados (Plan Semana). Cuando está presente,
-      // IGNORA las señales legacy fechaInicio/planInicioTs para decidir si el
-      // entregable toca hoy o quedó arrastrado. Esto garantiza una sola fuente
-      // de verdad y que mover un día en Plan Semana se refleje al instante en
-      // Pantalla Hoy / Plan Hoy.
       if (usaDias) {
-        const dias = ent.diasPlanificados as string[];
-        if (dias.includes(dateKey)) {
+        if (diasUsuario.includes(dateKey)) {
           hoy = true;
-        } else if (dias.some((k) => k < dateKey)) {
-          // Hay un día anterior planificado y aún no aparece "hoy": el bloque
-          // queda como arrastrado (lo filtraremos en Plan>Hoy, pero sigue
-          // siendo visible en otras vistas históricas).
+        } else if (diasUsuario.some((k) => k < dateKey)) {
           arrastrado = true;
         }
-        // Si todos los días son futuros: el entregable simplemente no toca
-        // este dateKey. No emitimos bloque (continúa el bucle más abajo si
-        // tampoco hay sesión abierta ni señales de pasos).
+        // Si todos los días son futuros: el entregable simplemente no toca este
+        // dateKey para este usuario. No emitimos bloque salvo que haya sesión
+        // abierta o señales de pasos más abajo.
       } else {
+        // Fallback puro legacy (sin migrar todavía o entregables sin planificación
+        // por usuario). Se evalúa de igual manera que antes.
         const planKey = ent.planInicioTs ? ent.planInicioTs.slice(0, 10) : null;
         if (planKey) {
           if (planKey === dateKey) hoy = true;
           else if (planKey < dateKey) arrastrado = true;
-          else continue; // planInicioTs futuro: no aparece hoy (ni arrastrado)
+          else continue;
         }
 
         if (!hoy && ent.fechaInicio) {
@@ -549,11 +586,12 @@ export function usePlannedBlocks(dateKey: string, targetUser?: string | null): P
       const res = resultados.find((r) => r.id === ent.resultadoId);
       const proj = res ? proyectos.find((pr) => pr.id === res.proyectoId) : undefined;
 
-      // `planInicioTs` solo es relevante para la UI si pertenece al día que se
-      // está viendo. Los bloques "en_marcha" o "arrastrado" pueden tener una
-      // hora antigua que no debe colarse al ordenar por hora ni mostrarse como
-      // badge horario en otro día.
-      const planMatchesDate = ent.planInicioTs ? ent.planInicioTs.slice(0, 10) === dateKey : false;
+      // Hora planificada PERSONAL: solo se muestra si pertenece al usuario
+      // visualizado y al día actual. En vista Equipo (effectiveTarget === null)
+      // no mostramos hora porque mezclar la de varias personas no tiene
+      // sentido visual.
+      const planTsUsuario = planTsDe(ent, effectiveTarget);
+      const planMatchesDate = planTsUsuario ? planTsUsuario.slice(0, 10) === dateKey : false;
 
       result.push({
         id: `ent-${ent.id}`,
@@ -568,7 +606,7 @@ export function usePlannedBlocks(dateKey: string, targetUser?: string | null): P
         resultadoNombre: res?.nombre,
         entregableNombre: ent.nombre,
         hex: AREA_COLORS[proj?.area ?? ""]?.hex ?? "#888",
-        planInicioTs: planMatchesDate ? ent.planInicioTs : null,
+        planInicioTs: planMatchesDate ? planTsUsuario : null,
         origen,
         responsable: ent.responsable,
         pasoTuyo: tienePasoMio,

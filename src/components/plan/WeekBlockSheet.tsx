@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { AREA_COLORS, type Area, type MiembroInfo } from "@/lib/types";
 import MoveInlinePanel from "../shared/MoveInlinePanel";
 import { useAppState, useAppDispatch } from "@/lib/context";
+import { useUsuario } from "@/lib/usuario";
 import { WeekDayChips } from "./WeekDayChips";
 import { RegistrarSesionPopover } from "../shared/RegistrarSesionPopover";
 
@@ -29,6 +30,9 @@ export interface WeekBlockInfo {
 
 interface Props {
   block: WeekBlockInfo;
+  /** Usuario sobre el que aplican las ediciones de planificación personal
+   *  (chips de días). Si se omite, se usa el usuario actual. */
+  usuario?: string;
   onClose: () => void;
   onMove: (newDate: string) => void;
   onUnschedule: () => void;
@@ -44,10 +48,12 @@ function toDateKey(d: Date) {
 }
 
 export function WeekBlockSheet({
-  block, onClose, onMove, onUnschedule, onSetResponsable, onMarkDone, onOpenProject,
+  block, usuario, onClose, onMove, onUnschedule, onSetResponsable, onMarkDone, onOpenProject,
 }: Props) {
   const [view, setView] = useState<SubView>("main");
   const [showRegistrar, setShowRegistrar] = useState(false);
+  const { nombre: currentUser } = useUsuario();
+  const editUsuario = usuario ?? currentUser;
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
@@ -99,8 +105,8 @@ export function WeekBlockSheet({
             <p className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-muted">Días planificados</p>
             <WeekDayChips
               weekDates={block.weekDates}
-              selectedKeys={currentEntregable.diasPlanificados ?? []}
-              onToggle={(k) => dispatch({ type: "TOGGLE_ENTREGABLE_DIA", id: currentEntregable.id, dateKey: k })}
+              selectedKeys={currentEntregable.diasPlanificadosByUser?.[editUsuario] ?? []}
+              onToggle={(k) => dispatch({ type: "TOGGLE_ENTREGABLE_DIA", id: currentEntregable.id, dateKey: k, usuario: editUsuario })}
               size="md"
             />
             <p className="mt-1.5 text-[10px] text-muted/70">Toca un día para añadirlo o quitarlo.</p>

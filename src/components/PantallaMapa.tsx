@@ -333,8 +333,14 @@ export function PantallaMapa({ onOpenDetalle, highlightId, onClearHighlight, scr
     }
     for (const ent of state.entregables) {
       const sActivos = ent.semanasActivas ?? [];
-      const dActivos = ent.diasPlanificados ?? [];
-      if (sActivos.some((s) => sSet.has(s)) || dActivos.some((d) => dSet.has(d))) {
+      // Para el filtro de Mapa por mes, contemplamos los días planificados de
+      // CUALQUIER miembro (unión + legacy) — un entregable que cualquiera del
+      // equipo trabaje en este mes debe aparecer en el mapa.
+      const dActivos = new Set<string>(ent.diasPlanificados ?? []);
+      for (const arr of Object.values(ent.diasPlanificadosByUser ?? {})) {
+        for (const k of arr ?? []) dActivos.add(k);
+      }
+      if (sActivos.some((s) => sSet.has(s)) || [...dActivos].some((d) => dSet.has(d))) {
         entDirect.add(ent.id);
       }
     }

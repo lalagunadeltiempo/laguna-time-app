@@ -230,9 +230,11 @@ export function EntregableActivoCard({ entregable, mode = "trabajo" }: Props) {
     const manana = new Date(now);
     manana.setDate(now.getDate() + 1);
     const mananaKey = toDateKey(manana);
-    const yaTieneManana = Array.isArray(entregable.diasPlanificados) && entregable.diasPlanificados.includes(mananaKey);
+    // "Continuar mañana" ajusta la planificación PERSONAL del usuario actual.
+    const dias = entregable.diasPlanificadosByUser?.[currentUser] ?? [];
+    const yaTieneManana = dias.includes(mananaKey);
     if (!yaTieneManana) {
-      dispatch({ type: "TOGGLE_ENTREGABLE_DIA", id: entregable.id, dateKey: mananaKey });
+      dispatch({ type: "TOGGLE_ENTREGABLE_DIA", id: entregable.id, dateKey: mananaKey, usuario: currentUser });
     }
     dispatch({ type: "OCULTAR_ENTREGABLE_HASTA", id: entregable.id, hasta: hoy });
     setShowCloseOptions(false);

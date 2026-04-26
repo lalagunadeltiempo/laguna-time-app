@@ -80,12 +80,16 @@ export function rangoEntregableMapa(ent: Entregable): Rango {
     }
     return { inicio, fin };
   }
-  const dias = ent.diasPlanificados ?? [];
-  if (dias.length > 0) {
-    const sorted = [...dias].sort();
+  // Unión de días planificados por todos los miembros + legacy: el rango del
+  // entregable en el Mapa cubre cualquier día que haya planificado cualquiera.
+  const diasSet = new Set<string>(ent.diasPlanificados ?? []);
+  for (const arr of Object.values(ent.diasPlanificadosByUser ?? {})) {
+    for (const k of arr ?? []) diasSet.add(k);
+  }
+  if (diasSet.size > 0) {
+    const sorted = [...diasSet].sort();
     return { inicio: sorted[0], fin: sorted[sorted.length - 1] };
   }
-  // Compat: legacy
   return { inicio: ent.fechaInicio ?? null, fin: ent.fechaLimite ?? null };
 }
 

@@ -229,6 +229,14 @@ export function PlanHoy({ selectedDate }: Props) {
    * Si el bloque arrastra un "next-*" legacy, también limpiamos el siguientePaso
    * del paso previo para que el listado no duplique.
    */
+  /**
+   * Usuario sobre el que aplican las ediciones de planificación.
+   * - Si filtras por un miembro concreto (toggle Equipo/Yo/Miembro), las
+   *   ediciones van sobre ese miembro (planificas su semana).
+   * - En "Todos" o "Yo" editas tu propia planificación.
+   */
+  const editUsuario = targetUser ?? currentUser;
+
   function asignarHora(block: Block, hhmm: string | null) {
     if (!block.entregableId) return;
     const nuevoTs = hhmm ? isoFromDateAndHhmm(dateKey, hhmm) : null;
@@ -237,29 +245,28 @@ export function PlanHoy({ selectedDate }: Props) {
       dispatch({ type: "RESCHEDULE_NEXT_PASO", pasoId: block.pasoId, newDate: null });
     }
 
-    dispatch({ type: "SET_ENTREGABLE_PLAN_INICIO", id: block.entregableId, ts: nuevoTs });
+    dispatch({ type: "SET_ENTREGABLE_PLAN_INICIO", id: block.entregableId, ts: nuevoTs, usuario: editUsuario });
   }
 
   /**
-   * Reprograma un bloque de tipo "ent-*" usando `diasPlanificados` como
-   * fuente canónica (lo que también muestra Plan Semana). Antes editábamos
-   * `fechaInicio` legacy, lo que dejaba el entregable visible en dos días
-   * distintos: el de Plan Semana y el de fechaInicio. Ahora movemos el día
-   * en `diasPlanificados` y limpiamos `planInicioTs` si pertenecía al día
-   * que se descarta.
+   * Reprograma un bloque de tipo "ent-*" usando `diasPlanificadosByUser`
+   * como fuente canónica (lo que también muestra Plan Semana). Mueve el
+   * día sólo en el slot del usuario activo y limpia su hora si apunta a
+   * ese día.
    */
   function reprogramarEntregable(entregableId: string, newDate: string | null) {
     const ent = state.entregables.find((e) => e.id === entregableId);
     if (!ent) return;
-    const dias = ent.diasPlanificados ?? [];
+    const dias = ent.diasPlanificadosByUser?.[editUsuario] ?? [];
     if (dias.includes(dateKey)) {
-      dispatch({ type: "TOGGLE_ENTREGABLE_DIA", id: entregableId, dateKey });
+      dispatch({ type: "TOGGLE_ENTREGABLE_DIA", id: entregableId, dateKey, usuario: editUsuario });
     }
     if (newDate && !dias.includes(newDate)) {
-      dispatch({ type: "TOGGLE_ENTREGABLE_DIA", id: entregableId, dateKey: newDate });
+      dispatch({ type: "TOGGLE_ENTREGABLE_DIA", id: entregableId, dateKey: newDate, usuario: editUsuario });
     }
-    if (!newDate && ent.planInicioTs && ent.planInicioTs.slice(0, 10) === dateKey) {
-      dispatch({ type: "SET_ENTREGABLE_PLAN_INICIO", id: entregableId, ts: null });
+    const planTs = ent.planInicioTsByUser?.[editUsuario] ?? null;
+    if (!newDate && planTs && planTs.slice(0, 10) === dateKey) {
+      dispatch({ type: "SET_ENTREGABLE_PLAN_INICIO", id: entregableId, ts: null, usuario: editUsuario });
     }
   }
 

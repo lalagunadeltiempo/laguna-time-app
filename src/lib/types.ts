@@ -172,11 +172,20 @@ export interface Entregable {
   contexto?: Contexto;
   /** Personas implicadas en el entregable. Antes vivía a nivel Paso. */
   implicados?: Implicado[];
-  /** Hora planificada para empezar HOY (ISO). Se fija desde Plan Hoy y se mantiene para su visualización. */
+  /** @deprecated Usar `planInicioTsByUser`. Se mantiene como fallback de lectura para datos
+   *  anteriores a la migración 20. La migración lo vacía. */
   planInicioTs?: string | null;
-  /** Días concretos (dateKey YYYY-MM-DD) en los que se planifica trabajar este entregable.
-   *  Permite repartir un entregable en varios días dentro de la misma semana (o semanas). */
+  /** @deprecated Usar `diasPlanificadosByUser`. Se mantiene como fallback de lectura para
+   *  datos anteriores a la migración 20. La migración lo vacía. */
   diasPlanificados?: string[];
+  /** Días concretos (dateKey YYYY-MM-DD) en los que cada miembro planifica trabajar este
+   *  entregable. La planificación es PERSONAL: dos personas pueden compartir el entregable
+   *  pero elegir días distintos sin pisarse. La clave del Record es el nombre del miembro
+   *  (`MiembroInfo.nombre`), igual que `responsable`. */
+  diasPlanificadosByUser?: Record<string, string[]>;
+  /** Hora planificada para empezar HOY (ISO) por miembro. Igual que `diasPlanificadosByUser`,
+   *  cada miembro fija su propia hora sin pisar la del resto. */
+  planInicioTsByUser?: Record<string, string | null>;
 }
 
 /** Sesión de trabajo sobre un entregable: cronómetro + pausas. */

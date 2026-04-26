@@ -5,7 +5,7 @@ import { buildPersonalSeedData } from "./seed-personal";
 import { buildEmpresaSeedProyectos } from "./seed-proyectos-empresa";
 import { mondayKey, mesKey, mesesDeTrimestre } from "./semana-utils";
 
-export const CURRENT_MIGRATION = 19;
+export const CURRENT_MIGRATION = 20;
 
 type Dispatch = (action: Action) => void;
 
@@ -47,6 +47,10 @@ export function runMigrations(state: AppState, dispatch: Dispatch): void {
 
   if (version < 18) {
     migrateEntregableSemanasActivas(state, dispatch);
+  }
+
+  if (version < 20) {
+    migrateEntregablePlanificacionByUser(state, dispatch);
   }
 
   if (version < CURRENT_MIGRATION) {
@@ -195,6 +199,47 @@ function migrateEntregableSemanasActivas(state: AppState, dispatch: Dispatch): v
         changes: { semanasActivas: [...semanas].sort() },
       });
     }
+  }
+}
+
+/**
+ * Migración v20: planificación PERSONAL por usuario.
+ *  - `Entregable.diasPlanificados` (array compartido) → `diasPlanificadosByUser[responsable]`.
+ *  - `Entregable.planInicioTs` (compartido) → `planInicioTsByUser[responsable]`.
+ *
+ * Si el entregable no tiene `responsable`, se le asigna al primer miembro del equipo
+ * (fallback razonable: el owner del workspace, que es siempre el primero del seed).
+ *
+ * Vacía los campos legacy (`diasPlanificados=[]`, `planInicioTs=null`) para que la
+ * lógica nueva los ignore. Conservamos los nombres para compatibilidad de lectura
+ * en datos antiguos no migrados.
+ */
+function migrateEntregablePlanificacionByUser(state: AppState, dispatch: Dispatch): void {
+  const ownerFallback = state.miembros[0]?.nombre ?? "Gabi";
+  for (const ent of state.entregables) {
+    const tieneDiasLegacy = Array.isArray(ent.diasPlanificados) && ent.diasPlanificados.length > 0;
+    const tienePlanLegacy = !!ent.planInicioTs;
+    if (!tieneDiasLegacy && !tienePlanLegacy) continue;
+    const usuario = (ent.responsable && ent.responsable.trim()) || ownerFallback;
+    const diasByUser = { ...(ent.diasPlanificadosByUser ?? {}) };
+    const planByUser = { ...(ent.planInicioTsByUser ?? {}) };
+    if (tieneDiasLegacy) {
+      const mezcla = new Set<string>([...(diasByUser[usuario] ?? []), ...(ent.diasPlanificados ?? [])]);
+      diasByUser[usuario] = [...mezcla].sort();
+    }
+    if (tienePlanLegacy) {
+      planByUser[usuario] = ent.planInicioTs ?? null;
+    }
+    dispatch({
+      type: "UPDATE_ENTREGABLE",
+      id: ent.id,
+      changes: {
+        diasPlanificadosByUser: diasByUser,
+        planInicioTsByUser: planByUser,
+        diasPlanificados: [],
+        planInicioTs: null,
+      },
+    });
   }
 }
 

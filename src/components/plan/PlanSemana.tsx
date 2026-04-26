@@ -10,6 +10,7 @@ import { AmbitoToggle, ResponsableToggle, type AmbitoFilter, type ResponsableFil
 import { WeekBlockSheet, type WeekBlockInfo } from "./WeekBlockSheet";
 import { fechaEfectivaEntregable } from "@/lib/fechas-efectivas";
 import { subtituloEntregable } from "@/lib/display";
+import { diasDe } from "@/lib/hooks";
 import { WeekDayChips } from "./WeekDayChips";
 
 const DAYS = ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"];
@@ -122,7 +123,10 @@ export function PlanSemana({ selectedDate, onOpenInMapa }: Props) {
       // del resultado: aunque el resultado padre esté activo en esta semana,
       // sólo aparece si el entregable tiene esa semana marcada.
       const semanasActEnt = ent.semanasActivas ?? (ent.semana ? [ent.semana] : []);
-      const diasEnEstaSemana = (ent.diasPlanificados ?? []).filter((k) => weekKeys.has(k));
+      // Días planificados POR EL USUARIO objetivo (o unión si target=null).
+      // Cada miembro tiene los suyos; aquí leemos los del que estamos viendo.
+      const diasUsuario = diasDe(ent, targetUser);
+      const diasEnEstaSemana = diasUsuario.filter((k) => weekKeys.has(k));
       const pertenecePorSemana = !!mondayKeyStr && semanasActEnt.includes(mondayKeyStr);
       const pertenecePorDias = diasEnEstaSemana.length > 0;
 
@@ -272,7 +276,7 @@ export function PlanSemana({ selectedDate, onOpenInMapa }: Props) {
       const pertenece = !!mondayKeyStr && semanasActEnt.includes(mondayKeyStr);
       if (!pertenece) continue;
 
-      const diasEnEstaSemana = (ent.diasPlanificados ?? []).filter((k) => weekKeys.has(k));
+      const diasEnEstaSemana = diasDe(ent, targetUser).filter((k) => weekKeys.has(k));
       if (diasEnEstaSemana.length > 0) continue;
 
       // Fallback legacy: si fechaInicio/fechaEfectiva cae en esta semana, ya tiene día de facto.
@@ -338,15 +342,15 @@ export function PlanSemana({ selectedDate, onOpenInMapa }: Props) {
       if (filtro !== "todo" && ambitoDeArea(proj.area) !== filtro) continue;
 
       // Pertenecía a la semana anterior por semanasActivas (canónico) o por
-      // algún día planificado dentro de ese rango. NO heredamos del resultado.
+      // algún día planificado del usuario dentro de ese rango.
       const semanasActEnt = ent.semanasActivas ?? (ent.semana ? [ent.semana] : []);
+      const diasUsuario = diasDe(ent, targetUser);
       const teniaSemanaAnterior = semanasActEnt.includes(prevMondayKey)
-        || (Array.isArray(ent.diasPlanificados) && ent.diasPlanificados.some((k) => prevWeekKeys.has(k)));
+        || diasUsuario.some((k) => prevWeekKeys.has(k));
       if (!teniaSemanaAnterior) continue;
 
-      // Ya está presente en la actual: ignorar
       const yaEnActual = semanasActEnt.includes(currMondayKey)
-        || (Array.isArray(ent.diasPlanificados) && ent.diasPlanificados.some((k) => currWeekKeys.has(k)));
+        || diasUsuario.some((k) => currWeekKeys.has(k));
       if (yaEnActual) continue;
 
       out.push({
@@ -410,13 +414,20 @@ export function PlanSemana({ selectedDate, onOpenInMapa }: Props) {
     return grouped;
   }, [state, targetUser, currentUser, filtro]);
 
+  /**
+   * Usuario sobre el que aplican las ediciones de planificación. En "Todos"
+   * o "Yo" editas tu planificación; al filtrar por un miembro concreto
+   * editas la suya (planificas su semana).
+   */
+  const editUsuario = targetUser ?? currentUser;
+
   function assignToPlan(ent: Entregable) {
     if (!pickDay) return;
     const newEstado = (ent.estado === "a_futuro" || ent.estado === "planificado") ? "en_proceso" : ent.estado;
-    // Toggle del día (cascada hacia arriba activa la semana, mes y trimestre).
-    const yaActivo = (ent.diasPlanificados ?? []).includes(pickDay);
+    const dias = ent.diasPlanificadosByUser?.[editUsuario] ?? [];
+    const yaActivo = dias.includes(pickDay);
     if (!yaActivo) {
-      dispatch({ type: "TOGGLE_ENTREGABLE_DIA", id: ent.id, dateKey: pickDay });
+      dispatch({ type: "TOGGLE_ENTREGABLE_DIA", id: ent.id, dateKey: pickDay, usuario: editUsuario });
     }
     if (ent.estado !== newEstado) {
       dispatch({ type: "UPDATE_ENTREGABLE", id: ent.id, changes: { estado: newEstado } });
@@ -437,13 +448,13 @@ export function PlanSemana({ selectedDate, onOpenInMapa }: Props) {
     if (b.origen === "ent" && b.entregableId) {
       const ent = state.entregables.find((e) => e.id === b.entregableId);
       if (ent) {
-        // Quitar el día anterior y activar el nuevo (cascada hacia arriba).
+        const dias = ent.diasPlanificadosByUser?.[editUsuario] ?? [];
         const oldDay = b.dateKey;
-        if (oldDay && (ent.diasPlanificados ?? []).includes(oldDay)) {
-          dispatch({ type: "TOGGLE_ENTREGABLE_DIA", id: ent.id, dateKey: oldDay });
+        if (oldDay && dias.includes(oldDay)) {
+          dispatch({ type: "TOGGLE_ENTREGABLE_DIA", id: ent.id, dateKey: oldDay, usuario: editUsuario });
         }
-        if (!(ent.diasPlanificados ?? []).includes(newDate)) {
-          dispatch({ type: "TOGGLE_ENTREGABLE_DIA", id: ent.id, dateKey: newDate });
+        if (!dias.includes(newDate)) {
+          dispatch({ type: "TOGGLE_ENTREGABLE_DIA", id: ent.id, dateKey: newDate, usuario: editUsuario });
         }
         const isPastOrToday = newDate <= todayKey;
         const newEstado = isPastOrToday ? "en_proceso" : "planificado";
@@ -460,8 +471,9 @@ export function PlanSemana({ selectedDate, onOpenInMapa }: Props) {
   function handleUnschedule(b: WeekBlock) {
     if (b.origen === "ent" && b.entregableId) {
       const ent = state.entregables.find((e) => e.id === b.entregableId);
-      if (ent && b.dateKey && (ent.diasPlanificados ?? []).includes(b.dateKey)) {
-        dispatch({ type: "TOGGLE_ENTREGABLE_DIA", id: ent.id, dateKey: b.dateKey });
+      const dias = ent?.diasPlanificadosByUser?.[editUsuario] ?? [];
+      if (ent && b.dateKey && dias.includes(b.dateKey)) {
+        dispatch({ type: "TOGGLE_ENTREGABLE_DIA", id: ent.id, dateKey: b.dateKey, usuario: editUsuario });
       }
       if (b.type === "done") {
         dispatch({ type: "UPDATE_ENTREGABLE", id: b.entregableId, changes: { estado: "hecho" } });
@@ -584,8 +596,8 @@ export function PlanSemana({ selectedDate, onOpenInMapa }: Props) {
                 </div>
                 <WeekDayChips
                   weekDates={weekDates}
-                  selectedKeys={ent.diasPlanificados ?? []}
-                  onToggle={(k) => dispatch({ type: "TOGGLE_ENTREGABLE_DIA", id: ent.id, dateKey: k })}
+                  selectedKeys={ent.diasPlanificadosByUser?.[editUsuario] ?? []}
+                  onToggle={(k) => dispatch({ type: "TOGGLE_ENTREGABLE_DIA", id: ent.id, dateKey: k, usuario: editUsuario })}
                 />
               </div>
             ))}
@@ -760,6 +772,7 @@ export function PlanSemana({ selectedDate, onOpenInMapa }: Props) {
       {selectedBlock && (
         <WeekBlockSheet
           block={buildBlockInfo(selectedBlock)}
+          usuario={editUsuario}
           onClose={() => setSelectedBlock(null)}
           onMove={(d) => handleMove(selectedBlock, d)}
           onUnschedule={() => handleUnschedule(selectedBlock)}
