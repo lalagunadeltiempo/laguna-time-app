@@ -338,44 +338,50 @@ export function PlanHoy({ selectedDate }: Props) {
             <p className="py-3 text-center text-xs text-muted">Nada planificado hoy en los {focoIds.length === 1 ? "proyecto" : "proyectos"} con foco. Revisa &quot;Otros proyectos&quot; abajo.</p>
           )}
 
-          {planOpen && <div className="mt-3 space-y-1.5">
-            {plannedFoco.map((block, i) => {
+          {planOpen && (() => {
+            // Separamos visualmente "Por hora" / "Sin hora" para que el orden
+            // cronológico sea inmediatamente legible. Antes mostrábamos un
+            // encabezado por proyecto cada vez que cambiaba — eso hacía
+            // perder la sensación de ordenación temporal cuando los bloques
+            // de distintos proyectos se intercalaban por hora.
+            const conHora = plannedFoco.filter((b) => b.planInicioTs);
+            const sinHora = plannedFoco.filter((b) => !b.planInicioTs);
+            const renderRow = (block: Block) => {
               const hex = AREA_COLORS[block.area]?.hex ?? "#888";
-              const prev = i > 0 ? plannedFoco[i - 1] : null;
-              const showProjectHeader = !prev || prev.proyectoId !== block.proyectoId || prev.area !== block.area;
               return (
-                <div key={block.id}>
-                  {showProjectHeader && (
-                    <div className="flex items-center gap-2 pb-1 pt-2 first:pt-0">
-                      <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: hex }} />
-                      <span className="text-[11px] font-semibold uppercase tracking-wide" style={{ color: hex }}>
-                        {block.proyectoNombre || block.area}
-                      </span>
-                    </div>
-                  )}
-                  <PlannedBlockRow block={block} hex={hex} isMentor={isMentor} refDate={selectedDate}
-                    pasoBadgeLabel={pasoBadgeLabel}
-                    onSetTime={() => setTimeBlock(block)}
-                    onOpenDetalle={block.entregableId ? () => setDetalleEntregableId(block.entregableId!) : undefined}
-                    onReschedule={(newDate) => {
-                      if (block.id.startsWith("pending-") && block.pasoId) {
-                        if (!newDate) dispatch({ type: "DELETE_PASO", id: block.pasoId });
-                      } else if (block.id.startsWith("next-") && block.pasoId) {
-                        dispatch({ type: "RESCHEDULE_NEXT_PASO", pasoId: block.pasoId, newDate });
-                      } else if (block.id.startsWith("ent-") && block.entregableId) {
-                        if (!newDate) {
-                          dispatch({ type: "UPDATE_ENTREGABLE", id: block.entregableId, changes: { fechaInicio: null, estado: "a_futuro" as const } });
-                        } else {
-                          dispatch({ type: "UPDATE_ENTREGABLE", id: block.entregableId, changes: { fechaInicio: newDate } });
-                        }
+                <PlannedBlockRow key={block.id} block={block} hex={hex} isMentor={isMentor} refDate={selectedDate}
+                  pasoBadgeLabel={pasoBadgeLabel}
+                  onSetTime={() => setTimeBlock(block)}
+                  onOpenDetalle={block.entregableId ? () => setDetalleEntregableId(block.entregableId!) : undefined}
+                  onReschedule={(newDate) => {
+                    if (block.id.startsWith("pending-") && block.pasoId) {
+                      if (!newDate) dispatch({ type: "DELETE_PASO", id: block.pasoId });
+                    } else if (block.id.startsWith("next-") && block.pasoId) {
+                      dispatch({ type: "RESCHEDULE_NEXT_PASO", pasoId: block.pasoId, newDate });
+                    } else if (block.id.startsWith("ent-") && block.entregableId) {
+                      if (!newDate) {
+                        dispatch({ type: "UPDATE_ENTREGABLE", id: block.entregableId, changes: { fechaInicio: null, estado: "a_futuro" as const } });
+                      } else {
+                        dispatch({ type: "UPDATE_ENTREGABLE", id: block.entregableId, changes: { fechaInicio: newDate } });
                       }
-                    }}
-                  />
-                </div>
+                    }
+                  }}
+                />
               );
-            })}
-
-          </div>}
+            };
+            return (
+              <div className="mt-3 space-y-1.5">
+                {conHora.length > 0 && (
+                  <p className="mt-1 text-[10px] font-semibold uppercase tracking-wider text-muted/70">Por hora</p>
+                )}
+                {conHora.map(renderRow)}
+                {sinHora.length > 0 && (
+                  <p className="mt-2 text-[10px] font-semibold uppercase tracking-wider text-muted/70">Sin hora</p>
+                )}
+                {sinHora.map(renderRow)}
+              </div>
+            );
+          })()}
 
           {planOpen && focoActivo && otrosCount > 0 && (
             <div className="mt-3">
@@ -392,45 +398,45 @@ export function PlanHoy({ selectedDate }: Props) {
                   Otros proyectos con trabajo hoy ({otrosCount})
                 </p>
               </button>
-              {otrosOpen && (
-                <div className="mt-2 space-y-1.5">
-                  {plannedOtros.map((block, i) => {
-                    const hex = AREA_COLORS[block.area]?.hex ?? "#888";
-                    const prev = i > 0 ? plannedOtros[i - 1] : null;
-                    const showProjectHeader = !prev || prev.proyectoId !== block.proyectoId || prev.area !== block.area;
-                    return (
-                      <div key={block.id}>
-                        {showProjectHeader && (
-                          <div className="flex items-center gap-2 pb-1 pt-2 first:pt-0">
-                            <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: hex }} />
-                            <span className="text-[11px] font-semibold uppercase tracking-wide" style={{ color: hex }}>
-                              {block.proyectoNombre || block.area}
-                            </span>
-                          </div>
-                        )}
-                        <PlannedBlockRow block={block} hex={hex} isMentor={isMentor} refDate={selectedDate}
-                          pasoBadgeLabel={pasoBadgeLabel}
-                          onSetTime={() => setTimeBlock(block)}
-                          onOpenDetalle={block.entregableId ? () => setDetalleEntregableId(block.entregableId!) : undefined}
-                          onReschedule={(newDate) => {
-                            if (block.id.startsWith("pending-") && block.pasoId) {
-                              if (!newDate) dispatch({ type: "DELETE_PASO", id: block.pasoId });
-                            } else if (block.id.startsWith("next-") && block.pasoId) {
-                              dispatch({ type: "RESCHEDULE_NEXT_PASO", pasoId: block.pasoId, newDate });
-                            } else if (block.id.startsWith("ent-") && block.entregableId) {
-                              if (!newDate) {
-                                dispatch({ type: "UPDATE_ENTREGABLE", id: block.entregableId, changes: { fechaInicio: null, estado: "a_futuro" as const } });
-                              } else {
-                                dispatch({ type: "UPDATE_ENTREGABLE", id: block.entregableId, changes: { fechaInicio: newDate } });
-                              }
-                            }
-                          }}
-                        />
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
+              {otrosOpen && (() => {
+                const conHora = plannedOtros.filter((b) => b.planInicioTs);
+                const sinHora = plannedOtros.filter((b) => !b.planInicioTs);
+                const renderRow = (block: Block) => {
+                  const hex = AREA_COLORS[block.area]?.hex ?? "#888";
+                  return (
+                    <PlannedBlockRow key={block.id} block={block} hex={hex} isMentor={isMentor} refDate={selectedDate}
+                      pasoBadgeLabel={pasoBadgeLabel}
+                      onSetTime={() => setTimeBlock(block)}
+                      onOpenDetalle={block.entregableId ? () => setDetalleEntregableId(block.entregableId!) : undefined}
+                      onReschedule={(newDate) => {
+                        if (block.id.startsWith("pending-") && block.pasoId) {
+                          if (!newDate) dispatch({ type: "DELETE_PASO", id: block.pasoId });
+                        } else if (block.id.startsWith("next-") && block.pasoId) {
+                          dispatch({ type: "RESCHEDULE_NEXT_PASO", pasoId: block.pasoId, newDate });
+                        } else if (block.id.startsWith("ent-") && block.entregableId) {
+                          if (!newDate) {
+                            dispatch({ type: "UPDATE_ENTREGABLE", id: block.entregableId, changes: { fechaInicio: null, estado: "a_futuro" as const } });
+                          } else {
+                            dispatch({ type: "UPDATE_ENTREGABLE", id: block.entregableId, changes: { fechaInicio: newDate } });
+                          }
+                        }
+                      }}
+                    />
+                  );
+                };
+                return (
+                  <div className="mt-2 space-y-1.5">
+                    {conHora.length > 0 && (
+                      <p className="mt-1 text-[10px] font-semibold uppercase tracking-wider text-muted/70">Por hora</p>
+                    )}
+                    {conHora.map(renderRow)}
+                    {sinHora.length > 0 && (
+                      <p className="mt-2 text-[10px] font-semibold uppercase tracking-wider text-muted/70">Sin hora</p>
+                    )}
+                    {sinHora.map(renderRow)}
+                  </div>
+                );
+              })()}
             </div>
           )}
 
