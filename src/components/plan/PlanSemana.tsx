@@ -8,7 +8,6 @@ import type { ProjectedSOP } from "@/lib/sop-projector";
 import SOPLaunchDialog from "@/components/shared/SOPLaunchDialog";
 import { AmbitoToggle, ResponsableToggle, type AmbitoFilter, type ResponsableFilter } from "./PlanMes";
 import { WeekBlockSheet, type WeekBlockInfo } from "./WeekBlockSheet";
-import { fechaEfectivaEntregable } from "@/lib/fechas-efectivas";
 import { subtituloEntregable } from "@/lib/display";
 import { diasDe } from "@/lib/hooks";
 import { WeekDayChips } from "./WeekDayChips";
@@ -132,16 +131,14 @@ export function PlanSemana({ selectedDate, onOpenInMapa }: Props) {
 
       if (!pertenecePorSemana && !pertenecePorDias) continue;
 
-      // Conjunto de días para los que emitir un bloque planificado:
-      //   1) diasPlanificados que caen en esta semana
-      //   2) fallback legacy: fechaInicio si cae en esta semana
-      //   3) si no hay nada anterior → NO se emite bloque (irá al listado "sin día")
+      // Conjunto de días para los que emitir un bloque calendárico: SOLO los
+      // días que el target tiene marcados. Antes había un fallback a
+      // `fechaEfectivaEntregable`, pero eso ahora hace unión de días de
+      // todos los miembros (para que el Mapa funcione) y por tanto pintaría
+      // el día de OTRO miembro como si fuera del target. Si el target no
+      // tiene días en esta semana, el entregable va al panel "sin día"
+      // donde puede planificar los suyos.
       const diasEnSemana = new Set<string>(diasEnEstaSemana);
-      if (diasEnSemana.size === 0) {
-        const efectiva = fechaEfectivaEntregable(ent, res ?? null, proj ?? null);
-        if (efectiva.inicio && weekKeys.has(efectiva.inicio)) diasEnSemana.add(efectiva.inicio);
-        else if (efectiva.fin && weekKeys.has(efectiva.fin)) diasEnSemana.add(efectiva.fin);
-      }
 
       const hasActive = state.pasos.some((p) => p.entregableId === ent.id && state.pasosActivos.includes(p.id));
 
@@ -279,11 +276,11 @@ export function PlanSemana({ selectedDate, onOpenInMapa }: Props) {
       const diasEnEstaSemana = diasDe(ent, targetUser).filter((k) => weekKeys.has(k));
       if (diasEnEstaSemana.length > 0) continue;
 
-      // Fallback legacy: si fechaInicio/fechaEfectiva cae en esta semana, ya tiene día de facto.
-      const efectiva = fechaEfectivaEntregable(ent, res ?? null, proj ?? null);
-      const inicioEnSemana = !!efectiva.inicio && weekKeys.has(efectiva.inicio);
-      const finEnSemana = !!efectiva.fin && weekKeys.has(efectiva.fin);
-      if (inicioEnSemana || finEnSemana) continue;
+      // No usamos `fechaEfectivaEntregable` como fallback aquí: ahora hace
+      // unión de los días de TODOS los miembros (necesario para el Mapa) y
+      // contaminaba esta vista per-usuario. Si Gabi tiene un día en esta
+      // semana y Beltrán (target) no, queremos que Beltrán siga viendo el
+      // entregable en "sin día" para que pueda marcar sus chips.
 
       out.push({
         ent,

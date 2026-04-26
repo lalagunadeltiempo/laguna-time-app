@@ -362,8 +362,8 @@ function ProjectCard({ node, qMonthKeys, currentMesKey, isMentor, backlogStyle }
       ? "rounded-xl border border-dashed border-border bg-surface/20"
       : "rounded-lg border-2 bg-background"
     } style={backlogStyle ? undefined : { borderColor: node.hex + "50" }}>
-      <div className="flex w-full items-center gap-1.5 p-2">
-        <button onClick={() => setOpen(!open)} className="flex shrink-0 items-center gap-1.5" title={open ? "Contraer" : "Expandir"}>
+      <div className="flex w-full items-start gap-1.5 p-2">
+        <button onClick={() => setOpen(!open)} className="mt-0.5 flex shrink-0 items-center gap-1.5" title={open ? "Contraer" : "Expandir"}>
           <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round"
             className={`shrink-0 text-muted transition-transform ${open ? "rotate-90" : ""}`}>
             <polyline points="9 18 15 12 9 6" />
@@ -375,7 +375,7 @@ function ProjectCard({ node, qMonthKeys, currentMesKey, isMentor, backlogStyle }
             value={node.proyecto.nombre}
             onSave={(nombre) => dispatch({ type: "UPDATE_PROYECTO", id: node.proyecto.id, changes: { nombre } })}
             disabled={isMentor}
-            className="truncate text-xs font-semibold text-foreground"
+            className="line-clamp-2 break-words text-xs font-semibold leading-tight text-foreground"
             inputClassName="text-xs font-semibold text-foreground"
           />
         </div>
@@ -386,7 +386,7 @@ function ProjectCard({ node, qMonthKeys, currentMesKey, isMentor, backlogStyle }
             onChange={(v) => dispatch({ type: "UPDATE_PROYECTO", id: node.proyecto.id, changes: { responsable: v || undefined } })}
           />
         )}
-        <div className="flex items-center gap-1.5">
+        <div className="mt-0.5 flex shrink-0 items-center gap-1.5">
           <div className="h-1.5 w-12 overflow-hidden rounded-full bg-surface">
             <div className="h-full rounded-full transition-all" style={{ width: `${node.percent}%`, backgroundColor: node.hex }} />
           </div>
@@ -481,14 +481,14 @@ function ResultadoRow({ resultado, entregables, qMonthKeys, isMentor, hex, miemb
 
   return (
     <div className="rounded border border-border/60 bg-surface/40 p-1.5">
-      <div className="flex flex-wrap items-center gap-1.5">
-        <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ backgroundColor: hex }} />
+      <div className="flex flex-wrap items-start gap-1.5">
+        <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full" style={{ backgroundColor: hex }} />
         <div className="min-w-0 flex-1">
           <InlineNombre
             value={resultado.nombre}
             onSave={(nombre) => dispatch({ type: "UPDATE_RESULTADO", id: resultado.id, changes: { nombre } })}
             disabled={isMentor}
-            className="truncate text-[11px] font-semibold text-foreground"
+            className="line-clamp-2 break-words text-[11px] font-semibold leading-tight text-foreground"
             inputClassName="text-[11px] font-semibold text-foreground"
           />
         </div>
@@ -540,8 +540,8 @@ function EntregableRowTrimestre({ ent, qMonthKeys, isMentor }: {
   const dispatch = useAppDispatch();
 
   return (
-    <div className="flex flex-wrap items-center gap-1 text-[10px]">
-      <span className={`h-1 w-1 shrink-0 rounded-full ${
+    <div className="flex flex-wrap items-start gap-1 text-[10px]">
+      <span className={`mt-1 h-1 w-1 shrink-0 rounded-full ${
         ent.estado === "hecho" ? "bg-emerald-500"
         : ent.estado === "en_proceso" ? "bg-amber-500"
         : "bg-gray-300"
@@ -551,7 +551,7 @@ function EntregableRowTrimestre({ ent, qMonthKeys, isMentor }: {
           value={ent.nombre}
           onSave={(nombre) => dispatch({ type: "UPDATE_ENTREGABLE", id: ent.id, changes: { nombre } })}
           disabled={isMentor}
-          className={`truncate text-[10px] ${ent.estado === "hecho" ? "text-muted line-through" : "text-muted"}`}
+          className={`line-clamp-2 break-words text-[10px] leading-tight ${ent.estado === "hecho" ? "text-muted line-through" : "text-muted"}`}
           inputClassName="text-[10px] text-foreground"
         />
       </div>
