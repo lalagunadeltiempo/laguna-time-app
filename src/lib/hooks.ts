@@ -453,24 +453,37 @@ export function usePlannedBlocks(dateKey: string, targetUser?: string | null): P
       let hoy = false;
       let arrastrado = false;
 
-      const planKey = ent.planInicioTs ? ent.planInicioTs.slice(0, 10) : null;
-      if (planKey) {
-        if (planKey === dateKey) hoy = true;
-        else if (planKey < dateKey) arrastrado = true;
-        else continue; // planInicioTs futuro: no aparece hoy (ni arrastrado)
-      }
+      const usaDias = Array.isArray(ent.diasPlanificados) && ent.diasPlanificados.length > 0;
 
-      if (!hoy && ent.fechaInicio) {
-        if (ent.fechaInicio === dateKey) hoy = true;
-        else if (ent.fechaInicio < dateKey) arrastrado = true;
-      }
-
-      // Señal diasPlanificados (modelo nuevo multi-día en Plan Semana)
-      if (Array.isArray(ent.diasPlanificados) && ent.diasPlanificados.length > 0) {
-        if (ent.diasPlanificados.includes(dateKey)) {
+      // Señal canónica: diasPlanificados (Plan Semana). Cuando está presente,
+      // IGNORA las señales legacy fechaInicio/planInicioTs para decidir si el
+      // entregable toca hoy o quedó arrastrado. Esto garantiza una sola fuente
+      // de verdad y que mover un día en Plan Semana se refleje al instante en
+      // Pantalla Hoy / Plan Hoy.
+      if (usaDias) {
+        const dias = ent.diasPlanificados as string[];
+        if (dias.includes(dateKey)) {
           hoy = true;
-        } else if (!hoy && ent.diasPlanificados.some((k) => k < dateKey)) {
+        } else if (dias.some((k) => k < dateKey)) {
+          // Hay un día anterior planificado y aún no aparece "hoy": el bloque
+          // queda como arrastrado (lo filtraremos en Plan>Hoy, pero sigue
+          // siendo visible en otras vistas históricas).
           arrastrado = true;
+        }
+        // Si todos los días son futuros: el entregable simplemente no toca
+        // este dateKey. No emitimos bloque (continúa el bucle más abajo si
+        // tampoco hay sesión abierta ni señales de pasos).
+      } else {
+        const planKey = ent.planInicioTs ? ent.planInicioTs.slice(0, 10) : null;
+        if (planKey) {
+          if (planKey === dateKey) hoy = true;
+          else if (planKey < dateKey) arrastrado = true;
+          else continue; // planInicioTs futuro: no aparece hoy (ni arrastrado)
+        }
+
+        if (!hoy && ent.fechaInicio) {
+          if (ent.fechaInicio === dateKey) hoy = true;
+          else if (ent.fechaInicio < dateKey) arrastrado = true;
         }
       }
 

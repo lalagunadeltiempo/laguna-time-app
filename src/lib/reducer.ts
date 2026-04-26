@@ -665,11 +665,26 @@ export function reducer(state: AppState, action: Action): AppState {
         entregables: state.entregables.map((e) => e.id === action.id ? { ...e, implicados: action.implicados } : e),
       };
 
-    case "SET_ENTREGABLE_PLAN_INICIO":
+    case "SET_ENTREGABLE_PLAN_INICIO": {
+      // Mantenemos `diasPlanificados` sincronizado con la asignación de hora.
+      // Si nos asignan hora para un día que no está en la planificación
+      // semanal, lo añadimos (reusando TOGGLE_ENTREGABLE_DIA con su cascada
+      // hacia arriba). Esto garantiza que Plan Hoy y Plan Semana siempre
+      // estén de acuerdo sobre los días en los que toca trabajar.
+      let next = state;
+      if (action.ts) {
+        const ent = state.entregables.find((e) => e.id === action.id);
+        const dia = action.ts.slice(0, 10);
+        const dias = ent?.diasPlanificados ?? [];
+        if (ent && !dias.includes(dia)) {
+          next = reducer(next, { type: "TOGGLE_ENTREGABLE_DIA", id: action.id, dateKey: dia });
+        }
+      }
       return {
-        ...state,
-        entregables: state.entregables.map((e) => e.id === action.id ? { ...e, planInicioTs: action.ts } : e),
+        ...next,
+        entregables: next.entregables.map((e) => e.id === action.id ? { ...e, planInicioTs: action.ts } : e),
       };
+    }
 
     case "TOGGLE_ENTREGABLE_DIA": {
       const ent = state.entregables.find((e) => e.id === action.id);
@@ -686,10 +701,24 @@ export function reducer(state: AppState, action: Action): AppState {
         : semanasActivas;
       const newSemana = !ent.semana && !has ? monday : ent.semana;
 
+      // Si quitamos el día y `planInicioTs` o `fechaInicio` legacy apuntaban
+      // exactamente a ese día, los limpiamos. Eso evita que un toggle en
+      // Plan Semana deje una hora "rancia" que vuelva a colarse en Hoy.
+      const planKey = ent.planInicioTs ? ent.planInicioTs.slice(0, 10) : null;
+      const planInicioTsNext = has && planKey === action.dateKey ? null : ent.planInicioTs ?? null;
+      const fechaInicioNext = has && ent.fechaInicio === action.dateKey ? null : ent.fechaInicio ?? null;
+
       let nextState: AppState = {
         ...state,
         entregables: state.entregables.map((e) => e.id === action.id
-          ? { ...e, diasPlanificados: nextDias, semana: newSemana, semanasActivas: semanasNext }
+          ? {
+              ...e,
+              diasPlanificados: nextDias,
+              semana: newSemana,
+              semanasActivas: semanasNext,
+              planInicioTs: planInicioTsNext,
+              fechaInicio: fechaInicioNext,
+            }
           : e),
       };
 

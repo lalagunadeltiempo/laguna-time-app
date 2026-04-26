@@ -240,6 +240,29 @@ export function PlanHoy({ selectedDate }: Props) {
     dispatch({ type: "SET_ENTREGABLE_PLAN_INICIO", id: block.entregableId, ts: nuevoTs });
   }
 
+  /**
+   * Reprograma un bloque de tipo "ent-*" usando `diasPlanificados` como
+   * fuente canónica (lo que también muestra Plan Semana). Antes editábamos
+   * `fechaInicio` legacy, lo que dejaba el entregable visible en dos días
+   * distintos: el de Plan Semana y el de fechaInicio. Ahora movemos el día
+   * en `diasPlanificados` y limpiamos `planInicioTs` si pertenecía al día
+   * que se descarta.
+   */
+  function reprogramarEntregable(entregableId: string, newDate: string | null) {
+    const ent = state.entregables.find((e) => e.id === entregableId);
+    if (!ent) return;
+    const dias = ent.diasPlanificados ?? [];
+    if (dias.includes(dateKey)) {
+      dispatch({ type: "TOGGLE_ENTREGABLE_DIA", id: entregableId, dateKey });
+    }
+    if (newDate && !dias.includes(newDate)) {
+      dispatch({ type: "TOGGLE_ENTREGABLE_DIA", id: entregableId, dateKey: newDate });
+    }
+    if (!newDate && ent.planInicioTs && ent.planInicioTs.slice(0, 10) === dateKey) {
+      dispatch({ type: "SET_ENTREGABLE_PLAN_INICIO", id: entregableId, ts: null });
+    }
+  }
+
   const { focoIds, toggleFoco, clearFoco, focoMax } = useFocoProyectos();
   const focoActivo = focoIds.length > 0;
 
@@ -360,11 +383,7 @@ export function PlanHoy({ selectedDate }: Props) {
                     } else if (block.id.startsWith("next-") && block.pasoId) {
                       dispatch({ type: "RESCHEDULE_NEXT_PASO", pasoId: block.pasoId, newDate });
                     } else if (block.id.startsWith("ent-") && block.entregableId) {
-                      if (!newDate) {
-                        dispatch({ type: "UPDATE_ENTREGABLE", id: block.entregableId, changes: { fechaInicio: null, estado: "a_futuro" as const } });
-                      } else {
-                        dispatch({ type: "UPDATE_ENTREGABLE", id: block.entregableId, changes: { fechaInicio: newDate } });
-                      }
+                      reprogramarEntregable(block.entregableId, newDate);
                     }
                   }}
                 />
@@ -415,11 +434,7 @@ export function PlanHoy({ selectedDate }: Props) {
                         } else if (block.id.startsWith("next-") && block.pasoId) {
                           dispatch({ type: "RESCHEDULE_NEXT_PASO", pasoId: block.pasoId, newDate });
                         } else if (block.id.startsWith("ent-") && block.entregableId) {
-                          if (!newDate) {
-                            dispatch({ type: "UPDATE_ENTREGABLE", id: block.entregableId, changes: { fechaInicio: null, estado: "a_futuro" as const } });
-                          } else {
-                            dispatch({ type: "UPDATE_ENTREGABLE", id: block.entregableId, changes: { fechaInicio: newDate } });
-                          }
+                          reprogramarEntregable(block.entregableId, newDate);
                         }
                       }}
                     />
