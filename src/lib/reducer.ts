@@ -56,6 +56,12 @@ export type Action =
    *  - `inicioTs` se actualiza siempre.
    *  - `finTs` puede ser null → la sesión vuelve/sigue en curso. */
   | { type: "UPDATE_SESION_ENTREGABLE_TIMES"; id: string; sesionIdx: number; inicioTs: string; finTs: string | null }
+  /** Auto-cierra sesiones que quedaron abiertas en días anteriores a hoy.
+   *  Cada sesión abierta cuyo `inicioTs` cae antes de `todayKey` se cierra
+   *  con `finTs = ${diaInicio}T23:59:59` (en hora local). El entregable
+   *  conserva su estado actual (no se marca como hecho).
+   *  Ver "auto-close stale sesiones" en el AppShell. */
+  | { type: "AUTO_CLOSE_STALE_SESIONES"; todayKey: string }
   | { type: "UPDATE_ENTREGABLE_CONTEXTO"; id: string; contexto: Entregable["contexto"] }
   | { type: "UPDATE_ENTREGABLE_IMPLICADOS"; id: string; implicados: Entregable["implicados"] }
   | { type: "SET_ENTREGABLE_PLAN_INICIO"; id: string; ts: string | null }
@@ -547,6 +553,43 @@ export function reducer(state: AppState, action: Action): AppState {
           return { ...e, sesiones };
         }),
       };
+    }
+
+    case "AUTO_CLOSE_STALE_SESIONES": {
+      const { todayKey } = action;
+      // Construye el ISO de "fin del día" (23:59:59 en hora LOCAL) para un dateKey YYYY-MM-DD.
+      const endOfDayIso = (dateKey: string): string => {
+        const [y, mo, d] = dateKey.split("-").map((s) => parseInt(s, 10));
+        if (!y || !mo || !d) return new Date().toISOString();
+        const dt = new Date(y, mo - 1, d, 23, 59, 59, 0);
+        return dt.toISOString();
+      };
+
+      let cambios = 0;
+      const nuevosEntregables = state.entregables.map((e) => {
+        const sesiones = Array.isArray(e.sesiones) ? e.sesiones : [];
+        let mutated = false;
+        const next = sesiones.map((s) => {
+          if (s.finTs !== null) return s;
+          const inicioDay = (s.inicioTs ?? "").slice(0, 10);
+          if (!inicioDay || inicioDay >= todayKey) return s;
+          mutated = true;
+          cambios++;
+          // Cierre automático: si había una pausa abierta, también la cerramos.
+          const pausas = Array.isArray(s.pausas) ? s.pausas.map((p) => {
+            if (p && typeof p === "object" && "finTs" in p && p.finTs === null) {
+              return { ...p, finTs: endOfDayIso(inicioDay) };
+            }
+            return p;
+          }) : [];
+          return { ...s, finTs: endOfDayIso(inicioDay), pausas };
+        });
+        if (!mutated) return e;
+        return { ...e, sesiones: next };
+      });
+
+      if (cambios === 0) return state;
+      return { ...state, entregables: nuevosEntregables };
     }
 
     case "UPDATE_ENTREGABLE_CONTEXTO":

@@ -35,6 +35,35 @@ export function PantallaHoy() {
     return () => clearInterval(id);
   }, []);
 
+  /**
+   * Auto-cierre de sesiones que quedaron abiertas en días anteriores.
+   * Si la app se cargó (o cambió de día) y hay sesiones con `finTs === null`
+   * cuyo `inicioTs` es anterior a hoy, las cerramos automáticamente con la
+   * hora 23:59:59 del día de inicio. El entregable queda en su estado
+   * normal (no se marca como hecho) — al día siguiente decides si lo
+   * continúas (empezar nueva sesión) o lo das por terminado.
+   *
+   * Mostramos un banner informativo no intrusivo con cuántas sesiones se
+   * cerraron, descartable.
+   */
+  const [autoClosedNotice, setAutoClosedNotice] = useState<{ count: number; ts: string } | null>(null);
+  useEffect(() => {
+    const stale: { entregableId: string; inicioTs: string }[] = [];
+    for (const e of state.entregables) {
+      if (!Array.isArray(e.sesiones)) continue;
+      for (const s of e.sesiones) {
+        if (s.finTs !== null) continue;
+        const day = (s.inicioTs ?? "").slice(0, 10);
+        if (!day || day >= todayKey) continue;
+        stale.push({ entregableId: e.id, inicioTs: s.inicioTs });
+      }
+    }
+    if (stale.length === 0) return;
+    dispatch({ type: "AUTO_CLOSE_STALE_SESIONES", todayKey });
+    setAutoClosedNotice({ count: stale.length, ts: new Date().toISOString() });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [todayKey]);
+
   // Entregables con sesión abierta (aparecen arriba como "en curso").
   const entregablesEnCurso: Entregable[] = useMemo(() => {
     return state.entregables.filter(
@@ -176,6 +205,35 @@ export function PantallaHoy() {
           {currentUser} · {new Date().toLocaleDateString("es-ES", { weekday: "long", day: "numeric", month: "long" })}
         </p>
       </div>
+
+      {/* Aviso: sesiones que quedaron abiertas en días anteriores se cerraron automáticamente */}
+      {autoClosedNotice && autoClosedNotice.count > 0 && (
+        <div className="mb-6 flex items-start gap-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="mt-0.5 shrink-0 text-amber-600" aria-hidden="true">
+            <circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="12" /><line x1="12" y1="16" x2="12.01" y2="16" />
+          </svg>
+          <div className="min-w-0 flex-1">
+            <p className="font-medium">
+              {autoClosedNotice.count === 1
+                ? "Quedó 1 sesión abierta de un día anterior. La cerré automáticamente al final de su día."
+                : `Quedaron ${autoClosedNotice.count} sesiones abiertas de días anteriores. Las cerré automáticamente al final de cada día.`}
+            </p>
+            <p className="mt-0.5 text-xs text-amber-800/80">
+              Si quieres ajustar las horas o continuar trabajando, abre el detalle del entregable.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => setAutoClosedNotice(null)}
+            className="shrink-0 rounded p-1 text-amber-700 transition-colors hover:bg-amber-100"
+            aria-label="Cerrar aviso"
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
+            </svg>
+          </button>
+        </div>
+      )}
 
       {/* Entregables con sesión abierta */}
       {entregablesEnCurso.length > 0 && (
