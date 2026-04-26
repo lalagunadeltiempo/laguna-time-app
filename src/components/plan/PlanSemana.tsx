@@ -6,7 +6,7 @@ import { useUsuario, useIsMentor } from "@/lib/usuario";
 import { ambitoDeArea, AREA_COLORS, type Area, type Entregable } from "@/lib/types";
 import type { ProjectedSOP } from "@/lib/sop-projector";
 import SOPLaunchDialog from "@/components/shared/SOPLaunchDialog";
-import { AmbitoToggle, type AmbitoFilter } from "./PlanMes";
+import { AmbitoToggle, ResponsableToggle, type AmbitoFilter, type ResponsableFilter } from "./PlanMes";
 import { WeekBlockSheet, type WeekBlockInfo } from "./WeekBlockSheet";
 import { fechaEfectivaEntregable } from "@/lib/fechas-efectivas";
 import { subtituloEntregable } from "@/lib/display";
@@ -43,6 +43,8 @@ interface WeekBlock {
   pasoId?: string;
   proyectoId?: string;
   tieneActivePaso?: boolean;
+  /** El bloque aparece para `targetUser` por un paso suyo, no porque el entregable sea suyo. */
+  pasoDeTarget?: boolean;
 }
 
 interface Props {
@@ -55,7 +57,8 @@ export function PlanSemana({ selectedDate, onOpenInMapa }: Props) {
   const isMentor = useIsMentor();
   const state = useAppState();
   const dispatch = useAppDispatch();
-  const [viewMode, setViewMode] = useState<"yo" | "equipo">("yo");
+  const [respFilter, setRespFilter] = useState<ResponsableFilter>("yo");
+  const targetUser: string | null = respFilter === "todo" ? null : respFilter === "yo" ? currentUser : respFilter;
   const [filtro, setFiltro] = useState<AmbitoFilter>("empresa");
   const [showDone, setShowDone] = useState(true);
   const [pickDay, setPickDay] = useState<string | null>(null);
@@ -80,6 +83,17 @@ export function PlanSemana({ selectedDate, onOpenInMapa }: Props) {
     const result: WeekBlock[] = [];
     const weekKeys = new Set(weekDates.map((d) => toDateKey(d)));
 
+    // Helper para filtro por miembro (`targetUser`).
+    //  - targetUser === null  → no filtra (Equipo / Todos).
+    //  - targetUser definido → entregable es del target O algún paso lo es ("paso de target").
+    function checkTarget(entId: string, entResp?: string): { incluir: boolean; pasoDeTarget: boolean } {
+      if (targetUser === null) return { incluir: true, pasoDeTarget: false };
+      if (entResp === targetUser) return { incluir: true, pasoDeTarget: false };
+      const tienePaso = state.pasos.some((p) => p.entregableId === entId && p.responsable === targetUser);
+      if (tienePaso) return { incluir: true, pasoDeTarget: true };
+      return { incluir: false, pasoDeTarget: false };
+    }
+
     // NOTA: en la vista Semana trabajamos sólo a nivel de ENTREGABLE.
     // Antes pintábamos un bloque por cada paso ejecutado (inicioTs en la
     // semana) y por cada "siguientePaso" programado (legacy), pero eso
@@ -93,7 +107,9 @@ export function PlanSemana({ selectedDate, onOpenInMapa }: Props) {
     for (const ent of state.entregables) {
       if (ent.estado === "cancelada") continue;
       if (ent.estado === "hecho" && !showDone) continue;
-      if (viewMode === "yo" && ent.responsable && ent.responsable !== currentUser) continue;
+      const r = checkTarget(ent.id, ent.responsable);
+      if (!r.incluir) continue;
+      const pasoDeTargetEnt = r.pasoDeTarget;
 
       const res = state.resultados.find((r) => r.id === ent.resultadoId);
       const proj = res ? state.proyectos.find((p) => p.id === res.proyectoId) : undefined;
@@ -151,6 +167,7 @@ export function PlanSemana({ selectedDate, onOpenInMapa }: Props) {
           entregableId: ent.id,
           proyectoId: proj?.id,
           tieneActivePaso: hasActive,
+          pasoDeTarget: pasoDeTargetEnt,
         });
       }
 
@@ -168,7 +185,9 @@ export function PlanSemana({ selectedDate, onOpenInMapa }: Props) {
     for (const ent of state.entregables) {
       if (ent.estado === "cancelada") continue;
       if (ent.estado === "hecho" && !showDone) continue;
-      if (viewMode === "yo" && ent.responsable && ent.responsable !== currentUser) continue;
+      const sesionCheck = checkTarget(ent.id, ent.responsable);
+      if (!sesionCheck.incluir) continue;
+      const pasoDeTargetSesion = sesionCheck.pasoDeTarget;
       if (!Array.isArray(ent.sesiones) || ent.sesiones.length === 0) continue;
 
       const res = state.resultados.find((r) => r.id === ent.resultadoId);
@@ -195,12 +214,13 @@ export function PlanSemana({ selectedDate, onOpenInMapa }: Props) {
           origen: "ent",
           entregableId: ent.id,
           proyectoId: proj?.id,
+          pasoDeTarget: pasoDeTargetSesion,
         });
       }
     }
 
     return result;
-  }, [state, weekDates, viewMode, currentUser, filtro, showDone]);
+  }, [state, weekDates, targetUser, filtro, showDone]);
 
   const blocksByDay = useMemo(() => {
     const map = new Map<string, WeekBlock[]>();
@@ -226,10 +246,19 @@ export function PlanSemana({ selectedDate, onOpenInMapa }: Props) {
     for (const b of blocks) {
       if (b.entregableId) entregablesYaEnCalendario.add(b.entregableId);
     }
-    const out: { ent: Entregable; hex: string; subtitulo: string; proyectoId?: string }[] = [];
+    const out: { ent: Entregable; hex: string; subtitulo: string; proyectoId?: string; pasoDeTarget: boolean }[] = [];
     for (const ent of state.entregables) {
       if (ent.estado === "cancelada" || ent.estado === "hecho") continue;
-      if (viewMode === "yo" && ent.responsable && ent.responsable !== currentUser) continue;
+      let pasoDeTargetEnt = false;
+      if (targetUser !== null) {
+        if (ent.responsable === targetUser) {
+          pasoDeTargetEnt = false;
+        } else if (state.pasos.some((p) => p.entregableId === ent.id && p.responsable === targetUser)) {
+          pasoDeTargetEnt = true;
+        } else {
+          continue;
+        }
+      }
       if (entregablesYaEnCalendario.has(ent.id)) continue;
       const res = state.resultados.find((r) => r.id === ent.resultadoId);
       const proj = res ? state.proyectos.find((p) => p.id === res.proyectoId) : undefined;
@@ -257,9 +286,9 @@ export function PlanSemana({ selectedDate, onOpenInMapa }: Props) {
         hex: AREA_COLORS[proj.area]?.hex ?? "#888",
         subtitulo: subtituloEntregable(ent, state),
         proyectoId: proj.id,
+        pasoDeTarget: pasoDeTargetEnt,
       });
     }
-    // Ordenar por área y luego por nombre
     out.sort((a, b) => {
       const aArea = state.resultados.find((r) => r.id === a.ent.resultadoId);
       const bArea = state.resultados.find((r) => r.id === b.ent.resultadoId);
@@ -271,13 +300,13 @@ export function PlanSemana({ selectedDate, onOpenInMapa }: Props) {
       return a.ent.nombre.localeCompare(b.ent.nombre);
     });
     return out;
-  }, [state, weekDates, viewMode, currentUser, filtro, blocks]);
+  }, [state, weekDates, targetUser, filtro, blocks]);
 
   // Pendientes de la semana anterior (no completados ni cancelados) que
   // todavía no tienen presencia en la semana actual.
   const carryOverCandidates = useMemo(() => {
     const monday = weekDates[0];
-    if (!monday) return [] as { ent: Entregable; subtitulo: string; hex: string }[];
+    if (!monday) return [] as { ent: Entregable; subtitulo: string; hex: string; pasoDeTarget?: boolean }[];
     const prev = new Date(monday);
     prev.setDate(monday.getDate() - 7);
     const prevMondayKey = toDateKey(prev);
@@ -289,10 +318,19 @@ export function PlanSemana({ selectedDate, onOpenInMapa }: Props) {
     }
     const currMondayKey = toDateKey(monday);
     const currWeekKeys = new Set(weekDates.map((d) => toDateKey(d)));
-    const out: { ent: Entregable; subtitulo: string; hex: string }[] = [];
+    const out: { ent: Entregable; subtitulo: string; hex: string; pasoDeTarget: boolean }[] = [];
     for (const ent of state.entregables) {
       if (ent.estado === "cancelada" || ent.estado === "hecho") continue;
-      if (viewMode === "yo" && ent.responsable && ent.responsable !== currentUser) continue;
+      let pasoDeTargetEnt = false;
+      if (targetUser !== null) {
+        if (ent.responsable === targetUser) {
+          pasoDeTargetEnt = false;
+        } else if (state.pasos.some((p) => p.entregableId === ent.id && p.responsable === targetUser)) {
+          pasoDeTargetEnt = true;
+        } else {
+          continue;
+        }
+      }
       const res = state.resultados.find((r) => r.id === ent.resultadoId);
       const proj = res ? state.proyectos.find((p) => p.id === res.proyectoId) : undefined;
       if (!proj) continue;
@@ -315,10 +353,11 @@ export function PlanSemana({ selectedDate, onOpenInMapa }: Props) {
         ent,
         hex: AREA_COLORS[proj.area]?.hex ?? "#888",
         subtitulo: subtituloEntregable(ent, state),
+        pasoDeTarget: pasoDeTargetEnt,
       });
     }
     return out;
-  }, [state, weekDates, viewMode, currentUser, filtro]);
+  }, [state, weekDates, targetUser, filtro]);
 
   const carryOverKey = weekDates[0] ? toDateKey(weekDates[0]) : "";
   const carryOverHidden = carryOverDismissed === carryOverKey;
@@ -344,10 +383,15 @@ export function PlanSemana({ selectedDate, onOpenInMapa }: Props) {
   }
 
   const pendientesByProject = useMemo(() => {
-    const items = state.entregables.filter((e) =>
-      e.estado !== "hecho" && e.estado !== "cancelada" &&
-      (e.responsable === currentUser || !e.responsable)
-    ).map((e) => {
+    const items = state.entregables.filter((e) => {
+      if (e.estado === "hecho" || e.estado === "cancelada") return false;
+      if (targetUser === null) return true;
+      if (e.responsable === targetUser) return true;
+      // sin responsable también se puede planificar desde el picker; queda libre
+      // de asignación explícita y el currentUser puede tomarlo.
+      if (!e.responsable && targetUser === currentUser) return true;
+      return state.pasos.some((p) => p.entregableId === e.id && p.responsable === targetUser);
+    }).map((e) => {
       const res = state.resultados.find((r) => r.id === e.resultadoId);
       const proj = res ? state.proyectos.find((p) => p.id === res.proyectoId) : undefined;
       return { entregable: e, proj };
@@ -364,7 +408,7 @@ export function PlanSemana({ selectedDate, onOpenInMapa }: Props) {
       grouped.get(pid)!.ents.push(item);
     }
     return grouped;
-  }, [state, currentUser, filtro]);
+  }, [state, targetUser, currentUser, filtro]);
 
   function assignToPlan(ent: Entregable) {
     if (!pickDay) return;
@@ -452,17 +496,21 @@ export function PlanSemana({ selectedDate, onOpenInMapa }: Props) {
     };
   }
 
+  const targetIsCurrent = targetUser === currentUser;
+  const pasoBadgeLabel = targetIsCurrent || targetUser === null ? "Paso tuyo" : `Paso de ${targetUser}`;
+
   return (
     <div className="flex-1">
       <div className="mb-4 flex flex-wrap items-center gap-2">
-        <button onClick={() => setViewMode("yo")}
-          className={`rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${viewMode === "yo" ? "bg-accent text-white" : "bg-surface text-muted hover:text-foreground"}`}>
-          Mi semana
-        </button>
-        <button onClick={() => setViewMode("equipo")}
-          className={`rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${viewMode === "equipo" ? "bg-accent text-white" : "bg-surface text-muted hover:text-foreground"}`}>
-          Equipo
-        </button>
+        {!isMentor && (
+          <ResponsableToggle
+            value={respFilter}
+            onChange={setRespFilter}
+            miembros={state.miembros}
+            todoLabel="Equipo"
+            yoLabel="Yo"
+          />
+        )}
         <div className="ml-auto flex items-center gap-3">
           <label className="flex cursor-pointer items-center gap-1.5 text-[11px] text-muted">
             <input type="checkbox" checked={showDone} onChange={(e) => setShowDone(e.target.checked)}
@@ -498,11 +546,14 @@ export function PlanSemana({ selectedDate, onOpenInMapa }: Props) {
             </div>
           </div>
           <div className="space-y-1">
-            {carryOverCandidates.slice(0, 5).map(({ ent, hex, subtitulo }) => (
+            {carryOverCandidates.slice(0, 5).map(({ ent, hex, subtitulo, pasoDeTarget }) => (
               <div key={`carry-${ent.id}`} className="flex items-center gap-2 rounded-md border-l-[3px] bg-background/60 px-2 py-1"
                 style={{ borderLeftColor: hex }}>
                 <div className="min-w-0 flex-1">
-                  <p className="truncate text-xs font-medium text-foreground">{ent.nombre}</p>
+                  <p className="truncate text-xs font-medium text-foreground">
+                    {ent.nombre}
+                    {pasoDeTarget && <span className="ml-1.5 rounded bg-amber-100 px-1.5 py-0.5 text-[9px] font-semibold uppercase text-amber-700 dark:bg-amber-500/20 dark:text-amber-300">{pasoBadgeLabel}</span>}
+                  </p>
                   <p className="truncate text-[10px]" style={{ color: hex + "c0" }}>{subtitulo}</p>
                 </div>
               </div>
@@ -521,11 +572,14 @@ export function PlanSemana({ selectedDate, onOpenInMapa }: Props) {
             Entregables de la semana sin día ({pendientesSinDias.length})
           </p>
           <div className="space-y-1.5">
-            {pendientesSinDias.map(({ ent, hex, subtitulo }) => (
+            {pendientesSinDias.map(({ ent, hex, subtitulo, pasoDeTarget }) => (
               <div key={`pend-${ent.id}`} className="flex flex-wrap items-center gap-2 rounded-lg border-l-[3px] bg-background px-2 py-1.5"
                 style={{ borderLeftColor: hex }}>
                 <div className="min-w-0 flex-1">
-                  <p className="truncate text-xs font-medium text-foreground">{ent.nombre}</p>
+                  <p className="truncate text-xs font-medium text-foreground">
+                    {ent.nombre}
+                    {pasoDeTarget && <span className="ml-1.5 rounded bg-amber-100 px-1.5 py-0.5 text-[9px] font-semibold uppercase text-amber-700 dark:bg-amber-500/20 dark:text-amber-300">{pasoBadgeLabel}</span>}
+                  </p>
                   <p className="truncate text-[10px]" style={{ color: hex + "c0" }}>{subtitulo}</p>
                 </div>
                 <WeekDayChips
@@ -610,7 +664,10 @@ export function PlanSemana({ selectedDate, onOpenInMapa }: Props) {
                       <p className="text-[10px] font-medium" style={{ color: hex + "b0" }}>
                         {isSesion ? "· trabajado aquí ·" : block.subtitle}
                       </p>
-                      {viewMode === "equipo" && block.responsable && (
+                      {block.pasoDeTarget && (
+                        <span className="mt-0.5 inline-block rounded bg-amber-100 px-1.5 py-0.5 text-[9px] font-semibold uppercase text-amber-700 dark:bg-amber-500/20 dark:text-amber-300">{pasoBadgeLabel}</span>
+                      )}
+                      {respFilter === "todo" && block.responsable && (
                         <p className="text-[10px] font-semibold text-muted">{block.responsable}</p>
                       )}
                     </button>

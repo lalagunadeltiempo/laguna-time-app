@@ -3,6 +3,7 @@
 import { useState, useCallback, useRef, useMemo, useEffect } from "react";
 import { useAppState, useAppDispatch } from "@/lib/context";
 import { useArbol } from "@/lib/hooks";
+import { useUsuario } from "@/lib/usuario";
 import { generateId } from "@/lib/store";
 import type { Contexto, Implicado, UrlRef, Entregable, Paso, SesionEntregable, PausaEntry, Nota } from "@/lib/types";
 import { AREA_COLORS } from "@/lib/types";
@@ -38,6 +39,7 @@ export function EntregableActivoCard({ entregable, mode = "trabajo" }: Props) {
   const isDetalle = mode === "detalle";
   const state = useAppState();
   const dispatch = useAppDispatch();
+  const { nombre: currentUser } = useUsuario();
   const { resultado, proyecto } = useArbol(entregable.id);
 
   const pasosDelEntregable = useMemo(
@@ -277,6 +279,7 @@ export function EntregableActivoCard({ entregable, mode = "trabajo" }: Props) {
         implicados: [],
         pausas: [],
         siguientePaso: null,
+        responsable: entregable.responsable ?? currentUser,
       },
     });
     setNewPasoName("");

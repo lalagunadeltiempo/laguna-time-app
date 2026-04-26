@@ -101,11 +101,18 @@ export function PlanTrimestre({ selectedDate }: Props) {
         .filter((r) => (r.mesesActivos ?? []).some((m) => trimestreSet.has(m)))
         .map((r) => r.id),
     );
+    // Fuente canónica: e.semanasActivas (multi-semana). Antes sólo se miraba
+    // el deprecated `e.semana` (mono-semana), por lo que los entregables
+    // creados desde SOPs / con varias semanas marcadas no aparecían en el
+    // trimestre. Si no hay semanas asignadas, heredamos por mesesActivos del
+    // resultado (compatibilidad con entregables sin planificar).
     const entregables = allEntregables.filter((e) => {
-      const m = e.semana ? mesKey(e.semana) : null;
-      if (m && trimestreSet.has(m)) return true;
-      if (!m && resultadosEnTrim.has(e.resultadoId)) return true;
-      return false;
+      const semanas = e.semanasActivas ?? (e.semana ? [e.semana] : []);
+      if (semanas.length > 0) {
+        const meses = semanas.map((s) => mesKey(s)).filter((m): m is string => !!m);
+        return meses.some((m) => trimestreSet.has(m));
+      }
+      return resultadosEnTrim.has(e.resultadoId);
     });
 
     const done = entregables.filter((e) => e.estado === "hecho").length;
@@ -372,6 +379,13 @@ function ProjectCard({ node, qMonthKeys, currentMesKey, isMentor, backlogStyle }
             inputClassName="text-xs font-semibold text-foreground"
           />
         </div>
+        {!isMentor && ambitoDeArea(node.proyecto.area) === "empresa" && (
+          <ResponsableSelect
+            value={node.proyecto.responsable}
+            miembros={state.miembros}
+            onChange={(v) => dispatch({ type: "UPDATE_PROYECTO", id: node.proyecto.id, changes: { responsable: v || undefined } })}
+          />
+        )}
         <div className="flex items-center gap-1.5">
           <div className="h-1.5 w-12 overflow-hidden rounded-full bg-surface">
             <div className="h-full rounded-full transition-all" style={{ width: `${node.percent}%`, backgroundColor: node.hex }} />
@@ -412,7 +426,8 @@ function ProjectCard({ node, qMonthKeys, currentMesKey, isMentor, backlogStyle }
             <div className="space-y-1">
               {node.resultados.map((r) => (
                 <ResultadoRow key={r.id} resultado={r} entregables={node.entregables.filter((e) => e.resultadoId === r.id)}
-                  qMonthKeys={qMonthKeys} isMentor={isMentor} hex={node.hex} miembros={state.miembros} />
+                  qMonthKeys={qMonthKeys} isMentor={isMentor} hex={node.hex} miembros={state.miembros}
+                  isEmpresa={ambitoDeArea(node.proyecto.area) === "empresa"} />
               ))}
             </div>
           )}
@@ -453,9 +468,9 @@ function ProjectCard({ node, qMonthKeys, currentMesKey, isMentor, backlogStyle }
    ResultadoRow: nombre + chips ABR/MAY/JUN + entregables informativos
    ================================================================ */
 
-function ResultadoRow({ resultado, entregables, qMonthKeys, isMentor, hex, miembros }: {
+function ResultadoRow({ resultado, entregables, qMonthKeys, isMentor, hex, miembros, isEmpresa }: {
   resultado: Resultado; entregables: Entregable[]; qMonthKeys: string[]; isMentor: boolean; hex: string;
-  miembros: MiembroInfo[];
+  miembros: MiembroInfo[]; isEmpresa: boolean;
 }) {
   const dispatch = useAppDispatch();
   const mesesRes = resultado.mesesActivos ?? [];
@@ -477,7 +492,7 @@ function ResultadoRow({ resultado, entregables, qMonthKeys, isMentor, hex, miemb
             inputClassName="text-[11px] font-semibold text-foreground"
           />
         </div>
-        {!isMentor && (
+        {!isMentor && isEmpresa && (
           <ResponsableSelect
             value={resultado.responsable}
             miembros={miembros}

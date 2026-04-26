@@ -9,6 +9,7 @@ import {
   AREA_COLORS, AREAS_PERSONAL, AREAS_EMPRESA,
   type Area, type Entregable, type Ambito,
 } from "@/lib/types";
+import { ResponsableToggle, type ResponsableFilter } from "./PlanMes";
 import { daysBetweenKeys, addDaysToKey } from "@/lib/date-utils";
 import { EntregableActivoCard } from "../EntregableActivo";
 
@@ -62,6 +63,8 @@ interface Block {
   origen?: PlannedBlockOrigen;
   /** Hora planificada (solo lo usan bloques no ejecutados). */
   planInicioTs?: string | null;
+  /** El bloque entra para `targetUser` por un paso suyo (no por ser responsable del entregable). */
+  pasoTuyo?: boolean;
 }
 
 function hhmmFromIso(iso: string | null | undefined): string | null {
@@ -86,6 +89,10 @@ export function PlanHoy({ selectedDate }: Props) {
   const isMentor = useIsMentor();
   const state = useAppState();
   const dispatch = useAppDispatch();
+  const [respFilter, setRespFilter] = useState<ResponsableFilter>("yo");
+  const targetUser: string | null = respFilter === "todo" ? null : respFilter === "yo" ? currentUser : respFilter;
+  const targetIsCurrent = targetUser === currentUser;
+  const pasoBadgeLabel = targetIsCurrent || targetUser === null ? "Paso tuyo" : `Paso de ${targetUser}`;
   const [showDrillDown, setShowDrillDown] = useState(false);
   const [editingBlock, setEditingBlock] = useState<Block | null>(null);
   const [timeBlock, setTimeBlock] = useState<Block | null>(null);
@@ -125,7 +132,11 @@ export function PlanHoy({ selectedDate }: Props) {
 
     // Sesiones de entregable que ocurrieron en dateKey.
     for (const ent of entregables) {
-      if (ent.responsable && ent.responsable !== currentUser) continue;
+      if (targetUser !== null) {
+        const esDelTarget = ent.responsable === targetUser
+          || state.pasos.some((p) => p.entregableId === ent.id && p.responsable === targetUser);
+        if (!esDelTarget) continue;
+      }
       const sesiones = Array.isArray(ent.sesiones) ? ent.sesiones : [];
       for (let idx = 0; idx < sesiones.length; idx++) {
         const s = sesiones[idx];
@@ -158,9 +169,9 @@ export function PlanHoy({ selectedDate }: Props) {
     }
 
     return result;
-  }, [state, dateKey, currentUser]);
+  }, [state, dateKey, targetUser]);
 
-  const hookPlanned = usePlannedBlocks(dateKey);
+  const hookPlanned = usePlannedBlocks(dateKey, targetUser);
 
   /**
    * Entregables que ya tienen sesión (activa o terminada) hoy.
@@ -350,6 +361,18 @@ export function PlanHoy({ selectedDate }: Props) {
   return (
     <div className="flex-1 space-y-4">
 
+      {!isMentor && (
+        <div className="flex justify-end">
+          <ResponsableToggle
+            value={respFilter}
+            onChange={setRespFilter}
+            miembros={state.miembros}
+            todoLabel="Todos"
+            yoLabel="Yo"
+          />
+        </div>
+      )}
+
       {/* PLANIFICADOS PARA HOY — arriba del horario */}
       {(isToday || !isPast) && (
         <div className="rounded-xl border border-border bg-background p-4">
@@ -417,6 +440,7 @@ export function PlanHoy({ selectedDate }: Props) {
                     </div>
                   )}
                   <PlannedBlockRow block={block} hex={hex} isMentor={isMentor} refDate={selectedDate}
+                    pasoBadgeLabel={pasoBadgeLabel}
                     onSetTime={() => setTimeBlock(block)}
                     onOpenDetalle={block.entregableId ? () => setDetalleEntregableId(block.entregableId!) : undefined}
                     onReschedule={(newDate) => {
@@ -471,6 +495,7 @@ export function PlanHoy({ selectedDate }: Props) {
                           </div>
                         )}
                         <PlannedBlockRow block={block} hex={hex} isMentor={isMentor} refDate={selectedDate}
+                          pasoBadgeLabel={pasoBadgeLabel}
                           onSetTime={() => setTimeBlock(block)}
                           onOpenDetalle={block.entregableId ? () => setDetalleEntregableId(block.entregableId!) : undefined}
                           onReschedule={(newDate) => {
@@ -985,11 +1010,12 @@ function EditBlockTimesDialog({ block, pasoId, onClose }: { block: Block; pasoId
    PLANNED BLOCK ROW with reschedule/delete
    ============================================================ */
 
-function PlannedBlockRow({ block, hex, isMentor, refDate, onSetTime, onReschedule, onOpenDetalle }: {
+function PlannedBlockRow({ block, hex, isMentor, refDate, onSetTime, onReschedule, onOpenDetalle, pasoBadgeLabel = "Paso tuyo" }: {
   block: Block; hex: string; isMentor: boolean; refDate: Date;
   onSetTime: () => void; onReschedule: (newDate: string | null) => void;
   /** Si se proporciona, el título es clickable y abre el detalle del entregable. */
   onOpenDetalle?: () => void;
+  pasoBadgeLabel?: string;
 }) {
   const [showMenu, setShowMenu] = useState(false);
   const [showDatePicker, setShowDatePicker] = useState(false);
@@ -1015,12 +1041,20 @@ function PlannedBlockRow({ block, hex, isMentor, refDate, onSetTime, onReschedul
           >
             <p className="truncate text-sm font-medium text-foreground hover:text-accent hover:underline underline-offset-2">
               {block.title}
+              {block.pasoTuyo && (
+                <span className="ml-1.5 rounded bg-amber-100 px-1.5 py-0.5 text-[9px] font-semibold uppercase text-amber-700 dark:bg-amber-500/20 dark:text-amber-300">{pasoBadgeLabel}</span>
+              )}
             </p>
             <p className="truncate text-xs text-muted">{block.subtitle}</p>
           </button>
         ) : (
           <>
-            <p className="truncate text-sm font-medium text-foreground">{block.title}</p>
+            <p className="truncate text-sm font-medium text-foreground">
+              {block.title}
+              {block.pasoTuyo && (
+                <span className="ml-1.5 rounded bg-amber-100 px-1.5 py-0.5 text-[9px] font-semibold uppercase text-amber-700 dark:bg-amber-500/20 dark:text-amber-300">{pasoBadgeLabel}</span>
+              )}
+            </p>
             <p className="truncate text-xs text-muted">{block.subtitle}</p>
           </>
         )}
@@ -1146,7 +1180,7 @@ function DrillDownDialog({ dateKey, onClose }: { dateKey: string; onClose: () =>
     const name = createName.trim();
     if (!name || !selectedProyectoId) return;
     const id = generateId();
-    dispatch({ type: "ADD_RESULTADO", payload: { id, nombre: name, descripcion: null, proyectoId: selectedProyectoId, creado: new Date().toISOString(), semana: null, fechaLimite: null, fechaInicio: null, diasEstimados: null } });
+    dispatch({ type: "ADD_RESULTADO", payload: { id, nombre: name, descripcion: null, proyectoId: selectedProyectoId, creado: new Date().toISOString(), semana: null, fechaLimite: null, fechaInicio: null, diasEstimados: null, responsable: currentUser } });
     setSelectedResultadoId(id);
     setStep("entregable");
     resetCreate();
@@ -1174,6 +1208,7 @@ function DrillDownDialog({ dateKey, onClose }: { dateKey: string; onClose: () =>
         id: pasoId, nombre: name, entregableId: selectedEntregableId,
         estado: "pendiente", inicioTs: null, finTs: null, pausas: [], siguientePaso: null,
         contexto: { urls: [], apps: [], notas: "" }, implicados: [],
+        responsable: currentUser,
       },
     });
     onClose();

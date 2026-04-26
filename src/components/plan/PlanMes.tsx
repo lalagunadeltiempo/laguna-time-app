@@ -685,22 +685,24 @@ export function AmbitoToggle({ value, onChange }: { value: AmbitoFilter; onChang
 export type ResponsableFilter = "todo" | "yo" | string;
 
 export function ResponsableToggle({
-  value, onChange, miembros,
+  value, onChange, miembros, todoLabel = "Todos", yoLabel = "Yo",
 }: {
   value: ResponsableFilter;
   onChange: (v: ResponsableFilter) => void;
   miembros: MiembroInfo[];
+  todoLabel?: string;
+  yoLabel?: string;
 }) {
   return (
     <div className="flex items-center gap-1 rounded-lg bg-surface p-0.5">
       <button onClick={() => onChange("todo")}
         className={`rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors ${
           value === "todo" ? "bg-background text-foreground shadow-sm" : "text-muted hover:text-foreground"
-        }`}>Todos</button>
+        }`}>{todoLabel}</button>
       <button onClick={() => onChange("yo")}
         className={`rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors ${
           value === "yo" ? "bg-background text-foreground shadow-sm" : "text-muted hover:text-foreground"
-        }`}>Yo</button>
+        }`}>{yoLabel}</button>
       <select
         value={value !== "todo" && value !== "yo" ? value : ""}
         onChange={(e) => { if (e.target.value) onChange(e.target.value); }}
@@ -721,6 +723,9 @@ export function matchesResponsable(
   currentUser: string,
 ): boolean {
   if (filter === "todo") return true;
-  if (filter === "yo") return !responsable || responsable === currentUser;
+  // Estricto: "Yo" sólo lo asignado explícitamente al usuario actual.
+  // Los items sin responsable NO se cuelan en "Yo" (eso ocultaba a otros usuarios
+  // todo lo no asignado en multi-usuario).
+  if (filter === "yo") return responsable === currentUser;
   return responsable === filter;
 }

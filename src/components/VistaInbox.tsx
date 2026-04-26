@@ -153,7 +153,7 @@ function ConvertForm({ texto, mode, onDone, onCancel }: {
     const id = generateId();
     dispatch({
       type: "ADD_RESULTADO",
-      payload: { id, nombre: newResultado.trim(), descripcion: null, proyectoId: pId, creado: new Date().toISOString(), semana: null, fechaLimite: null, fechaInicio: null, diasEstimados: null },
+      payload: { id, nombre: newResultado.trim(), descripcion: null, proyectoId: pId, creado: new Date().toISOString(), semana: null, fechaLimite: null, fechaInicio: null, diasEstimados: null, responsable: currentUser },
     });
     return id;
   }
@@ -223,6 +223,7 @@ function ConvertForm({ texto, mode, onDone, onCancel }: {
           implicados: [{ tipo: "equipo", nombre: currentUser }],
           pausas: [],
           siguientePaso: null,
+          responsable: currentUser,
         },
       });
     }

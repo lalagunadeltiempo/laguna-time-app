@@ -2,11 +2,13 @@
 
 import { useState, useRef, useEffect } from "react";
 import { useAppState, useAppDispatch } from "@/lib/context";
+import { useUsuario } from "@/lib/usuario";
 import { generateId } from "@/lib/store";
 import {
   AREAS_PERSONAL,
   AREAS_EMPRESA,
   AREA_COLORS,
+  ambitoDeArea,
   type Area,
   type Entregable,
   type Proyecto,
@@ -55,6 +57,7 @@ export default function HierarchyPicker({
 }: Props) {
   const state = useAppState();
   const dispatch = useAppDispatch();
+  const { nombre: currentUser } = useUsuario();
 
   const startStep: Step = initialArea ? (depth === "area" ? "area" : "proyecto") : "ambito";
   const [step, setStep] = useState<Step>(startStep);
@@ -131,7 +134,7 @@ export default function HierarchyPicker({
       resetCreate();
     } else if (step === "resultado" && selectedProyectoId) {
       const id = generateId();
-      dispatch({ type: "ADD_RESULTADO", payload: { id, nombre: name, descripcion: null, proyectoId: selectedProyectoId, creado: new Date().toISOString(), semana: null, fechaLimite: null, fechaInicio: null, diasEstimados: null } });
+      dispatch({ type: "ADD_RESULTADO", payload: { id, nombre: name, descripcion: null, proyectoId: selectedProyectoId, creado: new Date().toISOString(), semana: null, fechaLimite: null, fechaInicio: null, diasEstimados: null, responsable: selectedArea && ambitoDeArea(selectedArea) === "empresa" ? currentUser : undefined } });
       if (depth === "resultado") { onSelect({ areaId: selectedArea!, proyectoId: selectedProyectoId, resultadoId: id }); return; }
       setSelectedResultadoId(id);
       setStep("entregable");

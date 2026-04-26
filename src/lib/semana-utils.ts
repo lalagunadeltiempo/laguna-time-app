@@ -103,11 +103,13 @@ export function weeksOfMonth(year: number, month: number): WeekInfo[] {
     const monStr = mon.toLocaleDateString("es-ES", { day: "numeric", month: "short" });
     const sunStr = sun.toLocaleDateString("es-ES", { day: "numeric", month: "short" });
 
+    const mondayStr = toLocalDateKey(mon);
+    const isoLabel = etiquetaSemanaIso(mondayStr);
     weeks.push({
       idx,
-      label: `S${idx}`,
+      label: isoLabel || `S${idx}`,
       rangeLabel: `${monStr} – ${sunStr}`,
-      monday: toLocalDateKey(mon),
+      monday: mondayStr,
       mondayMs: mon.getTime(),
       sundayMs: sun.getTime(),
     });

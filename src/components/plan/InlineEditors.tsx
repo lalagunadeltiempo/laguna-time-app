@@ -84,18 +84,22 @@ export function ResponsableSelect({
   if (disabled) {
     return value ? (
       <span className={`shrink-0 rounded bg-surface px-1.5 py-0.5 text-[9px] text-muted ${className}`}>{value}</span>
-    ) : null;
+    ) : (
+      <span className={`shrink-0 rounded px-1.5 py-0.5 text-[9px] italic text-muted/70 ${className}`}>(sin asignar)</span>
+    );
   }
+
+  const isEmpty = !value;
 
   return (
     <select
       value={value ?? ""}
       onClick={(e) => e.stopPropagation()}
       onChange={(e) => onChange(e.target.value)}
-      className={`shrink-0 rounded bg-surface px-1 py-0.5 text-[10px] text-muted outline-none hover:text-foreground ${className}`}
+      className={`shrink-0 rounded bg-surface px-1 py-0.5 text-[10px] outline-none hover:text-foreground ${isEmpty ? "italic text-muted/70" : "text-muted"} ${className}`}
       title="Responsable"
     >
-      <option value="">—</option>
+      <option value="">(sin asignar)</option>
       {miembros.map((m) => (
         <option key={m.id} value={m.nombre}>{m.nombre}</option>
       ))}

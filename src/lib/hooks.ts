@@ -36,9 +36,17 @@ export function useArbol(entregableId: string | undefined) {
   }, [state, entregableId]);
 }
 
-export function usePasosActivos() {
+/**
+ * Pasos en marcha del usuario activo, o de un miembro concreto si se indica.
+ *
+ * - `targetUser === undefined` → filtra por el `currentUser` (comportamiento por defecto).
+ * - `targetUser === null` → no filtra (modo "Todos / Equipo").
+ * - `targetUser === string` → filtra por ese miembro.
+ */
+export function usePasosActivos(targetUser?: string | null) {
   const state = useAppState();
   const { nombre: currentUser } = useUsuario();
+  const effectiveTarget = targetUser === undefined ? currentUser : targetUser;
 
   return useMemo(() => {
     return state.pasosActivos
@@ -47,11 +55,14 @@ export function usePasosActivos() {
         if (!p) return false;
         const ent = state.entregables.find((e) => e.id === p.entregableId);
         if (!ent) return false;
-        const isMyTask = !ent.responsable || ent.responsable === currentUser ||
-          p.implicados.some((i) => i.nombre === currentUser);
-        return isMyTask;
+        if (effectiveTarget === null) return true;
+        const isTargetTask =
+          ent.responsable === effectiveTarget ||
+          p.responsable === effectiveTarget ||
+          p.implicados.some((i) => i.nombre === effectiveTarget);
+        return isTargetTask;
       });
-  }, [state.pasosActivos, state.pasos, state.entregables, currentUser]);
+  }, [state.pasosActivos, state.pasos, state.entregables, effectiveTarget]);
 }
 
 export interface Pendiente {
@@ -64,9 +75,10 @@ export interface Pendiente {
   proyectoNombre: string;
 }
 
-export function usePendientes(): Pendiente[] {
+export function usePendientes(targetUser?: string | null): Pendiente[] {
   const state = useAppState();
   const { nombre: currentUser } = useUsuario();
+  const effectiveTarget = targetUser === undefined ? currentUser : targetUser;
 
   return useMemo(() => {
     const entregablesActivosIds = new Set(
@@ -93,7 +105,11 @@ export function usePendientes(): Pendiente[] {
 
     return state.entregables
       .filter((e) => e.estado !== "hecho" && e.estado !== "cancelada")
-      .filter((e) => !e.responsable || e.responsable === currentUser)
+      .filter((e) => {
+        if (effectiveTarget === null) return true;
+        if (e.responsable === effectiveTarget) return true;
+        return state.pasos.some((p) => p.entregableId === e.id && p.responsable === effectiveTarget);
+      })
       .filter((e) => !entregablesActivosIds.has(e.id))
       .map((e) => {
         const pendingPaso = pendingByEntregable.get(e.id) ?? null;
@@ -123,7 +139,7 @@ export function usePendientes(): Pendiente[] {
         if (oa !== ob) return oa - ob;
         return new Date(b.entregable.creado).getTime() - new Date(a.entregable.creado).getTime();
       });
-  }, [state, currentUser]);
+  }, [state, effectiveTarget]);
 }
 
 export interface EsperandoItem {
@@ -370,6 +386,10 @@ export interface PlannedBlock {
    * - "arrastrado": anclado a una fecha anterior a dateKey y aún no cerrado.
    */
   origen: PlannedBlockOrigen;
+  /** Responsable del entregable (si está). */
+  responsable?: string;
+  /** El bloque aparece por un paso del `targetUser`, no porque el entregable sea suyo. */
+  pasoTuyo?: boolean;
 }
 
 export interface PlannedBlocksSplit {
@@ -390,18 +410,17 @@ export function splitPlannedBlocks(blocks: PlannedBlock[]): PlannedBlocksSplit {
   return { hoy, arrastrado, enMarcha };
 }
 
-export function usePlannedBlocks(dateKey: string): PlannedBlock[] {
+export function usePlannedBlocks(dateKey: string, targetUser?: string | null): PlannedBlock[] {
   const state = useAppState();
   const { nombre: currentUser } = useUsuario();
+  const effectiveTarget = targetUser === undefined ? currentUser : targetUser;
 
   return useMemo(() => {
     const { pasos, entregables, resultados, proyectos } = state;
 
-    /** Un entregable está oculto hoy si `ocultoHasta` cubre la fecha actual ("Cerrar por hoy"). */
     const estaOcultoHoy = (ent: { ocultoHasta?: string | null }): boolean =>
       !!ent.ocultoHasta && ent.ocultoHasta >= dateKey;
 
-    // Agrupamos pasos por entregable para explorar señales de fechas.
     const pasosPorEnt = new Map<string, Paso[]>();
     for (const p of pasos) {
       const arr = pasosPorEnt.get(p.entregableId) ?? [];
@@ -414,7 +433,18 @@ export function usePlannedBlocks(dateKey: string): PlannedBlock[] {
     for (const ent of entregables) {
       if (ent.estado === "hecho" || ent.estado === "cancelada" || ent.estado === "en_espera") continue;
       if (estaOcultoHoy(ent)) continue;
-      if (ent.responsable && ent.responsable !== currentUser) continue;
+      // Filtro por target:
+      //  - effectiveTarget === null → no filtra (Todos / Equipo).
+      //  - effectiveTarget definido → entregable es del target O algún paso lo es.
+      let esEntregableMio = true;
+      let tienePasoMio = false;
+      if (effectiveTarget !== null) {
+        esEntregableMio = ent.responsable === effectiveTarget;
+        tienePasoMio = !esEntregableMio && pasos.some(
+          (p) => p.entregableId === ent.id && p.responsable === effectiveTarget,
+        );
+        if (!esEntregableMio && !tienePasoMio) continue;
+      }
 
       const sesiones = Array.isArray(ent.sesiones) ? ent.sesiones : [];
       const tieneSesionAbierta = sesiones.some((s) => s.finTs === null);
@@ -521,11 +551,13 @@ export function usePlannedBlocks(dateKey: string): PlannedBlock[] {
         hex: AREA_COLORS[proj?.area ?? ""]?.hex ?? "#888",
         planInicioTs: ent.planInicioTs ?? null,
         origen,
+        responsable: ent.responsable,
+        pasoTuyo: tienePasoMio,
       });
     }
 
     return result;
-  }, [state, dateKey, currentUser]);
+  }, [state, dateKey, effectiveTarget]);
 }
 
 export type Agrupados<T> = { entregable: string; entregableId: string; items: T[] }[];

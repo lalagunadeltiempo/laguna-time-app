@@ -235,6 +235,8 @@ export interface Paso {
   } | null;
   /** Hora planificada para empezar (ISO). Se fija desde Plan Hoy y se limpia al empezar de verdad. */
   planInicioTs?: string | null;
+  /** Responsable de este paso. Si vacío, en displays se hereda del entregable. */
+  responsable?: string;
 }
 
 export interface ContactoExterno {

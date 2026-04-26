@@ -943,11 +943,11 @@ function SemanaIsoChips({ entregable, resultado }: { entregable: Entregable; res
         </button>
       </div>
       {pickerOpen && (
-        <div className="absolute left-0 top-full z-30 mt-1 max-w-[min(20rem,calc(100vw-2rem))] rounded-lg border border-border bg-background p-2 shadow-lg">
-          <p className="mb-1.5 text-[9px] font-semibold uppercase tracking-wider text-muted">
+        <div className="absolute left-0 top-full z-30 mt-1 w-[18rem] max-w-[calc(100vw-2rem)] rounded-lg border border-border bg-background p-3 shadow-lg sm:w-[22rem]">
+          <p className="mb-2 text-[9px] font-semibold uppercase tracking-wider text-muted">
             Semanas disponibles · {semanasPermitidas.length}
           </p>
-          <div className="grid grid-cols-4 gap-1 sm:grid-cols-5">
+          <div className="grid grid-cols-4 gap-1.5 sm:grid-cols-5">
             {semanasPermitidas.map((monday) => {
               const active = activos.has(monday);
               return (
@@ -955,7 +955,7 @@ function SemanaIsoChips({ entregable, resultado }: { entregable: Entregable; res
                   key={monday}
                   type="button"
                   onClick={() => dispatch({ type: "TOGGLE_ENTREGABLE_SEMANA", id: entregable.id, semana: monday })}
-                  className="rounded-md border px-1 py-0.5 text-[10px] font-bold tabular-nums transition-colors"
+                  className="w-full rounded-md border px-1.5 py-1 text-center text-[10px] font-bold leading-none tabular-nums transition-colors"
                   style={chipStylesFromHex(colorSemana(monday), active)}
                   title={`${active ? "Quitar" : "Activar"} ${etiquetaSemanaIso(monday)} (${rangoSemanaCorto(monday)})`}
                 >
@@ -1039,6 +1039,7 @@ function ProyectoBlock({ proyecto, index, total }: { proyecto: Proyecto; index: 
   const state = useAppState();
   const dispatch = useAppDispatch();
   const isMentor = useIsMentor();
+  const { nombre: currentUser } = useUsuario();
   const filter = useMapaFilter();
   const highlight = useHighlight();
   const hideFiltered = useContext(HideFilteredCtx);
@@ -1112,6 +1113,16 @@ function ProyectoBlock({ proyecto, index, total }: { proyecto: Proyecto; index: 
           {resultadosCompletados}/{totalResultados}
         </span>
         <QuarterChips proyecto={proyecto} />
+        {ambitoDeArea(proyecto.area) === "empresa" && (
+          <ResponsableBadge
+            nombre={proyecto.responsable}
+            editable={!isMentor}
+            miembros={state.miembros}
+            onChange={(v) => dispatch({ type: "UPDATE_PROYECTO", id: proyecto.id, changes: { responsable: v || undefined } })}
+            placeholder="+ Lead"
+            showUnassigned
+          />
+        )}
         {isMentor
           ? <CommentIcon count={notasCount} onClick={() => toggleOrSheet(showNotas, setShowNotas, openSheet, { title: proyecto.nombre, nivel: "proyecto", targetId: proyecto.id })} />
           : <NotasIcon count={notasCount} onClick={() => toggleOrSheet(showNotas, setShowNotas, openSheet, { title: proyecto.nombre, nivel: "proyecto", targetId: proyecto.id })} />}
@@ -1188,7 +1199,7 @@ function ProyectoBlock({ proyecto, index, total }: { proyecto: Proyecto; index: 
 
           {!isMentor && (
             <AddButton label="Resultado" onAdd={(nombre) =>
-              dispatch({ type: "ADD_RESULTADO", payload: { id: generateId(), nombre, descripcion: null, proyectoId: proyecto.id, creado: new Date().toISOString(), semana: null, fechaLimite: null, fechaInicio: null, diasEstimados: null } })
+              dispatch({ type: "ADD_RESULTADO", payload: { id: generateId(), nombre, descripcion: null, proyectoId: proyecto.id, creado: new Date().toISOString(), semana: null, fechaLimite: null, fechaInicio: null, diasEstimados: null, responsable: ambitoDeArea(proyecto.area) === "empresa" ? currentUser : undefined } })
             } />
           )}
         </div>
@@ -1243,7 +1254,7 @@ function ResultadoBlock({ resultado, index, total }: { resultado: Resultado; ind
           : <EditableText value={resultado.nombre} onChange={(v) => dispatch({ type: "RENAME_RESULTADO", id: resultado.id, nombre: v })} className={`text-base font-medium ${completado ? "text-muted line-through" : "text-foreground"}`} />
         }
         <ReviewBadge review={resultado.review} nivel="resultado" targetId={resultado.id} />
-        {isEmpresa && <ResponsableBadge nombre={resultado.responsable ?? parentProj?.responsable} editable={!isMentor} miembros={state.miembros} onChange={(v) => dispatch({ type: "UPDATE_RESULTADO", id: resultado.id, changes: { responsable: v } })} />}
+        {isEmpresa && <ResponsableBadge nombre={resultado.responsable ?? parentProj?.responsable} editable={!isMentor} miembros={state.miembros} onChange={(v) => dispatch({ type: "UPDATE_RESULTADO", id: resultado.id, changes: { responsable: v || undefined } })} showUnassigned />}
         <span
           className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${
             completado
@@ -1316,6 +1327,7 @@ function EntregableBlock({ entregable, index, total }: { entregable: Entregable;
   const state = useAppState();
   const dispatch = useAppDispatch();
   const isMentor = useIsMentor();
+  const { nombre: currentUser } = useUsuario();
   const filter = useMapaFilter();
   const highlight = useHighlight();
   const hideFiltered = useContext(HideFilteredCtx);
@@ -1392,7 +1404,7 @@ function EntregableBlock({ entregable, index, total }: { entregable: Entregable;
         <ReviewBadge review={entregable.review} nivel="entregable" targetId={entregable.id} />
         {tipoTag && <span className="rounded-md px-2 py-0.5 text-[11px] font-bold" style={{ backgroundColor: entAreaHex + "15", color: entAreaHex }}>{tipoTag}</span>}
         {isDone && <span className="rounded-md bg-green-100 px-2 py-0.5 text-[11px] font-semibold text-green-700 dark:bg-green-500/10 dark:text-green-400">Hecho</span>}
-        {isEmpresa && <ResponsableBadge nombre={entregable.responsable} editable={!isMentor} miembros={state.miembros} onChange={(v) => dispatch({ type: "UPDATE_ENTREGABLE", id: entregable.id, changes: { responsable: v } })} />}
+        {isEmpresa && <ResponsableBadge nombre={entregable.responsable} editable={!isMentor} miembros={state.miembros} onChange={(v) => dispatch({ type: "UPDATE_ENTREGABLE", id: entregable.id, changes: { responsable: v || undefined } })} showUnassigned />}
         <SemanaIsoChips entregable={entregable} resultado={parentRes} />
         <FechaCompromisoChip entregable={entregable} />
         {!isMentor && (
@@ -1491,7 +1503,7 @@ function EntregableBlock({ entregable, index, total }: { entregable: Entregable;
 
       {open && (
         <div className="pb-2 pl-4 sm:pl-10 md:pl-16">
-          {allPasos.map((paso, i) => <PasoLine key={paso.id} paso={paso} index={i} total={allPasos.length} isEmpresa={isEmpresa} entResponsable={entregable.responsable} />)}
+          {allPasos.map((paso, i) => <PasoLine key={paso.id} paso={paso} index={i} total={allPasos.length} isEmpresa={isEmpresa} />)}
           {!isMentor && (
             <AddButton label="Paso" onAdd={(nombre) =>
               dispatch({ type: "ADD_PASO", payload: {
@@ -1506,6 +1518,7 @@ function EntregableBlock({ entregable, index, total }: { entregable: Entregable;
                 pausas: [],
                 notas: [],
                 siguientePaso: null,
+                responsable: isEmpresa ? currentUser : undefined,
               }})
             } />
           )}
@@ -1519,7 +1532,8 @@ function EntregableBlock({ entregable, index, total }: { entregable: Entregable;
    PASO
    ============================================================ */
 
-function PasoLine({ paso, index, total, isEmpresa, entResponsable }: { paso: Paso; index: number; total: number; isEmpresa: boolean; entResponsable?: string }) {
+function PasoLine({ paso, index, total, isEmpresa }: { paso: Paso; index: number; total: number; isEmpresa: boolean }) {
+  const state = useAppState();
   const dispatch = useAppDispatch();
   const isMentor = useIsMentor();
   const filter = useMapaFilter();
@@ -1583,7 +1597,16 @@ function PasoLine({ paso, index, total, isEmpresa, entResponsable }: { paso: Pas
           ? <span className={`text-sm ${done ? "text-muted line-through" : "text-foreground"}`}>{paso.nombre}</span>
           : <EditableText value={paso.nombre} onChange={(v) => dispatch({ type: "RENAME_PASO", id: paso.id, nombre: v })} className={`text-sm ${done ? "text-muted line-through" : "text-foreground"}`} />
         }
-        {isEmpresa && <ResponsableBadge nombre={entResponsable} />}
+        {isEmpresa && (
+          <ResponsableBadge
+            nombre={paso.responsable}
+            editable={!isMentor}
+            miembros={state.miembros}
+            onChange={(v) => dispatch({ type: "UPDATE_PASO", id: paso.id, changes: { responsable: v || undefined } })}
+            placeholder="+ Responsable"
+            showUnassigned
+          />
+        )}
         {paso.inicioTs && (
           <span className="text-xs text-muted">
             {new Date(paso.inicioTs).toLocaleDateString("es-ES", { day: "numeric", month: "short" })}
@@ -2020,6 +2043,7 @@ function SOPDestinoPicker({ sop }: { sop: PlantillaProceso }) {
 function SOPDestinoEditor({ sop, onClose }: { sop: PlantillaProceso; onClose: () => void }) {
   const state = useAppState();
   const dispatch = useAppDispatch();
+  const { nombre: currentUser } = useUsuario();
   const [selProyectoId, setSelProyectoId] = useState<string | null>(sop.proyectoId);
   const [selResultadoId, setSelResultadoId] = useState<string | null>(sop.resultadoId);
   const [newProjName, setNewProjName] = useState("");
@@ -2048,7 +2072,7 @@ function SOPDestinoEditor({ sop, onClose }: { sop: PlantillaProceso; onClose: ()
   function createRes() {
     if (!newResName.trim() || !selProyectoId) return;
     const id = generateId();
-    dispatch({ type: "ADD_RESULTADO", payload: { id, nombre: newResName.trim(), descripcion: null, proyectoId: selProyectoId, creado: new Date().toISOString(), semana: null, fechaLimite: null, fechaInicio: null, diasEstimados: null } });
+    dispatch({ type: "ADD_RESULTADO", payload: { id, nombre: newResName.trim(), descripcion: null, proyectoId: selProyectoId, creado: new Date().toISOString(), semana: null, fechaLimite: null, fechaInicio: null, diasEstimados: null, responsable: ambitoDeArea(sop.area) === "empresa" ? currentUser : undefined } });
     setSelResultadoId(id);
     setNewResName("");
     setCreatingRes(false);
@@ -2371,21 +2395,31 @@ function ConfirmDelete({ label, onConfirm, onCancel }: { label: string; onConfir
   );
 }
 
-function ResponsableBadge({ nombre, editable, miembros, onChange }: { nombre?: string; editable?: boolean; miembros?: { id: string; nombre: string }[]; onChange?: (v: string) => void }) {
+function ResponsableBadge({ nombre, editable, miembros, onChange, placeholder = "+ Responsable", showUnassigned = false }: { nombre?: string; editable?: boolean; miembros?: { id: string; nombre: string }[]; onChange?: (v: string) => void; placeholder?: string; showUnassigned?: boolean }) {
   const [open, setOpen] = useState(false);
-  if (!nombre && !editable) return null;
+  if (!nombre && !editable) {
+    return showUnassigned
+      ? <span className="rounded-md bg-surface/60 px-2 py-0.5 text-[10px] italic text-muted/70" title="Sin responsable asignado">(sin asignar)</span>
+      : null;
+  }
   if (!editable || !miembros || !onChange) {
-    return nombre ? <span className="rounded-md bg-surface px-2 py-0.5 text-[11px] font-medium text-muted" title="Responsable">{nombre}</span> : null;
+    return nombre
+      ? <span className="rounded-md bg-surface px-2 py-0.5 text-[11px] font-medium text-muted" title="Responsable">{nombre}</span>
+      : (showUnassigned ? <span className="rounded-md bg-surface/60 px-2 py-0.5 text-[10px] italic text-muted/70" title="Sin responsable asignado">(sin asignar)</span> : null);
   }
   return (
     <span className="relative" onClick={(e) => e.stopPropagation()}>
       <button onClick={() => setOpen(!open)}
         className={`rounded-md px-2 py-0.5 text-[11px] font-medium transition-colors ${nombre ? "bg-surface text-muted hover:bg-accent-soft hover:text-accent" : "bg-accent-soft/50 text-accent/70 hover:bg-accent-soft"}`}
         title="Cambiar responsable">
-        {nombre || "+ Responsable"}
+        {nombre || placeholder}
       </button>
       {open && (
         <div className="absolute left-0 top-full z-50 mt-1 max-h-40 overflow-y-auto rounded-lg border border-border bg-background shadow-lg">
+          <button onClick={() => { onChange(""); setOpen(false); }}
+            className={`block w-full whitespace-nowrap px-3 py-1.5 text-left text-xs italic transition-colors hover:bg-accent-soft ${!nombre ? "font-bold text-accent" : "text-muted"}`}>
+            (sin asignar)
+          </button>
           {miembros.map((m) => (
             <button key={m.id} onClick={() => { onChange(m.nombre); setOpen(false); }}
               className={`block w-full whitespace-nowrap px-3 py-1.5 text-left text-xs transition-colors hover:bg-accent-soft ${m.nombre === nombre ? "font-bold text-accent" : "text-foreground"}`}>

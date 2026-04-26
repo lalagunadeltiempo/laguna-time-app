@@ -97,13 +97,13 @@ export function NuevoPaso({ onClose }: Props) {
       let rId = resultadoId;
       if (!rId && showNewResultado && newResultado.trim()) {
         rId = generateId();
-        dispatch({ type: "ADD_RESULTADO", payload: { id: rId, nombre: newResultado.trim(), descripcion: null, proyectoId: pId, creado: now, semana: null, fechaLimite: null, fechaInicio: null, diasEstimados: null } });
+        dispatch({ type: "ADD_RESULTADO", payload: { id: rId, nombre: newResultado.trim(), descripcion: null, proyectoId: pId, creado: now, semana: null, fechaLimite: null, fechaInicio: null, diasEstimados: null, responsable: currentUser } });
       }
       if (!rId) {
         let defaultRes = state.resultados.find((r) => r.proyectoId === pId);
         if (!defaultRes) {
           rId = generateId();
-          dispatch({ type: "ADD_RESULTADO", payload: { id: rId, nombre: "General", descripcion: null, proyectoId: pId, creado: now, semana: null, fechaLimite: null, fechaInicio: null, diasEstimados: null } });
+          dispatch({ type: "ADD_RESULTADO", payload: { id: rId, nombre: "General", descripcion: null, proyectoId: pId, creado: now, semana: null, fechaLimite: null, fechaInicio: null, diasEstimados: null, responsable: currentUser } });
         } else {
           rId = defaultRes.id;
         }

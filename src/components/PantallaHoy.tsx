@@ -13,13 +13,20 @@ import { NuevoPaso } from "./NuevoPaso";
 import { VistaInbox } from "./VistaInbox";
 import HierarchyPicker from "./shared/HierarchyPicker";
 import { RegistrarSesionIconButton } from "./shared/RegistrarSesionPopover";
+import { ResponsableSelect } from "./plan/InlineEditors";
+import { ResponsableToggle, type ResponsableFilter } from "./plan/PlanMes";
+import { ambitoDeArea } from "@/lib/types";
 
 export function PantallaHoy() {
   const isMentor = useIsMentor();
   const { nombre: currentUser } = useUsuario();
   const state = useAppState();
   const dispatch = useAppDispatch();
-  const pasosActivos = usePasosActivos();
+  const [respFilter, setRespFilter] = useState<ResponsableFilter>("yo");
+  const targetUser: string | null = respFilter === "todo" ? null : respFilter === "yo" ? currentUser : respFilter;
+  const targetIsCurrent = targetUser === currentUser;
+  const pasoBadgeLabel = targetIsCurrent || targetUser === null ? "Paso tuyo" : `Paso de ${targetUser}`;
+  const pasosActivos = usePasosActivos(targetUser);
   const [showNuevoPaso, setShowNuevoPaso] = useState(false);
   const [showInbox, setShowInbox] = useState(false);
   const [showEndOfDay, setShowEndOfDay] = useState(false);
@@ -75,16 +82,18 @@ export function PantallaHoy() {
   }, [todayKey, state.entregables, dispatch]);
 
   // Entregables con sesión abierta (aparecen arriba como "en curso").
+  // Filtra por `targetUser`: null = sin filtro; definido = entregable del target
+  // o con algún paso del target.
   const entregablesEnCurso: Entregable[] = useMemo(() => {
-    return state.entregables.filter(
-      (e) =>
-        e.estado !== "hecho" &&
-        e.estado !== "cancelada" &&
-        (!e.responsable || e.responsable === currentUser) &&
-        Array.isArray(e.sesiones) &&
-        e.sesiones.some((s) => s.finTs === null),
-    );
-  }, [state.entregables, currentUser]);
+    return state.entregables.filter((e) => {
+      if (e.estado === "hecho" || e.estado === "cancelada") return false;
+      const tieneSesionAbierta = Array.isArray(e.sesiones) && e.sesiones.some((s) => s.finTs === null);
+      if (!tieneSesionAbierta) return false;
+      if (targetUser === null) return true;
+      if (e.responsable === targetUser) return true;
+      return state.pasos.some((p) => p.entregableId === e.id && p.responsable === targetUser);
+    });
+  }, [state.entregables, state.pasos, targetUser]);
   const entregablesEnCursoIds = useMemo(
     () => new Set(entregablesEnCurso.map((e) => e.id)),
     [entregablesEnCurso],
@@ -102,7 +111,11 @@ export function PantallaHoy() {
     const ids = new Set<string>();
     for (const ent of state.entregables) {
       if (entregablesEnCursoIds.has(ent.id)) continue;
-      if (ent.responsable && ent.responsable !== currentUser) continue;
+      const esDelTarget = targetUser === null
+        ? true
+        : (ent.responsable === targetUser
+          || state.pasos.some((p) => p.entregableId === ent.id && p.responsable === targetUser));
+      if (!esDelTarget) continue;
       const sesiones = Array.isArray(ent.sesiones) ? ent.sesiones : [];
       const tieneSesionHoy = sesiones.some(
         (s) => s.finTs !== null && (s.inicioTs ?? "").slice(0, 10) === todayKey,
@@ -110,9 +123,9 @@ export function PantallaHoy() {
       if (tieneSesionHoy) ids.add(ent.id);
     }
     return ids;
-  }, [state.entregables, entregablesEnCursoIds, currentUser, todayKey]);
+  }, [state.entregables, state.pasos, entregablesEnCursoIds, targetUser, todayKey]);
 
-  const plannedBlocks = usePlannedBlocks(todayKey);
+  const plannedBlocks = usePlannedBlocks(todayKey, targetUser);
   const { hoy: blocksHoy, arrastrado: blocksArrastrado, enMarcha: blocksEnMarcha } = useMemo(
     () => splitPlannedBlocks(plannedBlocks.filter(
       (b) => !entregablesEnCursoIds.has(b.entregableId) && !entregablesTrabajadosHoyIds.has(b.entregableId),
@@ -209,11 +222,20 @@ export function PantallaHoy() {
   return (
     <div className="flex flex-1 flex-col px-6 py-8">
       {/* Header */}
-      <div className="mb-8">
-        <h1 className="text-3xl font-bold text-foreground">Hoy</h1>
-        <p className="mt-1 text-sm text-muted">
-          {currentUser} · {new Date().toLocaleDateString("es-ES", { weekday: "long", day: "numeric", month: "long" })}
-        </p>
+      <div className="mb-8 flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h1 className="text-3xl font-bold text-foreground">Hoy</h1>
+          <p className="mt-1 text-sm text-muted">
+            {currentUser} · {new Date().toLocaleDateString("es-ES", { weekday: "long", day: "numeric", month: "long" })}
+          </p>
+        </div>
+        <ResponsableToggle
+          value={respFilter}
+          onChange={setRespFilter}
+          miembros={state.miembros}
+          todoLabel="Todos"
+          yoLabel="Yo"
+        />
       </div>
 
       {/* Aviso: sesiones que quedaron abiertas en días anteriores se cerraron automáticamente */}
@@ -330,13 +352,13 @@ export function PantallaHoy() {
                   <p className="mt-1 text-[10px] font-semibold uppercase tracking-wider text-muted/70">Por hora</p>
                 )}
                 {conHora.map((block) => (
-                  <PlannedRow key={block.id} block={block} onStart={() => startPlannedBlock(block)} onCerrarPorHoy={cerrarEntregablePorHoy} todayKey={todayKey} />
+                  <PlannedRow key={block.id} block={block} onStart={() => startPlannedBlock(block)} onCerrarPorHoy={cerrarEntregablePorHoy} todayKey={todayKey} pasoBadgeLabel={pasoBadgeLabel} />
                 ))}
                 {sinHora.length > 0 && (
                   <p className="mt-2 text-[10px] font-semibold uppercase tracking-wider text-muted/70">Sin hora</p>
                 )}
                 {sinHora.map((block) => (
-                  <PlannedRow key={block.id} block={block} onStart={() => startPlannedBlock(block)} onCerrarPorHoy={cerrarEntregablePorHoy} todayKey={todayKey} />
+                  <PlannedRow key={block.id} block={block} onStart={() => startPlannedBlock(block)} onCerrarPorHoy={cerrarEntregablePorHoy} todayKey={todayKey} pasoBadgeLabel={pasoBadgeLabel} />
                 ))}
               </>
             );
@@ -363,7 +385,7 @@ export function PantallaHoy() {
           {otrosOpen && (
             <div className="mt-2 space-y-1.5">
               {blocksOtros.map((block) => (
-                <PlannedRow key={block.id} block={block} onStart={() => startPlannedBlock(block)} onCerrarPorHoy={cerrarEntregablePorHoy} todayKey={todayKey} />
+                <PlannedRow key={block.id} block={block} onStart={() => startPlannedBlock(block)} onCerrarPorHoy={cerrarEntregablePorHoy} todayKey={todayKey} pasoBadgeLabel={pasoBadgeLabel} />
               ))}
             </div>
           )}
@@ -376,6 +398,7 @@ export function PantallaHoy() {
           blocks={blocksArrastrado}
           todayKey={todayKey}
           onStart={startPlannedBlock}
+          pasoBadgeLabel={pasoBadgeLabel}
         />
       )}
 
@@ -726,11 +749,21 @@ function EndOfDayFlow({
    PlannedRow / ArrastradoSection — UI para "Planificados para hoy"
    ============================================================ */
 
-function PlannedRow({ block, onStart, onCerrarPorHoy, todayKey }: { block: PlannedBlock; onStart: () => void; onCerrarPorHoy?: (block: PlannedBlock) => void; todayKey: string }) {
+function PlannedRow({ block, onStart, onCerrarPorHoy, todayKey, pasoBadgeLabel = "Paso tuyo" }: { block: PlannedBlock; onStart: () => void; onCerrarPorHoy?: (block: PlannedBlock) => void; todayKey: string; pasoBadgeLabel?: string }) {
+  const state = useAppState();
+  const dispatch = useAppDispatch();
   const hora = block.planInicioTs ? (() => {
     const d = new Date(block.planInicioTs!);
     return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
   })() : null;
+  const isEmpresa = block.entregableId
+    ? (() => {
+        const ent = state.entregables.find((e) => e.id === block.entregableId);
+        const res = ent ? state.resultados.find((r) => r.id === ent.resultadoId) : undefined;
+        const proj = res ? state.proyectos.find((p) => p.id === res.proyectoId) : undefined;
+        return proj ? ambitoDeArea(proj.area) === "empresa" : false;
+      })()
+    : false;
   return (
     <div className="flex items-center gap-2 rounded-xl border-l-[3px] bg-surface/50 px-3 py-2.5" style={{ borderLeftColor: block.hex }}>
       {hora ? (
@@ -739,9 +772,21 @@ function PlannedRow({ block, onStart, onCerrarPorHoy, todayKey }: { block: Plann
         <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: block.hex }} />
       )}
       <div className="min-w-0 flex-1">
-        <p className="truncate text-sm font-medium text-foreground">{block.title}</p>
+        <p className="truncate text-sm font-medium text-foreground">
+          {block.title}
+          {block.pasoTuyo && (
+            <span className="ml-1.5 rounded bg-amber-100 px-1.5 py-0.5 text-[9px] font-semibold uppercase text-amber-700 dark:bg-amber-500/20 dark:text-amber-300">{pasoBadgeLabel}</span>
+          )}
+        </p>
         <p className="truncate text-[11px] text-muted">{block.subtitle}</p>
       </div>
+      {isEmpresa && block.entregableId && (
+        <ResponsableSelect
+          value={block.responsable}
+          miembros={state.miembros}
+          onChange={(v) => dispatch({ type: "UPDATE_ENTREGABLE", id: block.entregableId!, changes: { responsable: v || undefined } })}
+        />
+      )}
       {onCerrarPorHoy && block.entregableId && (
         <button
           onClick={() => onCerrarPorHoy(block)}
@@ -773,10 +818,12 @@ function ArrastradoSection({
   blocks,
   todayKey,
   onStart,
+  pasoBadgeLabel = "Paso tuyo",
 }: {
   blocks: PlannedBlock[];
   todayKey: string;
   onStart: (block: PlannedBlock) => void;
+  pasoBadgeLabel?: string;
 }) {
   const state = useAppState();
   const dispatch = useAppDispatch();
@@ -915,7 +962,12 @@ function ArrastradoSection({
                     style={{ borderLeftColor: block.hex }}
                   >
                     <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm font-medium text-foreground">{block.title}</p>
+                      <p className="truncate text-sm font-medium text-foreground">
+                        {block.title}
+                        {block.pasoTuyo && (
+                          <span className="ml-1.5 rounded bg-amber-100 px-1.5 py-0.5 text-[9px] font-semibold uppercase text-amber-700 dark:bg-amber-500/20 dark:text-amber-300">{pasoBadgeLabel}</span>
+                        )}
+                      </p>
                       <p className="truncate text-[11px] text-muted">{block.subtitle}</p>
                     </div>
                     <button

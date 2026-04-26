@@ -7,6 +7,7 @@ import { useUsuario } from "@/lib/usuario";
 
 export function AddResultadoInline({ proyectoId }: { proyectoId: string }) {
   const dispatch = useAppDispatch();
+  const { nombre: currentUser } = useUsuario();
   const [editing, setEditing] = useState(false);
   const [nombre, setNombre] = useState("");
 
@@ -14,7 +15,7 @@ export function AddResultadoInline({ proyectoId }: { proyectoId: string }) {
     if (!nombre.trim()) return;
     dispatch({
       type: "ADD_RESULTADO",
-      payload: { id: generateId(), nombre: nombre.trim(), descripcion: null, proyectoId, creado: new Date().toISOString(), semana: null, fechaLimite: null, fechaInicio: null, diasEstimados: null },
+      payload: { id: generateId(), nombre: nombre.trim(), descripcion: null, proyectoId, creado: new Date().toISOString(), semana: null, fechaLimite: null, fechaInicio: null, diasEstimados: null, responsable: currentUser },
     });
     setNombre("");
     setEditing(false);

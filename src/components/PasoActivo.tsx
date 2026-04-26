@@ -3,6 +3,7 @@
 import { useState, useCallback, useRef, useEffect } from "react";
 import { useAppState, useAppDispatch } from "@/lib/context";
 import { useArbol } from "@/lib/hooks";
+import { useUsuario } from "@/lib/usuario";
 import { generateId } from "@/lib/store";
 import type { Contexto, Implicado, UrlRef, Paso } from "@/lib/types";
 import { AREA_COLORS } from "@/lib/types";
@@ -18,6 +19,7 @@ interface CardProps {
 export function PasoActivoCard({ paso }: CardProps) {
   const state = useAppState();
   const dispatch = useAppDispatch();
+  const { nombre: currentUser } = useUsuario();
   const { entregable, resultado, proyecto } = useArbol(paso.entregableId);
 
   const pasosDelEntregable = state.pasos
@@ -309,7 +311,7 @@ export function PasoActivoCard({ paso }: CardProps) {
                       onChange={(e) => setNewPasoName(e.target.value)}
                       onKeyDown={(e) => {
                         if (e.key === "Enter" && newPasoName.trim()) {
-                          dispatch({ type: "ADD_PASO", payload: { id: generateId(), entregableId: entregable.id, nombre: newPasoName.trim(), inicioTs: null, finTs: null, estado: "", contexto: { urls: [], apps: [], notas: "" }, implicados: [], pausas: [], siguientePaso: null } });
+                          dispatch({ type: "ADD_PASO", payload: { id: generateId(), entregableId: entregable.id, nombre: newPasoName.trim(), inicioTs: null, finTs: null, estado: "", contexto: { urls: [], apps: [], notas: "" }, implicados: [], pausas: [], siguientePaso: null, responsable: entregable.responsable ?? currentUser } });
                           setNewPasoName("");
                           addPasoRef.current?.focus();
                         }
@@ -324,7 +326,7 @@ export function PasoActivoCard({ paso }: CardProps) {
                       type="button"
                       onClick={() => {
                         if (newPasoName.trim()) {
-                          dispatch({ type: "ADD_PASO", payload: { id: generateId(), entregableId: entregable.id, nombre: newPasoName.trim(), inicioTs: null, finTs: null, estado: "", contexto: { urls: [], apps: [], notas: "" }, implicados: [], pausas: [], siguientePaso: null } });
+                          dispatch({ type: "ADD_PASO", payload: { id: generateId(), entregableId: entregable.id, nombre: newPasoName.trim(), inicioTs: null, finTs: null, estado: "", contexto: { urls: [], apps: [], notas: "" }, implicados: [], pausas: [], siguientePaso: null, responsable: entregable.responsable ?? currentUser } });
                           setNewPasoName("");
                           addPasoRef.current?.focus();
                         }

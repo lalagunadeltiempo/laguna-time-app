@@ -5,7 +5,7 @@ import { buildPersonalSeedData } from "./seed-personal";
 import { buildEmpresaSeedProyectos } from "./seed-proyectos-empresa";
 import { mondayKey, mesKey, mesesDeTrimestre } from "./semana-utils";
 
-export const CURRENT_MIGRATION = 18;
+export const CURRENT_MIGRATION = 19;
 
 type Dispatch = (action: Action) => void;
 
