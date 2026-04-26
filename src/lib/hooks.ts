@@ -536,6 +536,12 @@ export function usePlannedBlocks(dateKey: string, targetUser?: string | null): P
       const res = resultados.find((r) => r.id === ent.resultadoId);
       const proj = res ? proyectos.find((pr) => pr.id === res.proyectoId) : undefined;
 
+      // `planInicioTs` solo es relevante para la UI si pertenece al día que se
+      // está viendo. Los bloques "en_marcha" o "arrastrado" pueden tener una
+      // hora antigua que no debe colarse al ordenar por hora ni mostrarse como
+      // badge horario en otro día.
+      const planMatchesDate = ent.planInicioTs ? ent.planInicioTs.slice(0, 10) === dateKey : false;
+
       result.push({
         id: `ent-${ent.id}`,
         title: ent.nombre,
@@ -549,7 +555,7 @@ export function usePlannedBlocks(dateKey: string, targetUser?: string | null): P
         resultadoNombre: res?.nombre,
         entregableNombre: ent.nombre,
         hex: AREA_COLORS[proj?.area ?? ""]?.hex ?? "#888",
-        planInicioTs: ent.planInicioTs ?? null,
+        planInicioTs: planMatchesDate ? ent.planInicioTs : null,
         origen,
         responsable: ent.responsable,
         pasoTuyo: tienePasoMio,

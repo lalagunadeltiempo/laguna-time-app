@@ -208,14 +208,15 @@ export function PlanHoy({ selectedDate }: Props) {
       const entB = b.entregableNombre ?? "";
       return entA.localeCompare(entB);
     };
-    // Antes separábamos los "arrastrados" (origen != "hoy") en su propia
-    // sección. La revisión semanal ya cubre eso (trimestre → mes → semana →
-    // hoy), así que aquí los unificamos con los planificados de hoy. Para
-    // navegar a otros días sigue funcionando el selector de fecha de la
-    // pantalla, que carga su propio plan/horario.
+    // Sólo mostramos lo planificado para HOY y lo que está EN MARCHA. Los
+    // bloques "arrastrado" (planificados para días anteriores y aún sin
+    // cerrar) ya no se cuelan aquí: la revisión histórica se hace recorriendo
+    // trimestre → mes → semana, no desde Hoy. Si el usuario navega a un día
+    // pasado, igualmente no vemos planificación; sólo el horario ejecutado.
     const principal: Block[] = [];
     for (const hb of hookPlanned) {
       if (hb.entregableId && entregablesEnHorario.has(hb.entregableId)) continue;
+      if (hb.origen === "arrastrado") continue;
       principal.push(toBlock(hb));
     }
     principal.sort(cmp);
