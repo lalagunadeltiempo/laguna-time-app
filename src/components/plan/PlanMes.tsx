@@ -382,16 +382,19 @@ function ResultadoCard({ card, week, weeks, mesK, showDone, respFilter, currentU
   const [open, setOpen] = useState(false);
   const { resultado, proyecto, areaHex } = card;
 
-  // Entregables a mostrar dentro de este card:
-  // - Si está en una semana: los que tengan ent.semana === week.monday + los sin semana (para planificar)
-  // - Si está en "Sin semana": todos los entregables del resultado sin semana (o sin semana del mes)
+  // Entregables a mostrar dentro de este card.
+  // Fuente canónica: ent.semanasActivas (con fallback al campo legacy ent.semana
+  // cuando todavía no se ha migrado). Si está en una semana concreta, sólo
+  // entran los entregables cuya semanasActivas incluya ese lunes. Si está en
+  // "Sin semana", entran los entregables sin ninguna semana asignada.
   const entsVisibles = card.entregables.filter((e) => {
     if (!showDone && (e.estado === "hecho" || e.estado === "cancelada")) return false;
     if (!matchesResponsable(e.responsable, respFilter, currentUser)) return false;
+    const semanasAct = e.semanasActivas ?? (e.semana ? [e.semana] : []);
     if (week) {
-      return e.semana === week.monday || !e.semana;
+      return semanasAct.includes(week.monday);
     }
-    return !e.semana;
+    return semanasAct.length === 0;
   });
 
   const semanasActivas = resultado.semanasActivas ?? (resultado.semana ? [resultado.semana] : []);

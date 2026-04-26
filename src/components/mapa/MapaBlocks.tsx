@@ -435,15 +435,36 @@ function ScheduleBadge({ programacion, onClick }: { programacion: Programacion |
 }
 
 function ToggleRow({ open, onToggle, children }: { open: boolean; onToggle: () => void; children: React.ReactNode }) {
-  void open;
   return (
     <div
       onClick={onToggle}
       className="group/row flex min-h-[48px] min-w-0 cursor-pointer items-center gap-2 rounded-lg px-3 py-2.5 transition-colors hover:bg-surface"
       role="button"
       tabIndex={0}
+      aria-expanded={open}
       onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") onToggle(); }}
     >
+      <button
+        type="button"
+        onClick={(e) => { e.stopPropagation(); onToggle(); }}
+        aria-label={open ? "Contraer" : "Expandir"}
+        title={open ? "Contraer" : "Expandir"}
+        className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-muted hover:bg-surface hover:text-foreground"
+      >
+        <svg
+          width="14"
+          height="14"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2.5"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          className={`transition-transform ${open ? "rotate-90" : ""}`}
+        >
+          <polyline points="9 18 15 12 9 6" />
+        </svg>
+      </button>
       {children}
     </div>
   );
@@ -835,7 +856,31 @@ function SemanaIsoChips({ entregable, resultado }: { entregable: Entregable; res
     const meses = resultado?.mesesActivos ?? [];
     return semanasDeMeses(meses);
   }, [resultado?.mesesActivos]);
-  const activos = new Set<string>(entregable.semanasActivas ?? []);
+  const activos = useMemo(() => new Set<string>(entregable.semanasActivas ?? []), [entregable.semanasActivas]);
+  const semanasActivasOrdenadas = useMemo(
+    () => semanasPermitidas.filter((m) => activos.has(m)),
+    [semanasPermitidas, activos],
+  );
+
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const wrapperRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!pickerOpen) return;
+    function onDocClick(e: MouseEvent) {
+      if (!wrapperRef.current) return;
+      if (!wrapperRef.current.contains(e.target as Node)) setPickerOpen(false);
+    }
+    function onEsc(e: KeyboardEvent) {
+      if (e.key === "Escape") setPickerOpen(false);
+    }
+    document.addEventListener("mousedown", onDocClick);
+    document.addEventListener("keydown", onEsc);
+    return () => {
+      document.removeEventListener("mousedown", onDocClick);
+      document.removeEventListener("keydown", onEsc);
+    };
+  }, [pickerOpen]);
 
   if (semanasPermitidas.length === 0) {
     if (isMentor) return null;
@@ -846,11 +891,12 @@ function SemanaIsoChips({ entregable, resultado }: { entregable: Entregable; res
     );
   }
 
+  // Vista mentor: solo lectura, chips activos.
   if (isMentor) {
     if (activos.size === 0) return null;
     return (
       <div className="flex flex-wrap items-center gap-1">
-        {semanasPermitidas.filter((m) => activos.has(m)).map((monday) => (
+        {semanasActivasOrdenadas.map((monday) => (
           <span
             key={monday}
             className="rounded-md border px-1.5 py-0.5 text-[10px] font-bold tabular-nums"
@@ -865,22 +911,61 @@ function SemanaIsoChips({ entregable, resultado }: { entregable: Entregable; res
   }
 
   return (
-    <div className="flex flex-wrap items-center gap-1" onClick={(e) => e.stopPropagation()}>
-      {semanasPermitidas.map((monday) => {
-        const active = activos.has(monday);
-        return (
+    <div ref={wrapperRef} className="relative" onClick={(e) => e.stopPropagation()}>
+      <div className="flex flex-wrap items-center gap-1">
+        {semanasActivasOrdenadas.length === 0 && !pickerOpen && (
+          <span className="text-[10px] italic text-muted/80">Sin semanas asignadas</span>
+        )}
+        {semanasActivasOrdenadas.map((monday) => (
           <button
             key={monday}
             type="button"
             onClick={() => dispatch({ type: "TOGGLE_ENTREGABLE_SEMANA", id: entregable.id, semana: monday })}
             className="rounded-md border px-1.5 py-0.5 text-[10px] font-bold tabular-nums transition-colors"
-            style={chipStylesFromHex(colorSemana(monday), active)}
-            title={`${active ? "Quitar" : "Activar"} ${etiquetaSemanaIso(monday)} (${rangoSemanaCorto(monday)})`}
+            style={chipStylesFromHex(colorSemana(monday), true)}
+            title={`Quitar ${etiquetaSemanaIso(monday)} (${rangoSemanaCorto(monday)})`}
           >
             {etiquetaSemanaIso(monday)}
           </button>
-        );
-      })}
+        ))}
+        <button
+          type="button"
+          onClick={() => setPickerOpen((v) => !v)}
+          aria-expanded={pickerOpen}
+          className={`flex h-[22px] items-center justify-center rounded-md border px-1.5 text-[11px] font-bold leading-none transition-colors ${
+            pickerOpen
+              ? "border-accent bg-accent/10 text-accent"
+              : "border-dashed border-border text-muted hover:border-accent hover:text-accent"
+          }`}
+          title={pickerOpen ? "Cerrar selector" : "Elegir semanas"}
+        >
+          {pickerOpen ? "×" : "+"}
+        </button>
+      </div>
+      {pickerOpen && (
+        <div className="absolute left-0 top-full z-30 mt-1 max-w-[min(20rem,calc(100vw-2rem))] rounded-lg border border-border bg-background p-2 shadow-lg">
+          <p className="mb-1.5 text-[9px] font-semibold uppercase tracking-wider text-muted">
+            Semanas disponibles · {semanasPermitidas.length}
+          </p>
+          <div className="grid grid-cols-4 gap-1 sm:grid-cols-5">
+            {semanasPermitidas.map((monday) => {
+              const active = activos.has(monday);
+              return (
+                <button
+                  key={monday}
+                  type="button"
+                  onClick={() => dispatch({ type: "TOGGLE_ENTREGABLE_SEMANA", id: entregable.id, semana: monday })}
+                  className="rounded-md border px-1 py-0.5 text-[10px] font-bold tabular-nums transition-colors"
+                  style={chipStylesFromHex(colorSemana(monday), active)}
+                  title={`${active ? "Quitar" : "Activar"} ${etiquetaSemanaIso(monday)} (${rangoSemanaCorto(monday)})`}
+                >
+                  {etiquetaSemanaIso(monday)}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

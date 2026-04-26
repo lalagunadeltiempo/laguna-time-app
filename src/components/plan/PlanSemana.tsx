@@ -99,19 +99,18 @@ export function PlanSemana({ selectedDate, onOpenInMapa }: Props) {
       const proj = res ? state.proyectos.find((p) => p.id === res.proyectoId) : undefined;
       if (filtro !== "todo" && proj && ambitoDeArea(proj.area) !== filtro) continue;
 
-      // Filtros de pertenencia a la semana
-      const resHasWeek = !!res && (
-        res.semana === mondayKeyStr ||
-        (Array.isArray(res.semanasActivas) && !!mondayKeyStr && res.semanasActivas.includes(mondayKeyStr))
-      );
+      // Filtros de pertenencia a la semana.
+      // Fuente canónica: ent.semanasActivas (multi-semana). El entregable
+      // pertenece a esta semana si su lunes está en semanasActivas, o si
+      // tiene algún día concreto planificado en este rango. NO heredamos
+      // del resultado: aunque el resultado padre esté activo en esta semana,
+      // sólo aparece si el entregable tiene esa semana marcada.
+      const semanasActEnt = ent.semanasActivas ?? (ent.semana ? [ent.semana] : []);
       const diasEnEstaSemana = (ent.diasPlanificados ?? []).filter((k) => weekKeys.has(k));
-      const pertenecePorSemana = ent.semana === mondayKeyStr;
-      const pertenecePorHerencia = !ent.semana && resHasWeek;
+      const pertenecePorSemana = !!mondayKeyStr && semanasActEnt.includes(mondayKeyStr);
       const pertenecePorDias = diasEnEstaSemana.length > 0;
 
-      if (!pertenecePorSemana && !pertenecePorHerencia && !pertenecePorDias) continue;
-      // Si el entregable tiene semana propia en OTRA semana y no tiene días aquí, excluir
-      if (ent.semana && ent.semana !== mondayKeyStr && !pertenecePorDias) continue;
+      if (!pertenecePorSemana && !pertenecePorDias) continue;
 
       // Conjunto de días para los que emitir un bloque planificado:
       //   1) diasPlanificados que caen en esta semana
@@ -238,12 +237,10 @@ export function PlanSemana({ selectedDate, onOpenInMapa }: Props) {
       if ((proj.estado ?? "plan") === "completado" || (proj.estado ?? "plan") === "pausado") continue;
       if (filtro !== "todo" && ambitoDeArea(proj.area) !== filtro) continue;
 
-      const resHasWeek = !!res && (
-        res.semana === mondayKeyStr ||
-        (Array.isArray(res.semanasActivas) && !!mondayKeyStr && res.semanasActivas.includes(mondayKeyStr))
-      );
-      const pertenece = ent.semana === mondayKeyStr
-        || (!ent.semana && resHasWeek);
+      // Pertenencia a la semana por semanasActivas del propio entregable
+      // (no heredamos del resultado padre).
+      const semanasActEnt = ent.semanasActivas ?? (ent.semana ? [ent.semana] : []);
+      const pertenece = !!mondayKeyStr && semanasActEnt.includes(mondayKeyStr);
       if (!pertenece) continue;
 
       const diasEnEstaSemana = (ent.diasPlanificados ?? []).filter((k) => weekKeys.has(k));
@@ -302,13 +299,15 @@ export function PlanSemana({ selectedDate, onOpenInMapa }: Props) {
       if ((proj.estado ?? "plan") === "completado" || (proj.estado ?? "plan") === "pausado") continue;
       if (filtro !== "todo" && ambitoDeArea(proj.area) !== filtro) continue;
 
-      // Pertenecía a la semana anterior (por semana explícita o por días planificados)
-      const teniaSemanaAnterior = ent.semana === prevMondayKey
+      // Pertenecía a la semana anterior por semanasActivas (canónico) o por
+      // algún día planificado dentro de ese rango. NO heredamos del resultado.
+      const semanasActEnt = ent.semanasActivas ?? (ent.semana ? [ent.semana] : []);
+      const teniaSemanaAnterior = semanasActEnt.includes(prevMondayKey)
         || (Array.isArray(ent.diasPlanificados) && ent.diasPlanificados.some((k) => prevWeekKeys.has(k)));
       if (!teniaSemanaAnterior) continue;
 
       // Ya está presente en la actual: ignorar
-      const yaEnActual = ent.semana === currMondayKey
+      const yaEnActual = semanasActEnt.includes(currMondayKey)
         || (Array.isArray(ent.diasPlanificados) && ent.diasPlanificados.some((k) => currWeekKeys.has(k)));
       if (yaEnActual) continue;
 

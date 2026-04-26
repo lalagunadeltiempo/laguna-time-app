@@ -44,8 +44,12 @@ export function NotasSection({ notas, nivel, targetId }: Props) {
   }
 
   const isMentorNote = (n: Nota) => n.autor === "Mentor";
-  const canDelete = (n: Nota) => n.autor === currentUser || (isMentor && isMentorNote(n));
-  const canEdit = (n: Nota) => n.autor === currentUser;
+  // Permisos:
+  // - Mentor: solo puede editar/borrar sus propias notas (las de autor "Mentor").
+  // - Cualquier otro usuario (admin del workspace): puede editar/borrar cualquier nota,
+  //   incluidas las del mentor.
+  const canDelete = (n: Nota) => isMentor ? isMentorNote(n) : true;
+  const canEdit = (n: Nota) => isMentor ? isMentorNote(n) : true;
 
   return (
     <div className="mt-2 space-y-1.5">
