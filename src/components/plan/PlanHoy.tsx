@@ -10,7 +10,6 @@ import {
   type Area, type Entregable, type Ambito,
 } from "@/lib/types";
 import { ResponsableToggle, type ResponsableFilter } from "./PlanMes";
-import { daysBetweenKeys, addDaysToKey } from "@/lib/date-utils";
 import { EntregableActivoCard } from "../EntregableActivo";
 
 function addDays(d: Date, n: number) { const r = new Date(d); r.setDate(r.getDate() + n); return r; }
@@ -186,10 +185,8 @@ export function PlanHoy({ selectedDate }: Props) {
     return ids;
   }, [executedBlocks]);
 
-  const { plannedPrincipal, plannedArrastrado } = useMemo(() => {
-    if (isPast && !isToday) {
-      return { plannedPrincipal: [] as Block[], plannedArrastrado: [] as Block[] };
-    }
+  const plannedPrincipal = useMemo(() => {
+    if (isPast && !isToday) return [] as Block[];
     const toBlock = (b: typeof hookPlanned[number]): Block => ({
       ...b,
       type: "programado" as const,
@@ -211,17 +208,18 @@ export function PlanHoy({ selectedDate }: Props) {
       const entB = b.entregableNombre ?? "";
       return entA.localeCompare(entB);
     };
+    // Antes separábamos los "arrastrados" (origen != "hoy") en su propia
+    // sección. La revisión semanal ya cubre eso (trimestre → mes → semana →
+    // hoy), así que aquí los unificamos con los planificados de hoy. Para
+    // navegar a otros días sigue funcionando el selector de fecha de la
+    // pantalla, que carga su propio plan/horario.
     const principal: Block[] = [];
-    const arrastrado: Block[] = [];
     for (const hb of hookPlanned) {
       if (hb.entregableId && entregablesEnHorario.has(hb.entregableId)) continue;
-      const block = toBlock(hb);
-      if (hb.origen === "arrastrado") arrastrado.push(block);
-      else principal.push(block);
+      principal.push(toBlock(hb));
     }
     principal.sort(cmp);
-    arrastrado.sort(cmp);
-    return { plannedPrincipal: principal, plannedArrastrado: arrastrado };
+    return principal;
   }, [hookPlanned, isPast, isToday, entregablesEnHorario]);
 
   /**
@@ -270,93 +268,9 @@ export function PlanHoy({ selectedDate }: Props) {
   const hasPlanned = plannedFoco.length > 0;
   const plannedCount = plannedFoco.length;
   const otrosCount = plannedOtros.length;
-  const arrastradoCount = plannedArrastrado.length;
   const [planOpen, setPlanOpen] = useState(true);
-  const [arrastradoOpen, setArrastradoOpen] = useState(false);
-  const [fechaPickerFor, setFechaPickerFor] = useState<string | null>(null);
-  const [confirmDeleteFor, setConfirmDeleteFor] = useState<string | null>(null);
   const [otrosOpen, setOtrosOpen] = useState(false);
   const [showFocoPicker, setShowFocoPicker] = useState(false);
-
-  const arrastradoGrupos = useMemo(() => {
-    const map = new Map<string, { proyectoId: string; proyectoNombre: string; hex: string; items: Block[] }>();
-    for (const b of plannedArrastrado) {
-      const key = b.proyectoId ?? "sin-proyecto";
-      const existing = map.get(key);
-      const hex = b.hex ?? AREA_COLORS[b.area]?.hex ?? "#888";
-      if (existing) {
-        existing.items.push(b);
-      } else {
-        map.set(key, {
-          proyectoId: key,
-          proyectoNombre: b.proyectoNombre ?? "Sin proyecto",
-          hex,
-          items: [b],
-        });
-      }
-    }
-    return Array.from(map.values()).sort((a, b) => b.items.length - a.items.length);
-  }, [plannedArrastrado]);
-
-  function planificarHoy(block: Block) {
-    if (block.id.startsWith("next-") && block.pasoId) {
-      dispatch({ type: "RESCHEDULE_NEXT_PASO", pasoId: block.pasoId, newDate: dateKey });
-      return;
-    }
-    if (!block.entregableId) return;
-    dispatch({
-      type: "UPDATE_ENTREGABLE",
-      id: block.entregableId,
-      changes: { fechaInicio: dateKey, planNivel: "dia" },
-    });
-  }
-
-  function posponerManana(block: Block) {
-    const d = new Date(dateKey + "T12:00:00");
-    d.setDate(d.getDate() + 1);
-    const manana = toDateKey(d);
-    if (block.id.startsWith("next-") && block.pasoId) {
-      dispatch({ type: "RESCHEDULE_NEXT_PASO", pasoId: block.pasoId, newDate: manana });
-      return;
-    }
-    if (!block.entregableId) return;
-    dispatch({
-      type: "UPDATE_ENTREGABLE",
-      id: block.entregableId,
-      changes: { fechaInicio: manana, planNivel: "dia" },
-    });
-  }
-
-  function ponerEnEspera(block: Block) {
-    if (!block.entregableId) return;
-    dispatch({
-      type: "UPDATE_ENTREGABLE",
-      id: block.entregableId,
-      changes: { estado: "en_espera" },
-    });
-  }
-
-  function reprogramar(block: Block, nuevaFechaInicio: string) {
-    if (!block.entregableId) return;
-    const ent = state.entregables.find((e) => e.id === block.entregableId);
-    if (!ent) return;
-    const changes: Partial<Entregable> = { fechaInicio: nuevaFechaInicio, planNivel: "dia" };
-    if (ent.fechaInicio && ent.fechaLimite) {
-      const offsetDias = daysBetweenKeys(ent.fechaInicio, nuevaFechaInicio);
-      changes.fechaLimite = addDaysToKey(ent.fechaLimite, offsetDias);
-    }
-    dispatch({ type: "UPDATE_ENTREGABLE", id: block.entregableId, changes });
-    if (block.id.startsWith("next-") && block.pasoId) {
-      dispatch({ type: "RESCHEDULE_NEXT_PASO", pasoId: block.pasoId, newDate: nuevaFechaInicio });
-    }
-    setFechaPickerFor(null);
-  }
-
-  function eliminar(block: Block) {
-    if (!block.entregableId) return;
-    dispatch({ type: "DELETE_ENTREGABLE", id: block.entregableId });
-    setConfirmDeleteFor(null);
-  }
 
   return (
     <div className="flex-1 space-y-4">
@@ -417,7 +331,7 @@ export function PlanHoy({ selectedDate }: Props) {
             </div>
           </div>
 
-          {planOpen && !hasPlanned && arrastradoCount === 0 && otrosCount === 0 && (
+          {planOpen && !hasPlanned && otrosCount === 0 && (
             <p className="py-3 text-center text-xs text-muted">Nada planificado. Usa el botón + para añadir.</p>
           )}
           {planOpen && focoActivo && !hasPlanned && otrosCount > 0 && (
@@ -520,171 +434,6 @@ export function PlanHoy({ selectedDate }: Props) {
             </div>
           )}
 
-          {planOpen && arrastradoCount > 0 && (
-            <div className="mt-3">
-              <button
-                type="button"
-                onClick={() => setArrastradoOpen((v) => !v)}
-                className="flex w-full items-center gap-2 rounded-lg border border-dashed border-border bg-surface/30 px-3 py-2 text-left transition-colors hover:bg-surface/60"
-              >
-                <svg
-                  width="12"
-                  height="12"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="3"
-                  strokeLinecap="round"
-                  className={`shrink-0 text-muted transition-transform ${arrastradoOpen ? "rotate-90" : ""}`}
-                >
-                  <polyline points="9 18 15 12 9 6" />
-                </svg>
-                <div className="min-w-0 flex-1">
-                  <p className="text-[11px] font-semibold uppercase tracking-wider text-muted">
-                    Abierto desde días anteriores ({arrastradoCount})
-                  </p>
-                  <p className="mt-0.5 truncate text-[10px] text-muted/70">
-                    {arrastradoGrupos
-                      .slice(0, 3)
-                      .map((g) => `${g.proyectoNombre} · ${g.items.length}`)
-                      .join("  ·  ")}
-                    {arrastradoGrupos.length > 3 ? `  ·  +${arrastradoGrupos.length - 3}` : ""}
-                  </p>
-                </div>
-              </button>
-              {arrastradoOpen && (
-                <div className="mt-2 space-y-2">
-                  {arrastradoGrupos.map((g) => (
-                    <div key={g.proyectoId} className="rounded-lg border border-border/60 bg-surface/20 p-2">
-                      <div className="mb-1.5 flex items-center gap-2 px-1">
-                        <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: g.hex }} />
-                        <p className="flex-1 truncate text-[10px] font-semibold uppercase tracking-wide" style={{ color: g.hex }}>
-                          {g.proyectoNombre}
-                        </p>
-                        <span className="text-[10px] text-muted">{g.items.length} abiertos</span>
-                      </div>
-                      <div className="space-y-1">
-                        {g.items.map((block) => (
-                          <div
-                            key={block.id}
-                            className="flex flex-wrap items-center gap-1.5 rounded-md border-l-[3px] bg-background px-2 py-1.5"
-                            style={{ borderLeftColor: block.hex ?? g.hex }}
-                          >
-                            {block.entregableId ? (
-                              <button
-                                type="button"
-                                onClick={() => setDetalleEntregableId(block.entregableId!)}
-                                className="min-w-0 flex-1 text-left"
-                                title="Abrir entregable (notas, URLs, pasos…)"
-                              >
-                                <p className="truncate text-[13px] font-medium text-foreground hover:text-accent hover:underline underline-offset-2">
-                                  {block.title}
-                                </p>
-                                {block.entregableNombre && block.entregableNombre !== block.title && (
-                                  <p className="truncate text-[10px] text-muted">{block.entregableNombre}</p>
-                                )}
-                              </button>
-                            ) : (
-                              <div className="min-w-0 flex-1">
-                                <p className="truncate text-[13px] font-medium text-foreground">{block.title}</p>
-                                {block.entregableNombre && block.entregableNombre !== block.title && (
-                                  <p className="truncate text-[10px] text-muted">{block.entregableNombre}</p>
-                                )}
-                              </div>
-                            )}
-                            {!isMentor && (
-                              <>
-                                {block.entregableId && (
-                                  <button
-                                    onClick={() => setDetalleEntregableId(block.entregableId!)}
-                                    className="flex items-center gap-1 rounded border border-border bg-background px-1.5 py-0.5 text-[10px] font-medium text-foreground transition-colors hover:border-accent hover:text-accent"
-                                    title="Abrir entregable (notas, URLs, pasos…)"
-                                  >
-                                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                                      <path d="M14 3h7v7" />
-                                      <path d="M10 14 21 3" />
-                                      <path d="M21 14v5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5" />
-                                    </svg>
-                                    Abrir
-                                  </button>
-                                )}
-                                <button
-                                  onClick={() => planificarHoy(block)}
-                                  className="rounded border border-border bg-surface px-1.5 py-0.5 text-[10px] font-medium text-foreground transition-colors hover:bg-accent-soft hover:text-accent"
-                                  title="Fijar hoy como fecha de inicio"
-                                >
-                                  Hoy
-                                </button>
-                                <button
-                                  onClick={() => posponerManana(block)}
-                                  className="rounded border border-border bg-surface px-1.5 py-0.5 text-[10px] font-medium text-foreground transition-colors hover:bg-accent-soft hover:text-accent"
-                                  title="Mover la fecha de inicio a mañana"
-                                >
-                                  Mañana
-                                </button>
-                                {fechaPickerFor === block.id ? (
-                                  <input
-                                    type="date"
-                                    autoFocus
-                                    defaultValue={todayKey}
-                                    onBlur={() => setFechaPickerFor(null)}
-                                    onChange={(e) => {
-                                      const v = e.target.value;
-                                      if (v) reprogramar(block, v);
-                                    }}
-                                    className="rounded border border-border bg-surface px-1 py-0.5 text-[10px]"
-                                  />
-                                ) : (
-                                  <button
-                                    onClick={() => setFechaPickerFor(block.id)}
-                                    className="rounded border border-border bg-surface px-1.5 py-0.5 text-[10px] font-medium text-foreground transition-colors hover:bg-accent-soft hover:text-accent"
-                                    title="Reprogramar a otra fecha (mueve inicio y fin)"
-                                  >
-                                    Fecha…
-                                  </button>
-                                )}
-                                <button
-                                  onClick={() => ponerEnEspera(block)}
-                                  className="rounded border border-border bg-surface px-1.5 py-0.5 text-[10px] font-medium text-foreground transition-colors hover:bg-amber-100 hover:text-amber-700"
-                                  title="Marcar como en_espera para que deje de aparecer"
-                                >
-                                  En espera
-                                </button>
-                                {confirmDeleteFor === block.id ? (
-                                  <>
-                                    <button
-                                      onClick={() => eliminar(block)}
-                                      className="rounded border border-red-300 bg-red-50 px-1.5 py-0.5 text-[10px] font-semibold text-red-700 hover:bg-red-100"
-                                    >
-                                      ¿Eliminar?
-                                    </button>
-                                    <button
-                                      onClick={() => setConfirmDeleteFor(null)}
-                                      className="rounded border border-border bg-surface px-1.5 py-0.5 text-[10px] text-muted hover:bg-accent-soft"
-                                    >
-                                      No
-                                    </button>
-                                  </>
-                                ) : (
-                                  <button
-                                    onClick={() => setConfirmDeleteFor(block.id)}
-                                    className="rounded border border-border bg-surface px-1.5 py-0.5 text-[10px] font-medium text-foreground transition-colors hover:bg-red-50 hover:text-red-700"
-                                    title="Eliminar este entregable"
-                                  >
-                                    Eliminar
-                                  </button>
-                                )}
-                              </>
-                            )}
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
         </div>
       )}
 

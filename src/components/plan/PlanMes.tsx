@@ -206,16 +206,8 @@ export function PlanMes({ selectedDate }: Props) {
         </div>
       </div>
 
-      {/* Gantt del mes */}
-      {ganttProjects.length > 0 && (
-        <section className="mb-6">
-          <h3 className="mb-2 text-xs font-bold uppercase tracking-widest text-muted">Gantt</h3>
-          <GanttMultiProyecto projects={ganttProjects} hoy={hoy} selectedDate={selectedDate} editable={!isMentor} />
-        </section>
-      )}
-
       {/* Semanas del mes */}
-      <section>
+      <section className="mb-6">
         <h3 className="mb-3 text-xs font-bold uppercase tracking-widest text-muted">Semanas del mes</h3>
 
         {totalResultados === 0 ? (
@@ -275,6 +267,14 @@ export function PlanMes({ selectedDate }: Props) {
           </div>
         )}
       </section>
+
+      {/* Gantt del mes */}
+      {ganttProjects.length > 0 && (
+        <section>
+          <h3 className="mb-2 text-xs font-bold uppercase tracking-widest text-muted">Gantt</h3>
+          <GanttMultiProyecto projects={ganttProjects} hoy={hoy} selectedDate={selectedDate} editable={!isMentor} />
+        </section>
+      )}
     </div>
   );
 }
