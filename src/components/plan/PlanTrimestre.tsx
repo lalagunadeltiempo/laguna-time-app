@@ -375,6 +375,7 @@ function ProjectCard({ node, qMonthKeys, currentMesKey, isMentor, backlogStyle }
             value={node.proyecto.nombre}
             onSave={(nombre) => dispatch({ type: "UPDATE_PROYECTO", id: node.proyecto.id, changes: { nombre } })}
             disabled={isMentor}
+            wrap
             className="line-clamp-2 break-words text-xs font-semibold leading-tight text-foreground"
             inputClassName="text-xs font-semibold text-foreground"
           />
@@ -488,6 +489,7 @@ function ResultadoRow({ resultado, entregables, qMonthKeys, isMentor, hex, miemb
             value={resultado.nombre}
             onSave={(nombre) => dispatch({ type: "UPDATE_RESULTADO", id: resultado.id, changes: { nombre } })}
             disabled={isMentor}
+            wrap
             className="line-clamp-2 break-words text-[11px] font-semibold leading-tight text-foreground"
             inputClassName="text-[11px] font-semibold text-foreground"
           />
@@ -551,6 +553,7 @@ function EntregableRowTrimestre({ ent, qMonthKeys, isMentor }: {
           value={ent.nombre}
           onSave={(nombre) => dispatch({ type: "UPDATE_ENTREGABLE", id: ent.id, changes: { nombre } })}
           disabled={isMentor}
+          wrap
           className={`line-clamp-2 break-words text-[10px] leading-tight ${ent.estado === "hecho" ? "text-muted line-through" : "text-muted"}`}
           inputClassName="text-[10px] text-foreground"
         />

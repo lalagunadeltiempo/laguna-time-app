@@ -14,6 +14,7 @@ export function InlineNombre({
   inputClassName = "",
   placeholder,
   disabled = false,
+  wrap = false,
 }: {
   value: string;
   onSave: (next: string) => void;
@@ -21,6 +22,10 @@ export function InlineNombre({
   inputClassName?: string;
   placeholder?: string;
   disabled?: boolean;
+  /** Si es true, el botón no aplica `truncate`. El padre puede entonces
+   *  envolver el texto con `line-clamp-N break-words` etc. Por defecto se
+   *  mantiene el comportamiento histórico (una sola línea con `…`). */
+  wrap?: boolean;
 }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(value);
@@ -37,11 +42,14 @@ export function InlineNombre({
   }
 
   if (!editing) {
+    const baseClass = wrap
+      ? "block w-full rounded text-left hover:bg-surface/60"
+      : "block w-full truncate rounded text-left hover:bg-surface/60";
     return (
       <button
         type="button"
         onClick={(e) => { e.stopPropagation(); setDraft(value); setEditing(true); }}
-        className={`block w-full truncate rounded text-left hover:bg-surface/60 ${className}`}
+        className={`${baseClass} ${className}`}
         title="Editar nombre"
       >
         {value || <span className="text-muted italic">{placeholder ?? "Sin nombre"}</span>}
