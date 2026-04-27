@@ -115,6 +115,8 @@ export function EntregableActivoCard({ entregable, mode = "trabajo" }: Props) {
 
   const [expanded, setExpanded] = useState(isDetalle);
   const [showCloseOptions, setShowCloseOptions] = useState(false);
+  const [showEsperaPicker, setShowEsperaPicker] = useState(false);
+  const [esperaExternoDraft, setEsperaExternoDraft] = useState("");
   const [showAddExterno, setShowAddExterno] = useState(false);
   const [externoNombre, setExternoNombre] = useState("");
   const [newContactoEmail, setNewContactoEmail] = useState("");
@@ -223,25 +225,42 @@ export function EntregableActivoCard({ entregable, mode = "trabajo" }: Props) {
     ? Math.round((pasosHechos / pasosTotales) * 100)
     : Math.min(100, (entregable.diasHechos / Math.max(1, entregable.diasEstimados)) * 100);
 
-  function handleContinuarManana() {
+  function handleCerrarSesionHoy() {
+    // Cierra la sesión activa y oculta el entregable de HOY operativo el resto
+    // del día. NO toca la planificación: si mañana sigue planificado en el
+    // calendario semanal, volverá a aparecer; si no, se planifica desde
+    // Plan Mapa/Trimestre/Mes/Semana.
     dispatch({ type: "END_ENTREGABLE_SESION", id: entregable.id });
-    const now = new Date();
-    const hoy = toDateKey(now);
-    const manana = new Date(now);
-    manana.setDate(now.getDate() + 1);
-    const mananaKey = toDateKey(manana);
-    // "Continuar mañana" ajusta la planificación PERSONAL del usuario actual.
-    const dias = entregable.diasPlanificadosByUser?.[currentUser] ?? [];
-    const yaTieneManana = dias.includes(mananaKey);
-    if (!yaTieneManana) {
-      dispatch({ type: "TOGGLE_ENTREGABLE_DIA", id: entregable.id, dateKey: mananaKey, usuario: currentUser });
-    }
+    const hoy = toDateKey(new Date());
     dispatch({ type: "OCULTAR_ENTREGABLE_HASTA", id: entregable.id, hasta: hoy });
     setShowCloseOptions(false);
   }
   function handleFinalizar() {
     dispatch({ type: "FINISH_ENTREGABLE", id: entregable.id });
     setShowCloseOptions(false);
+    setShowEsperaPicker(false);
+  }
+  function handleEnEsperaMiembro(nombre: string) {
+    dispatch({
+      type: "SET_ENTREGABLE_EN_ESPERA",
+      id: entregable.id,
+      enEsperaDe: { tipo: "equipo", nombre },
+    });
+    setShowEsperaPicker(false);
+    setShowCloseOptions(false);
+    setEsperaExternoDraft("");
+  }
+  function handleEnEsperaExterno() {
+    const nombre = esperaExternoDraft.trim();
+    if (!nombre) return;
+    dispatch({
+      type: "SET_ENTREGABLE_EN_ESPERA",
+      id: entregable.id,
+      enEsperaDe: { tipo: "externo", nombre },
+    });
+    setShowEsperaPicker(false);
+    setShowCloseOptions(false);
+    setEsperaExternoDraft("");
   }
   function handleDescartarSesion() {
     dispatch({ type: "DISCARD_ENTREGABLE_SESION", id: entregable.id });
@@ -641,11 +660,11 @@ export function EntregableActivoCard({ entregable, mode = "trabajo" }: Props) {
             ) : (
               <div className="space-y-2 rounded-xl border-2 p-3" style={{ borderColor: `${borderColor}40`, backgroundColor: `${borderColor}08` }}>
                 <button
-                  onClick={handleContinuarManana}
+                  onClick={handleCerrarSesionHoy}
                   className="w-full rounded-lg py-2 text-xs font-semibold text-white"
                   style={{ backgroundColor: borderColor }}
                 >
-                  Continuar mañana (cerrar por hoy)
+                  Cerrar sesión de hoy
                 </button>
                 <button
                   onClick={handleFinalizar}
@@ -654,7 +673,64 @@ export function EntregableActivoCard({ entregable, mode = "trabajo" }: Props) {
                 >
                   Entregable completado
                 </button>
-                <button onClick={() => setShowCloseOptions(false)} className="w-full text-center text-[11px] text-zinc-400 hover:text-zinc-600 py-1">
+                {!showEsperaPicker ? (
+                  <button
+                    onClick={() => setShowEsperaPicker(true)}
+                    className="w-full rounded-lg border-2 border-dashed py-2 text-xs font-medium text-zinc-600 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-800"
+                    style={{ borderColor: `${borderColor}60` }}
+                  >
+                    En espera de…
+                  </button>
+                ) : (
+                  <div className="space-y-2 rounded-lg border-2 border-dashed p-2" style={{ borderColor: `${borderColor}60`, backgroundColor: "white" }}>
+                    <p className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
+                      ¿De quién esperas respuesta?
+                    </p>
+                    <p className="text-[10px] text-zinc-500 dark:text-zinc-400">Miembro del equipo</p>
+                    <div className="flex flex-wrap gap-1">
+                      {state.miembros.map((mb) => (
+                        <button
+                          key={mb.id}
+                          type="button"
+                          onClick={() => handleEnEsperaMiembro(mb.nombre)}
+                          className="rounded-md border border-zinc-200 px-2 py-1 text-[10px] font-medium text-zinc-600 transition-all hover:border-violet-400 hover:bg-violet-50 hover:text-violet-700 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-violet-500/10"
+                        >
+                          {mb.nombre}
+                        </button>
+                      ))}
+                    </div>
+                    <p className="text-[10px] text-zinc-500 dark:text-zinc-400 pt-1">o escribe un externo</p>
+                    <div className="flex items-center gap-1">
+                      <input
+                        type="text"
+                        value={esperaExternoDraft}
+                        onChange={(e) => setEsperaExternoDraft(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") { e.preventDefault(); handleEnEsperaExterno(); }
+                          if (e.key === "Escape") setShowEsperaPicker(false);
+                        }}
+                        placeholder="Cliente, proveedor…"
+                        className="flex-1 rounded border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 px-1.5 py-1 text-[11px] focus:outline-none text-zinc-800 dark:text-zinc-200"
+                      />
+                      <button
+                        type="button"
+                        onClick={handleEnEsperaExterno}
+                        disabled={!esperaExternoDraft.trim()}
+                        className="rounded bg-violet-500 px-2 py-1 text-[10px] font-medium text-white hover:bg-violet-600 disabled:opacity-40"
+                      >
+                        Marcar
+                      </button>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => { setShowEsperaPicker(false); setEsperaExternoDraft(""); }}
+                      className="w-full text-center text-[10px] text-zinc-400 hover:text-zinc-600 py-1"
+                    >
+                      Cancelar
+                    </button>
+                  </div>
+                )}
+                <button onClick={() => { setShowCloseOptions(false); setShowEsperaPicker(false); setEsperaExternoDraft(""); }} className="w-full text-center text-[11px] text-zinc-400 hover:text-zinc-600 py-1">
                   Cancelar
                 </button>
               </div>

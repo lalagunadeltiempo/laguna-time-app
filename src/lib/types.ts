@@ -186,6 +186,16 @@ export interface Entregable {
   /** Hora planificada para empezar HOY (ISO) por miembro. Igual que `diasPlanificadosByUser`,
    *  cada miembro fija su propia hora sin pisar la del resto. */
   planInicioTsByUser?: Record<string, string | null>;
+  /** Persona/entidad de la que se espera respuesta para reabrir el entregable.
+   *  Si es `tipo: "equipo"`, ese miembro verá el entregable en su panel
+   *  "En espera de…" en Plan Semana (alguien le está esperando). Si es
+   *  `tipo: "externo"`, queda como recordatorio para el responsable.
+   *  Combinado con `estado: "en_espera"`. Al programar un día (chips L/M/X/J/V/S/D)
+   *  o una semana en el entregable, se considera reabierto automáticamente:
+   *  el reducer pasa el estado a `planificado` y limpia este campo. */
+  enEsperaDe?: { tipo: "equipo" | "externo"; nombre: string } | null;
+  /** ISO timestamp de cuándo se marcó "en espera". Informativo. */
+  enEsperaDesde?: string | null;
 }
 
 /** Sesión de trabajo sobre un entregable: cronómetro + pausas. */

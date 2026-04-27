@@ -52,6 +52,10 @@ export type Action =
   | { type: "END_ENTREGABLE_SESION"; id: string; ts?: string }
   | { type: "FINISH_ENTREGABLE"; id: string; ts?: string }
   | { type: "DISCARD_ENTREGABLE_SESION"; id: string }
+  /** Marca un entregable como "en espera de…" (cierra cualquier sesión abierta) o lo
+   *  reabre (`enEsperaDe = null`). Al reabrir manualmente vuelve a `planificado`.
+   *  El reducer también auto-reabre cuando se añade un día/semana en chips. */
+  | { type: "SET_ENTREGABLE_EN_ESPERA"; id: string; enEsperaDe: { tipo: "equipo" | "externo"; nombre: string } | null; ts?: string }
   | { type: "APPEND_SESION_ENTREGABLE"; id: string; inicioTs: string; finTs: string }
   /** Edita los timestamps de una sesión concreta (por índice).
    *  - `inicioTs` se actualiza siempre.
@@ -579,6 +583,43 @@ export function reducer(state: AppState, action: Action): AppState {
       };
     }
 
+    case "SET_ENTREGABLE_EN_ESPERA": {
+      const ts = action.ts ?? new Date().toISOString();
+      return {
+        ...state,
+        entregables: state.entregables.map((e) => {
+          if (e.id !== action.id) return e;
+          if (action.enEsperaDe) {
+            // Cerramos cualquier sesión abierta (similar a END_ENTREGABLE_SESION).
+            const sesiones = Array.isArray(e.sesiones) ? [...e.sesiones] : [];
+            const idx = sesiones.map((s, i) => ({ s, i })).reverse().find(({ s }) => s.finTs === null)?.i;
+            if (idx !== undefined) {
+              const ses = sesiones[idx];
+              const pausas = Array.isArray(ses.pausas)
+                ? ses.pausas.map((p) => p.resumeTs === null ? { ...p, resumeTs: ts } : p)
+                : [];
+              sesiones[idx] = { ...ses, finTs: ts, pausas };
+            }
+            return {
+              ...e,
+              estado: "en_espera",
+              enEsperaDe: action.enEsperaDe,
+              enEsperaDesde: ts,
+              sesiones,
+              ocultoHasta: null,
+            };
+          }
+          // Reabrir manualmente: volvemos a planificado limpiando los marcadores.
+          return {
+            ...e,
+            estado: e.estado === "en_espera" ? "planificado" : e.estado,
+            enEsperaDe: null,
+            enEsperaDesde: null,
+          };
+        }),
+      };
+    }
+
     case "APPEND_SESION_ENTREGABLE": {
       const { id, inicioTs, finTs } = action;
       if (!inicioTs || !finTs) return state;
@@ -718,6 +759,10 @@ export function reducer(state: AppState, action: Action): AppState {
         ? { ...planByUser, [usuario]: null }
         : planByUser;
 
+      // Auto-reabrir si el entregable estaba "en espera" y se está AÑADIENDO un día.
+      const reabrir = !has && ent.estado === "en_espera";
+      const newEstado = reabrir ? "planificado" : ent.estado;
+
       let nextState: AppState = {
         ...state,
         entregables: state.entregables.map((e) => e.id === action.id
@@ -727,6 +772,9 @@ export function reducer(state: AppState, action: Action): AppState {
               semana: newSemana,
               semanasActivas: semanasNext,
               planInicioTsByUser,
+              estado: newEstado,
+              enEsperaDe: reabrir ? null : e.enEsperaDe,
+              enEsperaDesde: reabrir ? null : e.enEsperaDesde,
             }
           : e),
       };
@@ -788,6 +836,10 @@ export function reducer(state: AppState, action: Action): AppState {
         ? (next.length > 0 ? next[0] : null)
         : (ent.semana ?? action.semana);
 
+      // Auto-reabrir si el entregable estaba "en espera" y se está AÑADIENDO una semana.
+      const reabrirSemana = !has && ent.estado === "en_espera";
+      const newEstadoSemana = reabrirSemana ? "planificado" : ent.estado;
+
       let nextState: AppState = {
         ...state,
         entregables: state.entregables.map((e) => e.id === action.id
@@ -797,6 +849,9 @@ export function reducer(state: AppState, action: Action): AppState {
               diasPlanificados: diasFiltrados,
               diasPlanificadosByUser: diasPlanificadosByUserNext,
               semana: nuevoSemanaLegado,
+              estado: newEstadoSemana,
+              enEsperaDe: reabrirSemana ? null : e.enEsperaDe,
+              enEsperaDesde: reabrirSemana ? null : e.enEsperaDesde,
             }
           : e),
       };

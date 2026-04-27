@@ -107,6 +107,9 @@ export function PlanSemana({ selectedDate, onOpenInMapa }: Props) {
     for (const ent of state.entregables) {
       if (ent.estado === "cancelada") continue;
       if (ent.estado === "hecho" && !showDone) continue;
+      // Los entregables "en espera" se agrupan en su propio panel arriba; no
+      // los pintamos en el calendario para no duplicar.
+      if (ent.estado === "en_espera") continue;
       const r = checkTarget(ent.id, ent.responsable);
       if (!r.incluir) continue;
       const pasoDeTargetEnt = r.pasoDeTarget;
@@ -186,6 +189,7 @@ export function PlanSemana({ selectedDate, onOpenInMapa }: Props) {
     for (const ent of state.entregables) {
       if (ent.estado === "cancelada") continue;
       if (ent.estado === "hecho" && !showDone) continue;
+      if (ent.estado === "en_espera") continue;
       const sesionCheck = checkTarget(ent.id, ent.responsable);
       if (!sesionCheck.incluir) continue;
       const pasoDeTargetSesion = sesionCheck.pasoDeTarget;
@@ -250,6 +254,8 @@ export function PlanSemana({ selectedDate, onOpenInMapa }: Props) {
     const out: { ent: Entregable; hex: string; subtitulo: string; proyectoId?: string; pasoDeTarget: boolean }[] = [];
     for (const ent of state.entregables) {
       if (ent.estado === "cancelada" || ent.estado === "hecho") continue;
+      // En espera tiene su propio panel; no aparece en "sin día".
+      if (ent.estado === "en_espera") continue;
       let pasoDeTargetEnt = false;
       if (targetUser !== null) {
         if (ent.responsable === targetUser) {
@@ -303,6 +309,58 @@ export function PlanSemana({ selectedDate, onOpenInMapa }: Props) {
     return out;
   }, [state, weekDates, targetUser, filtro, blocks]);
 
+  /**
+   * Entregables marcados como "en espera de…" que afectan al usuario objetivo.
+   * Dos categorías:
+   *  - "esperas": entregables donde el target es responsable (o tiene paso) y
+   *    él mismo los marcó "en espera" → está esperando respuesta de alguien.
+   *  - "te-esperan": entregables marcados "en espera" cuyo destinatario
+   *    `enEsperaDe.nombre` es el target → otro miembro le está esperando a él.
+   *
+   * Aparecen siempre, tengan o no chips en esta semana: si ya están programados
+   * el chip se muestra activo y se puede reprogramar.
+   */
+  const enEspera = useMemo(() => {
+    const out: { ent: Entregable; hex: string; subtitulo: string; categoria: "esperas" | "te-esperan"; quien: string; quienTipo: "equipo" | "externo" }[] = [];
+    for (const ent of state.entregables) {
+      if (ent.estado !== "en_espera") continue;
+      if (!ent.enEsperaDe) continue;
+      const res = state.resultados.find((r) => r.id === ent.resultadoId);
+      const proj = res ? state.proyectos.find((p) => p.id === res.proyectoId) : undefined;
+      if (!proj) continue;
+      if ((proj.estado ?? "plan") === "completado" || (proj.estado ?? "plan") === "pausado") continue;
+      if (filtro !== "todo" && ambitoDeArea(proj.area) !== filtro) continue;
+
+      const target = targetUser ?? currentUser;
+      const esResponsable = ent.responsable === target;
+      const tienePaso = !esResponsable && state.pasos.some(
+        (p) => p.entregableId === ent.id && p.responsable === target,
+      );
+      const teEsperan = ent.enEsperaDe.tipo === "equipo" && ent.enEsperaDe.nombre === target;
+
+      let categoria: "esperas" | "te-esperan" | null = null;
+      if (esResponsable || tienePaso) categoria = "esperas";
+      if (teEsperan) categoria = "te-esperan";
+      if (!categoria) continue;
+
+      out.push({
+        ent,
+        hex: AREA_COLORS[proj.area]?.hex ?? "#888",
+        subtitulo: subtituloEntregable(ent, state),
+        categoria,
+        quien: ent.enEsperaDe.nombre,
+        quienTipo: ent.enEsperaDe.tipo,
+      });
+    }
+    out.sort((a, b) => {
+      if (a.categoria !== b.categoria) {
+        return a.categoria === "te-esperan" ? -1 : 1;
+      }
+      return a.ent.nombre.localeCompare(b.ent.nombre);
+    });
+    return out;
+  }, [state, targetUser, currentUser, filtro]);
+
   // Pendientes de la semana anterior (no completados ni cancelados) que
   // todavía no tienen presencia en la semana actual.
   const carryOverCandidates = useMemo(() => {
@@ -322,6 +380,8 @@ export function PlanSemana({ selectedDate, onOpenInMapa }: Props) {
     const out: { ent: Entregable; subtitulo: string; hex: string; pasoDeTarget: boolean }[] = [];
     for (const ent of state.entregables) {
       if (ent.estado === "cancelada" || ent.estado === "hecho") continue;
+      // Los "en espera" no se arrastran como pendientes: tienen panel propio.
+      if (ent.estado === "en_espera") continue;
       let pasoDeTargetEnt = false;
       if (targetUser !== null) {
         if (ent.responsable === targetUser) {
@@ -386,6 +446,9 @@ export function PlanSemana({ selectedDate, onOpenInMapa }: Props) {
   const pendientesByProject = useMemo(() => {
     const items = state.entregables.filter((e) => {
       if (e.estado === "hecho" || e.estado === "cancelada") return false;
+      // Los "en espera" se reabren desde su panel propio (al marcar un chip),
+      // no desde este picker generalista.
+      if (e.estado === "en_espera") return false;
       if (targetUser === null) return true;
       if (e.responsable === targetUser) return true;
       // sin responsable también se puede planificar desde el picker; queda libre
@@ -590,6 +653,46 @@ export function PlanSemana({ selectedDate, onOpenInMapa }: Props) {
                     {pasoDeTarget && <span className="ml-1.5 rounded bg-amber-100 px-1.5 py-0.5 text-[9px] font-semibold uppercase text-amber-700 dark:bg-amber-500/20 dark:text-amber-300">{pasoBadgeLabel}</span>}
                   </p>
                   <p className="truncate text-[10px]" style={{ color: hex + "c0" }}>{subtitulo}</p>
+                </div>
+                <WeekDayChips
+                  weekDates={weekDates}
+                  selectedKeys={ent.diasPlanificadosByUser?.[editUsuario] ?? []}
+                  onToggle={(k) => dispatch({ type: "TOGGLE_ENTREGABLE_DIA", id: ent.id, dateKey: k, usuario: editUsuario })}
+                />
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Listado de entregables EN ESPERA */}
+      {!isMentor && enEspera.length > 0 && (
+        <div className="mb-3 rounded-xl border border-violet-300 bg-violet-50 p-3 dark:border-violet-500/30 dark:bg-violet-500/10">
+          <p className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-violet-700 dark:text-violet-300">
+            En espera de respuesta ({enEspera.length})
+          </p>
+          <div className="space-y-1.5">
+            {enEspera.map(({ ent, hex, subtitulo, categoria, quien, quienTipo }) => (
+              <div key={`espera-${ent.id}`} className="flex flex-wrap items-center gap-2 rounded-lg border-l-[3px] bg-background px-2 py-1.5"
+                style={{ borderLeftColor: hex }}>
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-xs font-medium text-foreground">
+                    {ent.nombre}
+                    {categoria === "te-esperan" ? (
+                      <span className="ml-1.5 rounded bg-violet-200 px-1.5 py-0.5 text-[9px] font-semibold uppercase text-violet-800 dark:bg-violet-500/30 dark:text-violet-200">
+                        Te esperan
+                      </span>
+                    ) : (
+                      <span className="ml-1.5 rounded bg-zinc-200 px-1.5 py-0.5 text-[9px] font-semibold uppercase text-zinc-700 dark:bg-zinc-700 dark:text-zinc-300">
+                        Esperando {quienTipo === "externo" ? "externo" : ""}
+                      </span>
+                    )}
+                  </p>
+                  <p className="truncate text-[10px]" style={{ color: hex + "c0" }}>
+                    {categoria === "te-esperan"
+                      ? <>Esperan tu respuesta · {subtitulo}</>
+                      : <>Esperando a <span className="font-semibold">{quien}</span> · {subtitulo}</>}
+                  </p>
                 </div>
                 <WeekDayChips
                   weekDates={weekDates}
