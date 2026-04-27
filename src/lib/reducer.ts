@@ -140,7 +140,7 @@ export type Action =
   | { type: "REORDER_PASO"; id: string; direction: "up" | "down" }
   | { type: "ADD_NOTA"; nivel: "paso" | "entregable" | "resultado" | "proyecto" | "plantilla"; targetId: string; nota: Nota }
   | { type: "DELETE_NOTA"; nivel: "paso" | "entregable" | "resultado" | "proyecto" | "plantilla"; targetId: string; notaId: string }
-  | { type: "UPDATE_NOTA"; nivel: "paso" | "entregable" | "resultado" | "proyecto" | "plantilla"; targetId: string; notaId: string; texto: string }
+  | { type: "UPDATE_NOTA"; nivel: "paso" | "entregable" | "resultado" | "proyecto" | "plantilla"; targetId: string; notaId: string; changes: Partial<Pick<Nota, "texto" | "titulo">> }
   | { type: "CONVERT_ENTREGABLE_TO_SOP"; entregableId: string }
   | { type: "SYNC_ENTREGABLE_TO_PLANTILLA"; entregableId: string }
   | { type: "LOG_ACTIVITY"; entry: ActivityEntry }
@@ -1345,8 +1345,8 @@ export function reducer(state: AppState, action: Action): AppState {
     }
 
     case "UPDATE_NOTA": {
-      const { nivel: nv, targetId: tid, notaId: nid, texto } = action;
-      const mapNota = (notas: Nota[]) => notas.map((n) => n.id === nid ? { ...n, texto } : n);
+      const { nivel: nv, targetId: tid, notaId: nid, changes } = action;
+      const mapNota = (notas: Nota[]) => notas.map((n) => n.id === nid ? { ...n, ...changes } : n);
       if (nv === "paso") return { ...state, pasos: state.pasos.map((p) => p.id === tid ? { ...p, notas: mapNota(p.notas ?? []) } : p) };
       if (nv === "entregable") return { ...state, entregables: state.entregables.map((e) => e.id === tid ? { ...e, notas: mapNota(e.notas ?? []) } : e) };
       if (nv === "resultado") return { ...state, resultados: state.resultados.map((r) => r.id === tid ? { ...r, notas: mapNota(r.notas ?? []) } : r) };

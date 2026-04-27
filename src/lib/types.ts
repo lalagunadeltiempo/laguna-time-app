@@ -64,6 +64,10 @@ export const EQUIPO_DEFAULT: MiembroInfo[] = [
 
 export interface Nota {
   id: string;
+  /** Título opcional. Cuando está, se muestra como cabecera de la nota colapsada. */
+  titulo?: string;
+  /** Cuerpo de la nota. Markdown ligero: **bold**, *italic*, # H1, ## H2, ### H3,
+   *  listas con "- ", links [texto](url). El render se hace en MarkdownView. */
   texto: string;
   autor: string;
   creadoTs: string;
