@@ -69,6 +69,23 @@ export function PlanSemana({ selectedDate, onOpenInMapa }: Props) {
     catch { /* noop */ }
   }, []);
 
+  // Estado de plegado del panel "Proyectos de la semana" (persistido).
+  const [proyectosOpen, setProyectosOpen] = useState<boolean>(true);
+  useEffect(() => {
+    try {
+      const v = localStorage.getItem("laguna-proyectos-semana-collapsed");
+      if (v === "1") setProyectosOpen(false);
+    } catch { /* noop */ }
+  }, []);
+  function toggleProyectosOpen() {
+    setProyectosOpen((prev) => {
+      const next = !prev;
+      try { localStorage.setItem("laguna-proyectos-semana-collapsed", next ? "0" : "1"); }
+      catch { /* noop */ }
+      return next;
+    });
+  }
+
   const [todayKey, setTodayKey] = useState(() => toDateKey(new Date()));
   useEffect(() => {
     const id = setInterval(() => {
@@ -361,6 +378,48 @@ export function PlanSemana({ selectedDate, onOpenInMapa }: Props) {
     return out;
   }, [state, targetUser, currentUser, filtro]);
 
+  // Proyectos en los que el usuario está trabajando esta semana.
+  // Se agregan a partir de las tres fuentes ya filtradas:
+  //  - `blocks`: entregables con bloque calendárico esta semana.
+  //  - `pendientesSinDias`: entregables de la semana sin día asignado.
+  //  - `enEspera`: entregables en espera asociados al target.
+  // Cada entregable cuenta una vez por proyecto (Set de entregableId).
+  const proyectosSemana = useMemo(() => {
+    const entregablesPorProyecto = new Map<string, Set<string>>();
+    const addEnt = (proyectoId: string | undefined, entregableId: string | undefined) => {
+      if (!proyectoId || !entregableId) return;
+      let set = entregablesPorProyecto.get(proyectoId);
+      if (!set) { set = new Set<string>(); entregablesPorProyecto.set(proyectoId, set); }
+      set.add(entregableId);
+    };
+    for (const b of blocks) addEnt(b.proyectoId, b.entregableId);
+    for (const p of pendientesSinDias) addEnt(p.proyectoId, p.ent.id);
+    for (const e of enEspera) {
+      const res = state.resultados.find((r) => r.id === e.ent.resultadoId);
+      addEnt(res?.proyectoId, e.ent.id);
+    }
+    const rows: { proyectoId: string; nombre: string; area: Area; hex: string; initial: string; count: number }[] = [];
+    for (const [proyectoId, set] of entregablesPorProyecto) {
+      const proj = state.proyectos.find((p) => p.id === proyectoId);
+      if (!proj) continue;
+      const area: Area = proj.area;
+      const info = AREA_COLORS[area];
+      rows.push({
+        proyectoId,
+        nombre: proj.nombre,
+        area,
+        hex: info?.hex ?? "#888",
+        initial: info?.initial ?? "",
+        count: set.size,
+      });
+    }
+    rows.sort((a, b) => {
+      if (a.area !== b.area) return a.area.localeCompare(b.area);
+      return a.nombre.localeCompare(b.nombre);
+    });
+    return rows;
+  }, [blocks, pendientesSinDias, enEspera, state.proyectos, state.resultados]);
+
   // Pendientes de la semana anterior (no completados ni cancelados) que
   // todavía no tienen presencia en la semana actual.
   const carryOverCandidates = useMemo(() => {
@@ -592,6 +651,66 @@ export function PlanSemana({ selectedDate, onOpenInMapa }: Props) {
           {!isMentor && <AmbitoToggle value={filtro} onChange={setFiltro} />}
         </div>
       </div>
+
+      {/* Panel colapsable: proyectos de la semana */}
+      {!isMentor && proyectosSemana.length > 0 && (
+        <div className="mb-3 rounded-xl border border-border bg-surface/30">
+          <button
+            type="button"
+            onClick={toggleProyectosOpen}
+            className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left"
+            aria-expanded={proyectosOpen}
+          >
+            <p className="text-[11px] font-semibold uppercase tracking-wider text-muted">
+              Proyectos de la semana ({proyectosSemana.length})
+            </p>
+            <svg
+              width="14" height="14" viewBox="0 0 24 24" fill="none"
+              stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+              className={`text-muted transition-transform ${proyectosOpen ? "rotate-180" : ""}`}
+              aria-hidden="true"
+            >
+              <polyline points="6 9 12 15 18 9" />
+            </svg>
+          </button>
+          {proyectosOpen && (
+            <div className="space-y-1 px-3 pb-3">
+              {proyectosSemana.map((p) => {
+                const Row = (
+                  <div className="flex items-center gap-2 rounded-lg border-l-[3px] bg-background px-2 py-1.5"
+                    style={{ borderLeftColor: p.hex }}>
+                    <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded text-[9px] font-bold text-white"
+                      style={{ backgroundColor: p.hex }}>{p.initial}</span>
+                    <p className="min-w-0 flex-1 truncate text-xs font-medium text-foreground">{p.nombre}</p>
+                    <span className="shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-semibold tabular-nums"
+                      style={{ backgroundColor: p.hex + "20", color: p.hex }}>
+                      {p.count}
+                    </span>
+                  </div>
+                );
+                if (onOpenInMapa) {
+                  return (
+                    <button
+                      key={`proy-sem-${p.proyectoId}`}
+                      type="button"
+                      onClick={() => onOpenInMapa(p.proyectoId)}
+                      className="block w-full text-left transition-colors hover:brightness-95"
+                      title={`Abrir ${p.nombre} en Mapa`}
+                    >
+                      {Row}
+                    </button>
+                  );
+                }
+                return (
+                  <div key={`proy-sem-${p.proyectoId}`}>
+                    {Row}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Banner: pendientes de la semana anterior */}
       {!isMentor && !carryOverHidden && carryOverCandidates.length > 0 && (
