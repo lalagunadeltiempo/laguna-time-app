@@ -46,7 +46,14 @@ function resultadoActivoEnMes(r: Resultado, entregables: Entregable[], mesK: str
   }
   if ((r.semanasActivas ?? []).some((sk) => weekMondays.has(sk) || mesKeyOf(sk) === mesK)) return true;
   if (r.semana && (weekMondays.has(r.semana) || mesKeyOf(r.semana) === mesK)) return true;
-  if (entregables.some((e) => e.semana && (weekMondays.has(e.semana) || mesKeyOf(e.semana) === mesK))) return true;
+  // Si los entregables tienen `semanasActivas` (modelo nuevo) o `semana`
+  // (legacy) que tocan el mes, el resultado padre se considera activo.
+  if (entregables.some((e) => {
+    const ws = (e.semanasActivas && e.semanasActivas.length > 0)
+      ? e.semanasActivas
+      : (e.semana ? [e.semana] : []);
+    return ws.some((w) => weekMondays.has(w) || mesKeyOf(w) === mesK);
+  })) return true;
   return false;
 }
 
@@ -175,8 +182,14 @@ export function PlanMes({ selectedDate }: Props) {
       const semanas = (card.resultado.semanasActivas ?? (card.resultado.semana ? [card.resultado.semana] : []))
         .filter((sk) => weekMondays.has(sk));
       if (semanas.length > 0) continue;
-      // Tampoco hay entregables con semana de este mes ya asignados.
-      const tieneEntregableDelMes = card.entregables.some((e) => e.semana && (weekMondays.has(e.semana) || mesKeyOf(e.semana) === mesK));
+      // Tampoco hay entregables con semana de este mes ya asignados (mira
+      // `semanasActivas` modelo nuevo y `semana` legacy).
+      const tieneEntregableDelMes = card.entregables.some((e) => {
+        const ws = (e.semanasActivas && e.semanasActivas.length > 0)
+          ? e.semanasActivas
+          : (e.semana ? [e.semana] : []);
+        return ws.some((w) => weekMondays.has(w) || mesKeyOf(w) === mesK);
+      });
       if (tieneEntregableDelMes) continue;
       out.push(card);
     }
@@ -423,41 +436,45 @@ function ResultadoCard({ card, week, weeks, mesK, showDone, respFilter, currentU
 
   return (
     <div className="rounded-lg border-2 bg-background" style={{ borderColor: areaHex + "40" }}>
-      <div className="flex w-full items-center gap-1.5 p-2">
-        <button onClick={() => setOpen(!open)}
-          className="flex shrink-0 items-center gap-1.5"
-          title={open ? "Contraer" : "Expandir"}>
-          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round"
-            className={`shrink-0 text-muted transition-transform ${open ? "rotate-90" : ""}`}>
-            <polyline points="9 18 15 12 9 6" />
-          </svg>
-          <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: areaHex }} />
-        </button>
-        <div className="min-w-0 flex-1">
-          <InlineNombre
-            value={resultado.nombre}
-            onSave={(nombre) => dispatch({ type: "UPDATE_RESULTADO", id: resultado.id, changes: { nombre } })}
-            disabled={isMentor}
-            className="truncate text-[11px] font-semibold text-foreground"
-            inputClassName="text-[11px] font-semibold text-foreground"
-          />
-          <p className="truncate text-[9px] uppercase tracking-wider text-muted">{proyecto.nombre}</p>
+      <div className="flex w-full flex-col gap-1 p-2">
+        <div className="flex items-start gap-1.5">
+          <button onClick={() => setOpen(!open)}
+            className="mt-0.5 flex shrink-0 items-center gap-1.5"
+            title={open ? "Contraer" : "Expandir"}>
+            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round"
+              className={`shrink-0 text-muted transition-transform ${open ? "rotate-90" : ""}`}>
+              <polyline points="9 18 15 12 9 6" />
+            </svg>
+            <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: areaHex }} />
+          </button>
+          <div className="min-w-0 flex-1">
+            <InlineNombre
+              value={resultado.nombre}
+              onSave={(nombre) => dispatch({ type: "UPDATE_RESULTADO", id: resultado.id, changes: { nombre } })}
+              disabled={isMentor}
+              className="truncate text-[11px] font-semibold text-foreground"
+              inputClassName="text-[11px] font-semibold text-foreground"
+            />
+            <p className="truncate text-[9px] uppercase tracking-wider text-muted">{proyecto.nombre}</p>
+          </div>
         </div>
         {!isMentor && (
-          <ResponsableSelect
-            value={resultado.responsable}
-            miembros={miembros}
-            onChange={(v) => dispatch({ type: "UPDATE_RESULTADO", id: resultado.id, changes: { responsable: v || undefined } })}
-          />
-        )}
-        {!isMentor && week === null && (resultado.mesesActivos ?? []).includes(mesK) && (
-          <button
-            onClick={() => dispatch({ type: "TOGGLE_RESULTADO_MES", id: resultado.id, mes: mesK })}
-            title="Quitar de este mes (reprograma desde Plan Trimestre)"
-            className="shrink-0 rounded border border-border px-1.5 py-0.5 text-[9px] font-semibold text-muted hover:border-red-400 hover:text-red-500"
-          >
-            Quitar del mes
-          </button>
+          <div className="flex flex-wrap items-center gap-2 pl-5">
+            <ResponsableSelect
+              value={resultado.responsable}
+              miembros={miembros}
+              onChange={(v) => dispatch({ type: "UPDATE_RESULTADO", id: resultado.id, changes: { responsable: v || undefined } })}
+            />
+            {week === null && (resultado.mesesActivos ?? []).includes(mesK) && (
+              <button
+                onClick={() => dispatch({ type: "TOGGLE_RESULTADO_MES", id: resultado.id, mes: mesK })}
+                title="Quitar de este mes (reprograma desde Plan Trimestre)"
+                className="shrink-0 rounded border border-border px-1.5 py-0.5 text-[9px] font-semibold text-muted hover:border-red-400 hover:text-red-500"
+              >
+                Quitar del mes
+              </button>
+            )}
+          </div>
         )}
       </div>
 
@@ -651,7 +668,21 @@ function EntregableInlineRow({ ent, miembros, editable }: { ent: Entregable; mie
         )}
 
         <span className="shrink-0 rounded bg-surface px-1.5 py-0.5 text-[9px]">
-          {ent.estado === "hecho" ? "hecho" : ent.estado === "en_proceso" ? "en curso" : ent.estado === "planificado" ? "planif." : ent.estado === "a_futuro" ? "futuro" : ent.estado}
+          {/* Etiqueta derivada: si el entregable tiene chips (semanasActivas o
+              diasPlanificadosByUser) lo mostramos como "planif." aunque el
+              campo `estado` siga en "a_futuro". No tocamos data, solo la
+              presentación, para que coincida con el resto de vistas que ya
+              usan los chips como fuente de verdad. */}
+          {(() => {
+            const hayChips = (ent.semanasActivas?.length ?? 0) > 0
+              || Object.values(ent.diasPlanificadosByUser ?? {}).some((arr) => (arr?.length ?? 0) > 0);
+            if (ent.estado === "hecho") return "hecho";
+            if (ent.estado === "en_proceso") return "en curso";
+            if (ent.estado === "planificado") return "planif.";
+            if (ent.estado === "a_futuro" && hayChips) return "planif.";
+            if (ent.estado === "a_futuro") return "futuro";
+            return ent.estado;
+          })()}
         </span>
       </div>
     </div>

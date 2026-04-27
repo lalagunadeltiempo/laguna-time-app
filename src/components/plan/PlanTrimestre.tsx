@@ -362,36 +362,39 @@ function ProjectCard({ node, qMonthKeys, currentMesKey, isMentor, backlogStyle }
       ? "rounded-xl border border-dashed border-border bg-surface/20"
       : "rounded-lg border-2 bg-background"
     } style={backlogStyle ? undefined : { borderColor: node.hex + "50" }}>
-      <div className="flex w-full items-start gap-1.5 p-2">
-        <button onClick={() => setOpen(!open)} className="mt-0.5 flex shrink-0 items-center gap-1.5" title={open ? "Contraer" : "Expandir"}>
-          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round"
-            className={`shrink-0 text-muted transition-transform ${open ? "rotate-90" : ""}`}>
-            <polyline points="9 18 15 12 9 6" />
-          </svg>
-          <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: node.hex }} />
-        </button>
-        <div className="min-w-0 flex-1">
-          <InlineNombre
-            value={node.proyecto.nombre}
-            onSave={(nombre) => dispatch({ type: "UPDATE_PROYECTO", id: node.proyecto.id, changes: { nombre } })}
-            disabled={isMentor}
-            wrap
-            className="line-clamp-2 break-words text-xs font-semibold leading-tight text-foreground"
-            inputClassName="text-xs font-semibold text-foreground"
-          />
-        </div>
-        {!isMentor && ambitoDeArea(node.proyecto.area) === "empresa" && (
-          <ResponsableSelect
-            value={node.proyecto.responsable}
-            miembros={state.miembros}
-            onChange={(v) => dispatch({ type: "UPDATE_PROYECTO", id: node.proyecto.id, changes: { responsable: v || undefined } })}
-          />
-        )}
-        <div className="mt-0.5 flex shrink-0 items-center gap-1.5">
-          <div className="h-1.5 w-12 overflow-hidden rounded-full bg-surface">
-            <div className="h-full rounded-full transition-all" style={{ width: `${node.percent}%`, backgroundColor: node.hex }} />
+      <div className="flex w-full flex-col gap-1 p-2">
+        <div className="flex items-center gap-1.5">
+          <button onClick={() => setOpen(!open)} className="flex shrink-0 items-center gap-1.5" title={open ? "Contraer" : "Expandir"}>
+            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round"
+              className={`shrink-0 text-muted transition-transform ${open ? "rotate-90" : ""}`}>
+              <polyline points="9 18 15 12 9 6" />
+            </svg>
+            <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: node.hex }} />
+          </button>
+          <div className="min-w-0 flex-1">
+            <InlineNombre
+              value={node.proyecto.nombre}
+              onSave={(nombre) => dispatch({ type: "UPDATE_PROYECTO", id: node.proyecto.id, changes: { nombre } })}
+              disabled={isMentor}
+              className="truncate text-xs font-semibold text-foreground"
+              inputClassName="text-xs font-semibold text-foreground"
+            />
           </div>
-          <span className="text-[9px] font-bold text-muted">{node.done}/{node.total}</span>
+        </div>
+        <div className="flex items-center justify-between gap-2 pl-5">
+          {!isMentor && ambitoDeArea(node.proyecto.area) === "empresa" ? (
+            <ResponsableSelect
+              value={node.proyecto.responsable}
+              miembros={state.miembros}
+              onChange={(v) => dispatch({ type: "UPDATE_PROYECTO", id: node.proyecto.id, changes: { responsable: v || undefined } })}
+            />
+          ) : <span />}
+          <div className="flex shrink-0 items-center gap-1.5">
+            <div className="h-1.5 w-12 overflow-hidden rounded-full bg-surface">
+              <div className="h-full rounded-full transition-all" style={{ width: `${node.percent}%`, backgroundColor: node.hex }} />
+            </div>
+            <span className="text-[9px] font-bold text-muted">{node.done}/{node.total}</span>
+          </div>
         </div>
       </div>
 
@@ -482,41 +485,46 @@ function ResultadoRow({ resultado, entregables, qMonthKeys, isMentor, hex, miemb
 
   return (
     <div className="rounded border border-border/60 bg-surface/40 p-1.5">
-      <div className="flex flex-wrap items-start gap-1.5">
-        <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full" style={{ backgroundColor: hex }} />
-        <div className="min-w-0 flex-1">
-          <InlineNombre
-            value={resultado.nombre}
-            onSave={(nombre) => dispatch({ type: "UPDATE_RESULTADO", id: resultado.id, changes: { nombre } })}
-            disabled={isMentor}
-            wrap
-            className="line-clamp-2 break-words text-[11px] font-semibold leading-tight text-foreground"
-            inputClassName="text-[11px] font-semibold text-foreground"
-          />
+      <div className="flex flex-col gap-1">
+        <div className="flex items-center gap-1.5">
+          <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ backgroundColor: hex }} />
+          <div className="min-w-0 flex-1">
+            <InlineNombre
+              value={resultado.nombre}
+              onSave={(nombre) => dispatch({ type: "UPDATE_RESULTADO", id: resultado.id, changes: { nombre } })}
+              disabled={isMentor}
+              className="truncate text-[11px] font-semibold text-foreground"
+              inputClassName="text-[11px] font-semibold text-foreground"
+            />
+          </div>
         </div>
-        {!isMentor && isEmpresa && (
-          <ResponsableSelect
-            value={resultado.responsable}
-            miembros={miembros}
-            onChange={(v) => dispatch({ type: "UPDATE_RESULTADO", id: resultado.id, changes: { responsable: v || undefined } })}
-          />
-        )}
-        {!isMentor && (
-          <div className="flex items-center gap-0.5">
-            {qMonthKeys.map((mk) => {
-              const active = mesesRes.includes(mk);
-              return (
-                <button
-                  key={mk}
-                  onClick={() => toggleMes(mk)}
-                  className={`rounded px-1 py-0.5 text-[9px] font-semibold transition-colors ${
-                    active ? "bg-accent text-white" : "border border-border text-muted hover:border-accent hover:text-accent"
-                  }`}
-                >
-                  {etiquetaMesCorta(mk)}
-                </button>
-              );
-            })}
+        {(!isMentor || (!isMentor && isEmpresa)) && (
+          <div className="flex flex-wrap items-center gap-1.5 pl-3">
+            {!isMentor && isEmpresa && (
+              <ResponsableSelect
+                value={resultado.responsable}
+                miembros={miembros}
+                onChange={(v) => dispatch({ type: "UPDATE_RESULTADO", id: resultado.id, changes: { responsable: v || undefined } })}
+              />
+            )}
+            {!isMentor && (
+              <div className="flex items-center gap-0.5">
+                {qMonthKeys.map((mk) => {
+                  const active = mesesRes.includes(mk);
+                  return (
+                    <button
+                      key={mk}
+                      onClick={() => toggleMes(mk)}
+                      className={`rounded px-1 py-0.5 text-[9px] font-semibold transition-colors ${
+                        active ? "bg-accent text-white" : "border border-border text-muted hover:border-accent hover:text-accent"
+                      }`}
+                    >
+                      {etiquetaMesCorta(mk)}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -542,8 +550,8 @@ function EntregableRowTrimestre({ ent, qMonthKeys, isMentor }: {
   const dispatch = useAppDispatch();
 
   return (
-    <div className="flex flex-wrap items-start gap-1 text-[10px]">
-      <span className={`mt-1 h-1 w-1 shrink-0 rounded-full ${
+    <div className="flex items-center gap-1 text-[10px]">
+      <span className={`h-1 w-1 shrink-0 rounded-full ${
         ent.estado === "hecho" ? "bg-emerald-500"
         : ent.estado === "en_proceso" ? "bg-amber-500"
         : "bg-gray-300"
@@ -553,8 +561,7 @@ function EntregableRowTrimestre({ ent, qMonthKeys, isMentor }: {
           value={ent.nombre}
           onSave={(nombre) => dispatch({ type: "UPDATE_ENTREGABLE", id: ent.id, changes: { nombre } })}
           disabled={isMentor}
-          wrap
-          className={`line-clamp-2 break-words text-[10px] leading-tight ${ent.estado === "hecho" ? "text-muted line-through" : "text-muted"}`}
+          className={`truncate text-[10px] ${ent.estado === "hecho" ? "text-muted line-through" : "text-muted"}`}
           inputClassName="text-[10px] text-foreground"
         />
       </div>

@@ -4,12 +4,12 @@ import { useState, useMemo } from "react";
 import type { Area, Proyecto, Resultado, Entregable } from "@/lib/types";
 import { AREA_COLORS, AREAS_EMPRESA, AREAS_PERSONAL } from "@/lib/types";
 import {
-  inferDateRange,
   ritmoColor,
   ritmoLabel,
   ritmoLabelCorto,
   type ProyectoRitmo,
 } from "@/lib/proyecto-stats";
+import { rangoEntregableMapa, rangoResultadoMapa } from "@/lib/fechas-efectivas";
 import { useAppDispatch } from "@/lib/context";
 import { InlineNombre } from "./InlineEditors";
 
@@ -163,6 +163,10 @@ export function GanttMultiProyecto({
   }, [rangeMode, customStart, customEnd, selectedDate, rsOvr, reOvr]);
 
   const { weeks, pos, hoyPct } = useMemo(() => {
+    // Recolectamos todas las fechas relevantes para dimensionar la rejilla.
+    // Antes solo se miraban `fechaInicio`/`fechaLimite` legacy: ahora derivamos
+    // el rango efectivo de cada entregable/resultado/proyecto desde los chips
+    // (`semanasActivas`, `mesesActivos`, `diasPlanificadosByUser`).
     const dd: string[] = [hoyStr];
     for (const g of projects) {
       if (g.proyecto.fechaInicio) dd.push(g.proyecto.fechaInicio);
@@ -170,10 +174,17 @@ export function GanttMultiProyecto({
       for (const r of g.resultados) {
         if (r.fechaInicio) dd.push(r.fechaInicio);
         if (r.fechaLimite) dd.push(r.fechaLimite);
+        const entsRes = g.entregables.filter((e) => e.resultadoId === r.id);
+        const rr = rangoResultadoMapa(r, entsRes);
+        if (rr.inicio) dd.push(rr.inicio);
+        if (rr.fin) dd.push(rr.fin);
       }
       for (const e of g.entregables) {
         if (e.fechaInicio) dd.push(e.fechaInicio);
         if (e.fechaLimite) dd.push(e.fechaLimite);
+        const re = rangoEntregableMapa(e);
+        if (re.inicio) dd.push(re.inicio);
+        if (re.fin) dd.push(re.fin);
       }
     }
     dd.sort();
@@ -424,16 +435,35 @@ function ProjectRow({
   const dispatch = useAppDispatch();
   const p = gp.proyecto;
   const hex = AREA_COLORS[p.area]?.hex ?? "#888";
-  const inf = inferDateRange([...gp.resultados, ...gp.entregables]);
-  const pS = p.fechaInicio || inf.inicio;
-  const pE = p.fechaLimite || inf.fin;
 
-  // Filtrar entregables/resultados al rango visible (salvo modo "Todo" = sin start/end)
+  // Rango efectivo del proyecto: si tiene fechas legacy las respeta; si no,
+  // une los rangos efectivos (chips) de todos sus resultados y entregables.
+  let infInicio: string | null = null;
+  let infFin: string | null = null;
+  for (const r of gp.resultados) {
+    const entsRes = gp.entregables.filter((e) => e.resultadoId === r.id);
+    const rr = rangoResultadoMapa(r, entsRes);
+    if (rr.inicio && (!infInicio || rr.inicio < infInicio)) infInicio = rr.inicio;
+    if (rr.fin && (!infFin || rr.fin > infFin)) infFin = rr.fin;
+  }
+  for (const e of gp.entregables) {
+    const re = rangoEntregableMapa(e);
+    if (re.inicio && (!infInicio || re.inicio < infInicio)) infInicio = re.inicio;
+    if (re.fin && (!infFin || re.fin > infFin)) infFin = re.fin;
+  }
+  const pS = p.fechaInicio || infInicio;
+  const pE = p.fechaLimite || infFin;
+
+  // Filtrar entregables/resultados al rango visible (salvo modo "Todo" = sin start/end).
+  // El solapamiento se calcula con el rango efectivo (chips), no con
+  // fechaInicio/fechaLimite legacy, para que un entregable planificado por
+  // semanasActivas o diasPlanificadosByUser sí entre en el Gantt.
   const entregablesFiltrados = useMemo(() => {
     if (!rango.start || !rango.end) return gp.entregables;
-    return gp.entregables.filter((e) =>
-      rangesOverlap(e.fechaInicio, e.fechaLimite, rango.start, rango.end),
-    );
+    return gp.entregables.filter((e) => {
+      const re = rangoEntregableMapa(e);
+      return rangesOverlap(re.inicio, re.fin, rango.start, rango.end);
+    });
   }, [gp.entregables, rango.start, rango.end]);
 
   const resultadosFiltrados = useMemo(() => {
@@ -441,9 +471,11 @@ function ProjectRow({
     const entIds = new Set(entregablesFiltrados.map((e) => e.resultadoId));
     return gp.resultados.filter((r) => {
       if (entIds.has(r.id)) return true;
-      return rangesOverlap(r.fechaInicio, r.fechaLimite, rango.start, rango.end);
+      const entsRes = gp.entregables.filter((e) => e.resultadoId === r.id);
+      const rr = rangoResultadoMapa(r, entsRes);
+      return rangesOverlap(rr.inicio, rr.fin, rango.start, rango.end);
     });
-  }, [gp.resultados, entregablesFiltrados, rango.start, rango.end]);
+  }, [gp.resultados, gp.entregables, entregablesFiltrados, rango.start, rango.end]);
 
   const enRango = entregablesFiltrados.length + resultadosFiltrados.length;
 
@@ -579,9 +611,11 @@ function ResultRow({
   editable: boolean;
 }) {
   const dispatch = useAppDispatch();
-  const rI = inferDateRange(entregables);
-  const rS = r.fechaInicio || rI.inicio;
-  const rF = r.fechaLimite || rI.fin;
+  // Rango efectivo del resultado: chips propios > chips de los entregables
+  // hijos > fechas legacy. Así el Gantt se alinea con Mapa y Plan Mes.
+  const rrEfectivo = rangoResultadoMapa(r, entregables);
+  const rS = r.fechaInicio || rrEfectivo.inicio;
+  const rF = r.fechaLimite || rrEfectivo.fin;
   const done = entregables.filter((e) => e.estado === "hecho").length;
   const tot = entregables.filter((e) => e.estado !== "cancelada").length;
 
@@ -627,7 +661,8 @@ function ResultRow({
                 }}
               />
               {entregables.map((e) => {
-                const ed = e.fechaLimite || e.fechaInicio;
+                const re = rangoEntregableMapa(e);
+                const ed = e.fechaLimite || e.fechaInicio || re.fin || re.inicio;
                 if (!ed) return null;
                 return (
                   <span
@@ -670,8 +705,9 @@ function EntregableRow({
   editable: boolean;
 }) {
   const dispatch = useAppDispatch();
-  const eS = e.fechaInicio;
-  const eF = e.fechaLimite;
+  const re = rangoEntregableMapa(e);
+  const eS = e.fechaInicio || re.inicio;
+  const eF = e.fechaLimite || re.fin;
   const eD = eS || eF;
 
   return (
