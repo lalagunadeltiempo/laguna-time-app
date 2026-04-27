@@ -1309,7 +1309,23 @@ export function reducer(state: AppState, action: Action): AppState {
       const p = state.pasos.find((x) => x.id === action.id);
       if (!p) return state;
       const siblings = state.pasos.filter((x) => x.entregableId === p.entregableId).map((x) => x.id);
-      return { ...state, pasos: swapSiblings(state.pasos, action.id, action.direction, siblings) };
+      const swapped = swapSiblings(state.pasos, action.id, action.direction, siblings);
+      // Reasignar `orden` 1..N a los pasos del entregable según su nueva
+      // posición en el array. Sin esto, los consumidores que ordenan por
+      // `paso.orden` (p. ej. EntregableActivo) no verían el cambio.
+      const ordenIdx = new Map<string, number>();
+      let i = 1;
+      for (const x of swapped) {
+        if (x.entregableId === p.entregableId) {
+          ordenIdx.set(x.id, i);
+          i += 1;
+        }
+      }
+      const repaired = swapped.map((x) => {
+        const nuevo = ordenIdx.get(x.id);
+        return nuevo !== undefined ? { ...x, orden: nuevo } : x;
+      });
+      return { ...state, pasos: repaired };
     }
     case "REORDER_PROYECTO": {
       const p = state.proyectos.find((x) => x.id === action.id);
