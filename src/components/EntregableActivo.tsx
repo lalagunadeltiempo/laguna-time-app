@@ -35,6 +35,12 @@ function fmtPasoDuration(inicioTs: string, finTs: string): string {
   return h > 0 ? `${h}h ${m}m` : `${m}m`;
 }
 
+function pasoDuracionMinutos(inicioTs: string, finTs: string): number {
+  const ms = new Date(finTs).getTime() - new Date(inicioTs).getTime();
+  if (!Number.isFinite(ms) || ms <= 0) return 0;
+  return Math.max(1, Math.round(ms / 60000));
+}
+
 export function EntregableActivoCard({ entregable, mode = "trabajo" }: Props) {
   const isDetalle = mode === "detalle";
   const state = useAppState();
@@ -117,6 +123,10 @@ export function EntregableActivoCard({ entregable, mode = "trabajo" }: Props) {
   const [showCloseOptions, setShowCloseOptions] = useState(false);
   const [showEsperaPicker, setShowEsperaPicker] = useState(false);
   const [esperaExternoDraft, setEsperaExternoDraft] = useState("");
+  // Edición inline de la duración (minutos) de un paso. Solo aplica a pasos
+  // ya hechos con inicioTs/finTs definidos.
+  const [editingDurId, setEditingDurId] = useState<string | null>(null);
+  const [editingDurDraft, setEditingDurDraft] = useState("");
   const [showAddExterno, setShowAddExterno] = useState(false);
   const [externoNombre, setExternoNombre] = useState("");
   const [newContactoEmail, setNewContactoEmail] = useState("");
@@ -282,6 +292,26 @@ export function EntregableActivoCard({ entregable, mode = "trabajo" }: Props) {
     }
   }
 
+  function startEditDuracion(p: Paso) {
+    if (!p.inicioTs || !p.finTs) return;
+    setEditingDurId(p.id);
+    setEditingDurDraft(String(pasoDuracionMinutos(p.inicioTs, p.finTs)));
+  }
+  function cancelEditDuracion() {
+    setEditingDurId(null);
+    setEditingDurDraft("");
+  }
+  function saveEditDuracion(p: Paso) {
+    if (!p.inicioTs) return cancelEditDuracion();
+    const minutos = parseInt(editingDurDraft, 10);
+    if (!Number.isFinite(minutos) || minutos < 1) return cancelEditDuracion();
+    // Solo movemos `finTs`; `inicioTs` se mantiene. Si el siguiente paso
+    // empezaba justo en el `finTs` antiguo, el usuario decidirá si lo ajusta.
+    const nuevoFinTs = new Date(new Date(p.inicioTs).getTime() + minutos * 60000).toISOString();
+    dispatch({ type: "UPDATE_PASO_TIMES", id: p.id, inicioTs: p.inicioTs, finTs: nuevoFinTs });
+    cancelEditDuracion();
+  }
+
   function addPaso() {
     const nombre = newPasoName.trim();
     if (!nombre) return;
@@ -433,12 +463,52 @@ export function EntregableActivoCard({ entregable, mode = "trabajo" }: Props) {
                       className={`flex-1 text-xs ${done ? "text-zinc-400 dark:text-zinc-500 line-through" : "text-zinc-700 dark:text-zinc-300"}`}
                     />
                     {done && p.inicioTs && p.finTs && (
-                      <span
-                        className="shrink-0 text-[10px] font-medium tabular-nums text-zinc-400 dark:text-zinc-500"
-                        title={`${new Date(p.inicioTs).toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" })} → ${new Date(p.finTs).toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" })}`}
-                      >
-                        {fmtPasoDuration(p.inicioTs, p.finTs)}
-                      </span>
+                      editingDurId === p.id ? (
+                        <div className="flex shrink-0 items-center gap-1">
+                          <input
+                            type="number"
+                            min={1}
+                            value={editingDurDraft}
+                            onChange={(e) => setEditingDurDraft(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") { e.preventDefault(); saveEditDuracion(p); }
+                              if (e.key === "Escape") cancelEditDuracion();
+                            }}
+                            autoFocus
+                            onFocus={(e) => e.currentTarget.select()}
+                            className="w-12 rounded border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 px-1 py-0.5 text-right text-[10px] tabular-nums text-zinc-700 dark:text-zinc-200 focus:outline-none"
+                            style={{ borderColor: `${borderColor}80` }}
+                            aria-label="Duración en minutos"
+                          />
+                          <span className="text-[10px] text-zinc-400">min</span>
+                          <button
+                            type="button"
+                            onClick={() => saveEditDuracion(p)}
+                            className="rounded px-1.5 py-0.5 text-[10px] font-medium text-white"
+                            style={{ backgroundColor: borderColor }}
+                            title="Guardar"
+                          >
+                            ✓
+                          </button>
+                          <button
+                            type="button"
+                            onClick={cancelEditDuracion}
+                            className="rounded px-1 py-0.5 text-[10px] text-zinc-400 hover:text-zinc-600"
+                            title="Cancelar"
+                          >
+                            ✕
+                          </button>
+                        </div>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => startEditDuracion(p)}
+                          className="shrink-0 rounded px-1 py-0.5 text-[10px] font-medium tabular-nums text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700 dark:text-zinc-500 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
+                          title={`${new Date(p.inicioTs).toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" })} → ${new Date(p.finTs).toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" })} · clic para editar`}
+                        >
+                          {fmtPasoDuration(p.inicioTs, p.finTs)}
+                        </button>
+                      )
                     )}
                     <button
                       type="button"
