@@ -86,6 +86,29 @@ export function PlanSemana({ selectedDate, onOpenInMapa }: Props) {
     });
   }
 
+  // Orden manual del panel "Proyectos de la semana" (por usuario, persistido).
+  // Es una lista de proyectoIds. Los proyectos que no están en la lista se
+  // pintan al final ordenados por área/nombre. Cuando un proyecto desaparece
+  // de la semana no se borra de la lista (queda latente para semanas futuras).
+  const ordenStorageKey = `laguna-proyectos-semana-orden:${currentUser}`;
+  const [proyectosOrdenManual, setProyectosOrdenManual] = useState<string[]>([]);
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(ordenStorageKey);
+      if (raw) {
+        const arr = JSON.parse(raw);
+        if (Array.isArray(arr) && arr.every((x) => typeof x === "string")) {
+          setProyectosOrdenManual(arr);
+        }
+      }
+    } catch { /* noop */ }
+  }, [ordenStorageKey]);
+  function persistOrden(next: string[]) {
+    setProyectosOrdenManual(next);
+    try { localStorage.setItem(ordenStorageKey, JSON.stringify(next)); }
+    catch { /* noop */ }
+  }
+
   const [todayKey, setTodayKey] = useState(() => toDateKey(new Date()));
   useEffect(() => {
     const id = setInterval(() => {
@@ -413,12 +436,42 @@ export function PlanSemana({ selectedDate, onOpenInMapa }: Props) {
         count: set.size,
       });
     }
+    // Orden por defecto (cuando no hay manual): área, luego nombre.
     rows.sort((a, b) => {
       if (a.area !== b.area) return a.area.localeCompare(b.area);
       return a.nombre.localeCompare(b.nombre);
     });
+    // Aplica el orden manual: primero los IDs presentes en `proyectosOrdenManual`
+    // en su orden, luego los demás respetando el orden por defecto de arriba.
+    if (proyectosOrdenManual.length > 0) {
+      const indice = new Map<string, number>();
+      proyectosOrdenManual.forEach((id, i) => indice.set(id, i));
+      rows.sort((a, b) => {
+        const ia = indice.has(a.proyectoId) ? indice.get(a.proyectoId)! : Number.POSITIVE_INFINITY;
+        const ib = indice.has(b.proyectoId) ? indice.get(b.proyectoId)! : Number.POSITIVE_INFINITY;
+        if (ia !== ib) return ia - ib;
+        if (a.area !== b.area) return a.area.localeCompare(b.area);
+        return a.nombre.localeCompare(b.nombre);
+      });
+    }
     return rows;
-  }, [blocks, pendientesSinDias, enEspera, state.proyectos, state.resultados]);
+  }, [blocks, pendientesSinDias, enEspera, state.proyectos, state.resultados, proyectosOrdenManual]);
+
+  function moveProyecto(proyectoId: string, dir: "up" | "down") {
+    const visibles = proyectosSemana.map((p) => p.proyectoId);
+    const idx = visibles.indexOf(proyectoId);
+    if (idx === -1) return;
+    const target = dir === "up" ? idx - 1 : idx + 1;
+    if (target < 0 || target >= visibles.length) return;
+    const next = [...visibles];
+    const tmp = next[idx];
+    next[idx] = next[target];
+    next[target] = tmp;
+    // Mantener al final los proyectos que estaban en `proyectosOrdenManual`
+    // pero no son visibles ahora (latentes), para no perder preferencias.
+    const latentes = proyectosOrdenManual.filter((id) => !visibles.includes(id));
+    persistOrden([...next, ...latentes]);
+  }
 
   // Pendientes de la semana anterior (no completados ni cancelados) que
   // todavía no tienen presencia en la semana actual.
@@ -675,35 +728,55 @@ export function PlanSemana({ selectedDate, onOpenInMapa }: Props) {
           </button>
           {proyectosOpen && (
             <div className="space-y-1 px-3 pb-3">
-              {proyectosSemana.map((p) => {
-                const Row = (
-                  <div className="flex items-center gap-2 rounded-lg border-l-[3px] bg-background px-2 py-1.5"
-                    style={{ borderLeftColor: p.hex }}>
+              {proyectosSemana.map((p, idx) => {
+                const isFirst = idx === 0;
+                const isLast = idx === proyectosSemana.length - 1;
+                return (
+                  <div
+                    key={`proy-sem-${p.proyectoId}`}
+                    className="flex items-center gap-2 rounded-lg border-l-[3px] bg-background px-2 py-1.5"
+                    style={{ borderLeftColor: p.hex }}
+                  >
+                    <div className="flex shrink-0 flex-col">
+                      <button
+                        type="button"
+                        onClick={() => moveProyecto(p.proyectoId, "up")}
+                        disabled={isFirst}
+                        className="text-[8px] leading-none text-muted/40 hover:text-foreground disabled:opacity-20 disabled:hover:text-muted/40"
+                        title="Subir"
+                        aria-label={`Subir ${p.nombre}`}
+                      >
+                        ▲
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => moveProyecto(p.proyectoId, "down")}
+                        disabled={isLast}
+                        className="text-[8px] leading-none text-muted/40 hover:text-foreground disabled:opacity-20 disabled:hover:text-muted/40"
+                        title="Bajar"
+                        aria-label={`Bajar ${p.nombre}`}
+                      >
+                        ▼
+                      </button>
+                    </div>
                     <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded text-[9px] font-bold text-white"
                       style={{ backgroundColor: p.hex }}>{p.initial}</span>
-                    <p className="min-w-0 flex-1 truncate text-xs font-medium text-foreground">{p.nombre}</p>
+                    {onOpenInMapa ? (
+                      <button
+                        type="button"
+                        onClick={() => onOpenInMapa(p.proyectoId)}
+                        className="min-w-0 flex-1 truncate text-left text-xs font-medium text-foreground hover:text-accent hover:underline underline-offset-2"
+                        title={`Abrir ${p.nombre} en Mapa`}
+                      >
+                        {p.nombre}
+                      </button>
+                    ) : (
+                      <p className="min-w-0 flex-1 truncate text-xs font-medium text-foreground">{p.nombre}</p>
+                    )}
                     <span className="shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-semibold tabular-nums"
                       style={{ backgroundColor: p.hex + "20", color: p.hex }}>
                       {p.count}
                     </span>
-                  </div>
-                );
-                if (onOpenInMapa) {
-                  return (
-                    <button
-                      key={`proy-sem-${p.proyectoId}`}
-                      type="button"
-                      onClick={() => onOpenInMapa(p.proyectoId)}
-                      className="block w-full text-left transition-colors hover:brightness-95"
-                      title={`Abrir ${p.nombre} en Mapa`}
-                    >
-                      {Row}
-                    </button>
-                  );
-                }
-                return (
-                  <div key={`proy-sem-${p.proyectoId}`}>
-                    {Row}
                   </div>
                 );
               })}

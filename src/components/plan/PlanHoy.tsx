@@ -94,11 +94,65 @@ export function PlanHoy({ selectedDate }: Props) {
   const pasoBadgeLabel = targetIsCurrent || targetUser === null ? "Paso tuyo" : `Paso de ${targetUser}`;
   const [showDrillDown, setShowDrillDown] = useState(false);
   const [editingBlock, setEditingBlock] = useState<Block | null>(null);
-  const [timeBlock, setTimeBlock] = useState<Block | null>(null);
   const [detalleEntregableId, setDetalleEntregableId] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   const dateKey = useMemo(() => toDateKey(selectedDate), [selectedDate]);
+
+  // Orden manual de los entregables "Sin hora" para `editUsuario` + `dateKey`.
+  // Se persiste en localStorage. La lista contiene `entregableId`s; lo que no
+  // esté ordenado va al final (alfabético). Al reordenar se sobrescribe la
+  // entrada con el orden visible actual.
+  const sinHoraStorageKey = useMemo(() => {
+    const u = targetUser ?? currentUser;
+    return `laguna-planhoy-sinhora-orden:${u}:${dateKey}`;
+  }, [targetUser, currentUser, dateKey]);
+  const [sinHoraOrden, setSinHoraOrden] = useState<string[]>([]);
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(sinHoraStorageKey);
+      if (raw) {
+        const arr = JSON.parse(raw);
+        if (Array.isArray(arr) && arr.every((x) => typeof x === "string")) {
+          setSinHoraOrden(arr);
+          return;
+        }
+      }
+    } catch { /* noop */ }
+    setSinHoraOrden([]);
+  }, [sinHoraStorageKey]);
+  function aplicarOrdenSinHora(blocks: Block[]): Block[] {
+    if (sinHoraOrden.length === 0) return blocks;
+    const indice = new Map<string, number>();
+    sinHoraOrden.forEach((id, i) => indice.set(id, i));
+    const out = [...blocks];
+    out.sort((a, b) => {
+      const ka = a.entregableId ?? a.id;
+      const kb = b.entregableId ?? b.id;
+      const ia = indice.has(ka) ? indice.get(ka)! : Number.POSITIVE_INFINITY;
+      const ib = indice.has(kb) ? indice.get(kb)! : Number.POSITIVE_INFINITY;
+      if (ia !== ib) return ia - ib;
+      return (a.title ?? "").localeCompare(b.title ?? "");
+    });
+    return out;
+  }
+  function moveSinHora(visibles: Block[], block: Block, dir: "up" | "down") {
+    const ordenados = aplicarOrdenSinHora(visibles);
+    const ids = ordenados.map((b) => b.entregableId ?? b.id);
+    const key = block.entregableId ?? block.id;
+    const idx = ids.indexOf(key);
+    if (idx === -1) return;
+    const target = dir === "up" ? idx - 1 : idx + 1;
+    if (target < 0 || target >= ids.length) return;
+    const next = [...ids];
+    const tmp = next[idx];
+    next[idx] = next[target];
+    next[target] = tmp;
+    setSinHoraOrden(next);
+    try { localStorage.setItem(sinHoraStorageKey, JSON.stringify(next)); }
+    catch { /* noop */ }
+  }
+
   const [todayKey, setTodayKey] = useState(() => toDateKey(new Date()));
   useEffect(() => {
     const id = setInterval(() => {
@@ -376,13 +430,25 @@ export function PlanHoy({ selectedDate }: Props) {
             // perder la sensación de ordenación temporal cuando los bloques
             // de distintos proyectos se intercalaban por hora.
             const conHora = plannedFoco.filter((b) => b.planInicioTs);
-            const sinHora = plannedFoco.filter((b) => !b.planInicioTs);
+            const sinHora = aplicarOrdenSinHora(plannedFoco.filter((b) => !b.planInicioTs));
+            const reorderBindings = (block: Block) => {
+              if (isMentor) return {};
+              const idx = sinHora.findIndex((b) => (b.entregableId ?? b.id) === (block.entregableId ?? block.id));
+              const isInSinHora = idx !== -1;
+              if (!isInSinHora) return {};
+              return {
+                onMoveUp: () => moveSinHora(sinHora, block, "up"),
+                onMoveDown: () => moveSinHora(sinHora, block, "down"),
+                canMoveUp: idx > 0,
+                canMoveDown: idx < sinHora.length - 1,
+              } as const;
+            };
             const renderRow = (block: Block) => {
               const hex = AREA_COLORS[block.area]?.hex ?? "#888";
               return (
                 <PlannedBlockRow key={block.id} block={block} hex={hex} isMentor={isMentor} refDate={selectedDate}
                   pasoBadgeLabel={pasoBadgeLabel}
-                  onSetTime={() => setTimeBlock(block)}
+                  onSetTime={(hhmm) => asignarHora(block, hhmm)}
                   onOpenDetalle={block.entregableId ? () => setDetalleEntregableId(block.entregableId!) : undefined}
                   onReschedule={(newDate) => {
                     if (block.id.startsWith("pending-") && block.pasoId) {
@@ -393,6 +459,7 @@ export function PlanHoy({ selectedDate }: Props) {
                       reprogramarEntregable(block.entregableId, newDate);
                     }
                   }}
+                  {...reorderBindings(block)}
                 />
               );
             };
@@ -427,13 +494,24 @@ export function PlanHoy({ selectedDate }: Props) {
               </button>
               {otrosOpen && (() => {
                 const conHora = plannedOtros.filter((b) => b.planInicioTs);
-                const sinHora = plannedOtros.filter((b) => !b.planInicioTs);
+                const sinHora = aplicarOrdenSinHora(plannedOtros.filter((b) => !b.planInicioTs));
+                const reorderBindings = (block: Block) => {
+                  if (isMentor) return {};
+                  const idx = sinHora.findIndex((b) => (b.entregableId ?? b.id) === (block.entregableId ?? block.id));
+                  if (idx === -1) return {};
+                  return {
+                    onMoveUp: () => moveSinHora(sinHora, block, "up"),
+                    onMoveDown: () => moveSinHora(sinHora, block, "down"),
+                    canMoveUp: idx > 0,
+                    canMoveDown: idx < sinHora.length - 1,
+                  } as const;
+                };
                 const renderRow = (block: Block) => {
                   const hex = AREA_COLORS[block.area]?.hex ?? "#888";
                   return (
                     <PlannedBlockRow key={block.id} block={block} hex={hex} isMentor={isMentor} refDate={selectedDate}
                       pasoBadgeLabel={pasoBadgeLabel}
-                      onSetTime={() => setTimeBlock(block)}
+                      onSetTime={(hhmm) => asignarHora(block, hhmm)}
                       onOpenDetalle={block.entregableId ? () => setDetalleEntregableId(block.entregableId!) : undefined}
                       onReschedule={(newDate) => {
                         if (block.id.startsWith("pending-") && block.pasoId) {
@@ -444,6 +522,7 @@ export function PlanHoy({ selectedDate }: Props) {
                           reprogramarEntregable(block.entregableId, newDate);
                         }
                       }}
+                      {...reorderBindings(block)}
                     />
                   );
                 };
@@ -612,15 +691,6 @@ export function PlanHoy({ selectedDate }: Props) {
         />
       )}
 
-      {/* Picker de hora planificada */}
-      {timeBlock && (
-        <TimePickerDialog
-          block={timeBlock}
-          onClose={() => setTimeBlock(null)}
-          onSave={(hhmm) => { asignarHora(timeBlock, hhmm); setTimeBlock(null); }}
-          onClear={() => { asignarHora(timeBlock, null); setTimeBlock(null); }}
-        />
-      )}
 
       {/* Detalle del entregable (notas, URLs, pasos, historial) */}
       {detalleEntregableId && (() => {
@@ -674,37 +744,6 @@ function EntregableDetalleDialog({ entregable, onClose }: { entregable: Entregab
     </div>
   );
 }
-
-function TimePickerDialog({ block, onClose, onSave, onClear }: {
-  block: Block; onClose: () => void;
-  onSave: (hhmm: string) => void; onClear: () => void;
-}) {
-  const current = hhmmFromIso(block.planInicioTs) ?? "";
-  const [value, setValue] = useState(current);
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/20 px-6 backdrop-blur-sm"
-      role="dialog" aria-modal="true"
-      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
-      onKeyDown={(e) => { if (e.key === "Escape") onClose(); }}>
-      <div className="w-full max-w-sm rounded-2xl bg-background p-5 shadow-xl">
-        <h3 className="text-sm font-semibold text-foreground">Hora planificada</h3>
-        <p className="mt-1 mb-3 truncate text-xs text-muted">{block.title}</p>
-        <input type="time" value={value} onChange={(e) => setValue(e.target.value)}
-          autoFocus
-          className="mb-4 w-full rounded-lg border border-border bg-background px-3 py-2 text-base text-foreground outline-none focus:border-accent" />
-        <div className="flex gap-2">
-          {block.planInicioTs && (
-            <button onClick={onClear} className="rounded-lg border border-border px-3 py-2.5 text-xs font-medium text-muted hover:bg-surface">Quitar hora</button>
-          )}
-          <button onClick={onClose} className="flex-1 rounded-lg border border-border py-2.5 text-xs font-medium text-muted hover:bg-surface">Cancelar</button>
-          <button onClick={() => value && onSave(value)} disabled={!value}
-            className="flex-1 rounded-lg bg-accent py-2.5 text-xs font-medium text-white hover:bg-accent/90 disabled:opacity-40">Guardar</button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 
 function toLocalDT(d: Date): string {
   const pad = (n: number) => String(n).padStart(2, "0");
@@ -788,12 +827,19 @@ function EditBlockTimesDialog({ block, pasoId, onClose }: { block: Block; pasoId
    PLANNED BLOCK ROW with reschedule/delete
    ============================================================ */
 
-function PlannedBlockRow({ block, hex, isMentor, refDate, onSetTime, onReschedule, onOpenDetalle, pasoBadgeLabel = "Paso tuyo" }: {
+function PlannedBlockRow({ block, hex, isMentor, refDate, onSetTime, onReschedule, onOpenDetalle, pasoBadgeLabel = "Paso tuyo", onMoveUp, onMoveDown, canMoveUp, canMoveDown }: {
   block: Block; hex: string; isMentor: boolean; refDate: Date;
-  onSetTime: () => void; onReschedule: (newDate: string | null) => void;
+  /** Recibe directamente la hora HH:MM o null para limpiarla. */
+  onSetTime: (hhmm: string | null) => void;
+  onReschedule: (newDate: string | null) => void;
   /** Si se proporciona, el título es clickable y abre el detalle del entregable. */
   onOpenDetalle?: () => void;
   pasoBadgeLabel?: string;
+  /** Reorden manual del bloque dentro de "Sin hora". */
+  onMoveUp?: () => void;
+  onMoveDown?: () => void;
+  canMoveUp?: boolean;
+  canMoveDown?: boolean;
 }) {
   const [showMenu, setShowMenu] = useState(false);
   const [showDatePicker, setShowDatePicker] = useState(false);
@@ -804,7 +850,41 @@ function PlannedBlockRow({ block, hex, isMentor, refDate, onSetTime, onReschedul
   return (
     <div className="flex items-center gap-2 rounded-lg border-l-[3px] px-3 py-2.5"
       style={{ borderLeftColor: hex, backgroundColor: hex + "0c" }}>
-      {horaPlan ? (
+      {!isMentor && (onMoveUp || onMoveDown) && (
+        <div className="flex shrink-0 flex-col">
+          <button
+            type="button"
+            onClick={onMoveUp}
+            disabled={!canMoveUp}
+            className="text-[10px] leading-none text-muted/40 hover:text-foreground disabled:opacity-20 disabled:hover:text-muted/40"
+            title="Subir"
+            aria-label="Subir entregable"
+          >
+            ▲
+          </button>
+          <button
+            type="button"
+            onClick={onMoveDown}
+            disabled={!canMoveDown}
+            className="text-[10px] leading-none text-muted/40 hover:text-foreground disabled:opacity-20 disabled:hover:text-muted/40"
+            title="Bajar"
+            aria-label="Bajar entregable"
+          >
+            ▼
+          </button>
+        </div>
+      )}
+      {!isMentor ? (
+        <input
+          type="time"
+          value={horaPlan ?? ""}
+          onChange={(e) => onSetTime(e.target.value || null)}
+          className="shrink-0 rounded-md bg-background px-1.5 py-0.5 text-[11px] font-bold tabular-nums outline-none focus:ring-1 focus:ring-accent"
+          style={{ color: horaPlan ? hex : undefined, borderColor: hex + "40", borderWidth: 1 }}
+          title={horaPlan ? "Editar hora planificada (vacía para quitarla)" : "Asignar hora planificada"}
+          aria-label="Hora planificada"
+        />
+      ) : horaPlan ? (
         <span className="shrink-0 rounded-md bg-background px-2 py-0.5 text-[11px] font-bold tabular-nums" style={{ color: hex }}>{horaPlan}</span>
       ) : (
         <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: hex }} />
@@ -885,11 +965,6 @@ function PlannedBlockRow({ block, hex, isMentor, refDate, onSetTime, onReschedul
               Abrir
             </button>
           )}
-          <button type="button" onClick={onSetTime}
-            className="rounded-lg border border-border px-2.5 py-2 text-[11px] font-medium text-foreground hover:bg-surface"
-            title={horaPlan ? "Editar hora planificada" : "Asignar hora planificada"}>
-            {horaPlan ? "Hora…" : "+ Hora"}
-          </button>
           <button type="button" onClick={() => setShowMenu((s) => !s)} title="Opciones"
             className="rounded-lg p-2 text-muted hover:bg-surface hover:text-foreground transition-colors">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
