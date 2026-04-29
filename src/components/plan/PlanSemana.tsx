@@ -59,7 +59,7 @@ export function PlanSemana({ selectedDate, onOpenInMapa }: Props) {
   const dispatch = useAppDispatch();
   const [respFilter, setRespFilter] = useState<ResponsableFilter>("yo");
   const targetUser: string | null = respFilter === "todo" ? null : respFilter === "yo" ? currentUser : respFilter;
-  const [filtro, setFiltro] = useState<AmbitoFilter>("empresa");
+  const [filtro, setFiltro] = useState<AmbitoFilter>("todo");
   const [showDone, setShowDone] = useState(true);
   const [pickDay, setPickDay] = useState<string | null>(null);
   const [confirmSOP, setConfirmSOP] = useState<{ sop: ProjectedSOP; dateKey: string } | null>(null);
