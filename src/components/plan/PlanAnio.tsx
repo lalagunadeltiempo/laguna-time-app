@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { useAppState, useAppDispatch } from "@/lib/context";
-import { useIsMentor } from "@/lib/usuario";
+import { useIsMentor, usePuedeVerArbol } from "@/lib/usuario";
 import {
   AREAS_PERSONAL,
   AREAS_EMPRESA,
@@ -30,6 +30,7 @@ export function PlanAnio({ selectedDate }: Props) {
   const state = useAppState();
   const dispatch = useAppDispatch();
   const isMentor = useIsMentor();
+  const veArbol = usePuedeVerArbol();
   const [filtro, setFiltro] = useState<AmbitoFilter>("empresa");
 
   const year = selectedDate.getFullYear();
@@ -152,21 +153,23 @@ export function PlanAnio({ selectedDate }: Props) {
         )}
       </section>
 
-      <section className="rounded-xl border border-border bg-surface/40 p-4">
-        <div className="flex items-center justify-between gap-2">
-          <h3 className="text-xs font-bold uppercase tracking-wider text-muted">Árbol de objetivos</h3>
-          <button
-            type="button"
-            onClick={() => window.dispatchEvent(new Event("laguna-open-objetivos-tree"))}
-            className="rounded border border-border px-2 py-0.5 text-[10px] font-medium text-muted hover:border-accent hover:text-accent"
-          >
-            Abrir árbol
-          </button>
-        </div>
-        <p className="mt-2 text-xs text-muted">
-          Objetivos anuales y seguimiento en la vista «Árbol de objetivos».
-        </p>
-      </section>
+      {veArbol && (
+        <section className="rounded-xl border border-border bg-surface/40 p-4">
+          <div className="flex items-center justify-between gap-2">
+            <h3 className="text-xs font-bold uppercase tracking-wider text-muted">Árbol de objetivos</h3>
+            <button
+              type="button"
+              onClick={() => window.dispatchEvent(new Event("laguna-open-objetivos-tree"))}
+              className="rounded border border-border px-2 py-0.5 text-[10px] font-medium text-muted hover:border-accent hover:text-accent"
+            >
+              Abrir árbol
+            </button>
+          </div>
+          <p className="mt-2 text-xs text-muted">
+            Objetivos anuales y seguimiento en la vista «Árbol de objetivos».
+          </p>
+        </section>
+      )}
 
       {/* Progreso global */}
       <section className="rounded-2xl border border-border bg-surface p-6">

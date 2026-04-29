@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useAppDispatch, useAppState } from "@/lib/context";
-import { useIsMentor } from "@/lib/usuario";
+import { useIsMentor, usePuedeVerArbol } from "@/lib/usuario";
 import { generateId } from "@/lib/store";
 import {
   defaultSemanasNoActivas,
@@ -105,6 +105,7 @@ export function PantallaArbolObjetivos() {
   const state = useAppState();
   const dispatch = useAppDispatch();
   const isMentor = useIsMentor();
+  const veArbol = usePuedeVerArbol();
   const arbol = state.arbol ?? EMPTY_ARBOL;
 
   const [year, setYear] = useState(() => new Date().getFullYear());
@@ -161,6 +162,14 @@ export function PantallaArbolObjetivos() {
       return n;
     });
   }, []);
+
+  if (!veArbol) {
+    return (
+      <div className="w-full px-3 py-8 sm:px-6 md:px-10">
+        <p className="text-muted">Esta sección está restringida.</p>
+      </div>
+    );
+  }
 
   if (isMentor) {
     return (

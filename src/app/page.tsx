@@ -4,7 +4,7 @@ import { useState, useCallback, useMemo, useEffect, type ReactNode } from "react
 import { AuthGate } from "@/components/AuthGate";
 import { AppProvider, useAppState, useAppDispatch } from "@/lib/context";
 import { useStaleStepCleanup, buildClosedPasoFin, type StaleSopStep } from "@/lib/hooks";
-import { UsuarioContext, useUsuario } from "@/lib/usuario";
+import { UsuarioContext, useUsuario, puedeVerArbolObjetivos } from "@/lib/usuario";
 import { getSupabase } from "@/lib/supabase";
 import { flushPendingCloudSave } from "@/lib/store";
 import { toDateKey } from "@/lib/date-utils";
@@ -153,7 +153,7 @@ export default function Home() {
   );
 }
 
-const MENTOR_VIEWS: Vista[] = ["mapa", "plan", "arbol-objetivos"];
+const MENTOR_VIEWS: Vista[] = ["mapa", "plan"];
 
 function AppShell({ userId, displayName }: { userId: string; displayName: string }) {
   const isMentorUser = userId === "mentor";
@@ -170,16 +170,26 @@ function AppShell({ userId, displayName }: { userId: string; displayName: string
     setVista("mapa");
     setHighlightId(id);
   }, []);
-  const navItems = isMentorUser ? NAV_ITEMS.filter((i) => MENTOR_VIEWS.includes(i.id)) : NAV_ITEMS;
+  const veArbol = puedeVerArbolObjetivos(displayName);
+  const navItems = (isMentorUser ? NAV_ITEMS.filter((i) => MENTOR_VIEWS.includes(i.id)) : NAV_ITEMS).filter(
+    (i) => i.id !== "arbol-objetivos" || veArbol,
+  );
+
+  useEffect(() => {
+    if (vista === "arbol-objetivos" && !veArbol) {
+      setVista(isMentorUser ? "mapa" : "hoy");
+    }
+  }, [vista, veArbol, isMentorUser]);
 
   useEffect(() => {
     const onOpenTree = () => {
+      if (!veArbol) return;
       setVista("arbol-objetivos");
       setDetalleResultadoId(null);
     };
     window.addEventListener("laguna-open-objetivos-tree", onOpenTree as EventListener);
     return () => window.removeEventListener("laguna-open-objetivos-tree", onOpenTree as EventListener);
-  }, []);
+  }, [veArbol]);
 
 
   function openDetalle(id: string) {
@@ -386,7 +396,7 @@ function AppShell({ userId, displayName }: { userId: string; displayName: string
                 onClearScrollToArea={clearMapaArea}
               />
             )}
-            {vista === "arbol-objetivos" && (
+            {vista === "arbol-objetivos" && veArbol && (
               <PantallaArbolObjetivos />
             )}
             {vista === "urls" && (

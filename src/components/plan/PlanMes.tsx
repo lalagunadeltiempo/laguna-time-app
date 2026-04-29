@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { useAppState, useAppDispatch } from "@/lib/context";
-import { useUsuario, useIsMentor } from "@/lib/usuario";
+import { useUsuario, useIsMentor, usePuedeVerArbol } from "@/lib/usuario";
 import {
   ambitoDeArea, AREA_COLORS, AREAS_EMPRESA, AREAS_PERSONAL,
   type Area, type Entregable, type Resultado, type Proyecto, type Ambito, type MiembroInfo,
@@ -78,6 +78,7 @@ interface ResultadoCardData {
 export function PlanMes({ selectedDate }: Props) {
   const state = useAppState();
   const isMentor = useIsMentor();
+  const veArbol = usePuedeVerArbol();
   const { nombre: currentUser } = useUsuario();
   const [filtro, setFiltro] = useState<AmbitoFilter>("empresa");
   const [respFilter, setRespFilter] = useState<ResponsableFilter>("todo");
@@ -217,21 +218,23 @@ export function PlanMes({ selectedDate }: Props) {
         </div>
       </div>
 
-      <section className="mb-5 rounded-xl border border-border bg-surface/40 p-4">
-        <div className="flex items-center justify-between gap-2">
-          <h3 className="text-xs font-bold uppercase tracking-wider text-muted">Árbol de objetivos</h3>
-          <button
-            type="button"
-            onClick={() => window.dispatchEvent(new Event("laguna-open-objetivos-tree"))}
-            className="rounded border border-border px-2 py-0.5 text-[10px] font-medium text-muted hover:border-accent hover:text-accent"
-          >
-            Abrir árbol
-          </button>
-        </div>
-        <p className="mt-2 text-xs text-muted">
-          Registro semanal en «Árbol de objetivos».
-        </p>
-      </section>
+      {veArbol && (
+        <section className="mb-5 rounded-xl border border-border bg-surface/40 p-4">
+          <div className="flex items-center justify-between gap-2">
+            <h3 className="text-xs font-bold uppercase tracking-wider text-muted">Árbol de objetivos</h3>
+            <button
+              type="button"
+              onClick={() => window.dispatchEvent(new Event("laguna-open-objetivos-tree"))}
+              className="rounded border border-border px-2 py-0.5 text-[10px] font-medium text-muted hover:border-accent hover:text-accent"
+            >
+              Abrir árbol
+            </button>
+          </div>
+          <p className="mt-2 text-xs text-muted">
+            Registro semanal en «Árbol de objetivos».
+          </p>
+        </section>
+      )}
 
       {/* Semanas del mes */}
       <section className="mb-6">
