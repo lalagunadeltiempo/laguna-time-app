@@ -64,6 +64,12 @@ interface Block {
   planInicioTs?: string | null;
   /** El bloque entra para `targetUser` por un paso suyo (no por ser responsable del entregable). */
   pasoTuyo?: boolean;
+  /** Índice de la sesión dentro de `entregable.sesiones` (solo bloques `done`/`active`). */
+  sesionIdx?: number;
+  /** ISO timestamp de inicio de la sesión, para edición inline. */
+  sesionInicioTs?: string;
+  /** ISO timestamp de fin (null si la sesión sigue abierta). */
+  sesionFinTs?: string | null;
 }
 
 function hhmmFromIso(iso: string | null | undefined): string | null {
@@ -217,6 +223,9 @@ export function PlanHoy({ selectedDate }: Props) {
           endMin: isDone ? endMin : undefined,
           timeLabel: isDone ? `${fmtTime(startMin)} – ${fmtTime(endMin)}` : fmtTime(startMin),
           durationLabel: isDone ? fmtDuration(dur) : undefined,
+          sesionIdx: idx,
+          sesionInicioTs: s.inicioTs,
+          sesionFinTs: s.finTs,
         });
       }
     }
@@ -599,8 +608,20 @@ export function PlanHoy({ selectedDate }: Props) {
                         )}
                       </div>
                       <p className="mt-0.5 text-xs text-muted">{block.subtitle}</p>
-                      {(block.timeLabel || block.durationLabel) && (
-                        <p className="mt-0.5 text-[10px] text-muted/60">{block.timeLabel}{block.durationLabel ? ` · ${block.durationLabel}` : ""}</p>
+                      {!isMentor && block.entregableId !== undefined && block.sesionIdx !== undefined && block.sesionInicioTs ? (
+                        <SesionTimeInline
+                          color={color}
+                          entregableId={block.entregableId}
+                          sesionIdx={block.sesionIdx}
+                          inicioTs={block.sesionInicioTs}
+                          finTs={block.sesionFinTs ?? null}
+                          dateKey={dateKey}
+                          durationLabel={block.durationLabel}
+                        />
+                      ) : (
+                        (block.timeLabel || block.durationLabel) && (
+                          <p className="mt-0.5 text-[10px] text-muted/60">{block.timeLabel}{block.durationLabel ? ` · ${block.durationLabel}` : ""}</p>
+                        )
                       )}
                     </div>
                   );
@@ -753,6 +774,86 @@ function toLocalDT(d: Date): string {
 /* ============================================================
    EDIT BLOCK TIMES DIALOG — edit inicioTs/finTs of a done block
    ============================================================ */
+
+/** Edición inline de las horas de una sesión del horario, sin diálogo.
+ *  El usuario cambia inicio o fin con dos `<input type="time">` y se despacha
+ *  `UPDATE_SESION_ENTREGABLE_TIMES` directamente. Si la sesión está activa
+ *  (`finTs === null`), poner una hora de fin la cierra; vaciarla la deja abierta.
+ *  No propaga el clic para que no se abra el detalle del entregable al editar. */
+function SesionTimeInline({
+  color,
+  entregableId,
+  sesionIdx,
+  inicioTs,
+  finTs,
+  dateKey,
+  durationLabel,
+}: {
+  color: string;
+  entregableId: string;
+  sesionIdx: number;
+  inicioTs: string;
+  finTs: string | null;
+  dateKey: string;
+  durationLabel?: string;
+}) {
+  const dispatch = useAppDispatch();
+  const inicioVal = hhmmFromIso(inicioTs) ?? "";
+  const finVal = hhmmFromIso(finTs) ?? "";
+
+  function commit(nextInicio: string, nextFin: string) {
+    if (!nextInicio) return;
+    const inicioIso = isoFromDateAndHhmm(dateKey, nextInicio);
+    const finIso = nextFin ? isoFromDateAndHhmm(dateKey, nextFin) : null;
+    if (finIso && finIso <= inicioIso) return;
+    dispatch({
+      type: "UPDATE_SESION_ENTREGABLE_TIMES",
+      id: entregableId,
+      sesionIdx,
+      inicioTs: inicioIso,
+      finTs: finIso,
+    });
+  }
+
+  const stop = (e: { stopPropagation: () => void }) => e.stopPropagation();
+
+  return (
+    <div
+      className="mt-1 flex flex-wrap items-center gap-1.5 text-[10px] text-muted/80"
+      onClick={stop}
+      onKeyDown={stop}
+    >
+      <input
+        type="time"
+        value={inicioVal}
+        onChange={(e) => commit(e.target.value, finVal)}
+        onClick={stop}
+        aria-label="Hora de inicio"
+        title="Cambiar hora de inicio"
+        className="rounded-md border bg-background px-1.5 py-0.5 text-[11px] font-semibold tabular-nums outline-none focus:ring-1 focus:ring-accent"
+        style={{ color, borderColor: color + "55" }}
+      />
+      <span aria-hidden>–</span>
+      <input
+        type="time"
+        value={finVal}
+        onChange={(e) => commit(inicioVal, e.target.value)}
+        onClick={stop}
+        aria-label="Hora de fin"
+        title={finTs ? "Cambiar hora de fin (déjalo vacío para reabrir)" : "Poner hora de fin para cerrar la sesión"}
+        placeholder="—"
+        className="rounded-md border bg-background px-1.5 py-0.5 text-[11px] font-semibold tabular-nums outline-none focus:ring-1 focus:ring-accent"
+        style={{ color: finVal ? color : undefined, borderColor: color + "55" }}
+      />
+      {durationLabel && <span className="text-muted/60">· {durationLabel}</span>}
+      {!finVal && (
+        <span className="rounded bg-emerald-500/15 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-emerald-700 dark:text-emerald-300">
+          en marcha
+        </span>
+      )}
+    </div>
+  );
+}
 
 function EditBlockTimesDialog({ block, pasoId, onClose }: { block: Block; pasoId: string; onClose: () => void }) {
   const dispatch = useAppDispatch();
