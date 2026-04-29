@@ -413,6 +413,11 @@ export interface PlanArbolConfigAnio {
   anio: number;
   /** Lunes ISO (YYYY-MM-DD) de semanas no activas (ej. vacaciones). */
   semanasNoActivas: string[];
+  /**
+   * Código CCAA para festivos (date-holidays / ES), ej. MD, CT.
+   * Omitido o vacío: solo se aplican festivos del conjunto nacional estándar del dataset.
+   */
+  comunidadAutonoma?: string;
 }
 
 /** Reflexión guardada al cierre de un trimestre. */

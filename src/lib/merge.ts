@@ -11,6 +11,7 @@ function unionConfigs(a: PlanArbolConfigAnio[], b: PlanArbolConfigAnio[]): PlanA
       map.set(c.anio, {
         anio: c.anio,
         semanasNoActivas: [...new Set([...prev.semanasNoActivas, ...c.semanasNoActivas])].sort(),
+        comunidadAutonoma: c.comunidadAutonoma ?? prev.comunidadAutonoma,
       });
     }
   }

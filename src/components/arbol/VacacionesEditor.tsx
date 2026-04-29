@@ -9,17 +9,21 @@ import {
   parseLocalDateKey,
   weekTouchesAugust,
 } from "@/lib/arbol-tiempo";
+import { COMUNIDADES_AUTONOMAS_OPCIONES } from "@/lib/festivos-es";
 
 /** Editor en la misma página (sin overlay): en móvil los chips hacen scroll dentro del bloque. */
 export function VacacionesEditor({
   anio,
   semanasNoActivas,
+  comunidadAutonoma,
   onSave,
   onClose,
 }: {
   anio: number;
   semanasNoActivas: string[];
-  onSave: (next: string[]) => void;
+  /** Código CCAA (date-holidays) o vacío para solo festivos nacionales. */
+  comunidadAutonoma?: string;
+  onSave: (next: { semanasNoActivas: string[]; comunidadAutonoma?: string }) => void;
   onClose: () => void;
 }) {
   const set = new Set(semanasNoActivas);
@@ -37,11 +41,15 @@ export function VacacionesEditor({
     const next = new Set(set);
     if (next.has(mk)) next.delete(mk);
     else next.add(mk);
-    onSave([...next].sort());
+    onSave({ semanasNoActivas: [...next].sort(), comunidadAutonoma });
   }
 
   function restoreDefaults() {
-    onSave(defaultSemanasNoActivas(anio));
+    onSave({ semanasNoActivas: defaultSemanasNoActivas(anio), comunidadAutonoma });
+  }
+
+  function setCcaa(code: string) {
+    onSave({ semanasNoActivas: [...set].sort(), comunidadAutonoma: code === "" ? undefined : code });
   }
 
   return (
@@ -57,8 +65,24 @@ export function VacacionesEditor({
       <p className="border-b border-amber-400/20 px-4 py-3 text-xs text-muted">
         Toca los <strong>lunes</strong> de las semanas de descanso: ahí no te pediremos número. Por defecto:{" "}
         <strong>agosto</strong> y <strong>dos semanas de Navidad</strong> ({christmasVacationMondays(anio).map(isoWeekLabelFromMondayKey).join(", ")}
-        ).
+        ). El plan del año también usa <strong>festivos laborales</strong> (España + comunidad si eliges abajo).
       </p>
+      <div className="border-b border-amber-400/20 px-4 py-3">
+        <label className="flex flex-col gap-1 text-[11px] text-muted">
+          Festivos de tu comunidad autónoma
+          <select
+            value={comunidadAutonoma ?? ""}
+            onChange={(e) => setCcaa(e.target.value)}
+            className="max-w-full rounded-lg border border-border bg-background px-2 py-2 text-sm text-foreground"
+          >
+            {COMUNIDADES_AUTONOMAS_OPCIONES.map((o) => (
+              <option key={o.id || "national"} value={o.id}>
+                {o.nombre}
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
       <div className="max-h-[min(40vh,320px)] overflow-y-auto px-4 py-3 sm:max-h-[min(50vh,420px)]">
         <div className="flex flex-wrap gap-1.5">
           {mondays.map((mk) => {

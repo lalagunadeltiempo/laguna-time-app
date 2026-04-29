@@ -14,10 +14,11 @@ import {
   mesKeyFromDate,
   mesKeysEnTrimestre,
   metaParaPeriodo,
+  metaSemanalPropuesta,
   mondaysInCalendarYear,
+  diasLaborablesEnAnio,
   parseLocalDateKey,
   ramasDirectas,
-  semanasActivasCount,
   sumarRegistrosNodoAnioAnterior,
   sumarRegistrosNodoSimple,
   trimestreKeyFromMesKey,
@@ -1126,17 +1127,19 @@ export function VistaBloques({ raiz, year }: VistaBloquesProps) {
       ? `Las ramas suman ${fmtNum(planRamasAnual)} ${unidad} y el objetivo es ${fmtNum(raiz.metaValor)} ${unidad}.`
       : null;
 
-  const semanasActivas = semanasActivasCount(year, config);
-  const cuotaSemanal = raiz.metaValor && semanasActivas > 0 ? raiz.metaValor / semanasActivas : 0;
+  const diasLaborables = diasLaborablesEnAnio(year, config);
+  const cuotaSemanal =
+    raiz.metaValor !== undefined && diasLaborables > 0 ? metaSemanalPropuesta(raiz.metaValor, year, config) : 0;
 
   return (
     <div className="space-y-6">
       <div className="rounded-xl border border-accent/30 bg-accent/5 px-3 py-2 text-[12px] text-foreground">
-        En {year} hay <strong>{semanasActivas}</strong> semanas laborables.{" "}
+        En {year} hay <strong>{diasLaborables}</strong> días laborables (lun–vie; excluyen tus semanas de descanso y los festivos
+        {config?.comunidadAutonoma ? " nacionales y autonómicos que configuraste" : " nacionales"}).{" "}
         {raiz.metaValor !== undefined && (
           <>
             Para llegar a <strong>{fmtNum(raiz.metaValor)} {unidad}</strong> tendrías que hacer{" "}
-            <strong className="tabular-nums">{fmtNum(cuotaSemanal)} {unidad}</strong> de media a la semana.
+            <strong className="tabular-nums">{fmtNum(cuotaSemanal)} {unidad}</strong> de media a la semana (equivalente lineal).
           </>
         )}
         {cuadre && <span className="ml-2 rounded bg-amber-500/15 px-2 py-0.5 text-amber-900 dark:text-amber-100">{cuadre}</span>}

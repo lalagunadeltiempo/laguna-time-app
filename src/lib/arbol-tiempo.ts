@@ -1,4 +1,5 @@
 import type { NodoArbol, PlanArbolConfigAnio, RegistroNodo } from "./types";
+import { esDiaLaborable, fechaKeyDesdeDate } from "./festivos-es";
 
 /** Lunes local como YYYY-MM-DD */
 export function toMondayDateKeyLocal(d: Date): string {
@@ -71,10 +72,55 @@ export function semanasActivasCount(anio: number, config: PlanArbolConfigAnio | 
   return mondaysInCalendarYear(anio).filter((m) => !noAct.has(m)).length;
 }
 
+/** Días laborables (lun–vie, sin descansos ni festivos ES/CCAA) en el año calendario. */
+export function diasLaborablesEnAnio(anio: number, config: PlanArbolConfigAnio | undefined): number {
+  let n = 0;
+  for (let mes = 1; mes <= 12; mes++) {
+    const mesKey = `${anio}-${String(mes).padStart(2, "0")}`;
+    n += diasLaborablesEnMes(mesKey, anio, config);
+  }
+  return n;
+}
+
+/** Días laborables en un mes calendario YYYY-MM. */
+export function diasLaborablesEnMes(mesKey: string, anio: number, config: PlanArbolConfigAnio | undefined): number {
+  const [y, m] = mesKey.split("-").map((s) => parseInt(s, 10));
+  if (!Number.isFinite(y) || !Number.isFinite(m) || y !== anio) return 0;
+  const ultimo = new Date(anio, m, 0).getDate();
+  let n = 0;
+  for (let day = 1; day <= ultimo; day++) {
+    const dk = `${anio}-${String(m).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+    if (esDiaLaborable(dk, anio, config)) n += 1;
+  }
+  return n;
+}
+
+/** Días laborables en el trimestre canónico (Q1..Q4). */
+export function diasLaborablesEnTrimestre(qKey: string, anio: number, config: PlanArbolConfigAnio | undefined): number {
+  return mesKeysEnTrimestre(qKey).reduce((acc, mk) => acc + diasLaborablesEnMes(mk, anio, config), 0);
+}
+
+/**
+ * Días laborables de la semana ISO (lun–dom del `mondayKey`) que caen en `anio`.
+ */
+export function diasLaborablesEnSemanaISO(mondayKey: string, anio: number, config: PlanArbolConfigAnio | undefined): number {
+  const mon = parseLocalDateKey(mondayKey);
+  let n = 0;
+  for (let i = 0; i < 7; i++) {
+    const d = new Date(mon);
+    d.setDate(mon.getDate() + i);
+    if (d.getFullYear() !== anio) continue;
+    const dk = fechaKeyDesdeDate(d);
+    if (esDiaLaborable(dk, anio, config)) n += 1;
+  }
+  return n;
+}
+
+/** Media semanal equivalente del plan lineal: meta / (días laborables / 5). */
 export function metaSemanalPropuesta(metaAnual: number, anio: number, config: PlanArbolConfigAnio | undefined): number {
-  const n = semanasActivasCount(anio, config);
-  if (n <= 0) return 0;
-  return metaAnual / n;
+  const d = diasLaborablesEnAnio(anio, config);
+  if (d <= 0) return 0;
+  return (metaAnual * 5) / d;
 }
 
 /** Cuántas semanas activas (lunes ISO no marcados como descanso) hay en un mes calendario YYYY-MM. */
@@ -263,20 +309,21 @@ export function metaParaPeriodo(
   config: PlanArbolConfigAnio | undefined,
 ): number | undefined {
   if (metaValor === undefined) return undefined;
-  const totalSemanas = semanasActivasCount(anio, config);
-  if (cadencia === "anual" && totalSemanas > 0) {
-    if (vista === "semana") return metaValor / totalSemanas;
-    if (vista === "mes") return (metaValor * semanasActivasEnMes(periodoKey, anio, config)) / totalSemanas;
+  const totalDias = diasLaborablesEnAnio(anio, config);
+  if (cadencia === "anual" && totalDias > 0) {
+    if (vista === "semana") return (metaValor * diasLaborablesEnSemanaISO(periodoKey, anio, config)) / totalDias;
+    if (vista === "mes") return (metaValor * diasLaborablesEnMes(periodoKey, anio, config)) / totalDias;
     if (vista === "trimestre")
-      return (metaValor * semanasActivasEnTrimestre(periodoKey, anio, config)) / totalSemanas;
+      return (metaValor * diasLaborablesEnTrimestre(periodoKey, anio, config)) / totalDias;
     if (vista === "anio") return metaValor;
   }
   if (cadencia === "semanal" && vista === "semana") return metaValor;
   if (cadencia === "semanal" && vista === "mes")
-    return metaValor * semanasActivasEnMes(periodoKey, anio, config);
+    return metaValor * (diasLaborablesEnMes(periodoKey, anio, config) / 5);
   if (cadencia === "semanal" && vista === "trimestre")
-    return metaValor * semanasActivasEnTrimestre(periodoKey, anio, config);
-  if (cadencia === "semanal" && vista === "anio") return metaValor * totalSemanas;
+    return metaValor * (diasLaborablesEnTrimestre(periodoKey, anio, config) / 5);
+  if (cadencia === "semanal" && vista === "anio")
+    return totalDias > 0 ? metaValor * (totalDias / 5) : metaParaVista(cadencia, metaValor, vista);
   if (cadencia === "mensual") {
     if (vista === "mes") return metaValor;
     if (vista === "trimestre") return metaValor * 3;
@@ -386,12 +433,7 @@ export function sumarRegistrosNodoAnioAnterior(
   return sumarRegistrosNodoSimple(registros, nodoId, vista, keyPrev, yearPrev);
 }
 
-/** ¿Está el lunes ISO `mondayKey` antes (estrictamente) del lunes ISO `hoyMondayKey`? */
-function isMondayBefore(a: string, b: string): boolean {
-  return parseLocalDateKey(a).getTime() < parseLocalDateKey(b).getTime();
-}
-
-/** Cuota ajustada para llegar al objetivo total: reparte lo que falta entre las semanas activas restantes. */
+/** Cuota ajustada: reparte lo que falta entre los días laborables restantes del año (lun–vie sin descanso ni festivo). */
 export function cuotaAjustada(opts: {
   metaAnual: number;
   realHastaHoy: number;
@@ -400,34 +442,52 @@ export function cuotaAjustada(opts: {
   hoy?: Date;
 }): {
   faltaTotal: number;
-  semanasRestantes: number;
+  /** Días laborables desde hoy (inclusive) hasta fin de año. */
+  diasLaborablesRestantes: number;
+  /** Equivalente semanal lineal: falta × 5 / días restantes. */
   semanaRestante: number;
   mesRestante: (mesKey: string) => number;
   trimRestante: (qKey: string) => number;
 } {
   const hoy = opts.hoy ?? new Date();
-  const hoyMondayKey = toMondayDateKeyLocal(hoy);
-  const noAct = new Set(opts.config?.semanasNoActivas ?? []);
-  const all = mondaysInCalendarYear(opts.anio);
-  // semanas activas que NO han pasado: incluimos la semana actual en restantes.
-  const restantes = all.filter((mk) => !noAct.has(mk) && !isMondayBefore(mk, hoyMondayKey));
-  const semanasRestantes = restantes.length;
+  const anio = opts.anio;
+  const hoyNorm = new Date(hoy.getFullYear(), hoy.getMonth(), hoy.getDate());
+  const startYear = new Date(anio, 0, 1);
+  const endYear = new Date(anio, 11, 31);
+  const desde = hoyNorm < startYear ? startYear : hoyNorm;
+  const config = opts.config;
+
+  const diasRestantesKeys: string[] = [];
+  for (let d = new Date(desde); d <= endYear; d.setDate(d.getDate() + 1)) {
+    const dk = fechaKeyDesdeDate(d);
+    if (parseLocalDateKey(dk).getFullYear() !== anio) continue;
+    if (!esDiaLaborable(dk, anio, config)) continue;
+    diasRestantesKeys.push(dk);
+  }
+
+  const diasLaborablesRestantes = diasRestantesKeys.length;
   const faltaTotal = Math.max(0, opts.metaAnual - opts.realHastaHoy);
-  const semanaRestante = semanasRestantes > 0 ? faltaTotal / semanasRestantes : 0;
+  const semanaRestante =
+    diasLaborablesRestantes > 0 ? (faltaTotal * 5) / diasLaborablesRestantes : 0;
+
   const restantesByMes = new Map<string, number>();
   const restantesByTrim = new Map<string, number>();
-  for (const mk of restantes) {
-    const m = mesKeyFromDate(parseLocalDateKey(mk));
+  for (const dk of diasRestantesKeys) {
+    const dd = parseLocalDateKey(dk);
+    const m = mesKeyFromDate(dd);
     restantesByMes.set(m, (restantesByMes.get(m) ?? 0) + 1);
     const q = trimestreKeyFromMesKey(m);
     restantesByTrim.set(q, (restantesByTrim.get(q) ?? 0) + 1);
   }
+
   return {
     faltaTotal,
-    semanasRestantes,
+    diasLaborablesRestantes,
     semanaRestante,
-    mesRestante: (mesKey: string) => semanaRestante * (restantesByMes.get(mesKey) ?? 0),
-    trimRestante: (qKey: string) => semanaRestante * (restantesByTrim.get(qKey) ?? 0),
+    mesRestante: (mesKey: string) =>
+      diasLaborablesRestantes > 0 ? (faltaTotal * (restantesByMes.get(mesKey) ?? 0)) / diasLaborablesRestantes : 0,
+    trimRestante: (qKey: string) =>
+      diasLaborablesRestantes > 0 ? (faltaTotal * (restantesByTrim.get(qKey) ?? 0)) / diasLaborablesRestantes : 0,
   };
 }
 

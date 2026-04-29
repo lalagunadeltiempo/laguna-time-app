@@ -193,8 +193,16 @@ export function PantallaArbolObjetivos() {
         <VacacionesEditor
           anio={year}
           semanasNoActivas={config?.semanasNoActivas ?? defaultSemanasNoActivas(year)}
-          onSave={(semanas) => {
-            dispatch({ type: "SET_ARBOL_CONFIG_ANIO", config: { anio: year, semanasNoActivas: semanas } });
+          comunidadAutonoma={config?.comunidadAutonoma}
+          onSave={(payload) => {
+            dispatch({
+              type: "SET_ARBOL_CONFIG_ANIO",
+              config: {
+                anio: year,
+                semanasNoActivas: payload.semanasNoActivas,
+                comunidadAutonoma: payload.comunidadAutonoma,
+              },
+            });
           }}
           onClose={() => setVacOpen(false)}
         />
