@@ -161,6 +161,12 @@ export type Action =
   | { type: "DELETE_REGISTRO_NODO"; id: string }
   | { type: "SET_ARBOL_CONFIG_ANIO"; config: PlanArbolConfigAnio }
   | { type: "REPLACE_ARBOL_STATE"; arbol: PlanArbolState }
+  | {
+      type: "UPSERT_REFLEXION_TRIMESTRE";
+      anio: number;
+      trimestreKey: string;
+      changes: Partial<Pick<import("./types").ReflexionTrimestre, "funciono" | "noFunciono" | "cambios">>;
+    }
   | { type: "SET_REVIEW"; nivel: "proyecto" | "resultado" | "entregable" | "plantilla"; targetId: string; review: ReviewMark }
   | { type: "SET_MTP"; mtp: string };
 
@@ -196,17 +202,28 @@ function clearPasosActivos(state: AppState, entregableIds: Set<string>): string[
   });
 }
 
-const EMPTY_DELETED: DeletedTombstones = { proyectos: [], resultados: [], entregables: [], pasos: [], plantillas: [] };
+const EMPTY_DELETED: DeletedTombstones = {
+  proyectos: [],
+  resultados: [],
+  entregables: [],
+  pasos: [],
+  plantillas: [],
+  arbolNodos: [],
+  arbolRegistros: [],
+};
 
 function addTombstones(
   existing: DeletedTombstones | undefined,
   additions: Partial<Record<keyof DeletedTombstones, string[]>>,
 ): DeletedTombstones {
-  const base = existing ?? EMPTY_DELETED;
-  const result = { ...base };
+  const base = { ...EMPTY_DELETED, ...(existing ?? {}) };
+  const result: DeletedTombstones = { ...base };
   for (const key of Object.keys(additions) as (keyof DeletedTombstones)[]) {
     const ids = additions[key];
-    if (ids?.length) result[key] = [...base[key], ...ids];
+    if (ids?.length) {
+      const prev = (base[key] ?? []) as string[];
+      result[key] = [...prev, ...ids];
+    }
   }
   return result;
 }
@@ -1490,6 +1507,8 @@ export function reducer(state: AppState, action: Action): AppState {
     case "DELETE_NODO_ARBOL": {
       const arbol = state.arbol ?? EMPTY_ARBOL;
       const ids = collectSubtreeIds(arbol.nodos, action.id);
+      const idsArr = [...ids];
+      const registrosBorrados = arbol.registros.filter((r) => ids.has(r.nodoId)).map((r) => r.id);
       return {
         ...state,
         arbol: {
@@ -1497,6 +1516,7 @@ export function reducer(state: AppState, action: Action): AppState {
           nodos: arbol.nodos.filter((n) => !ids.has(n.id)),
           registros: arbol.registros.filter((r) => !ids.has(r.nodoId)),
         },
+        deleted: addTombstones(state.deleted, { arbolNodos: idsArr, arbolRegistros: registrosBorrados }),
       };
     }
 
@@ -1541,6 +1561,7 @@ export function reducer(state: AppState, action: Action): AppState {
       return {
         ...state,
         arbol: { ...arbol, registros: arbol.registros.filter((r) => r.id !== action.id) },
+        deleted: addTombstones(state.deleted, { arbolRegistros: [action.id] }),
       };
     }
 
@@ -1554,6 +1575,29 @@ export function reducer(state: AppState, action: Action): AppState {
           configs: [...others, action.config].sort((a, b) => a.anio - b.anio),
         },
       };
+    }
+
+    case "UPSERT_REFLEXION_TRIMESTRE": {
+      const arbol = state.arbol ?? EMPTY_ARBOL;
+      const reflexiones = arbol.reflexiones ?? [];
+      const now = new Date().toISOString();
+      const idx = reflexiones.findIndex(
+        (r) => r.anio === action.anio && r.trimestreKey === action.trimestreKey,
+      );
+      const next = idx >= 0
+        ? reflexiones.map((r, i) =>
+            i === idx ? { ...r, ...action.changes, actualizado: now } : r,
+          )
+        : [
+            ...reflexiones,
+            {
+              anio: action.anio,
+              trimestreKey: action.trimestreKey,
+              ...action.changes,
+              actualizado: now,
+            },
+          ];
+      return { ...state, arbol: { ...arbol, reflexiones: next } };
     }
 
     case "SET_REVIEW": {

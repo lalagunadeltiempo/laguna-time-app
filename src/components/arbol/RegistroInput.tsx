@@ -76,13 +76,14 @@ export function RegistroInput({
           onBlur={push}
           disabled={disabled}
           placeholder="0"
-          className="w-20 rounded border border-border bg-background px-1.5 py-0.5 text-[11px] tabular-nums"
+          aria-label="Valor del periodo"
+          className="w-24 rounded border border-border bg-background px-2 py-1.5 text-sm tabular-nums sm:w-20 sm:text-[11px]"
         />
         <button
           type="button"
           onClick={push}
           disabled={disabled}
-          className="rounded border border-border px-1.5 py-0.5 text-[10px] text-muted hover:border-accent hover:text-accent"
+          className="min-h-[32px] rounded border border-border px-2 py-1 text-[11px] text-muted hover:border-accent hover:text-accent"
         >
           OK
         </button>
@@ -93,9 +94,10 @@ export function RegistroInput({
         onChange={(e) => setNota(e.target.value)}
         onBlur={push}
         placeholder="Nota"
-        className="max-w-[140px] rounded border border-border/60 bg-transparent px-1 py-0.5 text-[10px] text-muted"
+        aria-label="Nota del registro"
+        className="w-full max-w-[160px] rounded border border-border/60 bg-transparent px-2 py-1 text-[11px] text-muted"
       />
-      <details className="text-[10px]">
+      <details className="text-[11px]">
         <summary className="cursor-pointer text-muted">Cómo te fue</summary>
         <div className="mt-1 space-y-1">
           <select

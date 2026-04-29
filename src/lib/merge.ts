@@ -50,15 +50,25 @@ export function mergeStates(a: AppState, b: AppState): AppState {
     return x;
   };
 
-  const emptyDel = { proyectos: [] as string[], resultados: [] as string[], entregables: [] as string[], pasos: [] as string[], plantillas: [] as string[] };
-  const delA = a.deleted ?? emptyDel;
-  const delB = b.deleted ?? emptyDel;
+  const emptyDel = {
+    proyectos: [] as string[],
+    resultados: [] as string[],
+    entregables: [] as string[],
+    pasos: [] as string[],
+    plantillas: [] as string[],
+    arbolNodos: [] as string[],
+    arbolRegistros: [] as string[],
+  };
+  const delA = { ...emptyDel, ...(a.deleted ?? {}) };
+  const delB = { ...emptyDel, ...(b.deleted ?? {}) };
   const deleted = {
-    proyectos: Array.from(new Set([...delA.proyectos, ...delB.proyectos])),
-    resultados: Array.from(new Set([...delA.resultados, ...delB.resultados])),
-    entregables: Array.from(new Set([...delA.entregables, ...delB.entregables])),
-    pasos: Array.from(new Set([...delA.pasos, ...delB.pasos])),
-    plantillas: Array.from(new Set([...delA.plantillas, ...delB.plantillas])),
+    proyectos: Array.from(new Set([...(delA.proyectos ?? []), ...(delB.proyectos ?? [])])),
+    resultados: Array.from(new Set([...(delA.resultados ?? []), ...(delB.resultados ?? [])])),
+    entregables: Array.from(new Set([...(delA.entregables ?? []), ...(delB.entregables ?? [])])),
+    pasos: Array.from(new Set([...(delA.pasos ?? []), ...(delB.pasos ?? [])])),
+    plantillas: Array.from(new Set([...(delA.plantillas ?? []), ...(delB.plantillas ?? [])])),
+    arbolNodos: Array.from(new Set([...(delA.arbolNodos ?? []), ...(delB.arbolNodos ?? [])])),
+    arbolRegistros: Array.from(new Set([...(delA.arbolRegistros ?? []), ...(delB.arbolRegistros ?? [])])),
   };
 
   const delProj = new Set(deleted.proyectos);
@@ -66,6 +76,19 @@ export function mergeStates(a: AppState, b: AppState): AppState {
   const delEnt = new Set(deleted.entregables);
   const delPas = new Set(deleted.pasos);
   const delPl = new Set(deleted.plantillas);
+  const delArbolNodos = new Set(deleted.arbolNodos);
+  const delArbolRegs = new Set(deleted.arbolRegistros);
+
+  const reflA = a.arbol?.reflexiones ?? [];
+  const reflB = b.arbol?.reflexiones ?? [];
+  const reflKey = (r: { anio: number; trimestreKey: string }) => `${r.anio}|${r.trimestreKey}`;
+  const reflMap = new Map<string, (typeof reflA)[number]>();
+  for (const r of reflA) reflMap.set(reflKey(r), r);
+  for (const r of reflB) {
+    const k = reflKey(r);
+    const existing = reflMap.get(k);
+    if (!existing || (r.actualizado ?? "") > (existing.actualizado ?? "")) reflMap.set(k, r);
+  }
 
   const merged: AppState = {
     ...a,
@@ -80,9 +103,14 @@ export function mergeStates(a: AppState, b: AppState): AppState {
     miembros: unionById(a.miembros ?? [], b.miembros ?? []),
     activityLog: unionById(a.activityLog ?? [], b.activityLog ?? []),
     arbol: {
-      nodos: unionById(a.arbol?.nodos ?? EMPTY_ARBOL.nodos, b.arbol?.nodos ?? EMPTY_ARBOL.nodos),
-      registros: unionById(a.arbol?.registros ?? EMPTY_ARBOL.registros, b.arbol?.registros ?? EMPTY_ARBOL.registros),
+      nodos: unionById(a.arbol?.nodos ?? EMPTY_ARBOL.nodos, b.arbol?.nodos ?? EMPTY_ARBOL.nodos)
+        .filter((n) => !delArbolNodos.has(n.id)),
+      registros: unionById(a.arbol?.registros ?? EMPTY_ARBOL.registros, b.arbol?.registros ?? EMPTY_ARBOL.registros)
+        .filter((r) => !delArbolRegs.has(r.id) && !delArbolNodos.has(r.nodoId)),
       configs: unionConfigs(a.arbol?.configs ?? EMPTY_ARBOL.configs, b.arbol?.configs ?? EMPTY_ARBOL.configs),
+      reflexiones: [...reflMap.values()].sort(
+        (x, y) => x.anio - y.anio || x.trimestreKey.localeCompare(y.trimestreKey),
+      ),
     },
     pasosActivos: Array.from(new Set([...a.pasosActivos, ...b.pasosActivos])).filter((id) => !delPas.has(id)),
     deleted,
@@ -119,14 +147,17 @@ export function statesDiffer(a: AppState, b: AppState): boolean {
   if (!idSetEq(a.plantillas, b.plantillas)) return true;
   if (!idSetEq(a.arbol?.nodos ?? [], b.arbol?.nodos ?? [])) return true;
   if (!idSetEq(a.arbol?.registros ?? [], b.arbol?.registros ?? [])) return true;
+  if ((a.arbol?.reflexiones?.length ?? 0) !== (b.arbol?.reflexiones?.length ?? 0)) return true;
 
   const dA = a.deleted, dB = b.deleted;
   if (!!dA !== !!dB) return true;
   if (dA && dB) {
-    const arrEq = (xs: string[], ys: string[]): boolean => {
-      if (xs.length !== ys.length) return false;
-      const sx = new Set(xs);
-      for (const y of ys) if (!sx.has(y)) return false;
+    const arrEq = (xs: string[] | undefined, ys: string[] | undefined): boolean => {
+      const xsa = xs ?? [];
+      const ysa = ys ?? [];
+      if (xsa.length !== ysa.length) return false;
+      const sx = new Set(xsa);
+      for (const y of ysa) if (!sx.has(y)) return false;
       return true;
     };
     if (!arrEq(dA.proyectos, dB.proyectos)) return true;
@@ -134,6 +165,8 @@ export function statesDiffer(a: AppState, b: AppState): boolean {
     if (!arrEq(dA.entregables, dB.entregables)) return true;
     if (!arrEq(dA.pasos, dB.pasos)) return true;
     if (!arrEq(dA.plantillas, dB.plantillas)) return true;
+    if (!arrEq(dA.arbolNodos, dB.arbolNodos)) return true;
+    if (!arrEq(dA.arbolRegistros, dB.arbolRegistros)) return true;
   }
   return false;
 }

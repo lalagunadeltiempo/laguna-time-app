@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { useAppState } from "@/lib/context";
 import type { NodoArbol, NodoCadencia, NodoRelacion, NodoTipo } from "@/lib/types";
 import { CADENCIA_UI, RELACION_UI, TIPO_UI } from "./arbol-copy";
 
@@ -31,6 +32,7 @@ export function NodoEditor({
 }) {
   const titleId = useId();
   const rootRef = useRef<HTMLElement>(null);
+  const state = useAppState();
   const [nombre, setNombre] = useState(initial.nombre);
   const [descripcion, setDescripcion] = useState(initial.descripcion ?? "");
   const [tipo, setTipo] = useState<NodoTipo>(initial.tipo ?? "resultado");
@@ -38,6 +40,12 @@ export function NodoEditor({
   const [relacion, setRelacion] = useState<NodoRelacion>(initial.relacionConPadre ?? "explica");
   const [metaValor, setMetaValor] = useState(initial.metaValor != null ? String(initial.metaValor) : "");
   const [metaUnidad, setMetaUnidad] = useState(initial.metaUnidad ?? "");
+  const [notaAnioAnterior, setNotaAnioAnterior] = useState(initial.notaAnioAnterior ?? "");
+  const [proyectoIds, setProyectoIds] = useState<string[]>(initial.proyectoIds ?? []);
+  const proyectosOrdenados = useMemo(
+    () => [...state.proyectos].sort((a, b) => a.nombre.localeCompare(b.nombre, "es")),
+    [state.proyectos],
+  );
 
   useEffect(() => {
     rootRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
@@ -109,6 +117,46 @@ export function NodoEditor({
               />
             </div>
           </div>
+
+          <div>
+            <label className="mb-1 block text-sm font-medium text-foreground">El año pasado… (opcional)</label>
+            <textarea
+              value={notaAnioAnterior}
+              onChange={(e) => setNotaAnioAnterior(e.target.value)}
+              rows={2}
+              placeholder="Qué pasó con esto en el año anterior, qué aprendiste, qué probarías cambiar."
+              className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm"
+            />
+            <p className="mt-1 text-[11px] text-muted">Sirve de contexto para no repetir errores del año anterior.</p>
+          </div>
+
+          {proyectosOrdenados.length > 0 && (
+            <details className="group rounded-lg border border-border bg-surface/40">
+              <summary className="cursor-pointer list-none px-3 py-2.5 text-sm font-medium text-foreground marker:content-none [&::-webkit-details-marker]:hidden">
+                Vincular proyectos del Mapa{" "}
+                <span className="text-xs font-normal text-muted">
+                  ({proyectoIds.length > 0 ? `${proyectoIds.length} seleccionado${proyectoIds.length !== 1 ? "s" : ""}` : "ninguno"})
+                </span>
+              </summary>
+              <div className="max-h-56 space-y-1 overflow-auto border-t border-border/60 px-3 py-2 text-sm">
+                {proyectosOrdenados.map((p) => {
+                  const checked = proyectoIds.includes(p.id);
+                  return (
+                    <label key={p.id} className="flex cursor-pointer items-center gap-2 rounded px-1 py-1 hover:bg-surface">
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={() => {
+                          setProyectoIds((prev) => (checked ? prev.filter((x) => x !== p.id) : [...prev, p.id]));
+                        }}
+                      />
+                      <span className="truncate">{p.nombre}</span>
+                    </label>
+                  );
+                })}
+              </div>
+            </details>
+          )}
 
           <details className="group rounded-lg border border-border bg-surface/40">
             <summary className="cursor-pointer list-none px-3 py-2.5 text-sm font-medium text-foreground marker:content-none [&::-webkit-details-marker]:hidden">
@@ -189,11 +237,13 @@ export function NodoEditor({
             onSave({
               nombre: nombre.trim() || "(sin nombre)",
               descripcion: descripcion.trim() || undefined,
+              notaAnioAnterior: notaAnioAnterior.trim() || undefined,
               tipo,
               cadencia,
               relacionConPadre: isRoot ? "explica" : relacion,
               metaValor: mv !== undefined && Number.isFinite(mv) ? mv : undefined,
               metaUnidad: metaUnidad.trim() || undefined,
+              proyectoIds: proyectoIds.length > 0 ? proyectoIds : undefined,
               contadorModo: "manual",
             });
           }}

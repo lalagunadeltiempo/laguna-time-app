@@ -64,22 +64,36 @@ export function ArbolHeader({
 
   return (
     <div className="mb-6 space-y-4 border-b border-border pb-6">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight text-foreground">Árbol de objetivos</h1>
+      <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
+        <div className="min-w-0">
+          <h1 className="text-2xl font-bold tracking-tight text-foreground sm:text-3xl">Árbol de objetivos</h1>
           <p className="mt-1 text-sm text-muted">
             Misma página, sin pantallas encima: escribes objetivos aquí y los vas desplegando. La app suma por semana y mes; agosto y Navidad vienen como descanso.
           </p>
         </div>
-        <div className="flex items-center gap-2">
-          <button type="button" onClick={() => onYearChange(year - 1)} className="rounded-lg border border-border px-2 py-1.5 text-sm text-muted hover:bg-surface">
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={() => onYearChange(year - 1)}
+            className="min-h-[40px] min-w-[40px] rounded-lg border border-border px-2 py-1.5 text-sm text-muted hover:bg-surface"
+            aria-label="Año anterior"
+          >
             ◀
           </button>
           <span className="min-w-[4rem] text-center text-lg font-semibold">{year}</span>
-          <button type="button" onClick={() => onYearChange(year + 1)} className="rounded-lg border border-border px-2 py-1.5 text-sm text-muted hover:bg-surface">
+          <button
+            type="button"
+            onClick={() => onYearChange(year + 1)}
+            className="min-h-[40px] min-w-[40px] rounded-lg border border-border px-2 py-1.5 text-sm text-muted hover:bg-surface"
+            aria-label="Año siguiente"
+          >
             ▶
           </button>
-          <button type="button" onClick={onOpenVacaciones} className="rounded-lg border border-amber-400/50 bg-amber-500/10 px-3 py-1.5 text-xs font-medium text-amber-900 dark:text-amber-100 hover:bg-amber-500/20">
+          <button
+            type="button"
+            onClick={onOpenVacaciones}
+            className="min-h-[40px] rounded-lg border border-amber-400/50 bg-amber-500/10 px-3 py-1.5 text-xs font-medium text-amber-900 dark:text-amber-100 hover:bg-amber-500/20"
+          >
             Semanas de descanso
           </button>
         </div>
@@ -91,7 +105,7 @@ export function ArbolHeader({
             key={v.id}
             type="button"
             onClick={() => onVista(v.id)}
-            className={`rounded-lg px-3 py-1.5 text-xs font-semibold uppercase tracking-wide transition-colors ${
+            className={`min-h-[40px] rounded-lg px-3 py-2 text-xs font-semibold uppercase tracking-wide transition-colors ${
               vista === v.id ? "bg-accent text-white" : "border border-border bg-surface text-muted hover:border-accent hover:text-accent"
             }`}
           >

@@ -77,6 +77,23 @@ export function metaSemanalPropuesta(metaAnual: number, anio: number, config: Pl
   return metaAnual / n;
 }
 
+/** Cuántas semanas activas (lunes ISO no marcados como descanso) hay en un mes calendario YYYY-MM. */
+export function semanasActivasEnMes(mesKey: string, anio: number, config: PlanArbolConfigAnio | undefined): number {
+  const noAct = new Set(config?.semanasNoActivas ?? []);
+  let n = 0;
+  for (const mk of mondaysInCalendarYear(anio)) {
+    if (noAct.has(mk)) continue;
+    if (mondayEnMes(mk, mesKey)) n += 1;
+  }
+  return n;
+}
+
+/** Semanas activas de un trimestre `YYYY-Qn`. */
+export function semanasActivasEnTrimestre(qKey: string, anio: number, config: PlanArbolConfigAnio | undefined): number {
+  const meses = mesKeysEnTrimestre(qKey);
+  return meses.reduce((acc, mk) => acc + semanasActivasEnMes(mk, anio, config), 0);
+}
+
 /** ISO week year + week number for a Monday date key (robusto para límites de año ISO). */
 export function isoWeekLabelFromMondayKey(mondayKey: string): string {
   const d = parseLocalDateKey(mondayKey);
@@ -230,4 +247,44 @@ export function metaParaVista(
     if (vista === "mes") return metaValor / 12;
   }
   return metaValor;
+}
+
+/**
+ * Cuota real para un periodo concreto teniendo en cuenta las semanas activas reales del año.
+ * Cuando hay info suficiente (cadencia anual + config + periodoKey), reparte proporcional a las semanas activas
+ * del periodo. Si no, vuelve al cálculo simple de `metaParaVista`.
+ */
+export function metaParaPeriodo(
+  cadencia: import("./types").NodoCadencia,
+  metaValor: number | undefined,
+  vista: VistaPeriodoArbol,
+  periodoKey: string,
+  anio: number,
+  config: PlanArbolConfigAnio | undefined,
+): number | undefined {
+  if (metaValor === undefined) return undefined;
+  const totalSemanas = semanasActivasCount(anio, config);
+  if (cadencia === "anual" && totalSemanas > 0) {
+    if (vista === "semana") return metaValor / totalSemanas;
+    if (vista === "mes") return (metaValor * semanasActivasEnMes(periodoKey, anio, config)) / totalSemanas;
+    if (vista === "trimestre")
+      return (metaValor * semanasActivasEnTrimestre(periodoKey, anio, config)) / totalSemanas;
+    if (vista === "anio") return metaValor;
+  }
+  if (cadencia === "semanal" && vista === "semana") return metaValor;
+  if (cadencia === "semanal" && vista === "mes")
+    return metaValor * semanasActivasEnMes(periodoKey, anio, config);
+  if (cadencia === "semanal" && vista === "trimestre")
+    return metaValor * semanasActivasEnTrimestre(periodoKey, anio, config);
+  if (cadencia === "semanal" && vista === "anio") return metaValor * totalSemanas;
+  if (cadencia === "mensual") {
+    if (vista === "mes") return metaValor;
+    if (vista === "trimestre") return metaValor * 3;
+    if (vista === "anio") return metaValor * 12;
+  }
+  if (cadencia === "trimestral") {
+    if (vista === "trimestre") return metaValor;
+    if (vista === "anio") return metaValor * 4;
+  }
+  return metaParaVista(cadencia, metaValor, vista);
 }

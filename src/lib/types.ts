@@ -383,6 +383,8 @@ export interface NodoArbol {
   orden: number;
   nombre: string;
   descripcion?: string;
+  /** Texto libre opcional con lo que pasó el año pasado en este eje. */
+  notaAnioAnterior?: string;
   tipo: NodoTipo;
   cadencia: NodoCadencia;
   relacionConPadre: NodoRelacion;
@@ -413,13 +415,24 @@ export interface PlanArbolConfigAnio {
   semanasNoActivas: string[];
 }
 
+/** Reflexión guardada al cierre de un trimestre. */
+export interface ReflexionTrimestre {
+  anio: number;
+  trimestreKey: string; // "2026-Q1"
+  funciono?: string;
+  noFunciono?: string;
+  cambios?: string;
+  actualizado: string;
+}
+
 export interface PlanArbolState {
   nodos: NodoArbol[];
   registros: RegistroNodo[];
   configs: PlanArbolConfigAnio[];
+  reflexiones?: ReflexionTrimestre[];
 }
 
-export const EMPTY_ARBOL: PlanArbolState = { nodos: [], registros: [], configs: [] };
+export const EMPTY_ARBOL: PlanArbolState = { nodos: [], registros: [], configs: [], reflexiones: [] };
 
 export interface DeletedTombstones {
   proyectos: string[];
@@ -427,6 +440,8 @@ export interface DeletedTombstones {
   entregables: string[];
   pasos: string[];
   plantillas: string[];
+  arbolNodos?: string[];
+  arbolRegistros?: string[];
 }
 
 export interface AppState {

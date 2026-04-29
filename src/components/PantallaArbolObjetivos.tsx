@@ -4,13 +4,19 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useAppDispatch, useAppState } from "@/lib/context";
 import { useIsMentor } from "@/lib/usuario";
 import { generateId } from "@/lib/store";
-import { defaultSemanasNoActivas, ensureConfigAnio, type VistaPeriodoArbol } from "@/lib/arbol-tiempo";
+import {
+  defaultSemanasNoActivas,
+  ensureConfigAnio,
+  semanasActivasCount,
+  type VistaPeriodoArbol,
+} from "@/lib/arbol-tiempo";
 import { EMPTY_ARBOL, type NodoArbol, type RegistroNodo } from "@/lib/types";
 import { ArbolHeader, initMesTrimFromDate } from "@/components/arbol/ArbolHeader";
 import { NodoRow } from "@/components/arbol/NodoRow";
-import { ArbolGuiaReceta } from "@/components/arbol/ArbolGuiaReceta";
 import { NodoEditor } from "@/components/arbol/NodoEditor";
 import { VacacionesEditor } from "@/components/arbol/VacacionesEditor";
+import { CierreTrimestre } from "@/components/arbol/CierreTrimestre";
+
 function periodoForVista(
   vista: VistaPeriodoArbol,
   year: number,
@@ -41,7 +47,11 @@ export function PantallaArbolObjetivos() {
 
   const configsEffective = useMemo(() => ensureConfigAnio(arbol.configs, year), [arbol.configs, year]);
   const config = useMemo(() => configsEffective.find((c) => c.anio === year), [configsEffective, year]);
-  const semanasNoActivas = useMemo(() => new Set(config?.semanasNoActivas ?? defaultSemanasNoActivas(year)), [config, year]);
+  const semanasNoActivas = useMemo(
+    () => new Set(config?.semanasNoActivas ?? defaultSemanasNoActivas(year)),
+    [config, year],
+  );
+  const semanasActivas = useMemo(() => semanasActivasCount(year, config), [year, config]);
 
   useEffect(() => {
     if (!arbol.configs.some((c) => c.anio === year)) {
@@ -60,7 +70,10 @@ export function PantallaArbolObjetivos() {
   }, [year]);
 
   const nodosYear = useMemo(() => arbol.nodos.filter((n) => n.anio === year), [arbol.nodos, year]);
-  const roots = useMemo(() => nodosYear.filter((n) => !n.parentId).sort((a, b) => a.orden - b.orden), [nodosYear]);
+  const roots = useMemo(
+    () => nodosYear.filter((n) => !n.parentId).sort((a, b) => a.orden - b.orden),
+    [nodosYear],
+  );
 
   useEffect(() => {
     if (roots.length > 0 && expandedIds.size === 0) {
@@ -80,17 +93,31 @@ export function PantallaArbolObjetivos() {
     });
   }, []);
 
+  // Cuota semanal sugerida: solo se muestra si hay una raíz anual con meta numérica.
+  const cuotaSemanalRoot = useMemo(() => {
+    const rootAnualConMeta = roots.find((r) => r.cadencia === "anual" && r.metaValor !== undefined);
+    if (!rootAnualConMeta || semanasActivas <= 0) return null;
+    return {
+      meta: rootAnualConMeta,
+      cuota: (rootAnualConMeta.metaValor ?? 0) / semanasActivas,
+    };
+  }, [roots, semanasActivas]);
+
   if (isMentor) {
     return (
       <div className="w-full px-3 py-8 sm:px-6 md:px-10">
-        <p className="text-muted">Vista de solo lectura (mentor): el árbol de objetivos no es editable en este perfil.</p>
-        <pre className="mt-4 max-h-96 overflow-auto rounded border border-border p-2 text-xs">{JSON.stringify({ nodos: nodosYear, registros: arbol.registros }, null, 2)}</pre>
+        <p className="text-muted">
+          Vista de solo lectura (mentor): el árbol de objetivos no es editable en este perfil.
+        </p>
+        <pre className="mt-4 max-h-96 overflow-auto rounded border border-border p-2 text-xs">
+          {JSON.stringify({ nodos: nodosYear, registros: arbol.registros }, null, 2)}
+        </pre>
       </div>
     );
   }
 
   return (
-    <div className="w-full px-3 py-8 sm:px-6 md:px-10">
+    <div className="w-full px-3 py-6 sm:px-6 sm:py-8 md:px-10">
       <ArbolHeader
         year={year}
         onYearChange={setYear}
@@ -106,7 +133,15 @@ export function PantallaArbolObjetivos() {
         onOpenVacaciones={() => setVacOpen(true)}
       />
 
-      <ArbolGuiaReceta />
+      {cuotaSemanalRoot && (
+        <p className="mb-3 rounded-lg bg-accent/5 px-3 py-2 text-[12px] text-foreground">
+          Tienes <strong>{semanasActivas}</strong> semanas laborables en {year}. Para cumplir{" "}
+          <strong>{cuotaSemanalRoot.meta.metaValor}</strong>
+          {cuotaSemanalRoot.meta.metaUnidad ? ` ${cuotaSemanalRoot.meta.metaUnidad}` : ""}, eso son{" "}
+          <strong className="tabular-nums">{cuotaSemanalRoot.cuota.toFixed(2)}</strong>
+          {cuotaSemanalRoot.meta.metaUnidad ? ` ${cuotaSemanalRoot.meta.metaUnidad}` : ""} por semana.
+        </p>
+      )}
 
       {editor && (
         <NodoEditor
@@ -129,11 +164,13 @@ export function PantallaArbolObjetivos() {
                   orden,
                   nombre: changes.nombre ?? "Nuevo",
                   descripcion: changes.descripcion,
+                  notaAnioAnterior: changes.notaAnioAnterior,
                   tipo: changes.tipo ?? "resultado",
                   cadencia: changes.cadencia ?? "semanal",
                   relacionConPadre: changes.relacionConPadre ?? "explica",
                   metaValor: changes.metaValor,
                   metaUnidad: changes.metaUnidad,
+                  proyectoIds: changes.proyectoIds,
                   contadorModo: "manual",
                   creado: new Date().toISOString(),
                 },
@@ -155,7 +192,9 @@ export function PantallaArbolObjetivos() {
         />
       )}
 
-      <div className="mb-4 flex items-center justify-between gap-3">
+      <CierreTrimestre key={`${year}-${trimestreKey}`} anio={year} trimestreKey={trimestreKey} />
+
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <p className="text-sm text-muted">
           {nodosYear.length === 0
             ? `Nada escrito todavía en ${year}`
@@ -174,7 +213,7 @@ export function PantallaArbolObjetivos() {
               contadorModo: "manual",
             })
           }
-          className="shrink-0 rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white hover:bg-accent/90"
+          className="min-h-[40px] shrink-0 rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white hover:bg-accent/90"
         >
           + Objetivo raíz
         </button>
@@ -201,6 +240,7 @@ export function PantallaArbolObjetivos() {
               expandedIds={expandedIds}
               toggleExpanded={toggleExpanded}
               onEdit={(n) => setEditor(n)}
+              config={config}
             />
           ))}
         </div>
