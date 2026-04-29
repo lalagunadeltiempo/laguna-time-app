@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useAppDispatch, useAppState } from "@/lib/context";
 import { generateId } from "@/lib/store";
 import { EMPTY_ARBOL, type NodoArbol, type PlanArbolConfigAnio, type RegistroNodo } from "@/lib/types";
@@ -52,32 +52,94 @@ function MetricLine({ label, value, accent }: { label: string; value: string; ac
   );
 }
 
+function isUnidadEuros(unidad?: string): boolean {
+  if (!unidad) return false;
+  const u = unidad.trim().toLowerCase();
+  return u === "€" || u === "eur" || u === "euro" || u === "euros";
+}
+
+/** Parser tolerante: acepta "342342,99", "342.342,99", "342342.99", "342,342.99". */
+function parseEsNumber(input: string): number | null {
+  const cleaned = input.replace(/\s|€|euros?|eur/gi, "").trim();
+  if (cleaned === "" || cleaned === "-") return null;
+  const lastDot = cleaned.lastIndexOf(".");
+  const lastComma = cleaned.lastIndexOf(",");
+  let normalized = cleaned;
+  if (lastDot >= 0 && lastComma >= 0) {
+    if (lastComma > lastDot) normalized = cleaned.replace(/\./g, "").replace(",", ".");
+    else normalized = cleaned.replace(/,/g, "");
+  } else if (lastComma >= 0) {
+    normalized = cleaned.replace(/\./g, "").replace(",", ".");
+  } else if (lastDot >= 0) {
+    if ((cleaned.match(/\./g) ?? []).length > 1) normalized = cleaned.replace(/\./g, "");
+  }
+  const v = parseFloat(normalized);
+  return Number.isFinite(v) ? v : null;
+}
+
+/** Formato display: "342.342,99 €" o "342.342,99". Sin decimales si es entero. */
+function formatDisplay(v: number | undefined, isEuro: boolean): string {
+  if (v === undefined || !Number.isFinite(v)) return "";
+  const s = v.toLocaleString("es-ES", { minimumFractionDigits: 0, maximumFractionDigits: 2 });
+  return isEuro ? `${s} €` : s;
+}
+
+/** Formato editable: "342342,99" (coma decimal, sin miles, sin sufijo). */
+function formatEditable(v: number | undefined): string {
+  if (v === undefined || !Number.isFinite(v)) return "";
+  return String(v).replace(".", ",");
+}
+
 function NumberInput({
   value,
   onCommit,
   placeholder,
   ariaLabel,
+  unidad,
 }: {
   value: number | undefined;
   onCommit: (v: number | undefined) => void;
   placeholder?: string;
   ariaLabel: string;
+  /** Si la unidad es euros, se muestra "342.342,99 €" cuando el campo no está enfocado. */
+  unidad?: string;
 }) {
-  const [text, setText] = useState(value !== undefined ? String(value) : "");
+  const isEuro = isUnidadEuros(unidad);
+  const [focused, setFocused] = useState(false);
+  const [text, setText] = useState(() => formatDisplay(value, isEuro));
+
+  useEffect(() => {
+    if (!focused) setText(formatDisplay(value, isEuro));
+  }, [value, isEuro, focused]);
+
   return (
     <input
       type="text"
       inputMode="decimal"
       aria-label={ariaLabel}
       value={text}
+      onFocus={() => {
+        setFocused(true);
+        setText(formatEditable(value));
+      }}
       onChange={(e) => setText(e.target.value)}
       onBlur={() => {
+        setFocused(false);
         const t = text.trim();
-        if (t === "") return onCommit(undefined);
-        const v = parseFloat(t.replace(",", "."));
-        if (Number.isFinite(v)) onCommit(v);
+        if (t === "") {
+          setText("");
+          onCommit(undefined);
+          return;
+        }
+        const v = parseEsNumber(t);
+        if (v === null) {
+          setText(formatDisplay(value, isEuro));
+          return;
+        }
+        setText(formatDisplay(v, isEuro));
+        onCommit(v);
       }}
-      placeholder={placeholder ?? "0"}
+      placeholder={placeholder ?? (isEuro ? "0 €" : "0")}
       className="w-full min-w-[5rem] rounded border border-border bg-background px-2 py-1.5 text-sm tabular-nums"
     />
   );
@@ -306,6 +368,7 @@ function TarjetaPeriodo({
             }
             onCommit={(v) => upsert({ nodoId: raiz.id, periodoTipo, periodoKey, valor: v })}
             ariaLabel={`Real ${titulo}`}
+            unidad={unidad}
           />
         </label>
         <label className="flex flex-col gap-1 text-[11px] text-muted">
@@ -328,6 +391,7 @@ function TarjetaPeriodo({
               })
             }
             ariaLabel={`Año pasado ${titulo}`}
+            unidad={unidad}
           />
         </label>
       </div>
@@ -472,6 +536,7 @@ function FilaRama({
             value={valorReal}
             onCommit={(v) => upsert({ nodoId: rama.id, periodoTipo, periodoKey, valor: v })}
             ariaLabel={`Real ${rama.nombre}`}
+            unidad={unidad}
           />
         </label>
         <label className="flex flex-col gap-1 text-[10px] text-muted">
@@ -487,6 +552,7 @@ function FilaRama({
               })
             }
             ariaLabel={`Año pasado ${rama.nombre}`}
+            unidad={unidad}
           />
         </label>
       </div>
@@ -738,6 +804,7 @@ function BloqueSemanas({ ctx }: { ctx: ContextoBloque }) {
                         upsert({ nodoId: ctx.raiz.id, periodoTipo: "semana", periodoKey: mk, valor: v })
                       }
                       ariaLabel={`Real ${mk}`}
+                      unidad={ctx.unidad}
                     />
                   </label>
                   <label className="flex flex-col gap-0.5">
@@ -748,6 +815,7 @@ function BloqueSemanas({ ctx }: { ctx: ContextoBloque }) {
                         upsert({ nodoId: ctx.raiz.id, periodoTipo: "semana", periodoKey: ayKey, valor: v })
                       }
                       ariaLabel={`Año pasado ${mk}`}
+                      unidad={ctx.unidad}
                     />
                   </label>
                   {delta !== undefined ? (
@@ -885,6 +953,7 @@ export function VistaBloques({ raiz, year }: VistaBloquesProps) {
                         dispatch({ type: "UPDATE_NODO_ARBOL", id: rama.id, changes: { metaValor: v } })
                       }
                       ariaLabel={`Meta anual de ${rama.nombre}`}
+                      unidad={unidad}
                     />
                   </label>
                   <label className="flex flex-col gap-1 text-[11px] text-muted">
