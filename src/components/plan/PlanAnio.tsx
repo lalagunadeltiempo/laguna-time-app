@@ -2,7 +2,6 @@
 
 import { useMemo, useState } from "react";
 import { useAppState, useAppDispatch } from "@/lib/context";
-import { generateId } from "@/lib/store";
 import { useIsMentor } from "@/lib/usuario";
 import {
   AREAS_PERSONAL,
@@ -14,8 +13,6 @@ import {
 } from "@/lib/types";
 import { mesesDeTrimestre } from "@/lib/semana-utils";
 import { AmbitoToggle, type AmbitoFilter } from "./PlanMes";
-import { ObjetivoRow } from "./ObjetivoRow";
-
 const MONTHS_ES = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"];
 
 interface ProjectRoad {
@@ -34,28 +31,13 @@ export function PlanAnio({ selectedDate }: Props) {
   const dispatch = useAppDispatch();
   const isMentor = useIsMentor();
   const [filtro, setFiltro] = useState<AmbitoFilter>("empresa");
-  const [newObjText, setNewObjText] = useState("");
-  const [newObjArea, setNewObjArea] = useState<Area | "">("");
 
   const year = selectedDate.getFullYear();
   const currentMonth = new Date().getFullYear() === year ? new Date().getMonth() : -1;
-  const periodo = String(year);
-
   const allAreas = useMemo(() => {
     const areas = [...AREAS_EMPRESA, ...AREAS_PERSONAL];
     return filtro === "todo" ? areas : areas.filter((a) => ambitoDeArea(a.id) === filtro);
   }, [filtro]);
-
-  const objetivosAnuales = useMemo(() => {
-    return (state.objetivos ?? []).filter((o) => o.nivel === "anio" && o.periodo === periodo);
-  }, [state.objetivos, periodo]);
-  const objetivosArbol = useMemo(() => {
-    const yearPrefix = `${year}-`;
-    return (state.objetivos ?? []).filter((o) => {
-      if (o.nivel === "anio") return o.periodo === periodo;
-      return o.periodo.startsWith(yearPrefix);
-    });
-  }, [state.objetivos, year, periodo]);
 
   const areaSummaries = useMemo(() => {
     return allAreas.map(({ id, label }) => {
@@ -115,24 +97,6 @@ export function PlanAnio({ selectedDate }: Props) {
   const totalCompletados = areaSummaries.reduce((s, a) => s + a.completados, 0);
   const globalPercent = totalEntregables > 0 ? Math.round((totalCompletados / totalEntregables) * 100) : 0;
 
-  function addObjetivo() {
-    if (!newObjText.trim()) return;
-    dispatch({
-      type: "ADD_OBJETIVO",
-      payload: {
-        id: generateId(),
-        texto: newObjText.trim(),
-        nivel: "anio",
-        periodo,
-        area: newObjArea || undefined,
-        completado: false,
-        creado: new Date().toISOString(),
-      },
-    });
-    setNewObjText("");
-    setNewObjArea("");
-  }
-
   function toggleProjectQuarter(projId: string, q: number) {
     dispatch({ type: "TOGGLE_PROYECTO_TRIMESTRE", id: projId, trimestre: `${year}-Q${q + 1}` });
   }
@@ -188,10 +152,9 @@ export function PlanAnio({ selectedDate }: Props) {
         )}
       </section>
 
-      {/* Objetivos anuales */}
-      <section>
-        <div className="mb-2 flex items-center justify-between gap-2">
-          <h3 className="text-xs font-bold uppercase tracking-wider text-muted">Objetivos {year}</h3>
+      <section className="rounded-xl border border-border bg-surface/40 p-4">
+        <div className="flex items-center justify-between gap-2">
+          <h3 className="text-xs font-bold uppercase tracking-wider text-muted">Árbol de drivers</h3>
           <button
             type="button"
             onClick={() => window.dispatchEvent(new Event("laguna-open-objetivos-tree"))}
@@ -200,25 +163,9 @@ export function PlanAnio({ selectedDate }: Props) {
             Abrir árbol
           </button>
         </div>
-        <div className="space-y-1">
-          {objetivosAnuales.map((obj) => (
-            <ObjetivoRow key={obj.id} obj={obj} todosObjetivos={objetivosArbol} isMentor={isMentor} />
-          ))}
-        </div>
-        {!isMentor && (
-          <div className="mt-2 flex gap-2">
-            <input value={newObjText} onChange={(e) => setNewObjText(e.target.value)}
-              placeholder="Nuevo objetivo anual..."
-              className="flex-1 rounded-lg border border-border bg-surface px-3 py-1.5 text-sm text-foreground placeholder:text-muted focus:border-accent focus:outline-none"
-              onKeyDown={(e) => e.key === "Enter" && addObjetivo()} />
-            <select value={newObjArea} onChange={(e) => setNewObjArea(e.target.value as Area | "")}
-              className="rounded-lg border border-border bg-surface px-2 py-1 text-xs text-foreground">
-              <option value="">Sin área</option>
-              {allAreas.map((a) => <option key={a.id} value={a.id}>{a.label}</option>)}
-            </select>
-            <button onClick={addObjetivo} className="rounded-lg bg-accent px-3 py-1 text-xs font-medium text-white hover:bg-accent/80">+</button>
-          </div>
-        )}
+        <p className="mt-2 text-xs text-muted">
+          Metas anuales y cadencia semanal en «Árbol de objetivos».
+        </p>
       </section>
 
       {/* Progreso global */}

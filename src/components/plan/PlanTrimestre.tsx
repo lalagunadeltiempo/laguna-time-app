@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { useAppState, useAppDispatch } from "@/lib/context";
 import { generateId } from "@/lib/store";
 import { useUsuario, useIsMentor } from "@/lib/usuario";
@@ -18,8 +18,6 @@ import { AmbitoToggle, ResponsableToggle, matchesResponsable, type AmbitoFilter,
 import { mesKey, etiquetaMesCorta, mesesDeTrimestre } from "@/lib/semana-utils";
 import { InlineNombre, ResponsableSelect } from "./InlineEditors";
 import type { MiembroInfo } from "@/lib/types";
-import { ObjetivoRow } from "./ObjetivoRow";
-
 const MONTHS_ES = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"];
 
 const AREA_ORDER: Area[] = [
@@ -68,9 +66,6 @@ export function PlanTrimestre({ selectedDate }: Props) {
   const [filtro, setFiltro] = useState<AmbitoFilter>("empresa");
   const [respFilter, setRespFilter] = useState<ResponsableFilter>("todo");
   const [showDone, setShowDone] = useState(true);
-  const [newObjText, setNewObjText] = useState("");
-  const [newObjArea, setNewObjArea] = useState<Area | "">("");
-  const [newObjParentId, setNewObjParentId] = useState("");
 
   const year = selectedDate.getFullYear();
   const currentQ = Math.floor(selectedDate.getMonth() / 3);
@@ -166,60 +161,6 @@ export function PlanTrimestre({ selectedDate }: Props) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state, filtro, respFilter, currentUser, showDone, qMonths, qMonthKeys, qPeriodo, year]);
 
-  const objetivos = useMemo(() => {
-    return (state.objetivos ?? []).filter(
-      (o) => o.nivel === "trimestre" && o.periodo === qPeriodo,
-    );
-  }, [state.objetivos, qPeriodo]);
-  const objetivosArbol = useMemo(() => {
-    const yearPrefix = `${year}-`;
-    return (state.objetivos ?? []).filter((o) => {
-      if (o.nivel === "anio") return o.periodo === String(year);
-      return o.periodo.startsWith(yearPrefix);
-    });
-  }, [state.objetivos, year]);
-  const objetivosById = useMemo(
-    () => new Map(objetivosArbol.map((o) => [o.id, o])),
-    [objetivosArbol],
-  );
-  const objetivosAnualesPadre = useMemo(() => {
-    const anuales = (state.objetivos ?? []).filter((o) => o.nivel === "anio" && o.periodo === String(year));
-    if (!newObjArea) return anuales;
-    return anuales.filter((o) => !o.area || o.area === newObjArea);
-  }, [state.objetivos, year, newObjArea]);
-  useEffect(() => {
-    if (newObjParentId && objetivosAnualesPadre.some((o) => o.id === newObjParentId)) return;
-    if (objetivosAnualesPadre.length === 1) {
-      setNewObjParentId(objetivosAnualesPadre[0].id);
-      return;
-    }
-    if (objetivosAnualesPadre.length === 0) {
-      setNewObjParentId("");
-    }
-  }, [objetivosAnualesPadre, newObjParentId]);
-
-  const allAreas = [...AREAS_EMPRESA, ...AREAS_PERSONAL].filter((a) => filtro === "todo" || ambitoDeArea(a.id) === filtro);
-
-  function addObjetivo() {
-    if (!newObjText.trim()) return;
-    dispatch({
-      type: "ADD_OBJETIVO",
-      payload: {
-        id: generateId(),
-        texto: newObjText.trim(),
-        nivel: "trimestre",
-        periodo: qPeriodo,
-        area: newObjArea || undefined,
-        parentId: newObjParentId || undefined,
-        completado: false,
-        creado: new Date().toISOString(),
-      },
-    });
-    setNewObjText("");
-    setNewObjArea("");
-    setNewObjParentId("");
-  }
-
   return (
     <div className="flex-1 space-y-6 overflow-x-auto">
       <div className="flex items-center justify-between">
@@ -235,10 +176,9 @@ export function PlanTrimestre({ selectedDate }: Props) {
         </div>
       </div>
 
-      {/* Objetivos */}
-      <section>
-        <div className="mb-2 flex items-center justify-between gap-2">
-          <h3 className="text-xs font-bold uppercase tracking-wider text-muted">Objetivos {quarterLabel(currentQ, year)}</h3>
+      <section className="rounded-xl border border-border bg-surface/40 p-4">
+        <div className="flex items-center justify-between gap-2">
+          <h3 className="text-xs font-bold uppercase tracking-wider text-muted">Árbol de drivers</h3>
           <button
             type="button"
             onClick={() => window.dispatchEvent(new Event("laguna-open-objetivos-tree"))}
@@ -247,39 +187,9 @@ export function PlanTrimestre({ selectedDate }: Props) {
             Abrir árbol
           </button>
         </div>
-        <div className="space-y-1">
-          {objetivos.map((obj) => (
-            <div key={obj.id} className="space-y-1">
-              <ObjetivoRow obj={obj} todosObjetivos={objetivosArbol} isMentor={isMentor} />
-              {obj.parentId && objetivosById.get(obj.parentId) && (
-                <p className="pl-6 text-[10px] text-muted">
-                  Anual: <span className="font-medium">{objetivosById.get(obj.parentId)?.texto}</span>
-                </p>
-              )}
-            </div>
-          ))}
-        </div>
-        {!isMentor && (
-          <div className="mt-2 flex gap-2">
-            <input value={newObjText} onChange={(e) => setNewObjText(e.target.value)}
-              placeholder="Nuevo objetivo..."
-              className="flex-1 rounded-lg border border-border bg-surface px-3 py-1.5 text-sm text-foreground placeholder:text-muted focus:border-accent focus:outline-none"
-              onKeyDown={(e) => e.key === "Enter" && addObjetivo()} />
-            <select value={newObjArea} onChange={(e) => setNewObjArea(e.target.value as Area | "")}
-              className="rounded-lg border border-border bg-surface px-2 py-1 text-xs text-foreground">
-              <option value="">Sin área</option>
-              {allAreas.map((a) => <option key={a.id} value={a.id}>{a.label}</option>)}
-            </select>
-            <select value={newObjParentId} onChange={(e) => setNewObjParentId(e.target.value)}
-              className="rounded-lg border border-border bg-surface px-2 py-1 text-xs text-foreground">
-              <option value="">Sin objetivo anual padre</option>
-              {objetivosAnualesPadre.map((o) => (
-                <option key={o.id} value={o.id}>{o.texto}</option>
-              ))}
-            </select>
-            <button onClick={addObjetivo} className="rounded-lg bg-accent px-3 py-1 text-xs font-medium text-white hover:bg-accent/80">+</button>
-          </div>
-        )}
+        <p className="mt-2 text-xs text-muted">
+          Metas semanales y seguimiento están en la vista «Árbol de objetivos».
+        </p>
       </section>
 
       {/* Roadmap por mes */}
@@ -377,8 +287,6 @@ function ProjectCard({ node, qMonthKeys, currentMesKey, isMentor, backlogStyle }
   const [open, setOpen] = useState(false);
   const [newResName, setNewResName] = useState("");
   const [adding, setAdding] = useState(false);
-  const objetivoProyecto = state.objetivos.find((o) => o.id === node.proyecto.objetivoId && o.nivel === "anio");
-
   const mesesProj = node.proyecto.mesesActivos ?? [];
 
   function toggleMes(mes: string) {
@@ -432,15 +340,6 @@ function ProjectCard({ node, qMonthKeys, currentMesKey, isMentor, backlogStyle }
               className="truncate text-xs font-semibold text-foreground"
               inputClassName="text-xs font-semibold text-foreground"
             />
-            {objetivoProyecto && (
-              <span
-                className="mt-0.5 inline-block max-w-full truncate rounded-full px-1.5 py-0.5 text-[9px] font-semibold"
-                style={{ backgroundColor: node.hex + "18", color: node.hex }}
-                title={`Objetivo anual: ${objetivoProyecto.texto}`}
-              >
-                Obj: {objetivoProyecto.texto}
-              </span>
-            )}
           </div>
         </div>
         <div className="flex items-center justify-between gap-2 pl-5">

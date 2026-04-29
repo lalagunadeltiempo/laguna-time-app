@@ -1,4 +1,21 @@
-import type { AppState } from "./types";
+import type { AppState, PlanArbolConfigAnio } from "./types";
+import { EMPTY_ARBOL } from "./types";
+
+function unionConfigs(a: PlanArbolConfigAnio[], b: PlanArbolConfigAnio[]): PlanArbolConfigAnio[] {
+  const map = new Map<number, PlanArbolConfigAnio>();
+  for (const c of [...a, ...b]) {
+    const prev = map.get(c.anio);
+    if (!prev) {
+      map.set(c.anio, { ...c });
+    } else {
+      map.set(c.anio, {
+        anio: c.anio,
+        semanasNoActivas: [...new Set([...prev.semanasNoActivas, ...c.semanasNoActivas])].sort(),
+      });
+    }
+  }
+  return [...map.values()].sort((x, y) => x.anio - y.anio);
+}
 
 /**
  * Une dos estados por id, respetando tombstones (`deleted`).
@@ -62,7 +79,11 @@ export function mergeStates(a: AppState, b: AppState): AppState {
     ejecuciones: unionById(a.ejecuciones ?? [], b.ejecuciones ?? []),
     miembros: unionById(a.miembros ?? [], b.miembros ?? []),
     activityLog: unionById(a.activityLog ?? [], b.activityLog ?? []),
-    objetivos: unionById(a.objetivos ?? [], b.objetivos ?? []),
+    arbol: {
+      nodos: unionById(a.arbol?.nodos ?? EMPTY_ARBOL.nodos, b.arbol?.nodos ?? EMPTY_ARBOL.nodos),
+      registros: unionById(a.arbol?.registros ?? EMPTY_ARBOL.registros, b.arbol?.registros ?? EMPTY_ARBOL.registros),
+      configs: unionConfigs(a.arbol?.configs ?? EMPTY_ARBOL.configs, b.arbol?.configs ?? EMPTY_ARBOL.configs),
+    },
     pasosActivos: Array.from(new Set([...a.pasosActivos, ...b.pasosActivos])).filter((id) => !delPas.has(id)),
     deleted,
     _migrationVersion: Math.max(a._migrationVersion ?? 0, b._migrationVersion ?? 0),
@@ -96,6 +117,8 @@ export function statesDiffer(a: AppState, b: AppState): boolean {
   if (!idSetEq(a.proyectos, b.proyectos)) return true;
   if (!idSetEq(a.resultados, b.resultados)) return true;
   if (!idSetEq(a.plantillas, b.plantillas)) return true;
+  if (!idSetEq(a.arbol?.nodos ?? [], b.arbol?.nodos ?? [])) return true;
+  if (!idSetEq(a.arbol?.registros ?? [], b.arbol?.registros ?? [])) return true;
 
   const dA = a.deleted, dB = b.deleted;
   if (!!dA !== !!dB) return true;

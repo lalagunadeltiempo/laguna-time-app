@@ -363,30 +363,63 @@ export interface ActivityEntry {
   ruta?: string;
 }
 
-/** Resultado real frente al objetivo planificado. */
-export type RealidadObjetivoEstado = "cumplido" | "superado" | "por_debajo";
+/** Resultado real frente al registro en el árbol de drivers. */
+export type EstadoRealidadRegistro = "cumplido" | "superado" | "por_debajo";
 
-export const REALIDAD_OBJETIVO_LABELS: Record<RealidadObjetivoEstado, string> = {
+export const REALIDAD_REGISTRO_LABELS: Record<EstadoRealidadRegistro, string> = {
   cumplido: "Cumplido",
   superado: "Superado",
   por_debajo: "Por debajo",
 };
 
-export interface Objetivo {
+export type NodoTipo = "resultado" | "palanca" | "accion";
+export type NodoCadencia = "anual" | "trimestral" | "mensual" | "semanal" | "puntual";
+export type NodoRelacion = "suma" | "explica";
+
+export interface NodoArbol {
   id: string;
-  texto: string;
-  nivel: "mes" | "trimestre" | "anio";
-  periodo: string;
-  /** Objetivo padre inmediato (trimestre -> anio, mes -> trimestre). */
+  anio: number;
   parentId?: string;
-  area?: Area;
-  completado: boolean;
+  orden: number;
+  nombre: string;
+  descripcion?: string;
+  tipo: NodoTipo;
+  cadencia: NodoCadencia;
+  relacionConPadre: NodoRelacion;
+  metaValor?: number;
+  metaUnidad?: string;
+  proyectoIds?: string[];
+  entregableIds?: string[];
+  contadorModo: "manual" | "derivado";
   creado: string;
-  /** Cómo fue la realidad respecto al objetivo (opcional). */
-  realidadEstado?: RealidadObjetivoEstado;
-  /** Breve motivo o contexto del resultado (opcional). */
-  realidadPorQue?: string;
 }
+
+export interface RegistroNodo {
+  id: string;
+  nodoId: string;
+  periodoTipo: "semana" | "mes" | "trimestre" | "anio";
+  periodoKey: string;
+  valor: number;
+  nota?: string;
+  estadoRealidad?: EstadoRealidadRegistro;
+  realidadPorQue?: string;
+  creado: string;
+  actualizado: string;
+}
+
+export interface PlanArbolConfigAnio {
+  anio: number;
+  /** Lunes ISO (YYYY-MM-DD) de semanas no activas (ej. vacaciones). */
+  semanasNoActivas: string[];
+}
+
+export interface PlanArbolState {
+  nodos: NodoArbol[];
+  registros: RegistroNodo[];
+  configs: PlanArbolConfigAnio[];
+}
+
+export const EMPTY_ARBOL: PlanArbolState = { nodos: [], registros: [], configs: [] };
 
 export interface DeletedTombstones {
   proyectos: string[];
@@ -409,7 +442,7 @@ export interface AppState {
   pasosActivos: string[];
   miembros: MiembroInfo[];
   activityLog: ActivityEntry[];
-  objetivos: Objetivo[];
+  arbol: PlanArbolState;
   deleted?: DeletedTombstones;
   planConfig?: PlanConfig;
   mtp?: string;

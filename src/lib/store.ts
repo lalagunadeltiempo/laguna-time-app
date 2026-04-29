@@ -1,6 +1,6 @@
 "use client";
 
-import { AppState, EQUIPO_DEFAULT, PLAN_CONFIG_DEFAULT } from "./types";
+import { AppState, EMPTY_ARBOL, EQUIPO_DEFAULT, PLAN_CONFIG_DEFAULT } from "./types";
 import { buildSeedSOPs } from "./seed-sops";
 import { getSupabase } from "./supabase";
 import { mergeStates } from "./merge";
@@ -29,7 +29,7 @@ export const INITIAL_STATE: AppState = {
   pasosActivos: [],
   miembros: EQUIPO_DEFAULT,
   activityLog: [],
-  objetivos: [],
+  arbol: EMPTY_ARBOL,
   deleted: EMPTY_DELETED,
   planConfig: PLAN_CONFIG_DEFAULT,
 };
@@ -136,7 +136,7 @@ function migrateV1(raw: any): AppState {
         }))
       : EQUIPO_DEFAULT,
     activityLog: raw.activityLog ?? [],
-    objetivos: raw.objetivos ?? [],
+    arbol: raw.arbol ?? EMPTY_ARBOL,
     deleted: raw.deleted ?? { proyectos: [], resultados: [], entregables: [], pasos: [], plantillas: [] },
     planConfig: raw.planConfig ?? PLAN_CONFIG_DEFAULT,
   } as AppState;

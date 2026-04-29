@@ -14,15 +14,19 @@ import type {
   EjecucionSOP,
   AmbitoLabels,
   ActivityEntry,
-  Objetivo,
+  NodoArbol,
+  RegistroNodo,
+  PlanArbolConfigAnio,
+  PlanArbolState,
   ReviewMark,
   DeletedTombstones,
   PlanConfig,
 } from "./types";
-import { PLAN_CONFIG_DEFAULT } from "./types";
+import { PLAN_CONFIG_DEFAULT, EMPTY_ARBOL } from "./types";
 import { minutosEfectivos } from "./duration";
 import { toDateKey } from "./date-utils";
 import { mesKey, mesesDeTrimestre, mondayKey, trimestreDeMes } from "./semana-utils";
+import { collectSubtreeIds, wouldCreateCycle } from "./arbol-tiempo";
 
 export type Action =
   | { type: "INIT"; state: AppState }
@@ -145,13 +149,18 @@ export type Action =
   | { type: "SYNC_ENTREGABLE_TO_PLANTILLA"; entregableId: string }
   | { type: "LOG_ACTIVITY"; entry: ActivityEntry }
   | { type: "MATERIALIZE_SOP"; plantillaId: string; area: Area; responsable: string; currentUser: string; dateKey: string; ids: { resultado: string; entregable: string; paso: string; proyecto: string }; proyectoId?: string; resultadoId?: string; autoStart?: boolean; customName?: string }
-  | { type: "ADD_OBJETIVO"; payload: Objetivo }
+  | { type: "ADD_NODO_ARBOL"; payload: NodoArbol }
   | {
-      type: "UPDATE_OBJETIVO";
+      type: "UPDATE_NODO_ARBOL";
       id: string;
-      changes: Partial<Pick<Objetivo, "texto" | "completado" | "area" | "parentId" | "realidadEstado" | "realidadPorQue">>;
+      changes: Partial<Omit<NodoArbol, "id" | "creado">>;
     }
-  | { type: "DELETE_OBJETIVO"; id: string }
+  | { type: "DELETE_NODO_ARBOL"; id: string }
+  | { type: "MOVE_NODO_ARBOL"; id: string; parentId?: string | null; orden?: number }
+  | { type: "UPSERT_REGISTRO_NODO"; payload: RegistroNodo }
+  | { type: "DELETE_REGISTRO_NODO"; id: string }
+  | { type: "SET_ARBOL_CONFIG_ANIO"; config: PlanArbolConfigAnio }
+  | { type: "REPLACE_ARBOL_STATE"; arbol: PlanArbolState }
   | { type: "SET_REVIEW"; nivel: "proyecto" | "resultado" | "entregable" | "plantilla"; targetId: string; review: ReviewMark }
   | { type: "SET_MTP"; mtp: string };
 
@@ -1459,33 +1468,93 @@ export function reducer(state: AppState, action: Action): AppState {
       return newState;
     }
 
-    case "ADD_OBJETIVO":
-      return { ...state, objetivos: [...(state.objetivos ?? []), action.payload] };
+    case "REPLACE_ARBOL_STATE":
+      return { ...state, arbol: action.arbol };
 
-    case "UPDATE_OBJETIVO": {
+    case "ADD_NODO_ARBOL": {
+      const arbol = state.arbol ?? EMPTY_ARBOL;
+      return { ...state, arbol: { ...arbol, nodos: [...arbol.nodos, action.payload] } };
+    }
+
+    case "UPDATE_NODO_ARBOL": {
+      const arbol = state.arbol ?? EMPTY_ARBOL;
       return {
         ...state,
-        objetivos: (state.objetivos ?? []).map((o) => {
-          if (o.id !== action.id) return o;
-          const merged = { ...o, ...action.changes } as Objetivo;
-          if ("realidadEstado" in action.changes && action.changes.realidadEstado === undefined) {
-            delete merged.realidadEstado;
-          }
-          if ("realidadPorQue" in action.changes && action.changes.realidadPorQue === undefined) {
-            delete merged.realidadPorQue;
-          }
-          return merged;
-        }),
+        arbol: {
+          ...arbol,
+          nodos: arbol.nodos.map((n) => (n.id === action.id ? { ...n, ...action.changes } : n)),
+        },
       };
     }
 
-    case "DELETE_OBJETIVO":
+    case "DELETE_NODO_ARBOL": {
+      const arbol = state.arbol ?? EMPTY_ARBOL;
+      const ids = collectSubtreeIds(arbol.nodos, action.id);
       return {
         ...state,
-        objetivos: (state.objetivos ?? [])
-          .filter((o) => o.id !== action.id)
-          .map((o) => (o.parentId === action.id ? { ...o, parentId: undefined } : o)),
+        arbol: {
+          ...arbol,
+          nodos: arbol.nodos.filter((n) => !ids.has(n.id)),
+          registros: arbol.registros.filter((r) => !ids.has(r.nodoId)),
+        },
       };
+    }
+
+    case "MOVE_NODO_ARBOL": {
+      const arbol = state.arbol ?? EMPTY_ARBOL;
+      const node = arbol.nodos.find((n) => n.id === action.id);
+      if (!node) return state;
+      const newParent =
+        action.parentId === undefined ? node.parentId : action.parentId === null ? undefined : action.parentId;
+      if (wouldCreateCycle(arbol.nodos, action.id, newParent)) return state;
+      const nodos = arbol.nodos.map((n) => {
+        if (n.id !== action.id) return n;
+        return {
+          ...n,
+          parentId: newParent,
+          orden: action.orden !== undefined ? action.orden : n.orden,
+        };
+      });
+      return { ...state, arbol: { ...arbol, nodos } };
+    }
+
+    case "UPSERT_REGISTRO_NODO": {
+      const arbol = state.arbol ?? EMPTY_ARBOL;
+      const now = new Date().toISOString();
+      const p = action.payload;
+      const idx = arbol.registros.findIndex(
+        (r) => r.nodoId === p.nodoId && r.periodoTipo === p.periodoTipo && r.periodoKey === p.periodoKey,
+      );
+      let registros: RegistroNodo[];
+      if (idx >= 0) {
+        registros = arbol.registros.map((r, i) =>
+          i === idx ? { ...r, ...p, id: r.id, creado: r.creado, actualizado: now } : r,
+        );
+      } else {
+        registros = [...arbol.registros, { ...p, creado: p.creado || now, actualizado: now }];
+      }
+      return { ...state, arbol: { ...arbol, registros } };
+    }
+
+    case "DELETE_REGISTRO_NODO": {
+      const arbol = state.arbol ?? EMPTY_ARBOL;
+      return {
+        ...state,
+        arbol: { ...arbol, registros: arbol.registros.filter((r) => r.id !== action.id) },
+      };
+    }
+
+    case "SET_ARBOL_CONFIG_ANIO": {
+      const arbol = state.arbol ?? EMPTY_ARBOL;
+      const others = arbol.configs.filter((c) => c.anio !== action.config.anio);
+      return {
+        ...state,
+        arbol: {
+          ...arbol,
+          configs: [...others, action.config].sort((a, b) => a.anio - b.anio),
+        },
+      };
+    }
 
     case "SET_REVIEW": {
       const { nivel, targetId, review } = action;

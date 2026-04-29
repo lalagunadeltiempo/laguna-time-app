@@ -1,11 +1,13 @@
 import type { Action } from "./reducer";
 import type { AppState } from "./types";
+import { EMPTY_ARBOL } from "./types";
+import { defaultSemanasNoActivas } from "./arbol-tiempo";
 import { buildSeedSOPs } from "./seed-sops";
 import { buildPersonalSeedData } from "./seed-personal";
 import { buildEmpresaSeedProyectos } from "./seed-proyectos-empresa";
 import { mondayKey, mesKey, mesesDeTrimestre } from "./semana-utils";
 
-export const CURRENT_MIGRATION = 20;
+export const CURRENT_MIGRATION = 21;
 
 type Dispatch = (action: Action) => void;
 
@@ -53,8 +55,32 @@ export function runMigrations(state: AppState, dispatch: Dispatch): void {
     migrateEntregablePlanificacionByUser(state, dispatch);
   }
 
+  if (version < 21) {
+    migrateArbolDriversV21(state, dispatch);
+  }
+
   if (version < CURRENT_MIGRATION) {
     dispatch({ type: "SET_MIGRATION_VERSION", version: CURRENT_MIGRATION });
+  }
+}
+
+/** Árbol de drivers: configs por año con vacaciones por defecto (agosto + Navidad). */
+function migrateArbolDriversV21(state: AppState, dispatch: Dispatch): void {
+  const base = state.arbol ?? EMPTY_ARBOL;
+  const year = new Date().getFullYear();
+  const configs = [...base.configs];
+  let changed = false;
+  for (const y of [year, year + 1]) {
+    if (!configs.some((c) => c.anio === y)) {
+      configs.push({ anio: y, semanasNoActivas: defaultSemanasNoActivas(y) });
+      changed = true;
+    }
+  }
+  if (changed || !state.arbol) {
+    dispatch({
+      type: "REPLACE_ARBOL_STATE",
+      arbol: { ...base, configs: configs.sort((a, b) => a.anio - b.anio) },
+    });
   }
 }
 
@@ -133,7 +159,7 @@ function seedEmpresaProyectos(state: AppState, dispatch: Dispatch): void {
 
 function migratePlanNivelAndObjetivos(_state: AppState, _dispatch: Dispatch): void {
   // planNivel defaults to undefined (null) which is handled as legacy in views
-  // objetivos defaults to [] via the state initializer / cloud load
+  // Árbol de drivers (`state.arbol`) se inicializa en migrateArbolDriversV21 / store
   // Heuristic: entregables with fechaInicio on the 1st of a month → planNivel "mes", others → "dia"
   for (const ent of _state.entregables) {
     if (ent.fechaInicio && !ent.planNivel) {
