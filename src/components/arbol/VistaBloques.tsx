@@ -26,6 +26,22 @@ import {
 
 const MESES_CORTOS_ES = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"];
 
+function labelCuotaSegunVista(vista: VistaPeriodoArbol, modo: "actual" | "futuro"): string {
+  const a = modo === "futuro" ? "Lo que tocará" : "Lo que te toca";
+  switch (vista) {
+    case "semana":
+      return `${a} esta semana`;
+    case "mes":
+      return `${a} este mes`;
+    case "trimestre":
+      return `${a} este trimestre`;
+    case "anio":
+      return modo === "futuro" ? "Media semanal ajustada" : "Media semanal (ajustada)";
+    default:
+      return a;
+  }
+}
+
 function fmtNum(n: number | undefined | null, { signed = false } = {}): string {
   if (n === undefined || n === null || !Number.isFinite(n)) return "—";
   const abs = Math.abs(n);
@@ -350,14 +366,18 @@ function TarjetaPeriodo({
     if (vista === "semana") return ajuste.semanaRestante;
     if (vista === "mes") return ajuste.mesRestante(periodoKey);
     if (vista === "trimestre") return ajuste.trimRestante(periodoKey);
-    if (vista === "anio") return raiz.metaValor;
+    if (vista === "anio") return ajuste.semanaRestante;
     return undefined;
   }, [estado, vista, periodoKey, ajuste, raiz.metaValor]);
+
+  const metaAnual = raiz.metaValor ?? 0;
+  const objetivoCumplido = metaAnual > 0 && realHastaHoy >= metaAnual;
 
   const deltaPlan = plan !== undefined ? real - plan : undefined;
   const deltaAnioPasado = anioPasado > 0 ? real - anioPasado : undefined;
 
   const pct = plan && plan > 0 ? Math.min(100, Math.round((real / plan) * 100)) : real > 0 ? 100 : 0;
+  const showProgressBar = estado === "pasado" || estado === "actual";
   const upsert = useUpsertRegistro();
 
   const ramasOpen = ramasAbiertasIds.has(`${vista}:${periodoKey}`);
@@ -381,46 +401,118 @@ function TarjetaPeriodo({
           {estado}
         </span>
       </div>
-      <div className="mt-2 space-y-1">
-        <MetricLine
-          label="Plan"
-          value={plan !== undefined ? `${fmtNum(plan)} ${unidad}` : "—"}
-          accent="muted"
-        />
-        <MetricLine label="Real" value={`${fmtNum(real)} ${unidad}`} />
-        <MetricLine
-          label="Año pasado"
-          value={anioPasado > 0 ? `${fmtNum(anioPasado)} ${unidad}` : "—"}
-          accent="muted"
-        />
-        {deltaPlan !== undefined && (
-          <MetricLine
-            label="Δ vs plan"
-            value={`${fmtNum(deltaPlan, { signed: true })} ${unidad}`}
-            accent={deltaPlan >= 0 ? "good" : "bad"}
-          />
+
+      {/* Jerarquía: pasado = Real grande; actual/futuro = cuota ajustada grande (o «Hecho» si ya cumpliste el año) */}
+      <div className="mt-3">
+        {estado === "pasado" && (
+          <>
+            <p className="text-[10px] font-medium uppercase tracking-wide text-muted">Real</p>
+            <p className="text-2xl font-bold tabular-nums text-foreground">
+              {fmtNum(real)} <span className="text-base font-semibold text-muted">{unidad}</span>
+            </p>
+            <div className="mt-2 space-y-1 border-t border-border/50 pt-2">
+              <MetricLine
+                label="Plan original"
+                value={plan !== undefined ? `${fmtNum(plan)} ${unidad}` : "—"}
+                accent="muted"
+              />
+              {deltaPlan !== undefined && (
+                <MetricLine
+                  label="Δ vs plan"
+                  value={`${fmtNum(deltaPlan, { signed: true })} ${unidad}`}
+                  accent={deltaPlan >= 0 ? "good" : "bad"}
+                />
+              )}
+              {anioPasado > 0 && (
+                <MetricLine
+                  label="Año pasado (referencia)"
+                  value={`${fmtNum(anioPasado)} ${unidad}`}
+                  accent="muted"
+                />
+              )}
+              {deltaAnioPasado !== undefined && (
+                <MetricLine
+                  label="Δ vs año pasado"
+                  value={`${fmtNum(deltaAnioPasado, { signed: true })} ${unidad}`}
+                  accent={deltaAnioPasado >= 0 ? "good" : "bad"}
+                />
+              )}
+            </div>
+          </>
         )}
-        {deltaAnioPasado !== undefined && (
-          <MetricLine
-            label="Δ vs año pasado"
-            value={`${fmtNum(deltaAnioPasado, { signed: true })} ${unidad}`}
-            accent={deltaAnioPasado >= 0 ? "good" : "bad"}
-          />
+
+        {estado === "actual" && (
+          <>
+            {objetivoCumplido ? (
+              <>
+                <p className="text-[10px] font-medium uppercase tracking-wide text-emerald-700 dark:text-emerald-300">
+                  Estado
+                </p>
+                <p className="text-2xl font-bold text-emerald-700 dark:text-emerald-300">Hecho</p>
+                <p className="text-[11px] text-muted">Ya superaste el objetivo del año. Sigue apuntando si quieres llevar el registro.</p>
+              </>
+            ) : (
+              <>
+                <p className="text-[10px] font-medium uppercase tracking-wide text-muted">
+                  {labelCuotaSegunVista(vista, "actual")}
+                </p>
+                <p className="text-2xl font-bold tabular-nums text-foreground">
+                  {ajustado !== undefined ? fmtNum(ajustado) : "—"}{" "}
+                  <span className="text-base font-semibold text-muted">{unidad}</span>
+                </p>
+              </>
+            )}
+            <div className="mt-2 space-y-1 border-t border-border/50 pt-2">
+              <MetricLine
+                label="Plan original"
+                value={plan !== undefined ? `${fmtNum(plan)} ${unidad}` : "—"}
+                accent="muted"
+              />
+              <MetricLine label="Real acumulado (año)" value={`${fmtNum(realHastaHoy)} ${unidad}`} />
+            </div>
+          </>
         )}
-        {ajustado !== undefined && estado !== "pasado" && plan !== undefined && (
-          <MetricLine
-            label="Para llegar al año"
-            value={`${fmtNum(ajustado)} ${unidad}`}
-            accent={ajustado > plan ? "bad" : "good"}
-          />
+
+        {estado === "futuro" && (
+          <>
+            {objetivoCumplido ? (
+              <>
+                <p className="text-[10px] font-medium uppercase tracking-wide text-emerald-700 dark:text-emerald-300">
+                  Estado
+                </p>
+                <p className="text-2xl font-bold text-emerald-700 dark:text-emerald-300">Hecho</p>
+                <p className="text-[11px] text-muted">Objetivo del año ya cubierto. El plan original sigue como referencia.</p>
+              </>
+            ) : (
+              <>
+                <p className="text-[10px] font-medium uppercase tracking-wide text-muted">
+                  {labelCuotaSegunVista(vista, "futuro")}
+                </p>
+                <p className="text-2xl font-bold tabular-nums text-foreground">
+                  {ajustado !== undefined ? fmtNum(ajustado) : "—"}{" "}
+                  <span className="text-base font-semibold text-muted">{unidad}</span>
+                </p>
+              </>
+            )}
+            <div className="mt-2 space-y-1 border-t border-border/50 pt-2">
+              <MetricLine
+                label="Plan original"
+                value={plan !== undefined ? `${fmtNum(plan)} ${unidad}` : "—"}
+                accent="muted"
+              />
+            </div>
+          </>
         )}
       </div>
-      <div className="mt-2 h-2 overflow-hidden rounded-full bg-surface" aria-hidden>
-        <div
-          className={`h-full rounded-full transition-all ${pct >= 100 ? "bg-emerald-500" : "bg-accent"}`}
-          style={{ width: `${pct}%` }}
-        />
-      </div>
+
+      {showProgressBar && (
+        <div className="mt-2 h-2 overflow-hidden rounded-full bg-surface" aria-hidden>
+          <div
+            className={`h-full rounded-full transition-all ${pct >= 100 ? "bg-emerald-500" : "bg-accent"}`}
+            style={{ width: `${pct}%` }}
+          />
+        </div>
+      )}
 
       <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
         <label className="flex flex-col gap-1 text-[11px] text-muted">
@@ -790,6 +882,17 @@ function BloqueSemanas({ ctx }: { ctx: ContextoBloque }) {
   const [mesTab, setMesTab] = useState<string>(mesInicial);
   const upsert = useUpsertRegistro();
 
+  const metaAnualRaiz = ctx.raiz.metaValor ?? 0;
+  const realHastaHoyAnio = useMemo(
+    () => realDelAnioHastaHoy(ctx.registros, ctx.raiz.id, ctx.year),
+    [ctx.registros, ctx.raiz.id, ctx.year],
+  );
+  const ajusteAnio = useMemo(
+    () => cuotaAjustada({ metaAnual: metaAnualRaiz, realHastaHoy: realHastaHoyAnio, anio: ctx.year, config: ctx.config }),
+    [metaAnualRaiz, realHastaHoyAnio, ctx.year, ctx.config],
+  );
+  const objetivoAnualCumplido = metaAnualRaiz > 0 && realHastaHoyAnio >= metaAnualRaiz;
+
   const meses12 = Array.from({ length: 12 }, (_, i) => `${ctx.year}-${String(i + 1).padStart(2, "0")}`);
   const semanasMes = todos.filter((mk) => mesKeyFromDate(parseLocalDateKey(mk)) === mesTab);
 
@@ -839,14 +942,17 @@ function BloqueSemanas({ ctx }: { ctx: ContextoBloque }) {
           )?.valor;
           const delta = plan !== undefined ? real - plan : undefined;
           const pct = plan && plan > 0 ? Math.min(100, Math.round((real / plan) * 100)) : real > 0 ? 100 : 0;
+          const estadoSem = estadoPeriodo("semana", mk, ctx.year);
+          const showBarSem = !isVac && (estadoSem === "pasado" || estadoSem === "actual");
+          const cuotaSem = ajusteAnio.semanaRestante;
           return (
             <div
               key={mk}
-              className={`flex flex-col gap-2 border-b border-border/60 px-3 py-2 last:border-b-0 sm:flex-row sm:items-center ${
+              className={`flex flex-col gap-2 border-b border-border/60 px-3 py-3 last:border-b-0 sm:flex-row sm:items-start ${
                 isVac ? "bg-surface/40" : ""
               }`}
             >
-              <div className="min-w-0 sm:w-44">
+              <div className="min-w-0 shrink-0 sm:w-44">
                 <p className="text-sm font-medium text-foreground">{isoWeekLabelFromMondayKey(mk)}</p>
                 <p className="text-[10px] text-muted">{formatWeekRange(mk)}</p>
               </div>
@@ -855,53 +961,122 @@ function BloqueSemanas({ ctx }: { ctx: ContextoBloque }) {
                   Descanso
                 </span>
               ) : (
-                <div className="grid flex-1 grid-cols-2 items-end gap-2 text-[11px] sm:grid-cols-5">
-                  <span className="text-muted">
-                    Plan <strong className="tabular-nums text-foreground">{plan !== undefined ? fmtNum(plan) : "—"}</strong>
-                  </span>
-                  <label className="flex flex-col gap-0.5">
-                    <span className="text-muted">Real</span>
-                    <NumberInput
-                      value={valor}
-                      onCommit={(v) =>
-                        upsert({ nodoId: ctx.raiz.id, periodoTipo: "semana", periodoKey: mk, valor: v })
-                      }
-                      ariaLabel={`Real ${mk}`}
-                      unidad={ctx.unidad}
-                    />
-                  </label>
-                  <label className="flex flex-col gap-0.5">
-                    <span className="text-muted">Año pasado</span>
-                    <NumberInput
-                      value={valorAy}
-                      onCommit={(v) =>
-                        upsert({ nodoId: ctx.raiz.id, periodoTipo: "semana", periodoKey: ayKey, valor: v })
-                      }
-                      ariaLabel={`Año pasado ${mk}`}
-                      unidad={ctx.unidad}
-                    />
-                  </label>
-                  {delta !== undefined ? (
-                    <span
-                      className={`tabular-nums ${
-                        delta >= 0 ? "text-emerald-700 dark:text-emerald-300" : "text-red-700 dark:text-red-300"
-                      }`}
-                    >
-                      Δ {fmtNum(delta, { signed: true })}
-                    </span>
-                  ) : (
-                    <span />
+                <div className="flex min-w-0 flex-1 flex-col gap-2">
+                  {estadoSem === "pasado" && (
+                    <div>
+                      <p className="text-[10px] font-medium uppercase tracking-wide text-muted">Real</p>
+                      <p className="text-xl font-bold tabular-nums text-foreground">
+                        {fmtNum(real)} <span className="text-sm font-semibold text-muted">{ctx.unidad}</span>
+                      </p>
+                      <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-muted">
+                        <span>
+                          Plan orig.{" "}
+                          <strong className="tabular-nums text-foreground">{plan !== undefined ? fmtNum(plan) : "—"}</strong>
+                        </span>
+                        {delta !== undefined && (
+                          <span className={delta >= 0 ? "text-emerald-700 dark:text-emerald-300" : "text-red-700 dark:text-red-300"}>
+                            Δ plan {fmtNum(delta, { signed: true })}
+                          </span>
+                        )}
+                        {anioPasado > 0 && (
+                          <span>
+                            Año pasado <strong className="tabular-nums text-foreground">{fmtNum(anioPasado)}</strong>
+                          </span>
+                        )}
+                      </div>
+                    </div>
                   )}
-                  <div className="hidden h-2 overflow-hidden rounded-full bg-surface sm:block" aria-hidden>
-                    <div
-                      className={`h-full rounded-full ${pct >= 100 ? "bg-emerald-500" : "bg-accent"}`}
-                      style={{ width: `${pct}%` }}
-                    />
+                  {estadoSem === "actual" && (
+                    <div>
+                      {objetivoAnualCumplido ? (
+                        <>
+                          <p className="text-[10px] font-medium uppercase tracking-wide text-emerald-700 dark:text-emerald-300">
+                            Estado
+                          </p>
+                          <p className="text-xl font-bold text-emerald-700 dark:text-emerald-300">Hecho</p>
+                        </>
+                      ) : (
+                        <>
+                          <p className="text-[10px] font-medium uppercase tracking-wide text-muted">
+                            {labelCuotaSegunVista("semana", "actual")}
+                          </p>
+                          <p className="text-xl font-bold tabular-nums text-foreground">
+                            {fmtNum(cuotaSem)} <span className="text-sm font-semibold text-muted">{ctx.unidad}</span>
+                          </p>
+                        </>
+                      )}
+                      <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-muted">
+                        <span>
+                          Plan orig.{" "}
+                          <strong className="tabular-nums text-foreground">{plan !== undefined ? fmtNum(plan) : "—"}</strong>
+                        </span>
+                        <span>
+                          Real acum. año{" "}
+                          <strong className="tabular-nums text-foreground">{fmtNum(realHastaHoyAnio)}</strong>
+                        </span>
+                      </div>
+                    </div>
+                  )}
+                  {estadoSem === "futuro" && (
+                    <div>
+                      {objetivoAnualCumplido ? (
+                        <>
+                          <p className="text-[10px] font-medium uppercase tracking-wide text-emerald-700 dark:text-emerald-300">
+                            Estado
+                          </p>
+                          <p className="text-xl font-bold text-emerald-700 dark:text-emerald-300">Hecho</p>
+                          <p className="text-[10px] text-muted">Plan original como referencia abajo.</p>
+                        </>
+                      ) : (
+                        <>
+                          <p className="text-[10px] font-medium uppercase tracking-wide text-muted">
+                            {labelCuotaSegunVista("semana", "futuro")}
+                          </p>
+                          <p className="text-xl font-bold tabular-nums text-foreground">
+                            {fmtNum(cuotaSem)} <span className="text-sm font-semibold text-muted">{ctx.unidad}</span>
+                          </p>
+                        </>
+                      )}
+                      <div className="mt-1 text-[11px] text-muted">
+                        Plan orig.{" "}
+                        <strong className="tabular-nums text-foreground">{plan !== undefined ? fmtNum(plan) : "—"}</strong>
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                    <label className="flex flex-col gap-0.5 text-[10px] text-muted">
+                      Apuntar real
+                      <NumberInput
+                        value={valor}
+                        onCommit={(v) =>
+                          upsert({ nodoId: ctx.raiz.id, periodoTipo: "semana", periodoKey: mk, valor: v })
+                        }
+                        ariaLabel={`Real ${mk}`}
+                        unidad={ctx.unidad}
+                      />
+                    </label>
+                    <label className="flex flex-col gap-0.5 text-[10px] text-muted">
+                      Año pasado
+                      <NumberInput
+                        value={valorAy}
+                        onCommit={(v) =>
+                          upsert({ nodoId: ctx.raiz.id, periodoTipo: "semana", periodoKey: ayKey, valor: v })
+                        }
+                        ariaLabel={`Año pasado ${mk}`}
+                        unidad={ctx.unidad}
+                      />
+                    </label>
                   </div>
-                  <span className="text-muted sm:hidden">
-                    Año pasado:{" "}
-                    <strong className="tabular-nums text-foreground">{anioPasado > 0 ? fmtNum(anioPasado) : "—"}</strong>
-                  </span>
+
+                  {showBarSem && (
+                    <div className="h-2 w-full max-w-md overflow-hidden rounded-full bg-surface" aria-hidden>
+                      <div
+                        className={`h-full rounded-full ${pct >= 100 ? "bg-emerald-500" : "bg-accent"}`}
+                        style={{ width: `${pct}%` }}
+                      />
+                    </div>
+                  )}
                 </div>
               )}
             </div>
