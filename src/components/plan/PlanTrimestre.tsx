@@ -178,17 +178,17 @@ export function PlanTrimestre({ selectedDate }: Props) {
 
       <section className="rounded-xl border border-border bg-surface/40 p-4">
         <div className="flex items-center justify-between gap-2">
-          <h3 className="text-xs font-bold uppercase tracking-wider text-muted">Árbol de drivers</h3>
+          <h3 className="text-xs font-bold uppercase tracking-wider text-muted">Metas</h3>
           <button
             type="button"
             onClick={() => window.dispatchEvent(new Event("laguna-open-objetivos-tree"))}
             className="rounded border border-border px-2 py-0.5 text-[10px] font-medium text-muted hover:border-accent hover:text-accent"
           >
-            Abrir árbol
+            Abrir metas
           </button>
         </div>
         <p className="mt-2 text-xs text-muted">
-          Metas semanales y seguimiento están en la vista «Árbol de objetivos».
+          El detalle semanal está en la vista Metas.
         </p>
       </section>
 

@@ -88,8 +88,8 @@ const NAV_ITEMS: { id: Vista; label: string; sublabel: string; icon: React.React
   },
   {
     id: "arbol-objetivos",
-    label: "Árbol",
-    sublabel: "Objetivos",
+    label: "Metas",
+    sublabel: "seguimiento",
     icon: (
       <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
         <circle cx="12" cy="5" r="2.2" />

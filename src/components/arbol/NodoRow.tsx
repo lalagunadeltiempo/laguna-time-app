@@ -12,6 +12,7 @@ import {
   formatWeekRange,
 } from "@/lib/arbol-tiempo";
 import { RegistroInput } from "./RegistroInput";
+import { CADENCIA_UI, TIPO_UI } from "./arbol-copy";
 
 function cuadreMetaHijos(parent: NodoArbol, children: NodoArbol[], vista: VistaPeriodoArbol): string | null {
   const sumadores = children.filter((c) => c.relacionConPadre === "suma");
@@ -98,23 +99,23 @@ export function NodoRow({
         )}
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
-            <span className={`rounded px-1.5 py-0.5 text-[9px] font-bold uppercase ${TIPO_CHIP[node.tipo]}`}>{node.tipo}</span>
+            <span className={`rounded px-1.5 py-0.5 text-[9px] font-semibold ${TIPO_CHIP[node.tipo]}`}>{TIPO_UI[node.tipo]}</span>
             <span className="font-medium text-foreground">{node.nombre}</span>
             {node.metaValor !== undefined && (
               <span className="text-[10px] text-muted">
-                Meta: {node.metaValor}
-                {node.metaUnidad ? ` ${node.metaUnidad}` : ""} ({node.cadencia})
+                Objetivo: {node.metaValor}
+                {node.metaUnidad ? ` ${node.metaUnidad}` : ""} · {CADENCIA_UI[node.cadencia]}
               </span>
             )}
             {warn && (
               <span className="rounded bg-amber-500/20 px-1.5 py-0.5 text-[9px] font-medium text-amber-900 dark:text-amber-100" title={warn}>
-                Cuadre
+                Revisa números
               </span>
             )}
           </div>
           <div className="mt-1 flex flex-wrap items-center gap-3 text-[11px]">
             <span className="text-muted">
-              Real vista: <strong className="tabular-nums text-foreground">{realShow.toFixed(2)}</strong>
+              Hecho / objetivo: <strong className="tabular-nums text-foreground">{realShow.toFixed(2)}</strong>
               {metaShow !== undefined && (
                 <>
                   {" "}
@@ -156,7 +157,7 @@ export function NodoRow({
         />
         <div className="flex shrink-0 gap-1">
           <button type="button" onClick={() => onEdit(node)} className="rounded border border-border px-1.5 py-0.5 text-[10px] text-muted hover:bg-surface">
-            Editar
+            Cambiar
           </button>
           <button
             type="button"
@@ -178,8 +179,9 @@ export function NodoRow({
               });
             }}
             className="rounded border border-border px-1.5 py-0.5 text-[10px] text-muted hover:bg-surface"
+            title="Añadir una meta dentro de esta"
           >
-            + hijo
+            + Aquí
           </button>
           <button
             type="button"

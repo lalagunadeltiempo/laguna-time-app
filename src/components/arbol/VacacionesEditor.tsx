@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect } from "react";
 import {
   christmasVacationMondays,
   defaultSemanasNoActivas,
@@ -23,6 +24,14 @@ export function VacacionesEditor({
   const set = new Set(semanasNoActivas);
   const mondays = mondaysInCalendarYear(anio);
 
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") onClose();
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
   function toggle(mk: string) {
     const next = new Set(set);
     if (next.has(mk)) next.delete(mk);
@@ -35,19 +44,28 @@ export function VacacionesEditor({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" role="dialog" aria-modal>
-      <div className="max-h-[85vh] w-full max-w-lg overflow-hidden rounded-xl border border-border bg-background shadow-xl">
+    <div className="fixed inset-0 z-50">
+      <button type="button" className="absolute inset-0 bg-black/35 backdrop-blur-[1px]" aria-label="Cerrar" onClick={onClose} />
+      <aside
+        className="absolute inset-y-0 right-0 flex w-full max-w-2xl flex-col border-l border-border bg-background shadow-2xl"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="vac-title"
+      >
         <div className="flex items-center justify-between border-b border-border px-4 py-3">
-          <h2 className="text-lg font-semibold text-foreground">Vacaciones del año {anio}</h2>
-          <button type="button" onClick={onClose} className="rounded-lg px-2 py-1 text-sm text-muted hover:bg-surface">
-            Cerrar
+          <h2 id="vac-title" className="text-lg font-semibold text-foreground">
+            Semanas en las que no apuntas nada ({anio})
+          </h2>
+          <button type="button" onClick={onClose} className="rounded-lg px-2 py-1 text-sm text-muted hover:bg-surface" aria-label="Cerrar">
+            ✕
           </button>
         </div>
-        <p className="border-b border-border px-4 py-2 text-xs text-muted">
-          Marca los <strong>lunes</strong> de las semanas en las que no trabajas (no se pedirán registros). Por defecto:
-          agosto completo y dos semanas de Navidad ({christmasVacationMondays(anio).map(isoWeekLabelFromMondayKey).join(", ")}).
+        <p className="border-b border-border px-4 py-3 text-xs text-muted">
+          Toca los <strong>lunes</strong> de las semanas que son descanso: esos días no te pediremos número. Por defecto vienen{" "}
+          <strong>agosto</strong> y <strong>dos semanas de Navidad</strong> ({christmasVacationMondays(anio).map(isoWeekLabelFromMondayKey).join(", ")}
+          ).
         </p>
-        <div className="max-h-[50vh] overflow-y-auto px-4 py-3">
+        <div className="flex-1 overflow-y-auto px-4 py-3">
           <div className="flex flex-wrap gap-1.5">
             {mondays.map((mk) => {
               const on = set.has(mk);
@@ -73,14 +91,14 @@ export function VacacionesEditor({
           </div>
         </div>
         <div className="flex flex-wrap gap-2 border-t border-border px-4 py-3">
-          <button type="button" onClick={restoreDefaults} className="rounded-lg border border-border px-3 py-1.5 text-xs text-muted hover:bg-surface">
-            Restaurar agosto + Navidad
+          <button type="button" onClick={restoreDefaults} className="rounded-lg border border-border px-3 py-2 text-xs text-muted hover:bg-surface">
+            Volver a agosto + Navidad
           </button>
-          <button type="button" onClick={onClose} className="ml-auto rounded-lg bg-accent px-4 py-1.5 text-xs font-medium text-white hover:bg-accent/90">
+          <button type="button" onClick={onClose} className="ml-auto rounded-lg bg-accent px-4 py-2 text-xs font-medium text-white hover:bg-accent/90">
             Listo
           </button>
         </div>
-      </div>
+      </aside>
     </div>
   );
 }

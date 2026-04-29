@@ -66,9 +66,9 @@ export function ArbolHeader({
     <div className="mb-6 space-y-4 border-b border-border pb-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight text-foreground">Árbol de drivers</h1>
+          <h1 className="text-3xl font-bold tracking-tight text-foreground">Tus metas</h1>
           <p className="mt-1 text-sm text-muted">
-            Metas por cadencia semanal (y agregados). Vacaciones: agosto + Navidad por defecto.
+            Apunta qué quieres y cuánto; la app suma por semanas y meses. Descansos en agosto y Navidad ya vienen marcados.
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -80,7 +80,7 @@ export function ArbolHeader({
             ▶
           </button>
           <button type="button" onClick={onOpenVacaciones} className="rounded-lg border border-amber-400/50 bg-amber-500/10 px-3 py-1.5 text-xs font-medium text-amber-900 dark:text-amber-100 hover:bg-amber-500/20">
-            Vacaciones del año
+            Semanas de descanso
           </button>
         </div>
       </div>
@@ -147,7 +147,8 @@ export function ArbolHeader({
       </div>
 
       <p className="text-[10px] text-muted">
-        Vista actual: <strong className="text-foreground">{vista}</strong>
+        Estás mirando:{" "}
+        <strong className="text-foreground">{VISTAS.find((v) => v.id === vista)?.label ?? vista}</strong>
         {vista === "semana" && weekMonday && (
           <>
             {" "}

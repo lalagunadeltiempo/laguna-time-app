@@ -151,10 +151,12 @@ export function PantallaArbolObjetivos() {
         />
       )}
 
-      <div className="mb-4 flex items-center justify-between">
+      <div className="mb-4 flex items-center justify-between gap-3">
         <p className="text-sm text-muted">
-          {nodosYear.length} nodos en {year}
-          {vacacionDisabled && " · Semana no laborable (no se exige registro)."}
+          {nodosYear.length === 0
+            ? `Nada escrito todavía en ${year}`
+            : `${nodosYear.length} meta${nodosYear.length !== 1 ? "s" : ""} en ${year}`}
+          {vacacionDisabled && " · Semana de descanso (no hace falta apuntar)."}
         </p>
         <button
           type="button"
@@ -168,15 +170,15 @@ export function PantallaArbolObjetivos() {
               contadorModo: "manual",
             })
           }
-          className="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white hover:bg-accent/90"
+          className="shrink-0 rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white hover:bg-accent/90"
         >
-          + Nodo raíz
+          + Meta principal
         </button>
       </div>
 
       {roots.length === 0 ? (
         <p className="rounded-lg border border-dashed border-border py-8 text-center text-sm text-muted">
-          Aún no hay nodos. Crea un nodo raíz (p. ej. ingresos anuales) y despliega la jerarquía.
+          Pulsa «Meta principal» y escribe solo lo que quieres conseguir; el resto puede esperar.
         </p>
       ) : (
         <div className="rounded-xl border border-border bg-background">

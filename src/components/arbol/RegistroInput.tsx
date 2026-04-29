@@ -56,7 +56,10 @@ export function RegistroInput({
 
   if (!editable) {
     return (
-      <span className="text-[10px] text-muted" title="Registra en una vista que coincida con la cadencia del nodo (ej. vista Semana si la cadencia es semanal)">
+      <span
+        className="text-[10px] text-muted"
+        title="Para escribir aquí, arriba elige la vista que coincida con cada cuánto apuntas esta meta (ej. vista Semana si la apuntas cada semana)."
+      >
         —
       </span>
     );
@@ -93,7 +96,7 @@ export function RegistroInput({
         className="max-w-[140px] rounded border border-border/60 bg-transparent px-1 py-0.5 text-[10px] text-muted"
       />
       <details className="text-[10px]">
-        <summary className="cursor-pointer text-muted">Realidad</summary>
+        <summary className="cursor-pointer text-muted">Cómo te fue</summary>
         <div className="mt-1 space-y-1">
           <select
             value={estado}

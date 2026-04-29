@@ -1,26 +1,20 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { NodoArbol, NodoCadencia, NodoRelacion, NodoTipo } from "@/lib/types";
+import { CADENCIA_UI, RELACION_UI, TIPO_UI } from "./arbol-copy";
 
-const TIPOS: { id: NodoTipo; label: string }[] = [
-  { id: "resultado", label: "Resultado" },
-  { id: "palanca", label: "Palanca" },
-  { id: "accion", label: "Acción" },
+const TIPOS: { id: NodoTipo }[] = [{ id: "resultado" }, { id: "palanca" }, { id: "accion" }];
+
+const CADENCIAS: { id: NodoCadencia }[] = [
+  { id: "anual" },
+  { id: "trimestral" },
+  { id: "mensual" },
+  { id: "semanal" },
+  { id: "puntual" },
 ];
 
-const CADENCIAS: { id: NodoCadencia; label: string }[] = [
-  { id: "anual", label: "Anual" },
-  { id: "trimestral", label: "Trimestral" },
-  { id: "mensual", label: "Mensual" },
-  { id: "semanal", label: "Semanal" },
-  { id: "puntual", label: "Puntual" },
-];
-
-const REL: { id: NodoRelacion; label: string }[] = [
-  { id: "suma", label: "Suma al padre (cuadre)" },
-  { id: "explica", label: "Explica / acción (sin suma)" },
-];
+const REL: { id: NodoRelacion }[] = [{ id: "suma" }, { id: "explica" }];
 
 export function NodoEditor({
   initial,
@@ -39,102 +33,174 @@ export function NodoEditor({
   const [metaValor, setMetaValor] = useState(initial.metaValor != null ? String(initial.metaValor) : "");
   const [metaUnidad, setMetaUnidad] = useState(initial.metaUnidad ?? "");
 
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") onCancel();
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onCancel]);
+
+  const isNew = !initial.id;
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" role="dialog" aria-modal>
-      <div className="w-full max-w-md rounded-xl border border-border bg-background p-4 shadow-xl">
-        <h2 className="mb-3 text-lg font-semibold text-foreground">{initial.id ? "Editar nodo" : "Nuevo nodo"}</h2>
-        <div className="space-y-2">
-          <label className="block text-[10px] font-semibold uppercase text-muted">Nombre</label>
-          <input
-            value={nombre}
-            onChange={(e) => setNombre(e.target.value)}
-            className="w-full rounded border border-border bg-background px-2 py-1.5 text-sm"
-          />
-          <label className="block text-[10px] font-semibold uppercase text-muted">Descripción</label>
-          <textarea
-            value={descripcion}
-            onChange={(e) => setDescripcion(e.target.value)}
-            rows={2}
-            className="w-full rounded border border-border bg-background px-2 py-1.5 text-sm"
-          />
-          <div className="grid grid-cols-2 gap-2">
-            <div>
-              <label className="block text-[10px] font-semibold uppercase text-muted">Tipo</label>
-              <select value={tipo} onChange={(e) => setTipo(e.target.value as NodoTipo)} className="mt-0.5 w-full rounded border border-border bg-background px-2 py-1 text-xs">
-                {TIPOS.map((t) => (
-                  <option key={t.id} value={t.id}>
-                    {t.label}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label className="block text-[10px] font-semibold uppercase text-muted">Cadencia</label>
-              <select value={cadencia} onChange={(e) => setCadencia(e.target.value as NodoCadencia)} className="mt-0.5 w-full rounded border border-border bg-background px-2 py-1 text-xs">
-                {CADENCIAS.map((t) => (
-                  <option key={t.id} value={t.id}>
-                    {t.label}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
-          <div>
-            <label className="block text-[10px] font-semibold uppercase text-muted">Relación con el padre</label>
-            <select value={relacion} onChange={(e) => setRelacion(e.target.value as NodoRelacion)} className="mt-0.5 w-full rounded border border-border bg-background px-2 py-1 text-xs">
-              {REL.map((t) => (
-                <option key={t.id} value={t.id}>
-                  {t.label}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div className="grid grid-cols-2 gap-2">
-            <div>
-              <label className="block text-[10px] font-semibold uppercase text-muted">Meta (número)</label>
-              <input
-                value={metaValor}
-                onChange={(e) => setMetaValor(e.target.value)}
-                inputMode="decimal"
-                className="mt-0.5 w-full rounded border border-border bg-background px-2 py-1 text-xs"
-              />
-            </div>
-            <div>
-              <label className="block text-[10px] font-semibold uppercase text-muted">Unidad</label>
-              <input
-                value={metaUnidad}
-                onChange={(e) => setMetaUnidad(e.target.value)}
-                placeholder="€, uds…"
-                className="mt-0.5 w-full rounded border border-border bg-background px-2 py-1 text-xs"
-              />
-            </div>
-          </div>
-        </div>
-        <div className="mt-4 flex justify-end gap-2">
-          <button type="button" onClick={onCancel} className="rounded-lg border border-border px-3 py-1.5 text-xs text-muted hover:bg-surface">
-            Cancelar
-          </button>
+    <div className="fixed inset-0 z-50">
+      <button
+        type="button"
+        className="absolute inset-0 bg-black/35 backdrop-blur-[1px]"
+        aria-label="Cerrar"
+        onClick={onCancel}
+      />
+      <aside
+        className="absolute inset-y-0 right-0 flex w-full max-w-md flex-col border-l border-border bg-background shadow-2xl"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="nodo-editor-title"
+      >
+        <div className="flex items-center justify-between border-b border-border px-4 py-3">
+          <h2 id="nodo-editor-title" className="text-lg font-semibold text-foreground">
+            {isNew ? "Añadir meta" : "Cambiar esta meta"}
+          </h2>
           <button
             type="button"
-            onClick={() => {
-              const mv = metaValor.trim() === "" ? undefined : parseFloat(metaValor.replace(",", "."));
-              onSave({
-                nombre: nombre.trim() || "(sin nombre)",
-                descripcion: descripcion.trim() || undefined,
-                tipo,
-                cadencia,
-                relacionConPadre: relacion,
-                metaValor: mv !== undefined && Number.isFinite(mv) ? mv : undefined,
-                metaUnidad: metaUnidad.trim() || undefined,
-                contadorModo: "manual",
-              });
-            }}
-            className="rounded-lg bg-accent px-4 py-1.5 text-xs font-medium text-white hover:bg-accent/90"
+            onClick={onCancel}
+            className="rounded-lg px-2 py-1 text-sm text-muted hover:bg-surface"
+            aria-label="Cerrar"
           >
-            Guardar
+            ✕
           </button>
         </div>
-      </div>
+
+        <div className="flex-1 overflow-y-auto px-4 py-4">
+          <p className="mb-4 text-xs text-muted">
+            Escribe qué quieres y, si quieres, un número. Lo demás es opcional y va abajo.
+          </p>
+
+          <div className="space-y-4">
+            <div>
+              <label className="mb-1 block text-sm font-medium text-foreground">¿Qué quieres conseguir?</label>
+              <input
+                value={nombre}
+                onChange={(e) => setNombre(e.target.value)}
+                autoFocus
+                placeholder="Ej.: ingresos del año, hábito de deporte…"
+                className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm"
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="mb-1 block text-sm font-medium text-foreground">¿Cuánto? (opcional)</label>
+                <input
+                  value={metaValor}
+                  onChange={(e) => setMetaValor(e.target.value)}
+                  inputMode="decimal"
+                  placeholder="Ej.: 530000"
+                  className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm tabular-nums"
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-sm font-medium text-foreground">¿En qué mides? (opcional)</label>
+                <input
+                  value={metaUnidad}
+                  onChange={(e) => setMetaUnidad(e.target.value)}
+                  placeholder="€, horas, veces…"
+                  className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm"
+                />
+              </div>
+            </div>
+
+            <details className="group rounded-lg border border-border bg-surface/40">
+              <summary className="cursor-pointer list-none px-3 py-2.5 text-sm font-medium text-foreground marker:content-none [&::-webkit-details-marker]:hidden">
+                Más opciones (tipo, frecuencia, cómo encaja arriba)
+                <span className="ml-1 text-xs font-normal text-muted"> — solo si lo necesitas</span>
+              </summary>
+              <div className="space-y-3 border-t border-border/60 px-3 pb-3 pt-2">
+                <div>
+                  <label className="mb-1 block text-[11px] font-medium text-muted">Qué tipo de cosa es</label>
+                  <select
+                    value={tipo}
+                    onChange={(e) => setTipo(e.target.value as NodoTipo)}
+                    className="w-full rounded-lg border border-border bg-background px-2 py-2 text-sm"
+                  >
+                    {TIPOS.map((t) => (
+                      <option key={t.id} value={t.id}>
+                        {TIPO_UI[t.id]}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="mb-1 block text-[11px] font-medium text-muted">¿Cada cuánto lo apuntas?</label>
+                  <select
+                    value={cadencia}
+                    onChange={(e) => setCadencia(e.target.value as NodoCadencia)}
+                    className="w-full rounded-lg border border-border bg-background px-2 py-2 text-sm"
+                  >
+                    {CADENCIAS.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {CADENCIA_UI[c.id]}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="mb-1 block text-[11px] font-medium text-muted">Respecto a la meta de arriba</label>
+                  <select
+                    value={relacion}
+                    onChange={(e) => setRelacion(e.target.value as NodoRelacion)}
+                    className="w-full rounded-lg border border-border bg-background px-2 py-2 text-sm"
+                  >
+                    {REL.map((r) => (
+                      <option key={r.id} value={r.id} title={RELACION_UI[r.id].hint}>
+                        {RELACION_UI[r.id].label}
+                      </option>
+                    ))}
+                  </select>
+                  <p className="mt-1 text-[10px] text-muted">{RELACION_UI[relacion].hint}</p>
+                </div>
+                <div>
+                  <label className="mb-1 block text-[11px] font-medium text-muted">Nota para ti (opcional)</label>
+                  <textarea
+                    value={descripcion}
+                    onChange={(e) => setDescripcion(e.target.value)}
+                    rows={2}
+                    placeholder="Cualquier detalle que quieras recordar"
+                    className="w-full rounded-lg border border-border bg-background px-2 py-2 text-sm"
+                  />
+                </div>
+              </div>
+            </details>
+          </div>
+        </div>
+
+        <div className="border-t border-border px-4 py-3">
+          <div className="flex justify-end gap-2">
+            <button type="button" onClick={onCancel} className="rounded-lg border border-border px-4 py-2 text-sm text-muted hover:bg-surface">
+              Cancelar
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                const mv = metaValor.trim() === "" ? undefined : parseFloat(metaValor.replace(",", "."));
+                onSave({
+                  nombre: nombre.trim() || "(sin nombre)",
+                  descripcion: descripcion.trim() || undefined,
+                  tipo,
+                  cadencia,
+                  relacionConPadre: relacion,
+                  metaValor: mv !== undefined && Number.isFinite(mv) ? mv : undefined,
+                  metaUnidad: metaUnidad.trim() || undefined,
+                  contadorModo: "manual",
+                });
+              }}
+              className="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white hover:bg-accent/90"
+            >
+              Guardar
+            </button>
+          </div>
+        </div>
+      </aside>
     </div>
   );
 }
