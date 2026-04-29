@@ -18,8 +18,9 @@ import { PantallaCuaderno } from "@/components/PantallaCuaderno";
 import { ResultadoDetalle } from "@/components/ResultadoDetalle";
 import { Buscador } from "@/components/Buscador";
 import { PantallaAyuda } from "@/components/PantallaAyuda";
+import { PantallaArbolObjetivos } from "@/components/PantallaArbolObjetivos";
 
-type Vista = "hoy" | "plan" | "mapa" | "urls" | "cuaderno" | "ayuda" | "resultado";
+type Vista = "hoy" | "plan" | "mapa" | "arbol-objetivos" | "urls" | "cuaderno" | "ayuda" | "resultado";
 
 const PLAN_SUBNAV: { id: PlanTab; label: string }[] = [
   { id: "hoy", label: "Hoy" },
@@ -86,6 +87,27 @@ const NAV_ITEMS: { id: Vista; label: string; sublabel: string; icon: React.React
     ),
   },
   {
+    id: "arbol-objetivos",
+    label: "Árbol",
+    sublabel: "Objetivos",
+    icon: (
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
+        <circle cx="12" cy="5" r="2.2" />
+        <circle cx="6" cy="12" r="2.2" />
+        <circle cx="18" cy="12" r="2.2" />
+        <circle cx="4" cy="19" r="2.2" />
+        <circle cx="12" cy="19" r="2.2" />
+        <circle cx="20" cy="19" r="2.2" />
+        <line x1="12" y1="7.2" x2="6" y2="9.8" />
+        <line x1="12" y1="7.2" x2="18" y2="9.8" />
+        <line x1="6" y1="14.2" x2="4" y2="16.8" />
+        <line x1="6" y1="14.2" x2="12" y2="16.8" />
+        <line x1="18" y1="14.2" x2="12" y2="16.8" />
+        <line x1="18" y1="14.2" x2="20" y2="16.8" />
+      </svg>
+    ),
+  },
+  {
     id: "urls",
     label: "URLs",
     sublabel: "Directorio",
@@ -131,7 +153,7 @@ export default function Home() {
   );
 }
 
-const MENTOR_VIEWS: Vista[] = ["mapa", "plan"];
+const MENTOR_VIEWS: Vista[] = ["mapa", "plan", "arbol-objetivos"];
 
 function AppShell({ userId, displayName }: { userId: string; displayName: string }) {
   const isMentorUser = userId === "mentor";
@@ -149,6 +171,15 @@ function AppShell({ userId, displayName }: { userId: string; displayName: string
     setHighlightId(id);
   }, []);
   const navItems = isMentorUser ? NAV_ITEMS.filter((i) => MENTOR_VIEWS.includes(i.id)) : NAV_ITEMS;
+
+  useEffect(() => {
+    const onOpenTree = () => {
+      setVista("arbol-objetivos");
+      setDetalleResultadoId(null);
+    };
+    window.addEventListener("laguna-open-objetivos-tree", onOpenTree as EventListener);
+    return () => window.removeEventListener("laguna-open-objetivos-tree", onOpenTree as EventListener);
+  }, []);
 
 
   function openDetalle(id: string) {
@@ -354,6 +385,9 @@ function AppShell({ userId, displayName }: { userId: string; displayName: string
                 scrollToAreaId={mapaAreaId}
                 onClearScrollToArea={clearMapaArea}
               />
+            )}
+            {vista === "arbol-objetivos" && (
+              <PantallaArbolObjetivos />
             )}
             {vista === "urls" && (
               <div className="mx-auto max-w-4xl">

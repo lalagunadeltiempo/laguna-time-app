@@ -16,6 +16,7 @@ import { computeProyectoRitmo, ritmoColor, ritmoLabel, ritmoLabelCorto, ritmoExp
 import { rangoProyectoMapa } from "@/lib/fechas-efectivas";
 import { mesesDeTrimestre, semanasDeMeses, etiquetaSemanaIso, etiquetaMesCorta, rangoSemanaCorto } from "@/lib/semana-utils";
 import { COLOR_TRIMESTRE, colorMes, colorSemana, chipStylesFromHex } from "@/lib/colores-tiempo";
+import { objetivoPath } from "@/lib/objetivos-tree";
 import {
   AREAS_PERSONAL,
   AREAS_EMPRESA,
@@ -1069,6 +1070,9 @@ function ProyectoBlock({ proyecto, index, total }: { proyecto: Proyecto; index: 
   const projEstado = proyecto.estado ?? "plan";
   const isOff = projEstado === "pausado";
   const objetivoProyecto = state.objetivos.find((o) => o.id === proyecto.objetivoId && o.nivel === "anio");
+  const objetivoPathLabel = objetivoProyecto
+    ? objetivoPath(state.objetivos ?? [], objetivoProyecto).map((o) => o.texto || "(sin texto)").join(" > ")
+    : "";
   const objetivosAnualesProyecto = useMemo(() => {
     const year = String(new Date().getFullYear());
     return (state.objetivos ?? []).filter((o) => {
@@ -1107,7 +1111,7 @@ function ProyectoBlock({ proyecto, index, total }: { proyecto: Proyecto; index: 
           <span
             className="max-w-[220px] truncate rounded-full px-2 py-0.5 text-[10px] font-semibold"
             style={{ backgroundColor: (AREA_COLORS[proyecto.area]?.hex ?? "#888") + "18", color: AREA_COLORS[proyecto.area]?.hex ?? "#888" }}
-            title={`Objetivo anual: ${objetivoProyecto.texto}`}
+            title={objetivoPathLabel || `Objetivo anual: ${objetivoProyecto.texto}`}
           >
             Obj: {objetivoProyecto.texto}
           </span>
@@ -1218,6 +1222,13 @@ function ProyectoBlock({ proyecto, index, total }: { proyecto: Proyecto; index: 
                   <option key={o.id} value={o.id}>{o.texto}</option>
                 ))}
               </select>
+              <button
+                type="button"
+                onClick={() => window.dispatchEvent(new Event("laguna-open-objetivos-tree"))}
+                className="rounded border border-border px-2 py-1 text-[10px] font-medium text-muted hover:border-accent hover:text-accent"
+              >
+                Editar árbol
+              </button>
             </div>
           )}
 

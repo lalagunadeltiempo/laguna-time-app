@@ -14,6 +14,7 @@ import { GanttMultiProyecto, type GanttProject } from "./GanttMultiProyecto";
 import { InlineNombre, ResponsableSelect } from "./InlineEditors";
 import { generateId } from "@/lib/store";
 import { ObjetivoRow } from "./ObjetivoRow";
+import { objetivoPath } from "@/lib/objetivos-tree";
 
 export type AmbitoFilter = "todo" | Ambito;
 
@@ -273,10 +274,24 @@ export function PlanMes({ selectedDate }: Props) {
 
       {/* Objetivos del mes */}
       <section className="mb-5">
-        <h3 className="mb-2 text-xs font-bold uppercase tracking-wider text-muted">Objetivos del mes</h3>
+        <div className="mb-2 flex items-center justify-between gap-2">
+          <h3 className="text-xs font-bold uppercase tracking-wider text-muted">Objetivos del mes</h3>
+          <button
+            type="button"
+            onClick={() => window.dispatchEvent(new Event("laguna-open-objetivos-tree"))}
+            className="rounded border border-border px-2 py-0.5 text-[10px] font-medium text-muted hover:border-accent hover:text-accent"
+          >
+            Abrir árbol
+          </button>
+        </div>
         <div className="space-y-1">
           {objetivosMes.map((obj) => (
-            <ObjetivoRow key={obj.id} obj={obj} todosObjetivos={objetivosArbol} isMentor={isMentor} />
+            <div key={obj.id} className="space-y-1">
+              <ObjetivoRow obj={obj} todosObjetivos={objetivosArbol} isMentor={isMentor} />
+              <p className="pl-6 text-[10px] text-muted">
+                {objetivoPath(objetivosArbol, obj).map((p) => p.texto || "(sin texto)").join(" > ")}
+              </p>
+            </div>
           ))}
         </div>
         {!isMentor && (

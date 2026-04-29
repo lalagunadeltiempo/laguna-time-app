@@ -178,6 +178,10 @@ export function PlanTrimestre({ selectedDate }: Props) {
       return o.periodo.startsWith(yearPrefix);
     });
   }, [state.objetivos, year]);
+  const objetivosById = useMemo(
+    () => new Map(objetivosArbol.map((o) => [o.id, o])),
+    [objetivosArbol],
+  );
   const objetivosAnualesPadre = useMemo(() => {
     const anuales = (state.objetivos ?? []).filter((o) => o.nivel === "anio" && o.periodo === String(year));
     if (!newObjArea) return anuales;
@@ -233,10 +237,26 @@ export function PlanTrimestre({ selectedDate }: Props) {
 
       {/* Objetivos */}
       <section>
-        <h3 className="mb-2 text-xs font-bold uppercase tracking-wider text-muted">Objetivos {quarterLabel(currentQ, year)}</h3>
+        <div className="mb-2 flex items-center justify-between gap-2">
+          <h3 className="text-xs font-bold uppercase tracking-wider text-muted">Objetivos {quarterLabel(currentQ, year)}</h3>
+          <button
+            type="button"
+            onClick={() => window.dispatchEvent(new Event("laguna-open-objetivos-tree"))}
+            className="rounded border border-border px-2 py-0.5 text-[10px] font-medium text-muted hover:border-accent hover:text-accent"
+          >
+            Abrir árbol
+          </button>
+        </div>
         <div className="space-y-1">
           {objetivos.map((obj) => (
-            <ObjetivoRow key={obj.id} obj={obj} todosObjetivos={objetivosArbol} isMentor={isMentor} />
+            <div key={obj.id} className="space-y-1">
+              <ObjetivoRow obj={obj} todosObjetivos={objetivosArbol} isMentor={isMentor} />
+              {obj.parentId && objetivosById.get(obj.parentId) && (
+                <p className="pl-6 text-[10px] text-muted">
+                  Anual: <span className="font-medium">{objetivosById.get(obj.parentId)?.texto}</span>
+                </p>
+              )}
+            </div>
           ))}
         </div>
         {!isMentor && (

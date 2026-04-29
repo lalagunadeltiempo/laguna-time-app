@@ -190,7 +190,16 @@ export function PlanAnio({ selectedDate }: Props) {
 
       {/* Objetivos anuales */}
       <section>
-        <h3 className="mb-2 text-xs font-bold uppercase tracking-wider text-muted">Objetivos {year}</h3>
+        <div className="mb-2 flex items-center justify-between gap-2">
+          <h3 className="text-xs font-bold uppercase tracking-wider text-muted">Objetivos {year}</h3>
+          <button
+            type="button"
+            onClick={() => window.dispatchEvent(new Event("laguna-open-objetivos-tree"))}
+            className="rounded border border-border px-2 py-0.5 text-[10px] font-medium text-muted hover:border-accent hover:text-accent"
+          >
+            Abrir árbol
+          </button>
+        </div>
         <div className="space-y-1">
           {objetivosAnuales.map((obj) => (
             <ObjetivoRow key={obj.id} obj={obj} todosObjetivos={objetivosArbol} isMentor={isMentor} />
