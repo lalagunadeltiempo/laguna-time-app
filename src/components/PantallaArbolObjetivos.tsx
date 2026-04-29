@@ -8,6 +8,7 @@ import { defaultSemanasNoActivas, ensureConfigAnio, type VistaPeriodoArbol } fro
 import { EMPTY_ARBOL, type NodoArbol, type RegistroNodo } from "@/lib/types";
 import { ArbolHeader, initMesTrimFromDate } from "@/components/arbol/ArbolHeader";
 import { NodoRow } from "@/components/arbol/NodoRow";
+import { ArbolGuiaReceta } from "@/components/arbol/ArbolGuiaReceta";
 import { NodoEditor } from "@/components/arbol/NodoEditor";
 import { VacacionesEditor } from "@/components/arbol/VacacionesEditor";
 function periodoForVista(
@@ -82,7 +83,7 @@ export function PantallaArbolObjetivos() {
   if (isMentor) {
     return (
       <div className="w-full px-3 py-8 sm:px-6 md:px-10">
-        <p className="text-muted">Vista de solo lectura (mentor): el árbol de drivers no es editable en este perfil.</p>
+        <p className="text-muted">Vista de solo lectura (mentor): el árbol de objetivos no es editable en este perfil.</p>
         <pre className="mt-4 max-h-96 overflow-auto rounded border border-border p-2 text-xs">{JSON.stringify({ nodos: nodosYear, registros: arbol.registros }, null, 2)}</pre>
       </div>
     );
@@ -105,20 +106,12 @@ export function PantallaArbolObjetivos() {
         onOpenVacaciones={() => setVacOpen(true)}
       />
 
-      {vacOpen && (
-        <VacacionesEditor
-          anio={year}
-          semanasNoActivas={config?.semanasNoActivas ?? defaultSemanasNoActivas(year)}
-          onSave={(semanas) => {
-            dispatch({ type: "SET_ARBOL_CONFIG_ANIO", config: { anio: year, semanasNoActivas: semanas } });
-          }}
-          onClose={() => setVacOpen(false)}
-        />
-      )}
+      <ArbolGuiaReceta />
 
       {editor && (
         <NodoEditor
           key={editor.id ?? "new"}
+          isRoot={editor.parentId === undefined || editor.parentId === ""}
           initial={editor as Partial<NodoArbol> & { nombre: string; anio: number }}
           onCancel={() => setEditor(null)}
           onSave={(changes) => {
@@ -151,11 +144,22 @@ export function PantallaArbolObjetivos() {
         />
       )}
 
+      {vacOpen && (
+        <VacacionesEditor
+          anio={year}
+          semanasNoActivas={config?.semanasNoActivas ?? defaultSemanasNoActivas(year)}
+          onSave={(semanas) => {
+            dispatch({ type: "SET_ARBOL_CONFIG_ANIO", config: { anio: year, semanasNoActivas: semanas } });
+          }}
+          onClose={() => setVacOpen(false)}
+        />
+      )}
+
       <div className="mb-4 flex items-center justify-between gap-3">
         <p className="text-sm text-muted">
           {nodosYear.length === 0
             ? `Nada escrito todavía en ${year}`
-            : `${nodosYear.length} meta${nodosYear.length !== 1 ? "s" : ""} en ${year}`}
+            : `${nodosYear.length} objetivo${nodosYear.length !== 1 ? "s" : ""} en ${year}`}
           {vacacionDisabled && " · Semana de descanso (no hace falta apuntar)."}
         </p>
         <button
@@ -172,13 +176,13 @@ export function PantallaArbolObjetivos() {
           }
           className="shrink-0 rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white hover:bg-accent/90"
         >
-          + Meta principal
+          + Objetivo raíz
         </button>
       </div>
 
       {roots.length === 0 ? (
         <p className="rounded-lg border border-dashed border-border py-8 text-center text-sm text-muted">
-          Pulsa «Meta principal» y escribe solo lo que quieres conseguir; el resto puede esperar.
+          Pulsa «Objetivo raíz» y escribe la meta del año; puedes ampliar el árbol después con «+ Aquí» en cada fila.
         </p>
       ) : (
         <div className="rounded-xl border border-border bg-background">

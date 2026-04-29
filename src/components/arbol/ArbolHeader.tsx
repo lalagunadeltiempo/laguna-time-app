@@ -66,9 +66,9 @@ export function ArbolHeader({
     <div className="mb-6 space-y-4 border-b border-border pb-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight text-foreground">Tus metas</h1>
+          <h1 className="text-3xl font-bold tracking-tight text-foreground">Árbol de objetivos</h1>
           <p className="mt-1 text-sm text-muted">
-            Apunta qué quieres y cuánto; la app suma por semanas y meses. Descansos en agosto y Navidad ya vienen marcados.
+            Misma página, sin pantallas encima: escribes objetivos aquí y los vas desplegando. La app suma por semana y mes; agosto y Navidad vienen como descanso.
           </p>
         </div>
         <div className="flex items-center gap-2">

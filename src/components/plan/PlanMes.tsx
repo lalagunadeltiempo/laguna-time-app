@@ -219,17 +219,17 @@ export function PlanMes({ selectedDate }: Props) {
 
       <section className="mb-5 rounded-xl border border-border bg-surface/40 p-4">
         <div className="flex items-center justify-between gap-2">
-          <h3 className="text-xs font-bold uppercase tracking-wider text-muted">Metas</h3>
+          <h3 className="text-xs font-bold uppercase tracking-wider text-muted">Árbol de objetivos</h3>
           <button
             type="button"
             onClick={() => window.dispatchEvent(new Event("laguna-open-objetivos-tree"))}
             className="rounded border border-border px-2 py-0.5 text-[10px] font-medium text-muted hover:border-accent hover:text-accent"
           >
-            Abrir metas
+            Abrir árbol
           </button>
         </div>
         <p className="mt-2 text-xs text-muted">
-          Apunta números por semana en la vista Metas.
+          Registro semanal en «Árbol de objetivos».
         </p>
       </section>
 

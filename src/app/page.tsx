@@ -88,8 +88,8 @@ const NAV_ITEMS: { id: Vista; label: string; sublabel: string; icon: React.React
   },
   {
     id: "arbol-objetivos",
-    label: "Metas",
-    sublabel: "seguimiento",
+    label: "Árbol de objetivos",
+    sublabel: "",
     icon: (
       <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
         <circle cx="12" cy="5" r="2.2" />
@@ -276,9 +276,9 @@ function AppShell({ userId, displayName }: { userId: string; displayName: string
                         <span className={`text-sm font-medium leading-tight ${active ? "text-foreground" : ""}`}>
                           {item.label}
                         </span>
-                        <span className="text-[11px] leading-tight text-muted">
-                          {item.sublabel}
-                        </span>
+                        {item.sublabel ? (
+                          <span className="text-[11px] leading-tight text-muted">{item.sublabel}</span>
+                        ) : null}
                       </div>
                     )}
                     {item.id === "hoy" && !collapsed && <HoyBadge />}
