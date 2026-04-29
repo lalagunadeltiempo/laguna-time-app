@@ -1068,6 +1068,15 @@ function ProyectoBlock({ proyecto, index, total }: { proyecto: Proyecto; index: 
   const notasCount = (proyecto.notas ?? []).length;
   const projEstado = proyecto.estado ?? "plan";
   const isOff = projEstado === "pausado";
+  const objetivoProyecto = state.objetivos.find((o) => o.id === proyecto.objetivoId && o.nivel === "anio");
+  const objetivosAnualesProyecto = useMemo(() => {
+    const year = String(new Date().getFullYear());
+    return (state.objetivos ?? []).filter((o) => {
+      if (o.nivel !== "anio" || o.periodo !== year) return false;
+      if (!o.area) return true;
+      return o.area === proyecto.area;
+    });
+  }, [state.objetivos, proyecto.area]);
 
   // Y/X: Y = resultados con todos sus entregables en estado "hecho" (y al menos uno).
   const resultadosCompletados = useMemo(() => {
@@ -1094,6 +1103,15 @@ function ProyectoBlock({ proyecto, index, total }: { proyecto: Proyecto; index: 
           ? <span className={`text-lg font-semibold ${isInactive ? "text-muted line-through" : "text-foreground"}`}>{proyecto.nombre}</span>
           : <EditableText value={proyecto.nombre} onChange={(v) => dispatch({ type: "RENAME_PROYECTO", id: proyecto.id, nombre: v })} className={`text-lg font-semibold ${isInactive ? "text-muted" : "text-foreground"}`} />
         }
+        {objetivoProyecto && (
+          <span
+            className="max-w-[220px] truncate rounded-full px-2 py-0.5 text-[10px] font-semibold"
+            style={{ backgroundColor: (AREA_COLORS[proyecto.area]?.hex ?? "#888") + "18", color: AREA_COLORS[proyecto.area]?.hex ?? "#888" }}
+            title={`Objetivo anual: ${objetivoProyecto.texto}`}
+          >
+            Obj: {objetivoProyecto.texto}
+          </span>
+        )}
         <ReviewBadge review={proyecto.review} nivel="proyecto" targetId={proyecto.id} />
         <OnOffToggle
           on={!isOff}
@@ -1182,6 +1200,26 @@ function ProyectoBlock({ proyecto, index, total }: { proyecto: Proyecto; index: 
           ) : proyecto.descripcion ? (
             <p className="mb-4 text-sm italic text-muted">{proyecto.descripcion}</p>
           ) : null}
+
+          {!isMentor && (
+            <div className="mb-3 flex flex-wrap items-center gap-2">
+              <span className="text-[10px] font-semibold uppercase tracking-wider text-muted">Objetivo anual</span>
+              <select
+                value={proyecto.objetivoId ?? ""}
+                onChange={(e) => dispatch({
+                  type: "UPDATE_PROYECTO",
+                  id: proyecto.id,
+                  changes: { objetivoId: e.target.value || undefined },
+                })}
+                className="rounded border border-border bg-background px-2 py-1 text-[11px] text-foreground"
+              >
+                <option value="">Sin objetivo</option>
+                {objetivosAnualesProyecto.map((o) => (
+                  <option key={o.id} value={o.id}>{o.texto}</option>
+                ))}
+              </select>
+            </div>
+          )}
 
           {rangoProy.inicio && (
             <p className="mb-3 text-xs text-muted">

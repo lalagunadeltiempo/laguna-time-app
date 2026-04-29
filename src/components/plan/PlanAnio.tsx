@@ -10,11 +10,11 @@ import {
   AREA_COLORS,
   ambitoDeArea,
   type Area,
-  type Objetivo,
   type Proyecto,
 } from "@/lib/types";
 import { mesesDeTrimestre } from "@/lib/semana-utils";
 import { AmbitoToggle, type AmbitoFilter } from "./PlanMes";
+import { ObjetivoRow } from "./ObjetivoRow";
 
 const MONTHS_ES = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"];
 
@@ -46,9 +46,16 @@ export function PlanAnio({ selectedDate }: Props) {
     return filtro === "todo" ? areas : areas.filter((a) => ambitoDeArea(a.id) === filtro);
   }, [filtro]);
 
-  const objetivos = useMemo(() => {
+  const objetivosAnuales = useMemo(() => {
     return (state.objetivos ?? []).filter((o) => o.nivel === "anio" && o.periodo === periodo);
   }, [state.objetivos, periodo]);
+  const objetivosArbol = useMemo(() => {
+    const yearPrefix = `${year}-`;
+    return (state.objetivos ?? []).filter((o) => {
+      if (o.nivel === "anio") return o.periodo === periodo;
+      return o.periodo.startsWith(yearPrefix);
+    });
+  }, [state.objetivos, year, periodo]);
 
   const areaSummaries = useMemo(() => {
     return allAreas.map(({ id, label }) => {
@@ -185,8 +192,8 @@ export function PlanAnio({ selectedDate }: Props) {
       <section>
         <h3 className="mb-2 text-xs font-bold uppercase tracking-wider text-muted">Objetivos {year}</h3>
         <div className="space-y-1">
-          {objetivos.map((obj) => (
-            <ObjetivoRow key={obj.id} obj={obj} isMentor={isMentor} />
+          {objetivosAnuales.map((obj) => (
+            <ObjetivoRow key={obj.id} obj={obj} todosObjetivos={objetivosArbol} isMentor={isMentor} />
           ))}
         </div>
         {!isMentor && (
@@ -314,26 +321,6 @@ export function PlanAnio({ selectedDate }: Props) {
           );
         })()}
       </section>
-    </div>
-  );
-}
-
-function ObjetivoRow({ obj, isMentor }: { obj: Objetivo; isMentor: boolean }) {
-  const dispatch = useAppDispatch();
-  const hex = obj.area ? (AREA_COLORS[obj.area]?.hex ?? "#888") : "#888";
-  return (
-    <div className="flex items-center gap-2 rounded-lg border border-border/50 bg-background px-3 py-1.5">
-      {!isMentor && (
-        <input type="checkbox" checked={obj.completado}
-          onChange={() => dispatch({ type: "UPDATE_OBJETIVO", id: obj.id, changes: { completado: !obj.completado } })}
-          className="h-4 w-4 shrink-0 rounded accent-accent" />
-      )}
-      {obj.area && <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: hex }} />}
-      <span className={`flex-1 text-sm ${obj.completado ? "text-muted line-through" : "text-foreground"}`}>{obj.texto}</span>
-      {!isMentor && (
-        <button onClick={() => dispatch({ type: "DELETE_OBJETIVO", id: obj.id })}
-          className="text-xs text-muted hover:text-red-500">✕</button>
-      )}
     </div>
   );
 }

@@ -107,7 +107,7 @@ export type Action =
   | { type: "SET_RESULTADO_SEMANAS"; id: string; semanas: string[] }
   | { type: "DELETE_PROYECTO"; id: string }
   | { type: "RENAME_PROYECTO"; id: string; nombre: string }
-  | { type: "UPDATE_PROYECTO"; id: string; changes: Partial<Pick<Proyecto, "nombre" | "descripcion" | "area" | "fechaInicio" | "fechaLimite" | "planNivel" | "tipo" | "estado" | "responsable" | "trimestresActivos" | "semanasExplicitas" | "mesesActivos">> }
+  | { type: "UPDATE_PROYECTO"; id: string; changes: Partial<Pick<Proyecto, "nombre" | "descripcion" | "area" | "fechaInicio" | "fechaLimite" | "planNivel" | "tipo" | "estado" | "responsable" | "trimestresActivos" | "semanasExplicitas" | "mesesActivos" | "objetivoId">> }
   | { type: "SET_PROYECTO_TRIMESTRES"; id: string; trimestres: string[] }
   | { type: "TOGGLE_PROYECTO_SEMANA"; id: string; semana: string }
   | { type: "IMPORT_DATA"; proyectos: Proyecto[]; resultados: Resultado[]; entregables: Entregable[] }
@@ -146,7 +146,7 @@ export type Action =
   | { type: "LOG_ACTIVITY"; entry: ActivityEntry }
   | { type: "MATERIALIZE_SOP"; plantillaId: string; area: Area; responsable: string; currentUser: string; dateKey: string; ids: { resultado: string; entregable: string; paso: string; proyecto: string }; proyectoId?: string; resultadoId?: string; autoStart?: boolean; customName?: string }
   | { type: "ADD_OBJETIVO"; payload: Objetivo }
-  | { type: "UPDATE_OBJETIVO"; id: string; changes: Partial<Pick<Objetivo, "texto" | "completado" | "area">> }
+  | { type: "UPDATE_OBJETIVO"; id: string; changes: Partial<Pick<Objetivo, "texto" | "completado" | "area" | "parentId">> }
   | { type: "DELETE_OBJETIVO"; id: string }
   | { type: "SET_REVIEW"; nivel: "proyecto" | "resultado" | "entregable" | "plantilla"; targetId: string; review: ReviewMark }
   | { type: "SET_MTP"; mtp: string };
@@ -1462,7 +1462,12 @@ export function reducer(state: AppState, action: Action): AppState {
       return { ...state, objetivos: (state.objetivos ?? []).map((o) => o.id === action.id ? { ...o, ...action.changes } : o) };
 
     case "DELETE_OBJETIVO":
-      return { ...state, objetivos: (state.objetivos ?? []).filter((o) => o.id !== action.id) };
+      return {
+        ...state,
+        objetivos: (state.objetivos ?? [])
+          .filter((o) => o.id !== action.id)
+          .map((o) => (o.parentId === action.id ? { ...o, parentId: undefined } : o)),
+      };
 
     case "SET_REVIEW": {
       const { nivel, targetId, review } = action;

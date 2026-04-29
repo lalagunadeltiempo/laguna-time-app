@@ -108,6 +108,8 @@ export interface Proyecto {
   mesesActivos?: string[];
   /** Claves de lunes ISO ("YYYY-MM-DD") de semanas marcadas explícitamente aunque no haya entregables con fecha. */
   semanasExplicitas?: string[];
+  /** Objetivo anual al que contribuye este proyecto (opcional). */
+  objetivoId?: string;
 }
 
 export interface Resultado {
@@ -364,8 +366,10 @@ export interface ActivityEntry {
 export interface Objetivo {
   id: string;
   texto: string;
-  nivel: "trimestre" | "anio";
+  nivel: "mes" | "trimestre" | "anio";
   periodo: string;
+  /** Objetivo padre inmediato (trimestre -> anio, mes -> trimestre). */
+  parentId?: string;
   area?: Area;
   completado: boolean;
   creado: string;

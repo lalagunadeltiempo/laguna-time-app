@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useAppState, useAppDispatch } from "@/lib/context";
 import { generateId } from "@/lib/store";
 import { useUsuario, useIsMentor } from "@/lib/usuario";
@@ -13,12 +13,12 @@ import {
   type Entregable,
   type Resultado,
   type Proyecto,
-  type Objetivo,
 } from "@/lib/types";
 import { AmbitoToggle, ResponsableToggle, matchesResponsable, type AmbitoFilter, type ResponsableFilter } from "./PlanMes";
 import { mesKey, etiquetaMesCorta, mesesDeTrimestre } from "@/lib/semana-utils";
 import { InlineNombre, ResponsableSelect } from "./InlineEditors";
 import type { MiembroInfo } from "@/lib/types";
+import { ObjetivoRow } from "./ObjetivoRow";
 
 const MONTHS_ES = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"];
 
@@ -70,6 +70,7 @@ export function PlanTrimestre({ selectedDate }: Props) {
   const [showDone, setShowDone] = useState(true);
   const [newObjText, setNewObjText] = useState("");
   const [newObjArea, setNewObjArea] = useState<Area | "">("");
+  const [newObjParentId, setNewObjParentId] = useState("");
 
   const year = selectedDate.getFullYear();
   const currentQ = Math.floor(selectedDate.getMonth() / 3);
@@ -170,6 +171,28 @@ export function PlanTrimestre({ selectedDate }: Props) {
       (o) => o.nivel === "trimestre" && o.periodo === qPeriodo,
     );
   }, [state.objetivos, qPeriodo]);
+  const objetivosArbol = useMemo(() => {
+    const yearPrefix = `${year}-`;
+    return (state.objetivos ?? []).filter((o) => {
+      if (o.nivel === "anio") return o.periodo === String(year);
+      return o.periodo.startsWith(yearPrefix);
+    });
+  }, [state.objetivos, year]);
+  const objetivosAnualesPadre = useMemo(() => {
+    const anuales = (state.objetivos ?? []).filter((o) => o.nivel === "anio" && o.periodo === String(year));
+    if (!newObjArea) return anuales;
+    return anuales.filter((o) => !o.area || o.area === newObjArea);
+  }, [state.objetivos, year, newObjArea]);
+  useEffect(() => {
+    if (newObjParentId && objetivosAnualesPadre.some((o) => o.id === newObjParentId)) return;
+    if (objetivosAnualesPadre.length === 1) {
+      setNewObjParentId(objetivosAnualesPadre[0].id);
+      return;
+    }
+    if (objetivosAnualesPadre.length === 0) {
+      setNewObjParentId("");
+    }
+  }, [objetivosAnualesPadre, newObjParentId]);
 
   const allAreas = [...AREAS_EMPRESA, ...AREAS_PERSONAL].filter((a) => filtro === "todo" || ambitoDeArea(a.id) === filtro);
 
@@ -183,12 +206,14 @@ export function PlanTrimestre({ selectedDate }: Props) {
         nivel: "trimestre",
         periodo: qPeriodo,
         area: newObjArea || undefined,
+        parentId: newObjParentId || undefined,
         completado: false,
         creado: new Date().toISOString(),
       },
     });
     setNewObjText("");
     setNewObjArea("");
+    setNewObjParentId("");
   }
 
   return (
@@ -211,7 +236,7 @@ export function PlanTrimestre({ selectedDate }: Props) {
         <h3 className="mb-2 text-xs font-bold uppercase tracking-wider text-muted">Objetivos {quarterLabel(currentQ, year)}</h3>
         <div className="space-y-1">
           {objetivos.map((obj) => (
-            <ObjetivoRow key={obj.id} obj={obj} isMentor={isMentor} />
+            <ObjetivoRow key={obj.id} obj={obj} todosObjetivos={objetivosArbol} isMentor={isMentor} />
           ))}
         </div>
         {!isMentor && (
@@ -224,6 +249,13 @@ export function PlanTrimestre({ selectedDate }: Props) {
               className="rounded-lg border border-border bg-surface px-2 py-1 text-xs text-foreground">
               <option value="">Sin área</option>
               {allAreas.map((a) => <option key={a.id} value={a.id}>{a.label}</option>)}
+            </select>
+            <select value={newObjParentId} onChange={(e) => setNewObjParentId(e.target.value)}
+              className="rounded-lg border border-border bg-surface px-2 py-1 text-xs text-foreground">
+              <option value="">Sin objetivo anual padre</option>
+              {objetivosAnualesPadre.map((o) => (
+                <option key={o.id} value={o.id}>{o.texto}</option>
+              ))}
             </select>
             <button onClick={addObjetivo} className="rounded-lg bg-accent px-3 py-1 text-xs font-medium text-white hover:bg-accent/80">+</button>
           </div>
@@ -325,6 +357,7 @@ function ProjectCard({ node, qMonthKeys, currentMesKey, isMentor, backlogStyle }
   const [open, setOpen] = useState(false);
   const [newResName, setNewResName] = useState("");
   const [adding, setAdding] = useState(false);
+  const objetivoProyecto = state.objetivos.find((o) => o.id === node.proyecto.objetivoId && o.nivel === "anio");
 
   const mesesProj = node.proyecto.mesesActivos ?? [];
 
@@ -379,6 +412,15 @@ function ProjectCard({ node, qMonthKeys, currentMesKey, isMentor, backlogStyle }
               className="truncate text-xs font-semibold text-foreground"
               inputClassName="text-xs font-semibold text-foreground"
             />
+            {objetivoProyecto && (
+              <span
+                className="mt-0.5 inline-block max-w-full truncate rounded-full px-1.5 py-0.5 text-[9px] font-semibold"
+                style={{ backgroundColor: node.hex + "18", color: node.hex }}
+                title={`Objetivo anual: ${objetivoProyecto.texto}`}
+              >
+                Obj: {objetivoProyecto.texto}
+              </span>
+            )}
           </div>
         </div>
         <div className="flex items-center justify-between gap-2 pl-5">
@@ -570,26 +612,3 @@ function EntregableRowTrimestre({ ent, qMonthKeys, isMentor }: {
   );
 }
 
-/* ================================================================
-   ObjetivoRow
-   ================================================================ */
-
-function ObjetivoRow({ obj, isMentor }: { obj: Objetivo; isMentor: boolean }) {
-  const dispatch = useAppDispatch();
-  const hex = obj.area ? (AREA_COLORS[obj.area]?.hex ?? "#888") : "#888";
-  return (
-    <div className="flex items-center gap-2 rounded-lg border border-border/50 bg-background px-3 py-1.5">
-      {!isMentor && (
-        <input type="checkbox" checked={obj.completado}
-          onChange={() => dispatch({ type: "UPDATE_OBJETIVO", id: obj.id, changes: { completado: !obj.completado } })}
-          className="h-4 w-4 shrink-0 rounded accent-accent" />
-      )}
-      {obj.area && <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: hex }} />}
-      <span className={`flex-1 text-sm ${obj.completado ? "text-muted line-through" : "text-foreground"}`}>{obj.texto}</span>
-      {!isMentor && (
-        <button onClick={() => dispatch({ type: "DELETE_OBJETIVO", id: obj.id })}
-          className="text-xs text-muted hover:text-red-500">✕</button>
-      )}
-    </div>
-  );
-}

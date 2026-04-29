@@ -1,11 +1,11 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useAppState, useAppDispatch } from "@/lib/context";
 import { useUsuario, useIsMentor } from "@/lib/usuario";
 import {
   ambitoDeArea, AREA_COLORS, AREAS_EMPRESA, AREAS_PERSONAL,
-  type Area, type Entregable, type Resultado, type Proyecto, type Ambito, type MiembroInfo,
+  type Area, type Entregable, type Resultado, type Proyecto, type Ambito, type MiembroInfo, type Objetivo,
   type TipoEntregable,
 } from "@/lib/types";
 import { computeProyectoRitmo } from "@/lib/proyecto-stats";
@@ -13,6 +13,7 @@ import { mesKey as mesKeyOf, weeksOfMonth, etiquetaSemanaIso, type WeekInfo } fr
 import { GanttMultiProyecto, type GanttProject } from "./GanttMultiProyecto";
 import { InlineNombre, ResponsableSelect } from "./InlineEditors";
 import { generateId } from "@/lib/store";
+import { ObjetivoRow } from "./ObjetivoRow";
 
 export type AmbitoFilter = "todo" | Ambito;
 
@@ -78,11 +79,15 @@ interface ResultadoCardData {
 
 export function PlanMes({ selectedDate }: Props) {
   const state = useAppState();
+  const dispatch = useAppDispatch();
   const isMentor = useIsMentor();
   const { nombre: currentUser } = useUsuario();
   const [filtro, setFiltro] = useState<AmbitoFilter>("empresa");
   const [respFilter, setRespFilter] = useState<ResponsableFilter>("todo");
   const [showDone, setShowDone] = useState(false);
+  const [newObjText, setNewObjText] = useState("");
+  const [newObjArea, setNewObjArea] = useState<Area | "">("");
+  const [newObjParentId, setNewObjParentId] = useState("");
 
   const mesLabel = useMemo(() =>
     selectedDate.toLocaleDateString("es-ES", { month: "long", year: "numeric" }),
@@ -91,9 +96,38 @@ export function PlanMes({ selectedDate }: Props) {
   const year = selectedDate.getFullYear();
   const month = selectedDate.getMonth();
   const mesK = `${year}-${String(month + 1).padStart(2, "0")}`;
+  const qPeriodo = `${year}-Q${Math.floor(month / 3) + 1}`;
   const weeks = useMemo(() => weeksOfMonth(year, month), [year, month]);
   const weekMondays = useMemo(() => new Set(weeks.map((w) => w.monday)), [weeks]);
   const [hoy] = useState<Date>(() => new Date());
+  const allAreas = useMemo(() => {
+    const areas = [...AREAS_EMPRESA, ...AREAS_PERSONAL];
+    return filtro === "todo" ? areas : areas.filter((a) => ambitoDeArea(a.id) === filtro);
+  }, [filtro]);
+
+  const objetivosMes = useMemo(() => {
+    return (state.objetivos ?? []).filter((o) => o.nivel === "mes" && o.periodo === mesK);
+  }, [state.objetivos, mesK]);
+  const objetivosArbol = useMemo(() => {
+    const yearPrefix = `${year}-`;
+    return (state.objetivos ?? []).filter((o) => {
+      if (o.nivel === "anio") return o.periodo === String(year);
+      return o.periodo.startsWith(yearPrefix);
+    });
+  }, [state.objetivos, year]);
+  const objetivosTrimestrePadre = useMemo(() => {
+    const trimestrales = (state.objetivos ?? []).filter((o) => o.nivel === "trimestre" && o.periodo === qPeriodo);
+    if (!newObjArea) return trimestrales;
+    return trimestrales.filter((o) => !o.area || o.area === newObjArea);
+  }, [state.objetivos, qPeriodo, newObjArea]);
+  useEffect(() => {
+    if (newObjParentId && objetivosTrimestrePadre.some((o) => o.id === newObjParentId)) return;
+    if (objetivosTrimestrePadre.length === 1) {
+      setNewObjParentId(objetivosTrimestrePadre[0].id);
+      return;
+    }
+    if (objetivosTrimestrePadre.length === 0) setNewObjParentId("");
+  }, [objetivosTrimestrePadre, newObjParentId]);
 
   /* ---- Resultados visibles este mes ---- */
   const { cards, ganttProjects } = useMemo<{
@@ -198,6 +232,24 @@ export function PlanMes({ selectedDate }: Props) {
 
   const totalResultados = cards.length;
 
+  function addObjetivoMes() {
+    if (!newObjText.trim()) return;
+    const payload: Objetivo = {
+      id: generateId(),
+      texto: newObjText.trim(),
+      nivel: "mes",
+      periodo: mesK,
+      area: newObjArea || undefined,
+      parentId: newObjParentId || undefined,
+      completado: false,
+      creado: new Date().toISOString(),
+    };
+    dispatch({ type: "ADD_OBJETIVO", payload });
+    setNewObjText("");
+    setNewObjArea("");
+    setNewObjParentId("");
+  }
+
   return (
     <div className="flex-1">
       {/* Header */}
@@ -218,6 +270,46 @@ export function PlanMes({ selectedDate }: Props) {
           {!isMentor && <AmbitoToggle value={filtro} onChange={setFiltro} />}
         </div>
       </div>
+
+      {/* Objetivos del mes */}
+      <section className="mb-5">
+        <h3 className="mb-2 text-xs font-bold uppercase tracking-wider text-muted">Objetivos del mes</h3>
+        <div className="space-y-1">
+          {objetivosMes.map((obj) => (
+            <ObjetivoRow key={obj.id} obj={obj} todosObjetivos={objetivosArbol} isMentor={isMentor} />
+          ))}
+        </div>
+        {!isMentor && (
+          <div className="mt-2 flex flex-wrap gap-2">
+            <input
+              value={newObjText}
+              onChange={(e) => setNewObjText(e.target.value)}
+              placeholder="Nuevo objetivo mensual..."
+              className="min-w-[220px] flex-1 rounded-lg border border-border bg-surface px-3 py-1.5 text-sm text-foreground placeholder:text-muted focus:border-accent focus:outline-none"
+              onKeyDown={(e) => e.key === "Enter" && addObjetivoMes()}
+            />
+            <select
+              value={newObjArea}
+              onChange={(e) => setNewObjArea(e.target.value as Area | "")}
+              className="rounded-lg border border-border bg-surface px-2 py-1 text-xs text-foreground"
+            >
+              <option value="">Sin área</option>
+              {allAreas.map((a) => <option key={a.id} value={a.id}>{a.label}</option>)}
+            </select>
+            <select
+              value={newObjParentId}
+              onChange={(e) => setNewObjParentId(e.target.value)}
+              className="rounded-lg border border-border bg-surface px-2 py-1 text-xs text-foreground"
+            >
+              <option value="">Sin objetivo trimestral padre</option>
+              {objetivosTrimestrePadre.map((o) => (
+                <option key={o.id} value={o.id}>{o.texto}</option>
+              ))}
+            </select>
+            <button onClick={addObjetivoMes} className="rounded-lg bg-accent px-3 py-1 text-xs font-medium text-white hover:bg-accent/80">+</button>
+          </div>
+        )}
+      </section>
 
       {/* Semanas del mes */}
       <section className="mb-6">
@@ -391,9 +483,11 @@ function ResultadoCard({ card, week, weeks, mesK, showDone, respFilter, currentU
   isMentor: boolean;
   miembros: MiembroInfo[];
 }) {
+  const state = useAppState();
   const dispatch = useAppDispatch();
   const [open, setOpen] = useState(false);
   const { resultado, proyecto, areaHex } = card;
+  const objetivoProyecto = state.objetivos.find((o) => o.id === proyecto.objetivoId && o.nivel === "anio");
 
   // Entregables a mostrar dentro de este card.
   // Fuente canónica: ent.semanasActivas (con fallback al campo legacy ent.semana
@@ -455,7 +549,18 @@ function ResultadoCard({ card, week, weeks, mesK, showDone, respFilter, currentU
               className="truncate text-[11px] font-semibold text-foreground"
               inputClassName="text-[11px] font-semibold text-foreground"
             />
-            <p className="truncate text-[9px] uppercase tracking-wider text-muted">{proyecto.nombre}</p>
+            <div className="flex items-center gap-1.5">
+              <p className="truncate text-[9px] uppercase tracking-wider text-muted">{proyecto.nombre}</p>
+              {objetivoProyecto && (
+                <span
+                  className="max-w-[55%] truncate rounded-full px-1.5 py-0.5 text-[8px] font-semibold"
+                  style={{ backgroundColor: areaHex + "18", color: areaHex }}
+                  title={`Objetivo anual: ${objetivoProyecto.texto}`}
+                >
+                  Obj: {objetivoProyecto.texto}
+                </span>
+              )}
+            </div>
           </div>
         </div>
         {!isMentor && (
