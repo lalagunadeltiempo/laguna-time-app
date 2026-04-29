@@ -288,3 +288,152 @@ export function metaParaPeriodo(
   }
   return metaParaVista(cadencia, metaValor, vista);
 }
+
+/* ---------- Helpers para la vista de bloques (Año / Trim / Mes / Semana) ---------- */
+
+export type EstadoPeriodo = "pasado" | "actual" | "futuro";
+
+/** Decide si un periodo está antes / contiene / después de la fecha `hoy`. */
+export function estadoPeriodo(
+  vista: VistaPeriodoArbol,
+  periodoKey: string,
+  anio: number,
+  hoy: Date = new Date(),
+): EstadoPeriodo {
+  const hoyKey = `${hoy.getFullYear()}-${String(hoy.getMonth() + 1).padStart(2, "0")}-${String(hoy.getDate()).padStart(2, "0")}`;
+  if (vista === "anio") {
+    if (anio < hoy.getFullYear()) return "pasado";
+    if (anio > hoy.getFullYear()) return "futuro";
+    return "actual";
+  }
+  if (vista === "trimestre") {
+    const [yRaw, qRaw] = periodoKey.split("-Q");
+    const y = parseInt(yRaw, 10);
+    const q = parseInt(qRaw, 10);
+    const start = new Date(y, (q - 1) * 3, 1);
+    const end = new Date(y, q * 3, 0, 23, 59, 59);
+    if (hoy < start) return "futuro";
+    if (hoy > end) return "pasado";
+    return "actual";
+  }
+  if (vista === "mes") {
+    const [yRaw, mRaw] = periodoKey.split("-");
+    const y = parseInt(yRaw, 10);
+    const m = parseInt(mRaw, 10);
+    const start = new Date(y, m - 1, 1);
+    const end = new Date(y, m, 0, 23, 59, 59);
+    if (hoy < start) return "futuro";
+    if (hoy > end) return "pasado";
+    return "actual";
+  }
+  // semana: comparamos contra el lunes siguiente y el domingo de la propia semana
+  const mon = parseLocalDateKey(periodoKey);
+  const sun = new Date(mon);
+  sun.setDate(mon.getDate() + 6);
+  sun.setHours(23, 59, 59);
+  if (hoy < mon) return "futuro";
+  if (hoy > sun) return "pasado";
+  void hoyKey;
+  return "actual";
+}
+
+/** Devuelve la `periodoKey` desplazada un año atrás manteniendo periodo equivalente.
+ *  - anio: "2026" -> "2025"
+ *  - trimestre: "2026-Q1" -> "2025-Q1"
+ *  - mes: "2026-03" -> "2025-03"
+ *  - semana: usa la misma semana ISO en el año anterior si existe; si no, el último lunes activo. */
+export function desplazarPeriodoUnAnio(
+  periodoTipo: RegistroNodo["periodoTipo"],
+  periodoKey: string,
+): string {
+  if (periodoTipo === "anio") {
+    const y = parseInt(periodoKey, 10);
+    return String(Number.isFinite(y) ? y - 1 : NaN);
+  }
+  if (periodoTipo === "trimestre") {
+    const [y, q] = periodoKey.split("-Q");
+    return `${parseInt(y, 10) - 1}-Q${q}`;
+  }
+  if (periodoTipo === "mes") {
+    const [y, m] = periodoKey.split("-");
+    return `${parseInt(y, 10) - 1}-${m}`;
+  }
+  // semana: tomamos número ISO y buscamos lunes equivalente en año-1.
+  const isoLabel = isoWeekLabelFromMondayKey(periodoKey); // "S## · YYYY"
+  const [sPart] = isoLabel.split(" · ");
+  const weekNum = parseInt(sPart.slice(1), 10);
+  const yPrev = parseLocalDateKey(periodoKey).getFullYear() - 1;
+  const candidates = mondaysInCalendarYear(yPrev);
+  // buscamos el lunes cuya semana ISO sea weekNum.
+  const match = candidates.find((mk) => {
+    const lab = isoWeekLabelFromMondayKey(mk);
+    return lab.startsWith(`S${String(weekNum).padStart(2, "0")} `);
+  });
+  return match ?? candidates[0] ?? periodoKey;
+}
+
+/** Suma `RegistroNodo` del nodo `nodoId` desplazado un año atrás (mismo periodo equivalente). */
+export function sumarRegistrosNodoAnioAnterior(
+  registros: RegistroNodo[],
+  nodoId: string,
+  vista: VistaPeriodoArbol,
+  periodoKey: string,
+  year: number,
+): number {
+  const yearPrev = year - 1;
+  const periodoTipo = vista === "semana" ? "semana" : vista === "mes" ? "mes" : vista === "trimestre" ? "trimestre" : "anio";
+  const keyPrev = desplazarPeriodoUnAnio(periodoTipo, periodoKey);
+  return sumarRegistrosNodoSimple(registros, nodoId, vista, keyPrev, yearPrev);
+}
+
+/** ¿Está el lunes ISO `mondayKey` antes (estrictamente) del lunes ISO `hoyMondayKey`? */
+function isMondayBefore(a: string, b: string): boolean {
+  return parseLocalDateKey(a).getTime() < parseLocalDateKey(b).getTime();
+}
+
+/** Cuota ajustada para llegar al objetivo total: reparte lo que falta entre las semanas activas restantes. */
+export function cuotaAjustada(opts: {
+  metaAnual: number;
+  realHastaHoy: number;
+  anio: number;
+  config: PlanArbolConfigAnio | undefined;
+  hoy?: Date;
+}): {
+  faltaTotal: number;
+  semanasRestantes: number;
+  semanaRestante: number;
+  mesRestante: (mesKey: string) => number;
+  trimRestante: (qKey: string) => number;
+} {
+  const hoy = opts.hoy ?? new Date();
+  const hoyMondayKey = toMondayDateKeyLocal(hoy);
+  const noAct = new Set(opts.config?.semanasNoActivas ?? []);
+  const all = mondaysInCalendarYear(opts.anio);
+  // semanas activas que NO han pasado: incluimos la semana actual en restantes.
+  const restantes = all.filter((mk) => !noAct.has(mk) && !isMondayBefore(mk, hoyMondayKey));
+  const semanasRestantes = restantes.length;
+  const faltaTotal = Math.max(0, opts.metaAnual - opts.realHastaHoy);
+  const semanaRestante = semanasRestantes > 0 ? faltaTotal / semanasRestantes : 0;
+  const restantesByMes = new Map<string, number>();
+  const restantesByTrim = new Map<string, number>();
+  for (const mk of restantes) {
+    const m = mesKeyFromDate(parseLocalDateKey(mk));
+    restantesByMes.set(m, (restantesByMes.get(m) ?? 0) + 1);
+    const q = trimestreKeyFromMesKey(m);
+    restantesByTrim.set(q, (restantesByTrim.get(q) ?? 0) + 1);
+  }
+  return {
+    faltaTotal,
+    semanasRestantes,
+    semanaRestante,
+    mesRestante: (mesKey: string) => semanaRestante * (restantesByMes.get(mesKey) ?? 0),
+    trimRestante: (qKey: string) => semanaRestante * (restantesByTrim.get(qKey) ?? 0),
+  };
+}
+
+/** Hijos directos de `parentId` ordenados por `orden`. */
+export function ramasDirectas(nodos: NodoArbol[], parentId: string, anio: number): NodoArbol[] {
+  return nodos
+    .filter((n) => n.anio === anio && n.parentId === parentId)
+    .sort((a, b) => a.orden - b.orden);
+}
