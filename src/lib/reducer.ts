@@ -146,7 +146,11 @@ export type Action =
   | { type: "LOG_ACTIVITY"; entry: ActivityEntry }
   | { type: "MATERIALIZE_SOP"; plantillaId: string; area: Area; responsable: string; currentUser: string; dateKey: string; ids: { resultado: string; entregable: string; paso: string; proyecto: string }; proyectoId?: string; resultadoId?: string; autoStart?: boolean; customName?: string }
   | { type: "ADD_OBJETIVO"; payload: Objetivo }
-  | { type: "UPDATE_OBJETIVO"; id: string; changes: Partial<Pick<Objetivo, "texto" | "completado" | "area" | "parentId">> }
+  | {
+      type: "UPDATE_OBJETIVO";
+      id: string;
+      changes: Partial<Pick<Objetivo, "texto" | "completado" | "area" | "parentId" | "realidadEstado" | "realidadPorQue">>;
+    }
   | { type: "DELETE_OBJETIVO"; id: string }
   | { type: "SET_REVIEW"; nivel: "proyecto" | "resultado" | "entregable" | "plantilla"; targetId: string; review: ReviewMark }
   | { type: "SET_MTP"; mtp: string };
@@ -1458,8 +1462,22 @@ export function reducer(state: AppState, action: Action): AppState {
     case "ADD_OBJETIVO":
       return { ...state, objetivos: [...(state.objetivos ?? []), action.payload] };
 
-    case "UPDATE_OBJETIVO":
-      return { ...state, objetivos: (state.objetivos ?? []).map((o) => o.id === action.id ? { ...o, ...action.changes } : o) };
+    case "UPDATE_OBJETIVO": {
+      return {
+        ...state,
+        objetivos: (state.objetivos ?? []).map((o) => {
+          if (o.id !== action.id) return o;
+          const merged = { ...o, ...action.changes } as Objetivo;
+          if ("realidadEstado" in action.changes && action.changes.realidadEstado === undefined) {
+            delete merged.realidadEstado;
+          }
+          if ("realidadPorQue" in action.changes && action.changes.realidadPorQue === undefined) {
+            delete merged.realidadPorQue;
+          }
+          return merged;
+        }),
+      };
+    }
 
     case "DELETE_OBJETIVO":
       return {

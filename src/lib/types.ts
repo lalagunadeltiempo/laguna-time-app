@@ -363,6 +363,15 @@ export interface ActivityEntry {
   ruta?: string;
 }
 
+/** Resultado real frente al objetivo planificado. */
+export type RealidadObjetivoEstado = "cumplido" | "superado" | "por_debajo";
+
+export const REALIDAD_OBJETIVO_LABELS: Record<RealidadObjetivoEstado, string> = {
+  cumplido: "Cumplido",
+  superado: "Superado",
+  por_debajo: "Por debajo",
+};
+
 export interface Objetivo {
   id: string;
   texto: string;
@@ -373,6 +382,10 @@ export interface Objetivo {
   area?: Area;
   completado: boolean;
   creado: string;
+  /** Cómo fue la realidad respecto al objetivo (opcional). */
+  realidadEstado?: RealidadObjetivoEstado;
+  /** Breve motivo o contexto del resultado (opcional). */
+  realidadPorQue?: string;
 }
 
 export interface DeletedTombstones {
