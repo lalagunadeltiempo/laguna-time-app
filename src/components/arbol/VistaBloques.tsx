@@ -145,6 +145,69 @@ function NumberInput({
   );
 }
 
+/** Input dedicado a porcentajes (formato es-ES, sufijo «%»). Permite vacío. */
+function PercentInput({
+  value,
+  onCommit,
+  ariaLabel,
+  disabled,
+}: {
+  value: number | undefined;
+  onCommit: (v: number | undefined) => void;
+  ariaLabel: string;
+  disabled?: boolean;
+}) {
+  const formatPctDisplay = (v: number | undefined): string => {
+    if (v === undefined || !Number.isFinite(v)) return "";
+    return `${v.toLocaleString("es-ES", { minimumFractionDigits: 0, maximumFractionDigits: 2 })} %`;
+  };
+  const formatPctEditable = (v: number | undefined): string => {
+    if (v === undefined || !Number.isFinite(v)) return "";
+    return String(v).replace(".", ",");
+  };
+  const [focused, setFocused] = useState(false);
+  const [text, setText] = useState(() => formatPctDisplay(value));
+
+  useEffect(() => {
+    if (!focused) setText(formatPctDisplay(value));
+  }, [value, focused]);
+
+  return (
+    <input
+      type="text"
+      inputMode="decimal"
+      aria-label={ariaLabel}
+      value={text}
+      disabled={disabled}
+      placeholder={disabled ? "Sin total" : "0 %"}
+      onFocus={() => {
+        if (disabled) return;
+        setFocused(true);
+        setText(formatPctEditable(value));
+      }}
+      onChange={(e) => setText(e.target.value)}
+      onBlur={() => {
+        setFocused(false);
+        const t = text.trim();
+        if (t === "") {
+          setText("");
+          onCommit(undefined);
+          return;
+        }
+        const v = parseEsNumber(t.replace(/%/g, ""));
+        if (v === null) {
+          setText(formatPctDisplay(value));
+          return;
+        }
+        const clamped = Math.max(0, v);
+        setText(formatPctDisplay(clamped));
+        onCommit(clamped);
+      }}
+      className="w-full min-w-[5rem] rounded border border-border bg-background px-2 py-1.5 text-sm tabular-nums disabled:opacity-50"
+    />
+  );
+}
+
 /** Suma del real del nodo en el periodo seleccionado, usando registros existentes. */
 function realDeNodo(
   registros: RegistroNodo[],
@@ -920,62 +983,117 @@ export function VistaBloques({ raiz, year }: VistaBloquesProps) {
               Aún no has añadido ramas. Empieza por las que más facturan.
             </p>
           ) : (
-            ramas.map((rama) => (
-              <div key={rama.id} className="rounded border border-border bg-surface/40 px-3 py-2">
-                <div className="flex flex-wrap items-baseline justify-between gap-2">
-                  <p className="text-sm font-medium text-foreground">{rama.nombre}</p>
-                  <span className="text-[11px] text-muted">
-                    Meta anual:{" "}
-                    <strong className="tabular-nums text-foreground">
-                      {rama.metaValor !== undefined ? `${fmtNum(rama.metaValor)} ${unidad}` : "—"}
-                    </strong>
-                  </span>
-                </div>
-                <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-3">
-                  <label className="flex flex-col gap-1 text-[11px] text-muted">
-                    Nombre
-                    <input
-                      defaultValue={rama.nombre}
-                      onBlur={(e) => {
-                        const v = e.target.value.trim();
-                        if (v && v !== rama.nombre) {
-                          dispatch({ type: "UPDATE_NODO_ARBOL", id: rama.id, changes: { nombre: v } });
-                        }
-                      }}
-                      className="rounded border border-border bg-background px-2 py-1.5 text-sm"
-                    />
-                  </label>
-                  <label className="flex flex-col gap-1 text-[11px] text-muted">
-                    Meta anual ({unidad || "número"})
-                    <NumberInput
-                      value={rama.metaValor}
-                      onCommit={(v) =>
-                        dispatch({ type: "UPDATE_NODO_ARBOL", id: rama.id, changes: { metaValor: v } })
-                      }
-                      ariaLabel={`Meta anual de ${rama.nombre}`}
-                      unidad={unidad}
-                    />
-                  </label>
-                  <label className="flex flex-col gap-1 text-[11px] text-muted">
-                    Cuenta para el total
-                    <select
-                      value={rama.relacionConPadre}
-                      onChange={(e) =>
-                        dispatch({
-                          type: "UPDATE_NODO_ARBOL",
-                          id: rama.id,
-                          changes: { relacionConPadre: e.target.value as NodoArbol["relacionConPadre"] },
-                        })
-                      }
-                      className="rounded border border-border bg-background px-2 py-1.5 text-sm"
+            (() => {
+              const totalAnual = raiz.metaValor ?? 0;
+              const sumPct = ramas
+                .filter((r) => r.relacionConPadre === "suma")
+                .reduce((acc, r) => acc + (totalAnual > 0 ? ((r.metaValor ?? 0) / totalAnual) * 100 : 0), 0);
+              return (
+                <>
+                  {ramas.map((rama) => {
+                    const pct = totalAnual > 0 && rama.metaValor !== undefined ? (rama.metaValor / totalAnual) * 100 : undefined;
+                    const cuentaParaTotal = rama.relacionConPadre === "suma";
+                    return (
+                      <div key={rama.id} className="rounded border border-border bg-surface/40 px-3 py-2">
+                        <div className="flex flex-wrap items-baseline justify-between gap-2">
+                          <p className="text-sm font-medium text-foreground">{rama.nombre}</p>
+                          <span className="text-[11px] text-muted">
+                            Meta anual:{" "}
+                            <strong className="tabular-nums text-foreground">
+                              {rama.metaValor !== undefined ? `${fmtNum(rama.metaValor)} ${unidad}` : "—"}
+                            </strong>
+                            {cuentaParaTotal && pct !== undefined && (
+                              <>
+                                {" "}·{" "}
+                                <strong className="tabular-nums text-foreground">{pct.toFixed(1).replace(".", ",")} %</strong>
+                                <span className="text-muted"> del total</span>
+                              </>
+                            )}
+                          </span>
+                        </div>
+                        <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-4">
+                          <label className="flex flex-col gap-1 text-[11px] text-muted">
+                            Nombre
+                            <input
+                              defaultValue={rama.nombre}
+                              onBlur={(e) => {
+                                const v = e.target.value.trim();
+                                if (v && v !== rama.nombre) {
+                                  dispatch({ type: "UPDATE_NODO_ARBOL", id: rama.id, changes: { nombre: v } });
+                                }
+                              }}
+                              className="rounded border border-border bg-background px-2 py-1.5 text-sm"
+                            />
+                          </label>
+                          <label className="flex flex-col gap-1 text-[11px] text-muted">
+                            Meta anual ({unidad || "número"})
+                            <NumberInput
+                              value={rama.metaValor}
+                              onCommit={(v) =>
+                                dispatch({ type: "UPDATE_NODO_ARBOL", id: rama.id, changes: { metaValor: v } })
+                              }
+                              ariaLabel={`Meta anual de ${rama.nombre}`}
+                              unidad={unidad}
+                            />
+                          </label>
+                          <label className="flex flex-col gap-1 text-[11px] text-muted">
+                            % del total
+                            <PercentInput
+                              value={pct}
+                              disabled={totalAnual <= 0}
+                              onCommit={(p) => {
+                                if (totalAnual <= 0 || p === undefined) return;
+                                const nuevoMeta = (totalAnual * p) / 100;
+                                dispatch({ type: "UPDATE_NODO_ARBOL", id: rama.id, changes: { metaValor: nuevoMeta } });
+                              }}
+                              ariaLabel={`Porcentaje del total de ${rama.nombre}`}
+                            />
+                          </label>
+                          <label className="flex flex-col gap-1 text-[11px] text-muted">
+                            Cuenta para el total
+                            <select
+                              value={rama.relacionConPadre}
+                              onChange={(e) =>
+                                dispatch({
+                                  type: "UPDATE_NODO_ARBOL",
+                                  id: rama.id,
+                                  changes: { relacionConPadre: e.target.value as NodoArbol["relacionConPadre"] },
+                                })
+                              }
+                              className="rounded border border-border bg-background px-2 py-1.5 text-sm"
+                            >
+                              <option value="suma">Sí, suma al total</option>
+                              <option value="explica">No suma, solo informa</option>
+                            </select>
+                          </label>
+                        </div>
+                      </div>
+                    );
+                  })}
+                  {totalAnual > 0 && (
+                    <div
+                      className={`flex flex-wrap items-baseline justify-between gap-2 rounded px-3 py-2 text-[12px] ${
+                        Math.abs(sumPct - 100) < 0.05
+                          ? "bg-emerald-500/10 text-emerald-800 dark:text-emerald-200"
+                          : "bg-amber-500/10 text-amber-900 dark:text-amber-100"
+                      }`}
                     >
-                      <option value="suma">Sí, suma al total</option>
-                      <option value="explica">No suma, solo informa</option>
-                    </select>
-                  </label>
-                </div>
-              </div>
-            ))
+                      <span>
+                        Suma de las ramas que cuentan al total:{" "}
+                        <strong className="tabular-nums">{sumPct.toFixed(1).replace(".", ",")} %</strong>
+                      </span>
+                      {Math.abs(sumPct - 100) >= 0.05 && (
+                        <span>
+                          {sumPct < 100
+                            ? `Te falta ${(100 - sumPct).toFixed(1).replace(".", ",")} %`
+                            : `Te pasas en ${(sumPct - 100).toFixed(1).replace(".", ",")} %`}
+                        </span>
+                      )}
+                    </div>
+                  )}
+                </>
+              );
+            })()
           )}
         </div>
         <NuevaRamaForm
