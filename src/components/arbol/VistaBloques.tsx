@@ -448,7 +448,7 @@ const TarjetaPeriodo = memo(function TarjetaPeriodo({
   );
 
   return (
-    <div className="rounded-xl border border-border bg-background p-3 shadow-sm">
+    <div className="min-w-0 rounded-xl border border-border bg-background p-3 shadow-sm">
       <div className="flex items-baseline justify-between gap-2">
         <div className="min-w-0">
           <h3 className="truncate text-sm font-semibold text-foreground">{titulo}</h3>
@@ -582,7 +582,9 @@ const TarjetaPeriodo = memo(function TarjetaPeriodo({
       {ramas.length > 0 && (
         <details
           open={ramasOpen}
-          onToggle={(e) => setRamasOpen((e.currentTarget as HTMLDetailsElement).open)}
+          onToggle={(e) =>
+            startTransition(() => setRamasOpen((e.currentTarget as HTMLDetailsElement).open))
+          }
           className="mt-3 rounded-lg border border-border/60 bg-surface/30"
         >
           <summary className="cursor-pointer list-none px-3 py-2 text-[11px] font-medium text-muted marker:content-none [&::-webkit-details-marker]:hidden">
@@ -591,24 +593,26 @@ const TarjetaPeriodo = memo(function TarjetaPeriodo({
               Ramas ({ramas.length})
             </span>
           </summary>
-          <div className="space-y-2 border-t border-border/60 px-2 py-2">
-            {ramas.map((rama) => (
-              <FilaRama
-                key={rama.id}
-                rama={rama}
-                raiz={raiz}
-                idx={idx}
-                nodos={ctx.nodos}
-                registros={registros}
-                vista={vista}
-                periodoKey={periodoKey}
-                year={year}
-                config={config}
-                unidad={unidad}
-                planRaizPeriodo={plan}
-              />
-            ))}
-          </div>
+          {ramasOpen && (
+            <div className="space-y-2 border-t border-border/60 px-2 py-2">
+              {ramas.map((rama) => (
+                <FilaRama
+                  key={rama.id}
+                  rama={rama}
+                  raiz={raiz}
+                  idx={idx}
+                  nodos={ctx.nodos}
+                  registros={registros}
+                  vista={vista}
+                  periodoKey={periodoKey}
+                  year={year}
+                  config={config}
+                  unidad={unidad}
+                  planRaizPeriodo={plan}
+                />
+              ))}
+            </div>
+          )}
         </details>
       )}
 
@@ -957,7 +961,7 @@ const FilaHojaArbol = memo(function FilaHojaArbol({
           )}
         </div>
         <label className="flex flex-col gap-1 text-[10px] text-muted">
-          Año pasado
+          {modoStoragePrefix === "hoja" ? "Referencia año anterior (opcional)" : "Año pasado"}
           <NumberInput
             value={valorAnioPasado}
             onCommit={(v) =>
@@ -968,9 +972,14 @@ const FilaHojaArbol = memo(function FilaHojaArbol({
                 valor: v,
               })
             }
-            ariaLabel={`Año pasado ${nodo.nombre}`}
+            ariaLabel={`${modoStoragePrefix === "hoja" ? "Referencia año anterior" : "Año pasado"} ${nodo.nombre}`}
             unidad={unidad}
           />
+          {modoStoragePrefix === "hoja" && (
+            <span className="text-[9px] leading-snug text-muted">
+              Si la hoja no existía el año pasado no hay dato automático: puedes dejarlo vacío o escribir un importe manual si quieres comparar (p. ej. una parte del año pasado de la rama).
+            </span>
+          )}
         </label>
       </div>
     </div>
@@ -1005,6 +1014,8 @@ const FilaRama = memo(function FilaRama({
 }) {
   const dispatch = useAppDispatch();
   const [mostrarNuevaHoja, setMostrarNuevaHoja] = useState(false);
+  const hojasStorageKey = `arbol.fila-rama.hojas.${rama.id}.${vista}.${periodoKey}`;
+  const [hojasOpen, setHojasOpen] = useLocalBoolean(hojasStorageKey, false);
 
   const hojas = useMemo(() => hijosSumaDirectosIdx(idx, rama.id), [idx, rama.id]);
   const conHojas = hojas.length > 0;
@@ -1105,33 +1116,44 @@ const FilaRama = memo(function FilaRama({
       )}
 
       {conHojas ? (
-        <details className="mt-2 rounded border border-border/50 bg-surface/20">
+        <details
+          open={hojasOpen}
+          onToggle={(e) =>
+            startTransition(() => setHojasOpen((e.currentTarget as HTMLDetailsElement).open))
+          }
+          className="mt-2 rounded border border-border/50 bg-surface/20"
+        >
           <summary className="cursor-pointer list-none px-2 py-1.5 text-[11px] font-medium text-muted marker:content-none [&::-webkit-details-marker]:hidden">
-            Hojas ({hojas.length})
+            <span className="inline-flex items-center gap-1">
+              <span aria-hidden className={`text-[10px] transition-transform ${hojasOpen ? "rotate-90" : ""}`}>▶</span>
+              Hojas ({hojas.length})
+            </span>
           </summary>
-          <div className="space-y-2 border-t border-border/50 px-2 py-2">
-            {hojas.map((hoja) => (
-              <FilaHojaArbol
-                key={hoja.id}
-                idx={idx}
-                nodo={hoja}
-                registros={registros}
-                vista={vista}
-                periodoKey={periodoKey}
-                year={year}
-                config={config}
-                unidad={unidad}
-                planBasePct={planRamaEnPeriodo}
-                modoStoragePrefix="hoja"
-                tituloExtra={hoja.nombre}
-                puedeEliminar
-                onEliminar={() => {
-                  const ok = window.confirm(`¿Eliminar la hoja «${hoja.nombre}» y sus registros?`);
-                  if (ok) dispatch({ type: "DELETE_NODO_ARBOL", id: hoja.id });
-                }}
-              />
-            ))}
-          </div>
+          {hojasOpen && (
+            <div className="space-y-2 border-t border-border/50 px-2 py-2">
+              {hojas.map((hoja) => (
+                <FilaHojaArbol
+                  key={hoja.id}
+                  idx={idx}
+                  nodo={hoja}
+                  registros={registros}
+                  vista={vista}
+                  periodoKey={periodoKey}
+                  year={year}
+                  config={config}
+                  unidad={unidad}
+                  planBasePct={planRamaEnPeriodo}
+                  modoStoragePrefix="hoja"
+                  tituloExtra={hoja.nombre}
+                  puedeEliminar
+                  onEliminar={() => {
+                    const ok = window.confirm(`¿Eliminar la hoja «${hoja.nombre}» y sus registros?`);
+                    if (ok) dispatch({ type: "DELETE_NODO_ARBOL", id: hoja.id });
+                  }}
+                />
+              ))}
+            </div>
+          )}
         </details>
       ) : (
         <>
@@ -1237,7 +1259,7 @@ function BloqueTrimestres({ ctx }: { ctx: ContextoBloque }) {
       defaultOpen={false}
       titulo="Trimestres"
     >
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 sm:gap-5">
         {trims.map((q) => (
           <TarjetaPeriodo
             key={q}
