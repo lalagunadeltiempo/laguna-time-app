@@ -69,6 +69,74 @@ function MetricLine({ label, value, accent }: { label: string; value: string; ac
   );
 }
 
+/** Estado booleano persistido en localStorage. SSR-safe: lee solo tras montar para evitar hydration mismatch. */
+function useLocalBoolean(storageKey: string, defaultOpen: boolean): [boolean, (next: boolean) => void] {
+  const [open, setOpenState] = useState<boolean>(defaultOpen);
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      const raw = window.localStorage.getItem(storageKey);
+      if (raw === "1") setOpenState(true);
+      else if (raw === "0") setOpenState(false);
+    } catch {
+      /* ignore */
+    }
+  }, [storageKey]);
+  const setOpen = useCallback(
+    (next: boolean) => {
+      setOpenState(next);
+      if (typeof window === "undefined") return;
+      try {
+        window.localStorage.setItem(storageKey, next ? "1" : "0");
+      } catch {
+        /* ignore */
+      }
+    },
+    [storageKey],
+  );
+  return [open, setOpen];
+}
+
+/** Sección colapsable con título y persistencia de estado en localStorage. */
+function SeccionColapsable({
+  storageKey,
+  defaultOpen,
+  titulo,
+  resumen,
+  children,
+}: {
+  storageKey: string;
+  defaultOpen: boolean;
+  titulo: string;
+  /** Texto pequeño a la derecha del título (resumen) cuando está cerrada o abierta. */
+  resumen?: React.ReactNode;
+  children: React.ReactNode;
+}) {
+  const [open, setOpen] = useLocalBoolean(storageKey, defaultOpen);
+  return (
+    <section className="overflow-hidden rounded-xl border border-border/60 bg-surface/30">
+      <button
+        type="button"
+        onClick={() => setOpen(!open)}
+        aria-expanded={open}
+        className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left transition-colors hover:bg-surface/60"
+      >
+        <span className="flex items-center gap-2">
+          <span
+            aria-hidden
+            className={`inline-block text-xs text-muted transition-transform ${open ? "rotate-90" : ""}`}
+          >
+            ▶
+          </span>
+          <h2 className="text-base font-semibold text-foreground">{titulo}</h2>
+        </span>
+        {resumen && <span className="truncate text-[11px] text-muted">{resumen}</span>}
+      </button>
+      {open && <div className="space-y-3 border-t border-border/60 px-3 py-3">{children}</div>}
+    </section>
+  );
+}
+
 function isUnidadEuros(unidad?: string): boolean {
   if (!unidad) return false;
   const u = unidad.trim().toLowerCase();
@@ -515,9 +583,43 @@ function TarjetaPeriodo({
         </div>
       )}
 
+      {ramas.length > 0 && (
+        <details
+          open={ramasOpen}
+          onToggle={(e) => {
+            const open = (e.currentTarget as HTMLDetailsElement).open;
+            const k = `${vista}:${periodoKey}`;
+            if (open !== ramasOpen) toggleRamasAbiertas(k);
+          }}
+          className="mt-3 rounded-lg border border-border/60 bg-surface/30"
+        >
+          <summary className="cursor-pointer list-none px-3 py-2 text-[11px] font-medium text-muted marker:content-none [&::-webkit-details-marker]:hidden">
+            <span className="inline-flex items-center gap-1">
+              <span aria-hidden className={`text-[10px] transition-transform ${ramasOpen ? "rotate-90" : ""}`}>▶</span>
+              Ramas ({ramas.length})
+            </span>
+          </summary>
+          <div className="space-y-2 border-t border-border/60 px-2 py-2">
+            {ramas.map((rama) => (
+              <FilaRama
+                key={rama.id}
+                rama={rama}
+                registros={registros}
+                vista={vista}
+                periodoKey={periodoKey}
+                year={year}
+                config={config}
+                unidad={unidad}
+                planRaizPeriodo={plan}
+              />
+            ))}
+          </div>
+        </details>
+      )}
+
       <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
         <label className="flex flex-col gap-1 text-[11px] text-muted">
-          Apuntar real
+          Apuntar real (total {titulo})
           <NumberInput
             value={
               registros.find((r) => r.nodoId === raiz.id && r.periodoTipo === periodoTipo && r.periodoKey === periodoKey)?.valor
@@ -551,36 +653,6 @@ function TarjetaPeriodo({
           />
         </label>
       </div>
-
-      {ramas.length > 0 && (
-        <details
-          open={ramasOpen}
-          onToggle={(e) => {
-            const open = (e.currentTarget as HTMLDetailsElement).open;
-            const k = `${vista}:${periodoKey}`;
-            if (open !== ramasOpen) toggleRamasAbiertas(k);
-          }}
-          className="mt-3 rounded-lg border border-border/60 bg-surface/30"
-        >
-          <summary className="cursor-pointer list-none px-3 py-2 text-[11px] font-medium text-muted marker:content-none [&::-webkit-details-marker]:hidden">
-            Ramas ({ramas.length})
-          </summary>
-          <div className="space-y-2 border-t border-border/60 px-3 py-2">
-            {ramas.map((rama) => (
-              <FilaRama
-                key={rama.id}
-                rama={rama}
-                registros={registros}
-                vista={vista}
-                periodoKey={periodoKey}
-                year={year}
-                config={config}
-                unidad={unidad}
-              />
-            ))}
-          </div>
-        </details>
-      )}
     </div>
   );
 }
@@ -617,6 +689,7 @@ function FilaRama({
   year,
   config,
   unidad,
+  planRaizPeriodo,
 }: {
   rama: NodoArbol;
   registros: RegistroNodo[];
@@ -625,6 +698,8 @@ function FilaRama({
   year: number;
   config: PlanArbolConfigAnio | undefined;
   unidad: string;
+  /** Plan original del periodo en la raíz: se usa como base si el usuario apunta el real en %. */
+  planRaizPeriodo: number | undefined;
 }) {
   const dispatch = useAppDispatch();
   const upsert = useUpsertRegistro();
@@ -645,6 +720,35 @@ function FilaRama({
   )?.valor;
 
   const deltaPlan = plan !== undefined ? real - plan : undefined;
+
+  // Modo de entrada del real para esta fila: € o %. Persistente por rama+periodoTipo.
+  const modoStorageKey = `arbol.fila-rama.modo.${rama.id}.${periodoTipo}`;
+  const [modoEs, setModoEs] = useState<"eur" | "pct">("eur");
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      const raw = window.localStorage.getItem(modoStorageKey);
+      if (raw === "eur" || raw === "pct") setModoEs(raw);
+    } catch {
+      /* ignore */
+    }
+  }, [modoStorageKey]);
+  const cambiaModo = (next: "eur" | "pct") => {
+    setModoEs(next);
+    if (typeof window === "undefined") return;
+    try {
+      window.localStorage.setItem(modoStorageKey, next);
+    } catch {
+      /* ignore */
+    }
+  };
+
+  // % del plan de la raíz que representa el real apuntado.
+  const realComoPct =
+    planRaizPeriodo !== undefined && planRaizPeriodo > 0 && valorReal !== undefined
+      ? (valorReal / planRaizPeriodo) * 100
+      : undefined;
+  const pctDeshabilitado = !(planRaizPeriodo !== undefined && planRaizPeriodo > 0);
 
   return (
     <div className="rounded-md bg-background px-2 py-2 ring-1 ring-border/40">
@@ -686,15 +790,62 @@ function FilaRama({
         )}
       </div>
       <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
-        <label className="flex flex-col gap-1 text-[10px] text-muted">
-          Apuntar real
-          <NumberInput
-            value={valorReal}
-            onCommit={(v) => upsert({ nodoId: rama.id, periodoTipo, periodoKey, valor: v })}
-            ariaLabel={`Real ${rama.nombre}`}
-            unidad={unidad}
-          />
-        </label>
+        <div className="flex flex-col gap-1 text-[10px] text-muted">
+          <div className="flex items-center justify-between gap-2">
+            <span>Apuntar real</span>
+            <span className="inline-flex overflow-hidden rounded border border-border text-[9px]">
+              <button
+                type="button"
+                onClick={() => cambiaModo("eur")}
+                className={`px-1.5 py-0.5 ${modoEs === "eur" ? "bg-accent text-white" : "bg-background text-muted"}`}
+                aria-label={`Apuntar en ${unidad || "número"}`}
+              >
+                {unidad || "n.º"}
+              </button>
+              <button
+                type="button"
+                onClick={() => cambiaModo("pct")}
+                disabled={pctDeshabilitado}
+                title={pctDeshabilitado ? "Define un plan en este periodo para apuntar en %" : ""}
+                className={`px-1.5 py-0.5 ${
+                  modoEs === "pct"
+                    ? "bg-accent text-white"
+                    : pctDeshabilitado
+                      ? "bg-background text-muted/60"
+                      : "bg-background text-muted"
+                }`}
+              >
+                %
+              </button>
+            </span>
+          </div>
+          {modoEs === "eur" || pctDeshabilitado ? (
+            <NumberInput
+              value={valorReal}
+              onCommit={(v) => upsert({ nodoId: rama.id, periodoTipo, periodoKey, valor: v })}
+              ariaLabel={`Real ${rama.nombre}`}
+              unidad={unidad}
+            />
+          ) : (
+            <PercentInput
+              value={realComoPct}
+              onCommit={(p) => {
+                if (planRaizPeriodo === undefined || planRaizPeriodo <= 0) return;
+                if (p === undefined) {
+                  upsert({ nodoId: rama.id, periodoTipo, periodoKey, valor: undefined });
+                  return;
+                }
+                upsert({ nodoId: rama.id, periodoTipo, periodoKey, valor: (planRaizPeriodo * p) / 100 });
+              }}
+              ariaLabel={`Real ${rama.nombre} en porcentaje`}
+            />
+          )}
+          {modoEs === "pct" && !pctDeshabilitado && (
+            <span className="text-[10px] text-muted">
+              Sobre plan {fmtNum(planRaizPeriodo ?? 0)} {unidad}
+            </span>
+          )}
+        </div>
         <label className="flex flex-col gap-1 text-[10px] text-muted">
           Año pasado
           <NumberInput
@@ -778,10 +929,12 @@ function BloqueAnio({ ctx, ramasAbiertasIds, toggleRamasAbiertas }: {
   toggleRamasAbiertas: (k: string) => void;
 }) {
   return (
-    <section className="space-y-3">
-      <header className="flex items-baseline gap-2">
-        <h2 className="text-base font-semibold text-foreground">Año {ctx.year}</h2>
-      </header>
+    <SeccionColapsable
+      storageKey={`arbol.bloque.anio.${ctx.year}`}
+      defaultOpen={true}
+      titulo={`Año ${ctx.year}`}
+      resumen={ctx.raiz.metaValor !== undefined ? `Objetivo ${fmtNum(ctx.raiz.metaValor)} ${ctx.unidad}` : undefined}
+    >
       <TarjetaPeriodo
         ctx={ctx}
         vista="anio"
@@ -791,7 +944,7 @@ function BloqueAnio({ ctx, ramasAbiertasIds, toggleRamasAbiertas }: {
         ramasAbiertasIds={ramasAbiertasIds}
         toggleRamasAbiertas={toggleRamasAbiertas}
       />
-    </section>
+    </SeccionColapsable>
   );
 }
 
@@ -803,8 +956,11 @@ function BloqueTrimestres({ ctx, ramasAbiertasIds, toggleRamasAbiertas }: {
 }) {
   const trims = [`${ctx.year}-Q1`, `${ctx.year}-Q2`, `${ctx.year}-Q3`, `${ctx.year}-Q4`];
   return (
-    <section className="space-y-3">
-      <h2 className="text-base font-semibold text-foreground">Trimestres</h2>
+    <SeccionColapsable
+      storageKey={`arbol.bloque.trimestres.${ctx.year}`}
+      defaultOpen={true}
+      titulo="Trimestres"
+    >
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
         {trims.map((q) => (
           <TarjetaPeriodo
@@ -818,7 +974,7 @@ function BloqueTrimestres({ ctx, ramasAbiertasIds, toggleRamasAbiertas }: {
           />
         ))}
       </div>
-    </section>
+    </SeccionColapsable>
   );
 }
 
@@ -833,25 +989,27 @@ function BloqueMeses({ ctx, ramasAbiertasIds, toggleRamasAbiertas }: {
   const tabs = [`${ctx.year}-Q1`, `${ctx.year}-Q2`, `${ctx.year}-Q3`, `${ctx.year}-Q4`];
   const meses = useMemo(() => mesKeysEnTrimestre(tab), [tab]);
   return (
-    <section className="space-y-3">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <h2 className="text-base font-semibold text-foreground">Meses</h2>
-        <div className="flex flex-wrap gap-1">
-          {tabs.map((t) => (
-            <button
-              key={t}
-              type="button"
-              onClick={() => setTab(t)}
-              className={`min-h-[34px] rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors ${
-                tab === t
-                  ? "bg-accent text-white"
-                  : "border border-border bg-surface text-muted hover:border-accent hover:text-accent"
-              }`}
-            >
-              {t.slice(-2)}
-            </button>
-          ))}
-        </div>
+    <SeccionColapsable
+      storageKey={`arbol.bloque.meses.${ctx.year}`}
+      defaultOpen={true}
+      titulo="Meses"
+      resumen={tab.slice(-2)}
+    >
+      <div className="flex flex-wrap gap-1">
+        {tabs.map((t) => (
+          <button
+            key={t}
+            type="button"
+            onClick={() => setTab(t)}
+            className={`min-h-[34px] rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors ${
+              tab === t
+                ? "bg-accent text-white"
+                : "border border-border bg-surface text-muted hover:border-accent hover:text-accent"
+            }`}
+          >
+            {t.slice(-2)}
+          </button>
+        ))}
       </div>
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
         {meses.map((m) => {
@@ -870,7 +1028,7 @@ function BloqueMeses({ ctx, ramasAbiertasIds, toggleRamasAbiertas }: {
           );
         })}
       </div>
-    </section>
+    </SeccionColapsable>
   );
 }
 
@@ -896,31 +1054,34 @@ function BloqueSemanas({ ctx }: { ctx: ContextoBloque }) {
 
   const meses12 = Array.from({ length: 12 }, (_, i) => `${ctx.year}-${String(i + 1).padStart(2, "0")}`);
   const semanasMes = todos.filter((mk) => mesKeyFromDate(parseLocalDateKey(mk)) === mesTab);
+  const mesTabIdx = parseInt(mesTab.split("-")[1], 10) - 1;
 
   return (
-    <section className="space-y-3">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <h2 className="text-base font-semibold text-foreground">Semanas</h2>
-        <div className="-mx-3 max-w-full overflow-x-auto px-3 sm:mx-0 sm:px-0">
-          <div className="flex gap-1">
-            {meses12.map((m) => {
-              const idx = parseInt(m.split("-")[1], 10) - 1;
-              return (
-                <button
-                  key={m}
-                  type="button"
-                  onClick={() => setMesTab(m)}
-                  className={`min-h-[34px] shrink-0 rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors ${
-                    mesTab === m
-                      ? "bg-accent text-white"
-                      : "border border-border bg-surface text-muted hover:border-accent hover:text-accent"
-                  }`}
-                >
-                  {MESES_CORTOS_ES[idx]}
-                </button>
-              );
-            })}
-          </div>
+    <SeccionColapsable
+      storageKey={`arbol.bloque.semanas.${ctx.year}`}
+      defaultOpen={true}
+      titulo="Semanas"
+      resumen={MESES_CORTOS_ES[mesTabIdx]}
+    >
+      <div className="-mx-3 max-w-full overflow-x-auto px-3 sm:mx-0 sm:px-0">
+        <div className="flex gap-1">
+          {meses12.map((m) => {
+            const idx = parseInt(m.split("-")[1], 10) - 1;
+            return (
+              <button
+                key={m}
+                type="button"
+                onClick={() => setMesTab(m)}
+                className={`min-h-[34px] shrink-0 rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors ${
+                  mesTab === m
+                    ? "bg-accent text-white"
+                    : "border border-border bg-surface text-muted hover:border-accent hover:text-accent"
+                }`}
+              >
+                {MESES_CORTOS_ES[idx]}
+              </button>
+            );
+          })}
         </div>
       </div>
       <div className="overflow-hidden rounded-xl border border-border bg-background">
@@ -1084,7 +1245,7 @@ function BloqueSemanas({ ctx }: { ctx: ContextoBloque }) {
           );
         })}
       </div>
-    </section>
+    </SeccionColapsable>
   );
 }
 
@@ -1150,10 +1311,14 @@ export function VistaBloques({ raiz, year }: VistaBloquesProps) {
       <BloqueMeses ctx={ctx} ramasAbiertasIds={ramasAbiertas} toggleRamasAbiertas={toggleRamas} />
       <BloqueSemanas ctx={ctx} />
 
-      <section className="space-y-3 rounded-xl border border-border bg-background p-3">
-        <h2 className="text-base font-semibold text-foreground">Ramas</h2>
+      <SeccionColapsable
+        storageKey={`arbol.bloque.ramas-config.${year}`}
+        defaultOpen={false}
+        titulo="Ramas (configuración anual)"
+        resumen={`${ramas.length} ${ramas.length === 1 ? "rama" : "ramas"}`}
+      >
         <p className="text-[11px] text-muted">
-          Las ramas son las cosas que sumas para llegar al objetivo del año (ej. aulas, planes, individual). Cada una tiene su meta anual.
+          Las ramas son las cosas que sumas para llegar al objetivo del año (ej. aulas, planes, individual). Aquí defines su <strong>meta anual</strong> (en {unidad || "número"} o como % del total) y si cuentan o no para el total. Para apuntar lo facturado de cada rama, hazlo dentro de cada mes/trimestre arriba.
         </p>
         <div className="space-y-2">
           {ramas.length === 0 ? (
@@ -1288,7 +1453,7 @@ export function VistaBloques({ raiz, year }: VistaBloquesProps) {
             })
           }
         />
-      </section>
+      </SeccionColapsable>
     </div>
   );
 }
