@@ -210,6 +210,7 @@ const EMPTY_DELETED: DeletedTombstones = {
   entregables: [],
   pasos: [],
   plantillas: [],
+  notas: [],
   arbolNodos: [],
   arbolRegistros: [],
 };
@@ -1368,11 +1369,43 @@ export function reducer(state: AppState, action: Action): AppState {
     }
     case "DELETE_NOTA": {
       const { nivel, targetId, notaId } = action;
-      if (nivel === "paso") return { ...state, pasos: state.pasos.map((p) => p.id === targetId ? { ...p, notas: (p.notas ?? []).filter((n) => n.id !== notaId) } : p) };
-      if (nivel === "entregable") return { ...state, entregables: state.entregables.map((e) => e.id === targetId ? { ...e, notas: (e.notas ?? []).filter((n) => n.id !== notaId) } : e) };
-      if (nivel === "resultado") return { ...state, resultados: state.resultados.map((r) => r.id === targetId ? { ...r, notas: (r.notas ?? []).filter((n) => n.id !== notaId) } : r) };
-      if (nivel === "proyecto") return { ...state, proyectos: state.proyectos.map((p) => p.id === targetId ? { ...p, notas: (p.notas ?? []).filter((n) => n.id !== notaId) } : p) };
-      if (nivel === "plantilla") return { ...state, plantillas: state.plantillas.map((pl) => pl.id === targetId ? { ...pl, notas: (pl.notas ?? []).filter((n) => n.id !== notaId) } : pl) };
+      const deletedNext = addTombstones(state.deleted, { notas: [notaId] });
+      const strip = (notas: Nota[] | undefined) => (notas ?? []).filter((n) => n.id !== notaId);
+      if (nivel === "paso") {
+        return {
+          ...state,
+          deleted: deletedNext,
+          pasos: state.pasos.map((p) => (p.id === targetId ? { ...p, notas: strip(p.notas) } : p)),
+        };
+      }
+      if (nivel === "entregable") {
+        return {
+          ...state,
+          deleted: deletedNext,
+          entregables: state.entregables.map((e) => (e.id === targetId ? { ...e, notas: strip(e.notas) } : e)),
+        };
+      }
+      if (nivel === "resultado") {
+        return {
+          ...state,
+          deleted: deletedNext,
+          resultados: state.resultados.map((r) => (r.id === targetId ? { ...r, notas: strip(r.notas) } : r)),
+        };
+      }
+      if (nivel === "proyecto") {
+        return {
+          ...state,
+          deleted: deletedNext,
+          proyectos: state.proyectos.map((p) => (p.id === targetId ? { ...p, notas: strip(p.notas) } : p)),
+        };
+      }
+      if (nivel === "plantilla") {
+        return {
+          ...state,
+          deleted: deletedNext,
+          plantillas: state.plantillas.map((pl) => (pl.id === targetId ? { ...pl, notas: strip(pl.notas) } : pl)),
+        };
+      }
       return state;
     }
 

@@ -1,5 +1,13 @@
-import type { AppState, PlanArbolConfigAnio } from "./types";
+import type { AppState, Nota, PlanArbolConfigAnio } from "./types";
 import { EMPTY_ARBOL } from "./types";
+
+function stripNotasTombstones<T extends { notas?: Nota[] }>(item: T, delNotas: Set<string>): T {
+  const arr = item.notas;
+  if (!arr?.length) return item;
+  const next = arr.filter((n) => !delNotas.has(n.id));
+  if (next.length === arr.length) return item;
+  return { ...item, notas: next };
+}
 
 function unionConfigs(a: PlanArbolConfigAnio[], b: PlanArbolConfigAnio[]): PlanArbolConfigAnio[] {
   const map = new Map<number, PlanArbolConfigAnio>();
@@ -57,6 +65,7 @@ export function mergeStates(a: AppState, b: AppState): AppState {
     entregables: [] as string[],
     pasos: [] as string[],
     plantillas: [] as string[],
+    notas: [] as string[],
     arbolNodos: [] as string[],
     arbolRegistros: [] as string[],
   };
@@ -68,9 +77,12 @@ export function mergeStates(a: AppState, b: AppState): AppState {
     entregables: Array.from(new Set([...(delA.entregables ?? []), ...(delB.entregables ?? [])])),
     pasos: Array.from(new Set([...(delA.pasos ?? []), ...(delB.pasos ?? [])])),
     plantillas: Array.from(new Set([...(delA.plantillas ?? []), ...(delB.plantillas ?? [])])),
+    notas: Array.from(new Set([...(delA.notas ?? []), ...(delB.notas ?? [])])),
     arbolNodos: Array.from(new Set([...(delA.arbolNodos ?? []), ...(delB.arbolNodos ?? [])])),
     arbolRegistros: Array.from(new Set([...(delA.arbolRegistros ?? []), ...(delB.arbolRegistros ?? [])])),
   };
+
+  const delNotas = new Set(deleted.notas ?? []);
 
   const delProj = new Set(deleted.proyectos);
   const delRes = new Set(deleted.resultados);
@@ -93,13 +105,23 @@ export function mergeStates(a: AppState, b: AppState): AppState {
 
   const merged: AppState = {
     ...a,
-    proyectos: unionById(a.proyectos, b.proyectos).filter((p) => !delProj.has(p.id)),
-    resultados: unionById(a.resultados, b.resultados).filter((r) => !delRes.has(r.id)),
-    entregables: unionById(a.entregables, b.entregables, preferMore).filter((e) => !delEnt.has(e.id)),
-    pasos: unionById(a.pasos, b.pasos, preferPaso).filter((p) => !delPas.has(p.id)),
+    proyectos: unionById(a.proyectos, b.proyectos)
+      .filter((p) => !delProj.has(p.id))
+      .map((p) => stripNotasTombstones(p, delNotas)),
+    resultados: unionById(a.resultados, b.resultados)
+      .filter((r) => !delRes.has(r.id))
+      .map((r) => stripNotasTombstones(r, delNotas)),
+    entregables: unionById(a.entregables, b.entregables, preferMore)
+      .filter((e) => !delEnt.has(e.id))
+      .map((e) => stripNotasTombstones(e, delNotas)),
+    pasos: unionById(a.pasos, b.pasos, preferPaso)
+      .filter((p) => !delPas.has(p.id))
+      .map((p) => stripNotasTombstones(p, delNotas)),
     contactos: unionById(a.contactos ?? [], b.contactos ?? []),
     inbox: unionById(a.inbox ?? [], b.inbox ?? []),
-    plantillas: unionById(a.plantillas, b.plantillas).filter((p) => !delPl.has(p.id)),
+    plantillas: unionById(a.plantillas, b.plantillas)
+      .filter((p) => !delPl.has(p.id))
+      .map((p) => stripNotasTombstones(p, delNotas)),
     ejecuciones: unionById(a.ejecuciones ?? [], b.ejecuciones ?? []),
     miembros: unionById(a.miembros ?? [], b.miembros ?? []),
     activityLog: unionById(a.activityLog ?? [], b.activityLog ?? []),
@@ -168,6 +190,7 @@ export function statesDiffer(a: AppState, b: AppState): boolean {
     if (!arrEq(dA.plantillas, dB.plantillas)) return true;
     if (!arrEq(dA.arbolNodos, dB.arbolNodos)) return true;
     if (!arrEq(dA.arbolRegistros, dB.arbolRegistros)) return true;
+    if (!arrEq(dA.notas, dB.notas)) return true;
   }
   return false;
 }

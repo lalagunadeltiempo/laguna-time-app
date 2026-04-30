@@ -14,7 +14,14 @@ const CLOUD_SNAPSHOT_KEY = "laguna-time-app-cloud-snapshot";
 let _loadedSuccessfully = false;
 let _cloudLoadedOk = false;
 
-const EMPTY_DELETED = { proyectos: [], resultados: [], entregables: [], pasos: [], plantillas: [] };
+const EMPTY_DELETED = {
+  proyectos: [],
+  resultados: [],
+  entregables: [],
+  pasos: [],
+  plantillas: [],
+  notas: [] as string[],
+};
 
 export const INITIAL_STATE: AppState = {
   ambitoLabels: { personal: "Ganesha 🐘", empresa: "La Laguna del Tiempo ⛰️☀️" },
@@ -137,7 +144,7 @@ function migrateV1(raw: any): AppState {
       : EQUIPO_DEFAULT,
     activityLog: raw.activityLog ?? [],
     arbol: raw.arbol ?? EMPTY_ARBOL,
-    deleted: raw.deleted ?? { proyectos: [], resultados: [], entregables: [], pasos: [], plantillas: [] },
+    deleted: { ...EMPTY_DELETED, ...(raw.deleted ?? {}) },
     planConfig: raw.planConfig ?? PLAN_CONFIG_DEFAULT,
   } as AppState;
 }
@@ -388,6 +395,8 @@ export function saveStateCloud(userId: string, state: AppState, onMerged?: (merg
 /* eslint-disable @typescript-eslint/no-explicit-any */
 function mergeCloudReviews(local: AppState, cloud: AppState): AppState {
   const merged = { ...local };
+  /** No reintroducir notas borradas en otro cliente (tombstones en `deleted.notas`). */
+  const delNotas = new Set([...(local.deleted?.notas ?? []), ...(cloud.deleted?.notas ?? [])]);
 
   function mergeReviewField<T extends { id: string; review?: any; notas?: any[] }>(
     localArr: T[], cloudArr: T[]
@@ -400,7 +409,7 @@ function mergeCloudReviews(local: AppState, cloud: AppState): AppState {
       if (cloudItem.review && item.review && cloudItem.review.fecha > item.review.fecha) updates.review = cloudItem.review;
       if (cloudItem.notas?.length) {
         const localIds = new Set((item.notas ?? []).map((n: any) => n.id));
-        const missing = cloudItem.notas.filter((n: any) => !localIds.has(n.id));
+        const missing = cloudItem.notas.filter((n: any) => !localIds.has(n.id) && !delNotas.has(n.id));
         if (missing.length) updates.notas = [...(item.notas ?? []), ...missing] as any;
       }
       return Object.keys(updates).length ? { ...item, ...updates } : item;

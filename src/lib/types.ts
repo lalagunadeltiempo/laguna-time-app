@@ -445,6 +445,8 @@ export interface DeletedTombstones {
   entregables: string[];
   pasos: string[];
   plantillas: string[];
+  /** IDs de notas borradas explícitamente; evita que la fusión con la nube las resucite. */
+  notas?: string[];
   arbolNodos?: string[];
   arbolRegistros?: string[];
 }
