@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
 import { useAppDispatch, useAppState } from "@/lib/context";
 import { generateId } from "@/lib/store";
 import { EMPTY_ARBOL, type NodoArbol, type PlanArbolConfigAnio, type RegistroNodo } from "@/lib/types";
@@ -10,15 +10,20 @@ import {
   ensureConfigAnio,
   estadoPeriodo,
   formatWeekRange,
+  hijosSumaDirectos,
   isoWeekLabelFromMondayKey,
   mesKeyFromDate,
   mesKeysEnTrimestre,
+  metaEfectivaNodo,
   metaParaPeriodo,
   metaSemanalPropuesta,
   mondaysInCalendarYear,
   diasLaborablesEnAnio,
   parseLocalDateKey,
+  planAgregadoEnPeriodo,
   ramasDirectas,
+  realAnioPasadoAgregado,
+  realEfectivoEnPeriodo,
   sumarRegistrosNodoAnioAnterior,
   sumarRegistrosNodoSimple,
   trimestreKeyFromMesKey,
@@ -391,6 +396,7 @@ function useUpsertRegistro() {
 interface ContextoBloque {
   raiz: NodoArbol;
   ramas: NodoArbol[];
+  nodos: NodoArbol[];
   registros: RegistroNodo[];
   config: PlanArbolConfigAnio | undefined;
   year: number;
@@ -604,6 +610,8 @@ function TarjetaPeriodo({
               <FilaRama
                 key={rama.id}
                 rama={rama}
+                raiz={raiz}
+                nodos={ctx.nodos}
                 registros={registros}
                 vista={vista}
                 periodoKey={periodoKey}
@@ -681,48 +689,159 @@ function desplazarSemanaUnAnio(periodoKey: string): string {
   return match ?? candidates[0] ?? periodoKey;
 }
 
-function FilaRama({
+function FormNuevaFlor({
   rama,
+  raiz,
+  year,
+  nodos,
+  registros,
+  onCancel,
+  onCreated,
+}: {
+  rama: NodoArbol;
+  raiz: NodoArbol;
+  year: number;
+  nodos: NodoArbol[];
+  registros: RegistroNodo[];
+  onCancel: () => void;
+  onCreated: () => void;
+}) {
+  const dispatch = useAppDispatch();
+  const regsEnRama = useMemo(() => registros.filter((r) => r.nodoId === rama.id), [registros, rama.id]);
+  const tieneRegsPropios = regsEnRama.length > 0;
+  const [nombre, setNombre] = useState(tieneRegsPropios ? "Sin asignar" : "");
+  const [meta, setMeta] = useState("");
+
+  const submit = (e: FormEvent) => {
+    e.preventDefault();
+    if (tieneRegsPropios) {
+      if (
+        !window.confirm(
+          "Esta rama ya tiene apuntes propios. Vamos a moverlos a una flor «Sin asignar» para no perderlos. ¿Continuar?",
+        )
+      )
+        return;
+    }
+    const florNombre = tieneRegsPropios ? "Sin asignar" : nombre.trim() || "Flor";
+    const florId = generateId();
+    const siblings = hijosSumaDirectos(nodos, rama.id, year);
+    const orden = siblings.length > 0 ? Math.max(...siblings.map((s) => s.orden), 0) + 1 : 0;
+    const m = parseFloat(meta.replace(",", "."));
+    const now = new Date().toISOString();
+    dispatch({
+      type: "ADD_NODO_ARBOL",
+      payload: {
+        id: florId,
+        anio: year,
+        parentId: rama.id,
+        orden,
+        nombre: florNombre,
+        tipo: "palanca",
+        cadencia: "anual",
+        relacionConPadre: "suma",
+        metaValor: Number.isFinite(m) ? m : undefined,
+        metaUnidad: raiz.metaUnidad,
+        contadorModo: "manual",
+        creado: now,
+      },
+    });
+    if (tieneRegsPropios) {
+      dispatch({ type: "REASSIGN_REGISTROS_NODO", fromNodoId: rama.id, toNodoId: florId });
+    }
+    onCreated();
+  };
+
+  return (
+    <form onSubmit={submit} className="mt-2 space-y-2 rounded border border-accent/30 bg-accent/5 p-2">
+      <p className="text-[10px] text-muted">Nueva flor en «{rama.nombre}»</p>
+      <label className="flex flex-col gap-1 text-[11px] text-muted">
+        Nombre
+        <input
+          value={nombre}
+          onChange={(e) => setNombre(e.target.value)}
+          disabled={tieneRegsPropios}
+          title={tieneRegsPropios ? "Se usará «Sin asignar» para conservar los apuntes existentes" : undefined}
+          className="rounded border border-border bg-background px-2 py-1.5 text-sm disabled:opacity-60"
+        />
+      </label>
+      <label className="flex flex-col gap-1 text-[11px] text-muted">
+        Meta anual (opcional)
+        <input
+          value={meta}
+          onChange={(e) => setMeta(e.target.value)}
+          inputMode="decimal"
+          placeholder="0"
+          className="w-28 rounded border border-border bg-background px-2 py-1.5 text-sm tabular-nums"
+        />
+      </label>
+      <div className="flex flex-wrap gap-2">
+        <button
+          type="submit"
+          className="rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-white hover:bg-accent/90"
+        >
+          Crear flor
+        </button>
+        <button type="button" onClick={onCancel} className="rounded-lg border border-border px-3 py-1.5 text-xs">
+          Cancelar
+        </button>
+      </div>
+    </form>
+  );
+}
+
+/** Nodo hoja (rama sin flores o flor): métricas + apunte €/% + año pasado. */
+function FilaHojaArbol({
+  nodo,
+  nodos,
   registros,
   vista,
   periodoKey,
   year,
   config,
   unidad,
-  planRaizPeriodo,
+  planBasePct,
+  modoStoragePrefix,
+  compact,
+  tituloExtra,
+  puedeEliminar,
+  onEliminar,
 }: {
-  rama: NodoArbol;
+  nodo: NodoArbol;
+  nodos: NodoArbol[];
   registros: RegistroNodo[];
   vista: VistaPeriodoArbol;
   periodoKey: string;
   year: number;
   config: PlanArbolConfigAnio | undefined;
   unidad: string;
-  /** Plan original del periodo en la raíz: se usa como base si el usuario apunta el real en %. */
-  planRaizPeriodo: number | undefined;
+  /** Plan del periodo del «padre» para apuntar en % (rama → plan raíz; flor → plan de la rama en el periodo). */
+  planBasePct: number | undefined;
+  modoStoragePrefix: "rama" | "flor";
+  compact?: boolean;
+  tituloExtra?: string;
+  puedeEliminar?: boolean;
+  onEliminar?: () => void;
 }) {
-  const dispatch = useAppDispatch();
   const upsert = useUpsertRegistro();
   const periodoTipo = periodoTipoDeVista(vista);
 
-  const plan = metaParaPeriodo(rama.cadencia, rama.metaValor, vista, periodoKey, year, config);
-  const real = realDeNodo(registros, rama.id, vista, periodoKey, year);
-  const anioPasado = realAnioPasadoDeNodo(registros, rama.id, vista, periodoKey, year);
+  const plan = planAgregadoEnPeriodo(nodo, nodos, vista, periodoKey, year, config);
+  const real = realEfectivoEnPeriodo(registros, nodos, nodo.id, vista, periodoKey, year);
+  const anioPasado = realAnioPasadoAgregado(registros, nodos, nodo.id, vista, periodoKey, year);
 
   const valorReal = registros.find(
-    (r) => r.nodoId === rama.id && r.periodoTipo === periodoTipo && r.periodoKey === periodoKey,
+    (r) => r.nodoId === nodo.id && r.periodoTipo === periodoTipo && r.periodoKey === periodoKey,
   )?.valor;
   const valorAnioPasado = registros.find(
     (r) =>
-      r.nodoId === rama.id &&
+      r.nodoId === nodo.id &&
       r.periodoTipo === periodoTipo &&
       r.periodoKey === desplazarUnAnio(periodoTipo, periodoKey),
   )?.valor;
 
   const deltaPlan = plan !== undefined ? real - plan : undefined;
 
-  // Modo de entrada del real para esta fila: € o %. Persistente por rama+periodoTipo.
-  const modoStorageKey = `arbol.fila-rama.modo.${rama.id}.${periodoTipo}`;
+  const modoStorageKey = `arbol.fila-${modoStoragePrefix}.modo.${nodo.id}.${periodoTipo}`;
   const [modoEs, setModoEs] = useState<"eur" | "pct">("eur");
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -743,37 +862,32 @@ function FilaRama({
     }
   };
 
-  // % del plan de la raíz que representa el real apuntado.
   const realComoPct =
-    planRaizPeriodo !== undefined && planRaizPeriodo > 0 && valorReal !== undefined
-      ? (valorReal / planRaizPeriodo) * 100
-      : undefined;
-  const pctDeshabilitado = !(planRaizPeriodo !== undefined && planRaizPeriodo > 0);
+    planBasePct !== undefined && planBasePct > 0 && valorReal !== undefined ? (valorReal / planBasePct) * 100 : undefined;
+  const pctDeshabilitado = !(planBasePct !== undefined && planBasePct > 0);
+
+  const pad = compact ? "px-1.5 py-1.5" : "px-2 py-2";
 
   return (
-    <div className="rounded-md bg-background px-2 py-2 ring-1 ring-border/40">
-      <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <div className="min-w-0">
-          <p className="truncate text-sm font-medium text-foreground">{rama.nombre}</p>
-          <p className="text-[10px] text-muted">
-            Meta anual: {rama.metaValor !== undefined ? `${fmtNum(rama.metaValor)} ${unidad}` : "—"}
-          </p>
+    <div className={`rounded-md bg-background ring-1 ring-border/40 ${pad}`}>
+      {(tituloExtra || puedeEliminar) && (
+        <div className="mb-1 flex flex-wrap items-center justify-between gap-1">
+          {tituloExtra && <p className="truncate text-[11px] font-medium text-foreground">{tituloExtra}</p>}
+          {puedeEliminar && onEliminar && (
+            <button
+              type="button"
+              onClick={onEliminar}
+              className="rounded px-1 py-0.5 text-[10px] text-muted hover:text-red-600"
+              aria-label={`Eliminar ${tituloExtra ?? nodo.nombre}`}
+            >
+              ✕
+            </button>
+          )}
         </div>
-        <button
-          type="button"
-          onClick={() => {
-            const ok = window.confirm(
-              `¿Eliminar la rama «${rama.nombre}» y sus registros? El borrado se conserva al sincronizar.`,
-            );
-            if (ok) dispatch({ type: "DELETE_NODO_ARBOL", id: rama.id });
-          }}
-          className="rounded px-1.5 py-0.5 text-[11px] text-muted hover:text-red-600"
-          aria-label={`Eliminar rama ${rama.nombre}`}
-        >
-          ✕
-        </button>
-      </div>
-      <div className="mt-1 grid grid-cols-2 gap-x-3 gap-y-1 text-[11px] sm:grid-cols-4">
+      )}
+      <div
+        className={`grid gap-x-3 gap-y-1 text-[11px] ${compact ? "grid-cols-2 sm:grid-cols-4" : "grid-cols-2 sm:grid-cols-4"}`}
+      >
         <span className="text-muted">
           Plan <strong className="tabular-nums text-foreground">{plan !== undefined ? fmtNum(plan) : "—"}</strong>
         </span>
@@ -789,7 +903,7 @@ function FilaRama({
           </span>
         )}
       </div>
-      <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
+      <div className={`mt-2 grid grid-cols-1 gap-2 ${compact ? "" : "sm:grid-cols-2"}`}>
         <div className="flex flex-col gap-1 text-[10px] text-muted">
           <div className="flex items-center justify-between gap-2">
             <span>Apuntar real</span>
@@ -806,7 +920,7 @@ function FilaRama({
                 type="button"
                 onClick={() => cambiaModo("pct")}
                 disabled={pctDeshabilitado}
-                title={pctDeshabilitado ? "Define un plan en este periodo para apuntar en %" : ""}
+                title={pctDeshabilitado ? "Define un plan base en este periodo para apuntar en %" : ""}
                 className={`px-1.5 py-0.5 ${
                   modoEs === "pct"
                     ? "bg-accent text-white"
@@ -822,27 +936,27 @@ function FilaRama({
           {modoEs === "eur" || pctDeshabilitado ? (
             <NumberInput
               value={valorReal}
-              onCommit={(v) => upsert({ nodoId: rama.id, periodoTipo, periodoKey, valor: v })}
-              ariaLabel={`Real ${rama.nombre}`}
+              onCommit={(v) => upsert({ nodoId: nodo.id, periodoTipo, periodoKey, valor: v })}
+              ariaLabel={`Real ${nodo.nombre}`}
               unidad={unidad}
             />
           ) : (
             <PercentInput
               value={realComoPct}
               onCommit={(p) => {
-                if (planRaizPeriodo === undefined || planRaizPeriodo <= 0) return;
+                if (planBasePct === undefined || planBasePct <= 0) return;
                 if (p === undefined) {
-                  upsert({ nodoId: rama.id, periodoTipo, periodoKey, valor: undefined });
+                  upsert({ nodoId: nodo.id, periodoTipo, periodoKey, valor: undefined });
                   return;
                 }
-                upsert({ nodoId: rama.id, periodoTipo, periodoKey, valor: (planRaizPeriodo * p) / 100 });
+                upsert({ nodoId: nodo.id, periodoTipo, periodoKey, valor: (planBasePct * p) / 100 });
               }}
-              ariaLabel={`Real ${rama.nombre} en porcentaje`}
+              ariaLabel={`Real ${nodo.nombre} en porcentaje`}
             />
           )}
           {modoEs === "pct" && !pctDeshabilitado && (
             <span className="text-[10px] text-muted">
-              Sobre plan {fmtNum(planRaizPeriodo ?? 0)} {unidad}
+              Sobre plan {fmtNum(planBasePct ?? 0)} {unidad}
             </span>
           )}
         </div>
@@ -852,17 +966,182 @@ function FilaRama({
             value={valorAnioPasado}
             onCommit={(v) =>
               upsert({
-                nodoId: rama.id,
+                nodoId: nodo.id,
                 periodoTipo,
                 periodoKey: desplazarUnAnio(periodoTipo, periodoKey),
                 valor: v,
               })
             }
-            ariaLabel={`Año pasado ${rama.nombre}`}
+            ariaLabel={`Año pasado ${nodo.nombre}`}
             unidad={unidad}
           />
         </label>
       </div>
+    </div>
+  );
+}
+
+function FilaRama({
+  rama,
+  raiz,
+  nodos,
+  registros,
+  vista,
+  periodoKey,
+  year,
+  config,
+  unidad,
+  planRaizPeriodo,
+}: {
+  rama: NodoArbol;
+  raiz: NodoArbol;
+  nodos: NodoArbol[];
+  registros: RegistroNodo[];
+  vista: VistaPeriodoArbol;
+  periodoKey: string;
+  year: number;
+  config: PlanArbolConfigAnio | undefined;
+  unidad: string;
+  /** Plan original del periodo en la raíz: base % si la rama es hoja. */
+  planRaizPeriodo: number | undefined;
+}) {
+  const dispatch = useAppDispatch();
+  const [mostrarNuevaFlor, setMostrarNuevaFlor] = useState(false);
+
+  const flores = useMemo(() => hijosSumaDirectos(nodos, rama.id, year), [nodos, rama.id, year]);
+  const conFlores = flores.length > 0;
+
+  const planRamaEnPeriodo = planAgregadoEnPeriodo(rama, nodos, vista, periodoKey, year, config);
+  const plan = planRamaEnPeriodo;
+  const real = realEfectivoEnPeriodo(registros, nodos, rama.id, vista, periodoKey, year);
+  const anioPasado = realAnioPasadoAgregado(registros, nodos, rama.id, vista, periodoKey, year);
+
+  const deltaPlan = plan !== undefined ? real - plan : undefined;
+
+  const metaLine = conFlores ? (
+    <>
+      Meta anual (suma flores):{" "}
+      <strong className="tabular-nums text-foreground">
+        {metaEfectivaNodo(rama, nodos, year) !== undefined
+          ? `${fmtNum(metaEfectivaNodo(rama, nodos, year))} ${unidad}`
+          : "—"}
+      </strong>
+    </>
+  ) : (
+    <>
+      Meta anual:{" "}
+      <strong className="tabular-nums text-foreground">
+        {rama.metaValor !== undefined ? `${fmtNum(rama.metaValor)} ${unidad}` : "—"}
+      </strong>
+    </>
+  );
+
+  return (
+    <div className="rounded-md bg-background px-2 py-2 ring-1 ring-border/40">
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <div className="min-w-0">
+          <p className="truncate text-sm font-medium text-foreground">{rama.nombre}</p>
+          <p className="text-[10px] text-muted">{metaLine}</p>
+        </div>
+        <div className="flex shrink-0 items-center gap-1">
+          <button
+            type="button"
+            onClick={() => setMostrarNuevaFlor((v) => !v)}
+            className="rounded px-1.5 py-0.5 text-[11px] text-accent hover:bg-accent/10"
+            aria-label={`Añadir flor en ${rama.nombre}`}
+          >
+            + flor
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              const ok = window.confirm(
+                `¿Eliminar la rama «${rama.nombre}» y sus registros? El borrado se conserva al sincronizar.`,
+              );
+              if (ok) dispatch({ type: "DELETE_NODO_ARBOL", id: rama.id });
+            }}
+            className="rounded px-1.5 py-0.5 text-[11px] text-muted hover:text-red-600"
+            aria-label={`Eliminar rama ${rama.nombre}`}
+          >
+            ✕
+          </button>
+        </div>
+      </div>
+
+      <div className="mt-1 grid grid-cols-2 gap-x-3 gap-y-1 text-[11px] sm:grid-cols-4">
+        <span className="text-muted">
+          Plan <strong className="tabular-nums text-foreground">{plan !== undefined ? fmtNum(plan) : "—"}</strong>
+        </span>
+        <span className="text-muted">
+          Real <strong className="tabular-nums text-foreground">{fmtNum(real)}</strong>
+        </span>
+        <span className="text-muted">
+          Año pasado <strong className="tabular-nums text-foreground">{anioPasado > 0 ? fmtNum(anioPasado) : "—"}</strong>
+        </span>
+        {deltaPlan !== undefined && (
+          <span className={`tabular-nums ${deltaPlan >= 0 ? "text-emerald-700 dark:text-emerald-300" : "text-red-700 dark:text-red-300"}`}>
+            Δ {fmtNum(deltaPlan, { signed: true })}
+          </span>
+        )}
+      </div>
+
+      {mostrarNuevaFlor && (
+        <FormNuevaFlor
+          rama={rama}
+          raiz={raiz}
+          year={year}
+          nodos={nodos}
+          registros={registros}
+          onCancel={() => setMostrarNuevaFlor(false)}
+          onCreated={() => setMostrarNuevaFlor(false)}
+        />
+      )}
+
+      {conFlores ? (
+        <details className="mt-2 rounded border border-border/50 bg-surface/20">
+          <summary className="cursor-pointer list-none px-2 py-1.5 text-[11px] font-medium text-muted marker:content-none [&::-webkit-details-marker]:hidden">
+            Flores ({flores.length})
+          </summary>
+          <div className="space-y-2 border-t border-border/50 px-2 py-2">
+            {flores.map((flor) => (
+              <FilaHojaArbol
+                key={flor.id}
+                nodo={flor}
+                nodos={nodos}
+                registros={registros}
+                vista={vista}
+                periodoKey={periodoKey}
+                year={year}
+                config={config}
+                unidad={unidad}
+                planBasePct={planRamaEnPeriodo}
+                modoStoragePrefix="flor"
+                tituloExtra={flor.nombre}
+                puedeEliminar
+                onEliminar={() => {
+                  const ok = window.confirm(`¿Eliminar la flor «${flor.nombre}» y sus registros?`);
+                  if (ok) dispatch({ type: "DELETE_NODO_ARBOL", id: flor.id });
+                }}
+              />
+            ))}
+          </div>
+        </details>
+      ) : (
+        <>
+          <FilaHojaArbol
+            nodo={rama}
+            nodos={nodos}
+            registros={registros}
+            vista={vista}
+            periodoKey={periodoKey}
+            year={year}
+            config={config}
+            unidad={unidad}
+            planBasePct={planRaizPeriodo}
+            modoStoragePrefix="rama"
+          />
+        </>
+      )}
     </div>
   );
 }
@@ -1034,12 +1313,14 @@ function BloqueMeses({ ctx, ramasAbiertasIds, toggleRamasAbiertas }: {
 
 /** Bloque Semanas: pestañas mes, lista vertical de semanas. */
 function BloqueSemanas({ ctx }: { ctx: ContextoBloque }) {
+  const dispatch = useAppDispatch();
   const noActivas = new Set(ctx.config?.semanasNoActivas ?? defaultSemanasNoActivas(ctx.year));
   const todos = useMemo(() => mondaysInCalendarYear(ctx.year), [ctx.year]);
   const mesActual = mesKeyFromDate(new Date());
   const mesInicial = mesActual.startsWith(`${ctx.year}-`) ? mesActual : `${ctx.year}-01`;
   const [mesTab, setMesTab] = useState<string>(mesInicial);
   const upsert = useUpsertRegistro();
+  const ramasQueSuman = useMemo(() => ctx.ramas.filter((r) => r.relacionConPadre === "suma"), [ctx.ramas]);
 
   const metaAnualRaiz = ctx.raiz.metaValor ?? 0;
   const realHastaHoyAnio = useMemo(
@@ -1231,6 +1512,87 @@ function BloqueSemanas({ ctx }: { ctx: ContextoBloque }) {
                     </label>
                   </div>
 
+                  {ramasQueSuman.length > 0 && (
+                    <details className="mt-2 rounded-lg border border-border/60 bg-surface/25">
+                      <summary className="cursor-pointer list-none px-2 py-1.5 text-[11px] font-medium text-muted marker:content-none [&::-webkit-details-marker]:hidden">
+                        Por rama ({ramasQueSuman.length})
+                      </summary>
+                      <div className="space-y-2 border-t border-border/50 px-2 py-2">
+                        {ramasQueSuman.map((rama) => {
+                          const flores = hijosSumaDirectos(ctx.nodos, rama.id, ctx.year);
+                          const planRamaSem = planAgregadoEnPeriodo(
+                            rama,
+                            ctx.nodos,
+                            "semana",
+                            mk,
+                            ctx.year,
+                            ctx.config,
+                          );
+                          const realRamaSem = realEfectivoEnPeriodo(
+                            ctx.registros,
+                            ctx.nodos,
+                            rama.id,
+                            "semana",
+                            mk,
+                            ctx.year,
+                          );
+                          const conFlores = flores.length > 0;
+                          return (
+                            <details key={rama.id} className="rounded-md border border-border/50 bg-background/80">
+                              <summary className="cursor-pointer list-none px-2 py-1.5 text-[11px] marker:content-none [&::-webkit-details-marker]:hidden">
+                                <span className="font-medium text-foreground">{rama.nombre}</span>
+                                <span className="text-muted">
+                                  {" "}
+                                  · Plan {planRamaSem !== undefined ? fmtNum(planRamaSem) : "—"} · Real {fmtNum(realRamaSem)}
+                                </span>
+                              </summary>
+                              <div className="space-y-2 border-t border-border/40 px-2 py-2">
+                                {conFlores ? (
+                                  flores.map((flor) => (
+                                    <FilaHojaArbol
+                                      key={flor.id}
+                                      nodo={flor}
+                                      nodos={ctx.nodos}
+                                      registros={ctx.registros}
+                                      vista="semana"
+                                      periodoKey={mk}
+                                      year={ctx.year}
+                                      config={ctx.config}
+                                      unidad={ctx.unidad}
+                                      planBasePct={planRamaSem}
+                                      modoStoragePrefix="flor"
+                                      compact
+                                      tituloExtra={flor.nombre}
+                                      puedeEliminar
+                                      onEliminar={() => {
+                                        const ok = window.confirm(`¿Eliminar la flor «${flor.nombre}» y sus registros?`);
+                                        if (ok) dispatch({ type: "DELETE_NODO_ARBOL", id: flor.id });
+                                      }}
+                                    />
+                                  ))
+                                ) : (
+                                  <FilaHojaArbol
+                                    nodo={rama}
+                                    nodos={ctx.nodos}
+                                    registros={ctx.registros}
+                                    vista="semana"
+                                    periodoKey={mk}
+                                    year={ctx.year}
+                                    config={ctx.config}
+                                    unidad={ctx.unidad}
+                                    planBasePct={plan}
+                                    modoStoragePrefix="rama"
+                                    compact
+                                  />
+                                )}
+                              </div>
+                            </details>
+                          );
+                        })}
+                      </div>
+                    </details>
+                  )}
+
                   {showBarSem && (
                     <div className="h-2 w-full max-w-md overflow-hidden rounded-full bg-surface" aria-hidden>
                       <div
@@ -1265,7 +1627,15 @@ export function VistaBloques({ raiz, year }: VistaBloquesProps) {
   const ramas = useMemo(() => ramasDirectas(arbol.nodos, raiz.id, year), [arbol.nodos, raiz.id, year]);
   const unidad = raiz.metaUnidad ?? "";
 
-  const ctx: ContextoBloque = { raiz, ramas, registros: arbol.registros, config, year, unidad };
+  const ctx: ContextoBloque = {
+    raiz,
+    ramas,
+    nodos: arbol.nodos,
+    registros: arbol.registros,
+    config,
+    year,
+    unidad,
+  };
 
   // estado para abrir/cerrar las "Ramas" por tarjeta
   const [ramasAbiertas, setRamasAbiertas] = useState<Set<string>>(new Set([`anio:${year}`, `trimestre:${trimestreKeyFromMesKey(mesKeyFromDate(new Date()))}`]));
@@ -1278,10 +1648,15 @@ export function VistaBloques({ raiz, year }: VistaBloquesProps) {
     });
   }, []);
 
-  // suma de planes de ramas y aviso si no cuadran con la meta total
+  const [ramaFlorFormConfigId, setRamaFlorFormConfigId] = useState<string | null>(null);
+
+  // suma de metas efectivas de ramas y aviso si no cuadran con la meta total
   const planRamasAnual = useMemo(
-    () => ramas.filter((r) => r.relacionConPadre === "suma").reduce((acc, r) => acc + (r.metaValor ?? 0), 0),
-    [ramas],
+    () =>
+      ramas
+        .filter((r) => r.relacionConPadre === "suma")
+        .reduce((acc, r) => acc + (metaEfectivaNodo(r, arbol.nodos, year) ?? 0), 0),
+    [ramas, arbol.nodos, year],
   );
   const cuadre =
     raiz.metaValor !== undefined && planRamasAnual > 0 && Math.abs(planRamasAnual - raiz.metaValor) > 0.01
@@ -1330,12 +1705,21 @@ export function VistaBloques({ raiz, year }: VistaBloquesProps) {
               const totalAnual = raiz.metaValor ?? 0;
               const sumPct = ramas
                 .filter((r) => r.relacionConPadre === "suma")
-                .reduce((acc, r) => acc + (totalAnual > 0 ? ((r.metaValor ?? 0) / totalAnual) * 100 : 0), 0);
+                .reduce(
+                  (acc, r) =>
+                    acc + (totalAnual > 0 ? ((metaEfectivaNodo(r, arbol.nodos, year) ?? 0) / totalAnual) * 100 : 0),
+                  0,
+                );
               return (
                 <>
                   {ramas.map((rama) => {
-                    const pct = totalAnual > 0 && rama.metaValor !== undefined ? (rama.metaValor / totalAnual) * 100 : undefined;
+                    const floresCfg = hijosSumaDirectos(arbol.nodos, rama.id, year);
+                    const conFloresCfg = floresCfg.length > 0;
+                    const metaEffRama = metaEfectivaNodo(rama, arbol.nodos, year);
+                    const pct =
+                      totalAnual > 0 && metaEffRama !== undefined ? (metaEffRama / totalAnual) * 100 : undefined;
                     const cuentaParaTotal = rama.relacionConPadre === "suma";
+                    const sumMetaFlores = floresCfg.reduce((acc, f) => acc + (f.metaValor ?? 0), 0);
                     return (
                       <div key={rama.id} className="rounded border border-border bg-surface/40 px-3 py-2">
                         <div className="flex flex-wrap items-baseline justify-between gap-2">
@@ -1343,7 +1727,15 @@ export function VistaBloques({ raiz, year }: VistaBloquesProps) {
                           <span className="text-[11px] text-muted">
                             Meta anual:{" "}
                             <strong className="tabular-nums text-foreground">
-                              {rama.metaValor !== undefined ? `${fmtNum(rama.metaValor)} ${unidad}` : "—"}
+                              {conFloresCfg ? (
+                                <>
+                                  = suma flores · {metaEffRama !== undefined ? `${fmtNum(metaEffRama)} ${unidad}` : "—"}
+                                </>
+                              ) : rama.metaValor !== undefined ? (
+                                `${fmtNum(rama.metaValor)} ${unidad}`
+                              ) : (
+                                "—"
+                              )}
                             </strong>
                             {cuentaParaTotal && pct !== undefined && (
                               <>
@@ -1354,6 +1746,28 @@ export function VistaBloques({ raiz, year }: VistaBloquesProps) {
                             )}
                           </span>
                         </div>
+                        <div className="mt-2 flex flex-wrap gap-2">
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setRamaFlorFormConfigId((id) => (id === rama.id ? null : rama.id))
+                            }
+                            className="rounded-lg border border-accent/40 px-2 py-1 text-[11px] font-medium text-accent hover:bg-accent/10"
+                          >
+                            + flor
+                          </button>
+                        </div>
+                        {ramaFlorFormConfigId === rama.id && (
+                          <FormNuevaFlor
+                            rama={rama}
+                            raiz={raiz}
+                            year={year}
+                            nodos={arbol.nodos}
+                            registros={arbol.registros}
+                            onCancel={() => setRamaFlorFormConfigId(null)}
+                            onCreated={() => setRamaFlorFormConfigId(null)}
+                          />
+                        )}
                         <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-4">
                           <label className="flex flex-col gap-1 text-[11px] text-muted">
                             Nombre
@@ -1370,22 +1784,28 @@ export function VistaBloques({ raiz, year }: VistaBloquesProps) {
                           </label>
                           <label className="flex flex-col gap-1 text-[11px] text-muted">
                             Meta anual ({unidad || "número"})
-                            <NumberInput
-                              value={rama.metaValor}
-                              onCommit={(v) =>
-                                dispatch({ type: "UPDATE_NODO_ARBOL", id: rama.id, changes: { metaValor: v } })
-                              }
-                              ariaLabel={`Meta anual de ${rama.nombre}`}
-                              unidad={unidad}
-                            />
+                            {conFloresCfg ? (
+                              <span className="rounded border border-border/60 bg-background/80 px-2 py-1.5 text-sm tabular-nums text-muted">
+                                Solo lectura · suma de flores
+                              </span>
+                            ) : (
+                              <NumberInput
+                                value={rama.metaValor}
+                                onCommit={(v) =>
+                                  dispatch({ type: "UPDATE_NODO_ARBOL", id: rama.id, changes: { metaValor: v } })
+                                }
+                                ariaLabel={`Meta anual de ${rama.nombre}`}
+                                unidad={unidad}
+                              />
+                            )}
                           </label>
                           <label className="flex flex-col gap-1 text-[11px] text-muted">
                             % del total
                             <PercentInput
                               value={pct}
-                              disabled={totalAnual <= 0}
+                              disabled={totalAnual <= 0 || conFloresCfg}
                               onCommit={(p) => {
-                                if (totalAnual <= 0 || p === undefined) return;
+                                if (totalAnual <= 0 || p === undefined || conFloresCfg) return;
                                 const nuevoMeta = (totalAnual * p) / 100;
                                 dispatch({ type: "UPDATE_NODO_ARBOL", id: rama.id, changes: { metaValor: nuevoMeta } });
                               }}
@@ -1410,6 +1830,72 @@ export function VistaBloques({ raiz, year }: VistaBloquesProps) {
                             </select>
                           </label>
                         </div>
+                        {conFloresCfg && (
+                          <details className="mt-3 rounded border border-border/60 bg-background/50">
+                            <summary className="cursor-pointer list-none px-2 py-1.5 text-[11px] font-medium text-muted marker:content-none [&::-webkit-details-marker]:hidden">
+                              Flores ({floresCfg.length})
+                            </summary>
+                            <div className="space-y-3 border-t border-border/50 px-2 py-2">
+                              {floresCfg.map((flor) => {
+                                const pctFlor =
+                                  sumMetaFlores > 0 && flor.metaValor !== undefined
+                                    ? (flor.metaValor / sumMetaFlores) * 100
+                                    : undefined;
+                                return (
+                                  <div key={flor.id} className="rounded border border-border/40 p-2">
+                                    <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
+                                      <span className="text-[11px] font-medium text-foreground">{flor.nombre}</span>
+                                      {pctFlor !== undefined && (
+                                        <span className="text-[10px] text-muted">
+                                          <strong className="tabular-nums text-foreground">
+                                            {pctFlor.toFixed(1).replace(".", ",")} %
+                                          </strong>{" "}
+                                          de la rama
+                                        </span>
+                                      )}
+                                    </div>
+                                    <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                                      <label className="flex flex-col gap-1 text-[11px] text-muted">
+                                        Nombre
+                                        <input
+                                          defaultValue={flor.nombre}
+                                          onBlur={(e) => {
+                                            const v = e.target.value.trim();
+                                            if (v && v !== flor.nombre) {
+                                              dispatch({ type: "UPDATE_NODO_ARBOL", id: flor.id, changes: { nombre: v } });
+                                            }
+                                          }}
+                                          className="rounded border border-border bg-background px-2 py-1.5 text-sm"
+                                        />
+                                      </label>
+                                      <label className="flex flex-col gap-1 text-[11px] text-muted">
+                                        Meta anual ({unidad || "número"})
+                                        <NumberInput
+                                          value={flor.metaValor}
+                                          onCommit={(v) =>
+                                            dispatch({ type: "UPDATE_NODO_ARBOL", id: flor.id, changes: { metaValor: v } })
+                                          }
+                                          ariaLabel={`Meta anual de ${flor.nombre}`}
+                                          unidad={unidad}
+                                        />
+                                      </label>
+                                    </div>
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        const ok = window.confirm(`¿Eliminar la flor «${flor.nombre}» y sus registros?`);
+                                        if (ok) dispatch({ type: "DELETE_NODO_ARBOL", id: flor.id });
+                                      }}
+                                      className="mt-2 text-[11px] text-muted hover:text-red-600"
+                                    >
+                                      Eliminar flor
+                                    </button>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </details>
+                        )}
                       </div>
                     );
                   })}

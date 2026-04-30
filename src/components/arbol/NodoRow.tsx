@@ -6,9 +6,10 @@ import { generateId } from "@/lib/store";
 import type { NodoArbol, PlanArbolConfigAnio, RegistroNodo } from "@/lib/types";
 import {
   isoWeekLabelFromMondayKey,
-  metaParaPeriodo,
   metaParaVista,
-  sumarRegistrosNodoSimple,
+  planAgregadoEnPeriodo,
+  realEfectivoEnPeriodo,
+  tieneHijosSuma,
   type VistaPeriodoArbol,
   formatWeekRange,
 } from "@/lib/arbol-tiempo";
@@ -18,6 +19,7 @@ import { CADENCIA_UI, TIPO_UI } from "./arbol-copy";
 function cuadreMetaHijos(
   parent: NodoArbol,
   children: NodoArbol[],
+  allNodes: NodoArbol[],
   vista: VistaPeriodoArbol,
   periodoKey: string,
   year: number,
@@ -25,11 +27,11 @@ function cuadreMetaHijos(
 ): string | null {
   const sumadores = children.filter((c) => c.relacionConPadre === "suma");
   if (sumadores.length === 0) return null;
-  const pm = metaParaPeriodo(parent.cadencia, parent.metaValor, vista, periodoKey, year, config);
+  const pm = planAgregadoEnPeriodo(parent, allNodes, vista, periodoKey, year, config);
   if (pm === undefined) return null;
   let s = 0;
   for (const ch of sumadores) {
-    const m = metaParaPeriodo(ch.cadencia, ch.metaValor, vista, periodoKey, year, config);
+    const m = planAgregadoEnPeriodo(ch, allNodes, vista, periodoKey, year, config);
     if (m !== undefined) s += m;
   }
   if (Math.abs(s - pm) > 0.02) return `Σ hijos ${s.toFixed(2)} ≠ ${pm.toFixed(2)}`;
@@ -79,13 +81,15 @@ export function NodoRow({
   );
   const hasChildren = children.length > 0;
   const open = expandedIds.has(node.id);
+  const realSoloEnHijos = useMemo(() => tieneHijosSuma(allNodes, node.id, year), [allNodes, node.id, year]);
   const warn = useMemo(
-    () => (hasChildren ? cuadreMetaHijos(node, children, vista, periodoKey, year, config) : null),
-    [node, children, vista, periodoKey, year, config, hasChildren],
+    () =>
+      hasChildren ? cuadreMetaHijos(node, children, allNodes, vista, periodoKey, year, config) : null,
+    [node, children, allNodes, vista, periodoKey, year, config, hasChildren],
   );
 
-  const metaShow = metaParaPeriodo(node.cadencia, node.metaValor, vista, periodoKey, year, config);
-  const realShow = sumarRegistrosNodoSimple(registros, node.id, vista, periodoKey, year);
+  const metaShow = planAgregadoEnPeriodo(node, allNodes, vista, periodoKey, year, config);
+  const realShow = realEfectivoEnPeriodo(registros, allNodes, node.id, vista, periodoKey, year);
   const existing = registros.find(
     (r) => r.nodoId === node.id && r.periodoTipo === periodoTipo && r.periodoKey === periodoKey,
   );
@@ -209,7 +213,7 @@ export function NodoRow({
             periodoTipo={periodoTipo}
             periodoKey={periodoKey}
             existing={existing}
-            disabled={vacacionDisabled}
+            disabled={vacacionDisabled || realSoloEnHijos}
             onCommit={(patch) => {
               dispatch({
                 type: "UPSERT_REGISTRO_NODO",

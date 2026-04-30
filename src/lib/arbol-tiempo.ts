@@ -1,6 +1,101 @@
 import type { NodoArbol, PlanArbolConfigAnio, RegistroNodo } from "./types";
 import { esDiaLaborable, fechaKeyDesdeDate } from "./festivos-es";
 
+/** Hijos directos que suman al padre (ramas y flores). */
+export function hijosSumaDirectos(nodos: NodoArbol[], parentId: string, anio: number): NodoArbol[] {
+  return nodos
+    .filter((n) => n.anio === anio && n.parentId === parentId && n.relacionConPadre === "suma")
+    .sort((a, b) => a.orden - b.orden);
+}
+
+export function tieneHijosSuma(nodos: NodoArbol[], nodoId: string, anio: number): boolean {
+  return hijosSumaDirectos(nodos, nodoId, anio).length > 0;
+}
+
+/** Meta anual efectiva: si hay hijos que suman, suma sus metas efectivas; si no, la meta del propio nodo. */
+export function metaEfectivaNodo(nodo: NodoArbol, nodos: NodoArbol[], anio: number): number | undefined {
+  const hijos = hijosSumaDirectos(nodos, nodo.id, anio);
+  if (hijos.length > 0) {
+    let sum = 0;
+    let any = false;
+    for (const h of hijos) {
+      const m = metaEfectivaNodo(h, nodos, anio);
+      if (m !== undefined && Number.isFinite(m)) {
+        sum += m;
+        any = true;
+      }
+    }
+    return any ? sum : undefined;
+  }
+  return nodo.metaValor;
+}
+
+/** Plan del periodo agregando hijos que suman (o el plan del nodo hoja). */
+export function planAgregadoEnPeriodo(
+  nodo: NodoArbol,
+  nodos: NodoArbol[],
+  vista: VistaPeriodoArbol,
+  periodoKey: string,
+  anio: number,
+  config: PlanArbolConfigAnio | undefined,
+): number | undefined {
+  const hijos = hijosSumaDirectos(nodos, nodo.id, anio);
+  if (hijos.length === 0) {
+    const meta = metaEfectivaNodo(nodo, nodos, anio);
+    return metaParaPeriodo(nodo.cadencia, meta, vista, periodoKey, anio, config);
+  }
+  let sum = 0;
+  let any = false;
+  for (const h of hijos) {
+    const p = planAgregadoEnPeriodo(h, nodos, vista, periodoKey, anio, config);
+    if (p !== undefined && Number.isFinite(p)) {
+      sum += p;
+      any = true;
+    }
+  }
+  return any ? sum : undefined;
+}
+
+/** Real del periodo: suma recursiva por hijos que suman si existen. */
+export function realEfectivoEnPeriodo(
+  registros: RegistroNodo[],
+  nodos: NodoArbol[],
+  nodoId: string,
+  vista: VistaPeriodoArbol,
+  periodoKey: string,
+  year: number,
+): number {
+  const nodo = nodos.find((n) => n.id === nodoId);
+  if (!nodo || nodo.anio !== year) {
+    return sumarRegistrosNodoSimple(registros, nodoId, vista, periodoKey, year);
+  }
+  if (!tieneHijosSuma(nodos, nodoId, year)) {
+    return sumarRegistrosNodoSimple(registros, nodoId, vista, periodoKey, year);
+  }
+  const hijos = hijosSumaDirectos(nodos, nodoId, year);
+  return hijos.reduce((acc, h) => acc + realEfectivoEnPeriodo(registros, nodos, h.id, vista, periodoKey, year), 0);
+}
+
+/** Referencia año pasado agregada por hijos que suman. */
+export function realAnioPasadoAgregado(
+  registros: RegistroNodo[],
+  nodos: NodoArbol[],
+  nodoId: string,
+  vista: VistaPeriodoArbol,
+  periodoKey: string,
+  year: number,
+): number {
+  const nodo = nodos.find((n) => n.id === nodoId);
+  if (!nodo || nodo.anio !== year) {
+    return sumarRegistrosNodoAnioAnterior(registros, nodoId, vista, periodoKey, year);
+  }
+  if (!tieneHijosSuma(nodos, nodoId, year)) {
+    return sumarRegistrosNodoAnioAnterior(registros, nodoId, vista, periodoKey, year);
+  }
+  const hijos = hijosSumaDirectos(nodos, nodoId, year);
+  return hijos.reduce((acc, h) => acc + realAnioPasadoAgregado(registros, nodos, h.id, vista, periodoKey, year), 0);
+}
+
 /** Lunes local como YYYY-MM-DD */
 export function toMondayDateKeyLocal(d: Date): string {
   const x = new Date(d);

@@ -159,6 +159,8 @@ export type Action =
   | { type: "MOVE_NODO_ARBOL"; id: string; parentId?: string | null; orden?: number }
   | { type: "UPSERT_REGISTRO_NODO"; payload: RegistroNodo }
   | { type: "DELETE_REGISTRO_NODO"; id: string }
+  /** Mueve todos los registros de fromNodoId a toNodoId (mismo periodoTipo/periodoKey; sin fusionar duplicados). */
+  | { type: "REASSIGN_REGISTROS_NODO"; fromNodoId: string; toNodoId: string }
   | { type: "SET_ARBOL_CONFIG_ANIO"; config: PlanArbolConfigAnio }
   | { type: "REPLACE_ARBOL_STATE"; arbol: PlanArbolState }
   | {
@@ -1563,6 +1565,16 @@ export function reducer(state: AppState, action: Action): AppState {
         arbol: { ...arbol, registros: arbol.registros.filter((r) => r.id !== action.id) },
         deleted: addTombstones(state.deleted, { arbolRegistros: [action.id] }),
       };
+    }
+
+    case "REASSIGN_REGISTROS_NODO": {
+      const arbol = state.arbol ?? EMPTY_ARBOL;
+      const now = new Date().toISOString();
+      const { fromNodoId, toNodoId } = action;
+      const registros = arbol.registros.map((r) =>
+        r.nodoId === fromNodoId ? { ...r, nodoId: toNodoId, actualizado: now } : r,
+      );
+      return { ...state, arbol: { ...arbol, registros } };
     }
 
     case "SET_ARBOL_CONFIG_ANIO": {
