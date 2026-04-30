@@ -1,7 +1,7 @@
 import type { NodoArbol, PlanArbolConfigAnio, RegistroNodo } from "./types";
 import { esDiaLaborable, fechaKeyDesdeDate } from "./festivos-es";
 
-/** Hijos directos que suman al padre (ramas y flores). */
+/** Hijos directos que suman al padre (ramas y hojas). */
 export function hijosSumaDirectos(nodos: NodoArbol[], parentId: string, anio: number): NodoArbol[] {
   return nodos
     .filter((n) => n.anio === anio && n.parentId === parentId && n.relacionConPadre === "suma")

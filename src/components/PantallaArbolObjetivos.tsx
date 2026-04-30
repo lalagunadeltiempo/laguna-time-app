@@ -1,5 +1,6 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import { useEffect, useMemo, useState } from "react";
 import { useAppDispatch, useAppState } from "@/lib/context";
 import { useIsMentor, usePuedeVerArbol } from "@/lib/usuario";
@@ -8,7 +9,17 @@ import { defaultSemanasNoActivas, ensureConfigAnio } from "@/lib/arbol-tiempo";
 import { EMPTY_ARBOL, type NodoArbol } from "@/lib/types";
 import { VacacionesEditor } from "@/components/arbol/VacacionesEditor";
 import { CierreTrimestre } from "@/components/arbol/CierreTrimestre";
-import { VistaBloques } from "@/components/arbol/VistaBloques";
+
+const VistaBloques = dynamic(
+  () => import("@/components/arbol/VistaBloques").then((m) => ({ default: m.VistaBloques })),
+  {
+    loading: () => (
+      <div className="rounded-xl border border-border/60 bg-background p-8 text-center text-sm text-muted">
+        Cargando vista del árbol…
+      </div>
+    ),
+  },
+);
 
 /** Tarjeta inicial cuando todavía no hay objetivo anual: solo nombre y cifra. */
 function CrearObjetivoAnualForm({ year }: { year: number }) {
