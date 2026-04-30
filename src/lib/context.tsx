@@ -14,6 +14,8 @@ import type { AppState } from "./types";
 import {
   loadStateLocal,
   saveStateLocal,
+  scheduleSaveStateLocal,
+  flushPendingSaveStateLocal,
   loadStateCloud,
   saveStateCloud,
   flushPendingCloudSave,
@@ -162,6 +164,8 @@ function actionToLog(action: Action, _userName: string, state: AppState): { acti
 export function AppProvider({ userId, displayName, children }: ProviderProps) {
   const logName = displayName || userId;
   const [state, dispatch] = useReducer(reducer, INITIAL_STATE);
+  const stateRef = useRef(state);
+  stateRef.current = state;
   const initialized = useRef(false);
   const prevUserId = useRef(userId);
 
@@ -245,10 +249,17 @@ export function AppProvider({ userId, displayName, children }: ProviderProps) {
     init();
   }, [userId]);
 
+  useEffect(
+    () => () => {
+      flushPendingSaveStateLocal();
+    },
+    [],
+  );
+
   useEffect(() => {
     if (state === INITIAL_STATE) return;
     if (!initDone.current) return;
-    if (userId !== "mentor") saveStateLocal(state);
+    if (userId !== "mentor") scheduleSaveStateLocal(state);
     saveStateCloud(userId, state, (merged) => {
       // Si el cloud contenía tombstones/entidades que nuestro state local no tenía,
       // el merged difiere: re-aplicamos para que esta sesión refleje lo mismo que se subió.
@@ -259,9 +270,6 @@ export function AppProvider({ userId, displayName, children }: ProviderProps) {
       }
     });
   }, [state, userId]);
-
-  const stateRef = useRef(state);
-  stateRef.current = state;
 
   useEffect(() => {
     let lastSync = 0;
@@ -278,9 +286,13 @@ export function AppProvider({ userId, displayName, children }: ProviderProps) {
       }
     }
 
-    function handleBeforeUnload() { flushPendingCloudSave(); }
+    function handleBeforeUnload() {
+      flushPendingSaveStateLocal();
+      flushPendingCloudSave();
+    }
     function handleVisibilityChange() {
       if (document.visibilityState === "hidden") {
+        flushPendingSaveStateLocal();
         flushPendingCloudSave();
         return;
       }
@@ -305,7 +317,7 @@ export function AppProvider({ userId, displayName, children }: ProviderProps) {
   }, [userId]);
 
   const loggingDispatch = useCallback((action: Action) => {
-    const log = actionToLog(action, logName, state);
+    const log = actionToLog(action, logName, stateRef.current);
     dispatch(action);
     if (log) {
       dispatch({
@@ -318,7 +330,7 @@ export function AppProvider({ userId, displayName, children }: ProviderProps) {
         },
       });
     }
-  }, [logName, state]);
+  }, [logName]);
 
   return (
     <StateCtx.Provider value={state}>

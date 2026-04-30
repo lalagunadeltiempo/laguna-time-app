@@ -190,6 +190,32 @@ export function saveStateLocal(state: AppState): void {
   }
 }
 
+let _localSaveTimer: ReturnType<typeof setTimeout> | null = null;
+let _pendingLocalState: AppState | null = null;
+
+/** Agrupa escrituras en localStorage para no bloquear el hilo en cada acción. */
+export function scheduleSaveStateLocal(state: AppState): void {
+  if (typeof window === "undefined") return;
+  _pendingLocalState = state;
+  if (_localSaveTimer) clearTimeout(_localSaveTimer);
+  _localSaveTimer = setTimeout(() => {
+    _localSaveTimer = null;
+    if (_pendingLocalState) saveStateLocal(_pendingLocalState);
+    _pendingLocalState = null;
+  }, 500);
+}
+
+export function flushPendingSaveStateLocal(): void {
+  if (_localSaveTimer) {
+    clearTimeout(_localSaveTimer);
+    _localSaveTimer = null;
+  }
+  if (_pendingLocalState) {
+    saveStateLocal(_pendingLocalState);
+    _pendingLocalState = null;
+  }
+}
+
 export function getLocalSavedAt(): string | null {
   if (typeof window === "undefined") return null;
   return localStorage.getItem(SAVED_AT_KEY);

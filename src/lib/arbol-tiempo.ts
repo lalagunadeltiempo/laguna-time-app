@@ -96,6 +96,200 @@ export function realAnioPasadoAgregado(
   return hijos.reduce((acc, h) => acc + realAnioPasadoAgregado(registros, nodos, h.id, vista, periodoKey, year), 0);
 }
 
+/** Índices precalculados para evitar barridos lineales sobre todos los registros/nodos en la UI. */
+export type ArbolIndices = {
+  regsPorNodo: Map<string, RegistroNodo[]>;
+  nodosPorParent: Map<string, NodoArbol[]>;
+  nodosById: Map<string, NodoArbol>;
+  year: number;
+};
+
+export function buildArbolIndices(registros: RegistroNodo[], nodos: NodoArbol[], year: number): ArbolIndices {
+  const regsPorNodo = new Map<string, RegistroNodo[]>();
+  for (const r of registros) {
+    const list = regsPorNodo.get(r.nodoId);
+    if (list) list.push(r);
+    else regsPorNodo.set(r.nodoId, [r]);
+  }
+  const nodosPorParent = new Map<string, NodoArbol[]>();
+  const nodosById = new Map<string, NodoArbol>();
+  for (const n of nodos) {
+    if (n.anio !== year) continue;
+    nodosById.set(n.id, n);
+    const pid = n.parentId ?? "";
+    const list = nodosPorParent.get(pid);
+    if (list) list.push(n);
+    else nodosPorParent.set(pid, [n]);
+  }
+  for (const list of nodosPorParent.values()) {
+    list.sort((a, b) => a.orden - b.orden);
+  }
+  return { regsPorNodo, nodosPorParent, nodosById, year };
+}
+
+/** Suma registros ya filtrados por nodo (misma semántica que `sumarRegistrosNodoSimple`). */
+export function sumarRegistrosNodoSimpleLista(
+  registrosDelNodo: RegistroNodo[] | undefined,
+  vista: VistaPeriodoArbol,
+  periodoKey: string,
+  year: number,
+): number {
+  if (!registrosDelNodo?.length) return 0;
+  let sum = 0;
+  for (const r of registrosDelNodo) {
+    if (vista === "semana") {
+      if (r.periodoTipo === "semana" && r.periodoKey === periodoKey) sum += r.valor;
+    } else if (vista === "mes") {
+      if (r.periodoTipo === "semana" && mondayEnMes(r.periodoKey, periodoKey)) sum += r.valor;
+      else if (r.periodoTipo === "mes" && r.periodoKey === periodoKey) sum += r.valor;
+    } else if (vista === "trimestre") {
+      if (r.periodoTipo === "semana") {
+        const mk = r.periodoKey;
+        const mKey = mesKeyFromDate(parseLocalDateKey(mk));
+        if (mesEnTrimestre(mKey, periodoKey)) sum += r.valor;
+      } else if (r.periodoTipo === "mes" && mesEnTrimestre(r.periodoKey, periodoKey)) sum += r.valor;
+      else if (r.periodoTipo === "trimestre" && r.periodoKey === periodoKey) sum += r.valor;
+    } else {
+      if (r.periodoTipo === "anio" && r.periodoKey === periodoKey) sum += r.valor;
+      else if (r.periodoTipo === "trimestre" && r.periodoKey.startsWith(`${year}-`)) sum += r.valor;
+      else if (r.periodoTipo === "mes" && r.periodoKey.startsWith(`${year}-`)) sum += r.valor;
+      else if (r.periodoTipo === "semana" && r.periodoKey.startsWith(`${year}-`)) sum += r.valor;
+    }
+  }
+  return sum;
+}
+
+/** Version lista de `sumarRegistrosNodoAnioAnterior` (usa `desplazarPeriodoUnAnio` definido más abajo). */
+export function sumarRegistrosNodoAnioAnteriorLista(
+  registrosDelNodo: RegistroNodo[] | undefined,
+  vista: VistaPeriodoArbol,
+  periodoKey: string,
+  year: number,
+): number {
+  const yearPrev = year - 1;
+  const periodoTipo =
+    vista === "semana" ? "semana" : vista === "mes" ? "mes" : vista === "trimestre" ? "trimestre" : "anio";
+  const keyPrev = desplazarPeriodoUnAnio(periodoTipo, periodoKey);
+  return sumarRegistrosNodoSimpleLista(registrosDelNodo, vista, keyPrev, yearPrev);
+}
+
+export function hijosSumaDirectosIdx(idx: ArbolIndices, parentId: string): NodoArbol[] {
+  const kids = idx.nodosPorParent.get(parentId) ?? [];
+  return kids.filter((n) => n.relacionConPadre === "suma");
+}
+
+export function tieneHijosSumaIdx(idx: ArbolIndices, nodoId: string): boolean {
+  return hijosSumaDirectosIdx(idx, nodoId).length > 0;
+}
+
+export function metaEfectivaNodoIdx(idx: ArbolIndices, nodo: NodoArbol): number | undefined {
+  const hijos = hijosSumaDirectosIdx(idx, nodo.id);
+  if (hijos.length > 0) {
+    let sum = 0;
+    let any = false;
+    for (const h of hijos) {
+      const m = metaEfectivaNodoIdx(idx, h);
+      if (m !== undefined && Number.isFinite(m)) {
+        sum += m;
+        any = true;
+      }
+    }
+    return any ? sum : undefined;
+  }
+  return nodo.metaValor;
+}
+
+export function planAgregadoEnPeriodoIdx(
+  idx: ArbolIndices,
+  nodo: NodoArbol,
+  vista: VistaPeriodoArbol,
+  periodoKey: string,
+  config: PlanArbolConfigAnio | undefined,
+): number | undefined {
+  const hijos = hijosSumaDirectosIdx(idx, nodo.id);
+  if (hijos.length === 0) {
+    const meta = metaEfectivaNodoIdx(idx, nodo);
+    return metaParaPeriodo(nodo.cadencia, meta, vista, periodoKey, idx.year, config);
+  }
+  let sum = 0;
+  let any = false;
+  for (const h of hijos) {
+    const p = planAgregadoEnPeriodoIdx(idx, h, vista, periodoKey, config);
+    if (p !== undefined && Number.isFinite(p)) {
+      sum += p;
+      any = true;
+    }
+  }
+  return any ? sum : undefined;
+}
+
+export function realEfectivoEnPeriodoIdx(
+  idx: ArbolIndices,
+  nodoId: string,
+  vista: VistaPeriodoArbol,
+  periodoKey: string,
+): number {
+  const nodo = idx.nodosById.get(nodoId);
+  const regs = idx.regsPorNodo.get(nodoId);
+  if (!nodo || nodo.anio !== idx.year) {
+    return sumarRegistrosNodoSimpleLista(regs, vista, periodoKey, idx.year);
+  }
+  if (!tieneHijosSumaIdx(idx, nodoId)) {
+    return sumarRegistrosNodoSimpleLista(regs, vista, periodoKey, idx.year);
+  }
+  const hijos = hijosSumaDirectosIdx(idx, nodoId);
+  return hijos.reduce((acc, h) => acc + realEfectivoEnPeriodoIdx(idx, h.id, vista, periodoKey), 0);
+}
+
+export function realAnioPasadoAgregadoIdx(
+  idx: ArbolIndices,
+  nodoId: string,
+  vista: VistaPeriodoArbol,
+  periodoKey: string,
+): number {
+  const nodo = idx.nodosById.get(nodoId);
+  const regs = idx.regsPorNodo.get(nodoId);
+  if (!nodo || nodo.anio !== idx.year) {
+    return sumarRegistrosNodoAnioAnteriorLista(regs, vista, periodoKey, idx.year);
+  }
+  if (!tieneHijosSumaIdx(idx, nodoId)) {
+    return sumarRegistrosNodoAnioAnteriorLista(regs, vista, periodoKey, idx.year);
+  }
+  const hijos = hijosSumaDirectosIdx(idx, nodoId);
+  return hijos.reduce((acc, h) => acc + realAnioPasadoAgregadoIdx(idx, h.id, vista, periodoKey), 0);
+}
+
+/** Real acumulado del año hasta hoy (lista ya filtrada por nodo). */
+export function realDelAnioHastaHoyLista(
+  registrosDelNodo: RegistroNodo[] | undefined,
+  year: number,
+  hoy: Date = new Date(),
+): number {
+  if (!registrosDelNodo?.length) return 0;
+  let sum = 0;
+  const hoyKey = `${hoy.getFullYear()}-${String(hoy.getMonth() + 1).padStart(2, "0")}-${String(hoy.getDate()).padStart(2, "0")}`;
+  for (const r of registrosDelNodo) {
+    if (r.periodoTipo === "semana") {
+      if (r.periodoKey.startsWith(`${year}-`) && r.periodoKey <= hoyKey) sum += r.valor;
+    } else if (r.periodoTipo === "mes") {
+      if (r.periodoKey.startsWith(`${year}-`)) {
+        const [, m] = r.periodoKey.split("-").map((s) => parseInt(s, 10));
+        const mesActual = hoy.getMonth() + 1;
+        if (year < hoy.getFullYear() || (year === hoy.getFullYear() && m <= mesActual)) sum += r.valor;
+      }
+    } else if (r.periodoTipo === "trimestre") {
+      if (r.periodoKey.startsWith(`${year}-Q`)) {
+        const q = parseInt(r.periodoKey.slice(-1), 10);
+        const qActual = Math.floor(hoy.getMonth() / 3) + 1;
+        if (year < hoy.getFullYear() || (year === hoy.getFullYear() && q <= qActual)) sum += r.valor;
+      }
+    } else if (r.periodoTipo === "anio") {
+      if (r.periodoKey === String(year) && year < hoy.getFullYear()) sum += r.valor;
+    }
+  }
+  return sum;
+}
+
 /** Lunes local como YYYY-MM-DD */
 export function toMondayDateKeyLocal(d: Date): string {
   const x = new Date(d);
