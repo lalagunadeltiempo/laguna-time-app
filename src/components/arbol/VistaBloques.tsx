@@ -336,14 +336,24 @@ function useUpsertRegistro() {
   const arbol = state.arbol ?? EMPTY_ARBOL;
   registrosRef.current = arbol.registros;
   return useCallback(
-    (opts: { nodoId: string; periodoTipo: RegistroNodo["periodoTipo"]; periodoKey: string; valor: number | undefined }) => {
+    (opts: {
+      nodoId: string;
+      periodoTipo: RegistroNodo["periodoTipo"];
+      periodoKey: string;
+      valor?: number | undefined;
+      unidades?: number | undefined;
+      /** Si true y `valor` viene sin especificar, conserva el valor existente. */
+      soloUnidades?: boolean;
+    }) => {
       const existing = registrosRef.current.find(
         (r) =>
           r.nodoId === opts.nodoId &&
           r.periodoTipo === opts.periodoTipo &&
           r.periodoKey === opts.periodoKey,
       );
-      if (opts.valor === undefined) {
+      const nextValor = opts.soloUnidades ? existing?.valor : opts.valor;
+      const nextUnidades = opts.unidades;
+      if (nextValor === undefined && (nextUnidades === undefined || !Number.isFinite(nextUnidades))) {
         if (existing) dispatch({ type: "DELETE_REGISTRO_NODO", id: existing.id });
         return;
       }
@@ -355,7 +365,8 @@ function useUpsertRegistro() {
           nodoId: opts.nodoId,
           periodoTipo: opts.periodoTipo,
           periodoKey: opts.periodoKey,
-          valor: opts.valor,
+          valor: nextValor ?? 0,
+          unidades: nextUnidades,
           nota: existing?.nota,
           estadoRealidad: existing?.estadoRealidad,
           realidadPorQue: existing?.realidadPorQue,
@@ -616,42 +627,93 @@ const TarjetaPeriodo = memo(function TarjetaPeriodo({
         </details>
       )}
 
-      <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
-        <label className="flex flex-col gap-1 text-[11px] text-muted">
-          Apuntar real (total {titulo})
-          <NumberInput
-            value={
-              registros.find((r) => r.nodoId === raiz.id && r.periodoTipo === periodoTipo && r.periodoKey === periodoKey)?.valor
-            }
-            onCommit={(v) => upsert({ nodoId: raiz.id, periodoTipo, periodoKey, valor: v })}
-            ariaLabel={`Real ${titulo}`}
-            unidad={unidad}
-          />
-        </label>
-        <label className="flex flex-col gap-1 text-[11px] text-muted">
-          Año pasado (cargar)
-          <NumberInput
-            value={
-              registros.find(
-                (r) =>
-                  r.nodoId === raiz.id &&
-                  r.periodoTipo === periodoTipo &&
-                  r.periodoKey === desplazarUnAnio(periodoTipo, periodoKey),
-              )?.valor
-            }
-            onCommit={(v) =>
-              upsert({
-                nodoId: raiz.id,
-                periodoTipo,
-                periodoKey: desplazarUnAnio(periodoTipo, periodoKey),
-                valor: v,
-              })
-            }
-            ariaLabel={`Año pasado ${titulo}`}
-            unidad={unidad}
-          />
-        </label>
-      </div>
+      {(() => {
+        const regActual = registros.find(
+          (r) => r.nodoId === raiz.id && r.periodoTipo === periodoTipo && r.periodoKey === periodoKey,
+        );
+        const ayKey = desplazarUnAnio(periodoTipo, periodoKey);
+        const regAy = registros.find(
+          (r) => r.nodoId === raiz.id && r.periodoTipo === periodoTipo && r.periodoKey === ayKey,
+        );
+        return (
+          <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
+            <div className="flex flex-col gap-1">
+              <label className="flex flex-col gap-1 text-[11px] text-muted">
+                Apuntar real (total {titulo})
+                <NumberInput
+                  value={regActual?.valor}
+                  onCommit={(v) =>
+                    upsert({
+                      nodoId: raiz.id,
+                      periodoTipo,
+                      periodoKey,
+                      valor: v,
+                      unidades: regActual?.unidades,
+                    })
+                  }
+                  ariaLabel={`Real ${titulo}`}
+                  unidad={unidad}
+                />
+              </label>
+              <label className="flex items-center gap-2 text-[10px] text-muted">
+                <span className="shrink-0">Uds</span>
+                <NumberInput
+                  value={regActual?.unidades}
+                  onCommit={(u) =>
+                    upsert({
+                      nodoId: raiz.id,
+                      periodoTipo,
+                      periodoKey,
+                      valor: regActual?.valor,
+                      unidades: u,
+                      soloUnidades: true,
+                    })
+                  }
+                  ariaLabel={`Unidades ${titulo}`}
+                  unidad="uds"
+                />
+              </label>
+            </div>
+            <div className="flex flex-col gap-1">
+              <label className="flex flex-col gap-1 text-[11px] text-muted">
+                Año pasado (cargar)
+                <NumberInput
+                  value={regAy?.valor}
+                  onCommit={(v) =>
+                    upsert({
+                      nodoId: raiz.id,
+                      periodoTipo,
+                      periodoKey: ayKey,
+                      valor: v,
+                      unidades: regAy?.unidades,
+                    })
+                  }
+                  ariaLabel={`Año pasado ${titulo}`}
+                  unidad={unidad}
+                />
+              </label>
+              <label className="flex items-center gap-2 text-[10px] text-muted">
+                <span className="shrink-0">Uds</span>
+                <NumberInput
+                  value={regAy?.unidades}
+                  onCommit={(u) =>
+                    upsert({
+                      nodoId: raiz.id,
+                      periodoTipo,
+                      periodoKey: ayKey,
+                      valor: regAy?.valor,
+                      unidades: u,
+                      soloUnidades: true,
+                    })
+                  }
+                  ariaLabel={`Unidades año pasado ${titulo}`}
+                  unidad="uds"
+                />
+              </label>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 });
@@ -829,15 +891,17 @@ const FilaHojaArbol = memo(function FilaHojaArbol({
     [idx, nodo.id, vista, periodoKey],
   );
 
-  const valorReal = registros.find(
+  const registroActual = registros.find(
     (r) => r.nodoId === nodo.id && r.periodoTipo === periodoTipo && r.periodoKey === periodoKey,
-  )?.valor;
-  const valorAnioPasado = registros.find(
-    (r) =>
-      r.nodoId === nodo.id &&
-      r.periodoTipo === periodoTipo &&
-      r.periodoKey === desplazarUnAnio(periodoTipo, periodoKey),
-  )?.valor;
+  );
+  const valorReal = registroActual?.valor;
+  const unidadesReal = registroActual?.unidades;
+  const ayKey = desplazarUnAnio(periodoTipo, periodoKey);
+  const registroAy = registros.find(
+    (r) => r.nodoId === nodo.id && r.periodoTipo === periodoTipo && r.periodoKey === ayKey,
+  );
+  const valorAnioPasado = registroAy?.valor;
+  const unidadesAnioPasado = registroAy?.unidades;
 
   const deltaPlan = plan !== undefined ? real - plan : undefined;
 
@@ -893,9 +957,15 @@ const FilaHojaArbol = memo(function FilaHojaArbol({
         </span>
         <span className="text-muted">
           Real <strong className="tabular-nums text-foreground">{fmtNum(real)}</strong>
+          {unidadesReal !== undefined && Number.isFinite(unidadesReal) && unidadesReal !== 0 && (
+            <span className="ml-1 text-muted">· {fmtNum(unidadesReal)} uds</span>
+          )}
         </span>
         <span className="text-muted">
           Año pasado <strong className="tabular-nums text-foreground">{anioPasado > 0 ? fmtNum(anioPasado) : "—"}</strong>
+          {unidadesAnioPasado !== undefined && Number.isFinite(unidadesAnioPasado) && unidadesAnioPasado !== 0 && (
+            <span className="ml-1 text-muted">· {fmtNum(unidadesAnioPasado)} uds</span>
+          )}
         </span>
         {deltaPlan !== undefined && (
           <span className={`tabular-nums ${deltaPlan >= 0 ? "text-emerald-700 dark:text-emerald-300" : "text-red-700 dark:text-red-300"}`}>
@@ -936,7 +1006,15 @@ const FilaHojaArbol = memo(function FilaHojaArbol({
           {modoEs === "eur" || pctDeshabilitado ? (
             <NumberInput
               value={valorReal}
-              onCommit={(v) => upsert({ nodoId: nodo.id, periodoTipo, periodoKey, valor: v })}
+              onCommit={(v) =>
+                upsert({
+                  nodoId: nodo.id,
+                  periodoTipo,
+                  periodoKey,
+                  valor: v,
+                  unidades: unidadesReal,
+                })
+              }
               ariaLabel={`Real ${nodo.nombre}`}
               unidad={unidad}
             />
@@ -946,10 +1024,22 @@ const FilaHojaArbol = memo(function FilaHojaArbol({
               onCommit={(p) => {
                 if (planBasePct === undefined || planBasePct <= 0) return;
                 if (p === undefined) {
-                  upsert({ nodoId: nodo.id, periodoTipo, periodoKey, valor: undefined });
+                  upsert({
+                    nodoId: nodo.id,
+                    periodoTipo,
+                    periodoKey,
+                    valor: undefined,
+                    unidades: unidadesReal,
+                  });
                   return;
                 }
-                upsert({ nodoId: nodo.id, periodoTipo, periodoKey, valor: (planBasePct * p) / 100 });
+                upsert({
+                  nodoId: nodo.id,
+                  periodoTipo,
+                  periodoKey,
+                  valor: (planBasePct * p) / 100,
+                  unidades: unidadesReal,
+                });
               }}
               ariaLabel={`Real ${nodo.nombre} en porcentaje`}
             />
@@ -959,28 +1049,67 @@ const FilaHojaArbol = memo(function FilaHojaArbol({
               Sobre plan {fmtNum(planBasePct ?? 0)} {unidad}
             </span>
           )}
+          <label className="mt-1 flex items-center gap-2 text-[10px] text-muted">
+            <span className="shrink-0">Uds</span>
+            <NumberInput
+              value={unidadesReal}
+              onCommit={(u) =>
+                upsert({
+                  nodoId: nodo.id,
+                  periodoTipo,
+                  periodoKey,
+                  valor: valorReal,
+                  unidades: u,
+                  soloUnidades: true,
+                })
+              }
+              ariaLabel={`Unidades ${nodo.nombre}`}
+              unidad="uds"
+            />
+          </label>
         </div>
-        <label className="flex flex-col gap-1 text-[10px] text-muted">
-          {modoStoragePrefix === "hoja" ? "Referencia año anterior (opcional)" : "Año pasado"}
-          <NumberInput
-            value={valorAnioPasado}
-            onCommit={(v) =>
-              upsert({
-                nodoId: nodo.id,
-                periodoTipo,
-                periodoKey: desplazarUnAnio(periodoTipo, periodoKey),
-                valor: v,
-              })
-            }
-            ariaLabel={`${modoStoragePrefix === "hoja" ? "Referencia año anterior" : "Año pasado"} ${nodo.nombre}`}
-            unidad={unidad}
-          />
-          {modoStoragePrefix === "hoja" && (
-            <span className="text-[9px] leading-snug text-muted">
-              Si la hoja no existía el año pasado no hay dato automático: puedes dejarlo vacío o escribir un importe manual si quieres comparar (p. ej. una parte del año pasado de la rama).
-            </span>
-          )}
-        </label>
+        <div className="flex flex-col gap-1">
+          <label className="flex flex-col gap-1 text-[10px] text-muted">
+            {modoStoragePrefix === "hoja" ? "Referencia año anterior (opcional)" : "Año pasado"}
+            <NumberInput
+              value={valorAnioPasado}
+              onCommit={(v) =>
+                upsert({
+                  nodoId: nodo.id,
+                  periodoTipo,
+                  periodoKey: ayKey,
+                  valor: v,
+                  unidades: unidadesAnioPasado,
+                })
+              }
+              ariaLabel={`${modoStoragePrefix === "hoja" ? "Referencia año anterior" : "Año pasado"} ${nodo.nombre}`}
+              unidad={unidad}
+            />
+            {modoStoragePrefix === "hoja" && (
+              <span className="text-[9px] leading-snug text-muted">
+                Si la hoja no existía el año pasado no hay dato automático: puedes dejarlo vacío o escribir un importe manual si quieres comparar (p. ej. una parte del año pasado de la rama).
+              </span>
+            )}
+          </label>
+          <label className="flex items-center gap-2 text-[10px] text-muted">
+            <span className="shrink-0">Uds</span>
+            <NumberInput
+              value={unidadesAnioPasado}
+              onCommit={(u) =>
+                upsert({
+                  nodoId: nodo.id,
+                  periodoTipo,
+                  periodoKey: ayKey,
+                  valor: valorAnioPasado,
+                  unidades: u,
+                  soloUnidades: true,
+                })
+              }
+              ariaLabel={`Unidades año pasado ${nodo.nombre}`}
+              unidad="uds"
+            />
+          </label>
+        </div>
       </div>
     </div>
   );

@@ -401,7 +401,10 @@ export interface RegistroNodo {
   nodoId: string;
   periodoTipo: "semana" | "mes" | "trimestre" | "anio";
   periodoKey: string;
+  /** Valor principal en la unidad del nodo (habitualmente €). */
   valor: number;
+  /** Unidades vendidas/realizadas (opcional): p. ej. número de aulas o sesiones. */
+  unidades?: number;
   nota?: string;
   estadoRealidad?: EstadoRealidadRegistro;
   realidadPorQue?: string;
