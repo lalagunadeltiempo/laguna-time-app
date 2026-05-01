@@ -376,6 +376,8 @@ export type NodoTipo = "resultado" | "palanca" | "accion";
 export type NodoCadencia = "anual" | "trimestral" | "mensual" | "semanal" | "puntual";
 export type NodoRelacion = "suma" | "explica";
 
+export type TrimestreKey = "Q1" | "Q2" | "Q3" | "Q4";
+
 export interface NodoArbol {
   id: string;
   anio: number;
@@ -390,6 +392,14 @@ export interface NodoArbol {
   relacionConPadre: NodoRelacion;
   metaValor?: number;
   metaUnidad?: string;
+  /**
+   * Meta por trimestre (opcional). Se edita a nivel de hoja (producto concreto) para capturar
+   * estacionalidad. Si hay al menos un trimestre definido, la meta anual efectiva del nodo se
+   * calcula como la suma de los trimestres definidos + el prorrateo del residuo de `metaValor`
+   * entre los no definidos. Cuando no hay ninguno, la meta anual queda en `metaValor` puro y
+   * el plan por periodo se prorratea por días laborables.
+   */
+  metaPorTrimestre?: Partial<Record<TrimestreKey, number>>;
   proyectoIds?: string[];
   entregableIds?: string[];
   contadorModo: "manual" | "derivado";

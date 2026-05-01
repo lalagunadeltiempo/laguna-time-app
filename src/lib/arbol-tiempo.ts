@@ -1,5 +1,7 @@
-import type { NodoArbol, PlanArbolConfigAnio, RegistroNodo } from "./types";
+import type { NodoArbol, PlanArbolConfigAnio, RegistroNodo, TrimestreKey } from "./types";
 import { esDiaLaborable, fechaKeyDesdeDate } from "./festivos-es";
+
+const TRIMESTRES: TrimestreKey[] = ["Q1", "Q2", "Q3", "Q4"];
 
 /** Hijos directos que suman al padre (ramas y hojas). */
 export function hijosSumaDirectos(nodos: NodoArbol[], parentId: string, anio: number): NodoArbol[] {
@@ -10,6 +12,26 @@ export function hijosSumaDirectos(nodos: NodoArbol[], parentId: string, anio: nu
 
 export function tieneHijosSuma(nodos: NodoArbol[], nodoId: string, anio: number): boolean {
   return hijosSumaDirectos(nodos, nodoId, anio).length > 0;
+}
+
+/** Indica si el nodo tiene al menos un trimestre planificado explícitamente. */
+export function nodoTieneMetaPorTrimestre(nodo: NodoArbol): boolean {
+  const mt = nodo.metaPorTrimestre;
+  if (!mt) return false;
+  return TRIMESTRES.some((q) => mt[q] !== undefined && Number.isFinite(mt[q]!));
+}
+
+/**
+ * Meta anual efectiva de un nodo tomando en cuenta `metaPorTrimestre`.
+ * - Si hay `metaValor` lo respeta (los trimestres son una distribución dentro de ese anual).
+ * - Si no hay `metaValor` pero sí trimestres, devuelve la suma de los trimestres definidos.
+ * - Si no hay ninguno, undefined.
+ */
+export function metaAnualEfectivaDeNodo(nodo: NodoArbol): number | undefined {
+  if (nodo.metaValor !== undefined && Number.isFinite(nodo.metaValor)) return nodo.metaValor;
+  if (!nodoTieneMetaPorTrimestre(nodo)) return undefined;
+  const mt = nodo.metaPorTrimestre!;
+  return TRIMESTRES.reduce((acc, q) => acc + (Number.isFinite(mt[q]!) ? (mt[q] as number) : 0), 0);
 }
 
 /** Meta anual efectiva: si hay hijos que suman, suma sus metas efectivas; si no, la meta del propio nodo. */
@@ -27,7 +49,7 @@ export function metaEfectivaNodo(nodo: NodoArbol, nodos: NodoArbol[], anio: numb
     }
     return any ? sum : undefined;
   }
-  return nodo.metaValor;
+  return metaAnualEfectivaDeNodo(nodo);
 }
 
 /** Plan del periodo agregando hijos que suman (o el plan del nodo hoja). */
@@ -41,8 +63,7 @@ export function planAgregadoEnPeriodo(
 ): number | undefined {
   const hijos = hijosSumaDirectos(nodos, nodo.id, anio);
   if (hijos.length === 0) {
-    const meta = metaEfectivaNodo(nodo, nodos, anio);
-    return metaParaPeriodo(nodo.cadencia, meta, vista, periodoKey, anio, config);
+    return metaParaNodoEnPeriodo(nodo, vista, periodoKey, anio, config);
   }
   let sum = 0;
   let any = false;
@@ -96,12 +117,41 @@ export function realAnioPasadoAgregado(
   return hijos.reduce((acc, h) => acc + realAnioPasadoAgregado(registros, nodos, h.id, vista, periodoKey, year), 0);
 }
 
+/** Normaliza el nombre de un nodo para comparaciones tolerantes (tildes, case, plural simple). */
+export function normalizarNombreNodo(nombre: string | undefined | null): string {
+  if (!nombre) return "";
+  const sinTildes = nombre.normalize("NFKD").replace(/[\u0300-\u036f]/g, "");
+  const lower = sinTildes.trim().toLowerCase().replace(/\s+/g, " ");
+  return lower.endsWith("s") ? lower.slice(0, -1) : lower;
+}
+
+function pathDeNodoDesdeMap(nodoId: string, nodosByIdAll: Map<string, NodoArbol>): string {
+  const parts: string[] = [];
+  let cur: NodoArbol | undefined = nodosByIdAll.get(nodoId);
+  const guard = new Set<string>();
+  while (cur && !guard.has(cur.id)) {
+    guard.add(cur.id);
+    parts.unshift(normalizarNombreNodo(cur.nombre));
+    if (!cur.parentId) break;
+    cur = nodosByIdAll.get(cur.parentId);
+  }
+  return parts.join("/");
+}
+
 /** Índices precalculados para evitar barridos lineales sobre todos los registros/nodos en la UI. */
 export type ArbolIndices = {
   regsPorNodo: Map<string, RegistroNodo[]>;
   nodosPorParent: Map<string, NodoArbol[]>;
   nodosById: Map<string, NodoArbol>;
   year: number;
+  /** Path normalizado (raiz/rama/.../nodo) para cualquier nodoId, de cualquier año. */
+  pathByNodoId: Map<string, string>;
+  /** path normalizado → nodoId, indexado por año. Permite resolver equivalentes entre árboles de años distintos. */
+  nodoIdPorPathByAnio: Map<number, Map<string, string>>;
+  /** Mapa completo por id, de cualquier año (para poder resolver equivalentes). */
+  nodosByIdAll: Map<string, NodoArbol>;
+  /** Hijos directos por parentId, considerando cualquier año (para recursión cross-año). */
+  nodosPorParentAll: Map<string, NodoArbol[]>;
 };
 
 export function buildArbolIndices(registros: RegistroNodo[], nodos: NodoArbol[], year: number): ArbolIndices {
@@ -113,18 +163,65 @@ export function buildArbolIndices(registros: RegistroNodo[], nodos: NodoArbol[],
   }
   const nodosPorParent = new Map<string, NodoArbol[]>();
   const nodosById = new Map<string, NodoArbol>();
+  const nodosByIdAll = new Map<string, NodoArbol>();
+  const nodosPorParentAll = new Map<string, NodoArbol[]>();
   for (const n of nodos) {
-    if (n.anio !== year) continue;
-    nodosById.set(n.id, n);
+    nodosByIdAll.set(n.id, n);
     const pid = n.parentId ?? "";
-    const list = nodosPorParent.get(pid);
-    if (list) list.push(n);
-    else nodosPorParent.set(pid, [n]);
+    const listAll = nodosPorParentAll.get(pid);
+    if (listAll) listAll.push(n);
+    else nodosPorParentAll.set(pid, [n]);
+    if (n.anio === year) {
+      nodosById.set(n.id, n);
+      const list = nodosPorParent.get(pid);
+      if (list) list.push(n);
+      else nodosPorParent.set(pid, [n]);
+    }
   }
   for (const list of nodosPorParent.values()) {
     list.sort((a, b) => a.orden - b.orden);
   }
-  return { regsPorNodo, nodosPorParent, nodosById, year };
+  for (const list of nodosPorParentAll.values()) {
+    list.sort((a, b) => a.orden - b.orden);
+  }
+
+  const pathByNodoId = new Map<string, string>();
+  const nodoIdPorPathByAnio = new Map<number, Map<string, string>>();
+  for (const n of nodos) {
+    const p = pathDeNodoDesdeMap(n.id, nodosByIdAll);
+    pathByNodoId.set(n.id, p);
+    let mapAnio = nodoIdPorPathByAnio.get(n.anio);
+    if (!mapAnio) {
+      mapAnio = new Map();
+      nodoIdPorPathByAnio.set(n.anio, mapAnio);
+    }
+    // Si hay colisiones de path (dos nodos con mismo path en el mismo año), prevalece el primero (orden estable).
+    if (!mapAnio.has(p)) mapAnio.set(p, n.id);
+  }
+
+  return {
+    regsPorNodo,
+    nodosPorParent,
+    nodosById,
+    year,
+    pathByNodoId,
+    nodoIdPorPathByAnio,
+    nodosByIdAll,
+    nodosPorParentAll,
+  };
+}
+
+/** Devuelve el nodoId del nodo con mismo path normalizado en el año indicado, o null si no existe. */
+export function resolverNodoEquivalenteEnAnio(
+  idx: ArbolIndices,
+  nodoId: string,
+  anio: number,
+): string | null {
+  const path = idx.pathByNodoId.get(nodoId);
+  if (!path) return null;
+  const byPath = idx.nodoIdPorPathByAnio.get(anio);
+  if (!byPath) return null;
+  return byPath.get(path) ?? null;
 }
 
 /** Suma registros ya filtrados por nodo (misma semántica que `sumarRegistrosNodoSimple`). */
@@ -196,7 +293,7 @@ export function metaEfectivaNodoIdx(idx: ArbolIndices, nodo: NodoArbol): number 
     }
     return any ? sum : undefined;
   }
-  return nodo.metaValor;
+  return metaAnualEfectivaDeNodo(nodo);
 }
 
 export function planAgregadoEnPeriodoIdx(
@@ -208,8 +305,7 @@ export function planAgregadoEnPeriodoIdx(
 ): number | undefined {
   const hijos = hijosSumaDirectosIdx(idx, nodo.id);
   if (hijos.length === 0) {
-    const meta = metaEfectivaNodoIdx(idx, nodo);
-    return metaParaPeriodo(nodo.cadencia, meta, vista, periodoKey, idx.year, config);
+    return metaParaNodoEnPeriodo(nodo, vista, periodoKey, idx.year, config);
   }
   let sum = 0;
   let any = false;
@@ -223,40 +319,112 @@ export function planAgregadoEnPeriodoIdx(
   return any ? sum : undefined;
 }
 
+/**
+ * Suma real recursivamente para un nodo cualquiera en su propio año (no necesariamente `idx.year`).
+ * Usado internamente para computar el "año pasado" cuando se cruza por path a un nodo del año anterior.
+ */
+function realRecursivoEnAnio(
+  idx: ArbolIndices,
+  nodoId: string,
+  vista: VistaPeriodoArbol,
+  periodoKey: string,
+  year: number,
+): number {
+  const nodo = idx.nodosByIdAll.get(nodoId);
+  const regs = idx.regsPorNodo.get(nodoId);
+  if (!nodo || nodo.anio !== year) {
+    return sumarRegistrosNodoSimpleLista(regs, vista, periodoKey, year);
+  }
+  const hijos = (idx.nodosPorParentAll.get(nodoId) ?? []).filter(
+    (n) => n.anio === year && n.relacionConPadre === "suma",
+  );
+  if (hijos.length === 0) {
+    return sumarRegistrosNodoSimpleLista(regs, vista, periodoKey, year);
+  }
+  const sumHijos = hijos.reduce(
+    (acc, h) => acc + realRecursivoEnAnio(idx, h.id, vista, periodoKey, year),
+    0,
+  );
+  if (sumHijos > 0) return sumHijos;
+  // Fallback: si los hijos no aportan, mostramos los registros directos del nodo padre
+  // (rescata apuntes rápidos hechos al total cuando las hojas aún no están cargadas).
+  return sumarRegistrosNodoSimpleLista(regs, vista, periodoKey, year);
+}
+
 export function realEfectivoEnPeriodoIdx(
   idx: ArbolIndices,
   nodoId: string,
   vista: VistaPeriodoArbol,
   periodoKey: string,
 ): number {
-  const nodo = idx.nodosById.get(nodoId);
-  const regs = idx.regsPorNodo.get(nodoId);
-  if (!nodo || nodo.anio !== idx.year) {
-    return sumarRegistrosNodoSimpleLista(regs, vista, periodoKey, idx.year);
-  }
-  if (!tieneHijosSumaIdx(idx, nodoId)) {
-    return sumarRegistrosNodoSimpleLista(regs, vista, periodoKey, idx.year);
-  }
-  const hijos = hijosSumaDirectosIdx(idx, nodoId);
-  return hijos.reduce((acc, h) => acc + realEfectivoEnPeriodoIdx(idx, h.id, vista, periodoKey), 0);
+  return realRecursivoEnAnio(idx, nodoId, vista, periodoKey, idx.year);
 }
 
+/**
+ * Calcula el "año pasado" del nodo.
+ * Cascada de resolución (prioridad descendente):
+ *   1. Suma recursiva por hijos suma (con periodoKey desplazada 1 año).
+ *   2. Registros directos del propio nodo con periodoKey desplazada (apuntes manuales en la raíz).
+ *   3. Registros del nodo equivalente por nombre/path en el año anterior (suma recursiva).
+ * Devuelve `undefined` cuando NINGUNA fuente aporta datos (producto nuevo sin histórico).
+ */
 export function realAnioPasadoAgregadoIdx(
   idx: ArbolIndices,
   nodoId: string,
   vista: VistaPeriodoArbol,
   periodoKey: string,
-): number {
+): number | undefined {
   const nodo = idx.nodosById.get(nodoId);
   const regs = idx.regsPorNodo.get(nodoId);
+  const directoDesplazado = regs && regs.length > 0
+    ? sumarRegistrosNodoAnioAnteriorLista(regs, vista, periodoKey, idx.year)
+    : undefined;
+
   if (!nodo || nodo.anio !== idx.year) {
-    return sumarRegistrosNodoAnioAnteriorLista(regs, vista, periodoKey, idx.year);
+    return directoDesplazado;
   }
-  if (!tieneHijosSumaIdx(idx, nodoId)) {
-    return sumarRegistrosNodoAnioAnteriorLista(regs, vista, periodoKey, idx.year);
+
+  // Recursión por hijos suma (nivel rama/raíz).
+  if (tieneHijosSumaIdx(idx, nodoId)) {
+    const hijos = hijosSumaDirectosIdx(idx, nodoId);
+    let sum = 0;
+    let anyChild = false;
+    for (const h of hijos) {
+      const v = realAnioPasadoAgregadoIdx(idx, h.id, vista, periodoKey);
+      if (v !== undefined) {
+        sum += v;
+        anyChild = true;
+      }
+    }
+    if (anyChild && sum > 0) return sum;
+    // Fallback: apuntes directos en el propio nodo (p.ej. manual en la raíz con periodoKey año anterior).
+    if (directoDesplazado !== undefined && directoDesplazado > 0) return directoDesplazado;
+    // Fallback 2: equivalente por path en el año anterior (suma recursiva en ese subárbol).
+    const eq = realAnioPasadoViaEquivalente(idx, nodo, vista, periodoKey);
+    if (eq !== undefined) return eq;
+    if (anyChild) return 0;
+    return directoDesplazado;
   }
-  const hijos = hijosSumaDirectosIdx(idx, nodoId);
-  return hijos.reduce((acc, h) => acc + realAnioPasadoAgregadoIdx(idx, h.id, vista, periodoKey), 0);
+
+  // Hoja sin hijos suma: intentamos en orden directos → equivalente por path.
+  if (directoDesplazado !== undefined && directoDesplazado > 0) return directoDesplazado;
+  const eq = realAnioPasadoViaEquivalente(idx, nodo, vista, periodoKey);
+  if (eq !== undefined) return eq;
+  return directoDesplazado;
+}
+
+function realAnioPasadoViaEquivalente(
+  idx: ArbolIndices,
+  nodo: NodoArbol,
+  vista: VistaPeriodoArbol,
+  periodoKey: string,
+): number | undefined {
+  const equivId = resolverNodoEquivalenteEnAnio(idx, nodo.id, nodo.anio - 1);
+  if (!equivId) return undefined;
+  const periodoTipo =
+    vista === "semana" ? "semana" : vista === "mes" ? "mes" : vista === "trimestre" ? "trimestre" : "anio";
+  const keyPrev = desplazarPeriodoUnAnio(periodoTipo, periodoKey);
+  return realRecursivoEnAnio(idx, equivId, vista, keyPrev, nodo.anio - 1);
 }
 
 /** Real acumulado del año hasta hoy (lista ya filtrada por nodo). */
@@ -785,4 +953,126 @@ export function ramasDirectas(nodos: NodoArbol[], parentId: string, anio: number
   return nodos
     .filter((n) => n.anio === anio && n.parentId === parentId)
     .sort((a, b) => a.orden - b.orden);
+}
+
+/** Devuelve el trimestre `Q1..Q4` que contiene el periodoKey de un mes (`YYYY-MM`). */
+export function trimestreKeyDesdeMes(mesKey: string): TrimestreKey | null {
+  const [, m] = mesKey.split("-").map((s) => parseInt(s, 10));
+  if (!Number.isFinite(m) || m < 1 || m > 12) return null;
+  const n = Math.floor((m - 1) / 3) + 1;
+  return `Q${n}` as TrimestreKey;
+}
+
+/** Extrae `Q1..Q4` de un periodoKey `YYYY-Qn`. */
+export function trimestreKeyDesdeQ(qKey: string): TrimestreKey | null {
+  const [, q] = qKey.split("-Q");
+  const n = parseInt(q, 10);
+  if (!Number.isFinite(n) || n < 1 || n > 4) return null;
+  return `Q${n}` as TrimestreKey;
+}
+
+/**
+ * Distribución efectiva por trimestre de un nodo.
+ * - Si el nodo no tiene `metaPorTrimestre`, devuelve `null` (no hay distribución explícita).
+ * - Si hay trimestres definidos y `metaValor` > suma definidos, el residuo se reparte entre los
+ *   trimestres no definidos proporcional a días laborables (o equitativo si no hay config).
+ */
+export function distribucionTrimestralEfectiva(
+  nodo: NodoArbol,
+  anio: number,
+  config: PlanArbolConfigAnio | undefined,
+): Record<TrimestreKey, number> | null {
+  if (!nodoTieneMetaPorTrimestre(nodo)) return null;
+  const mt = nodo.metaPorTrimestre!;
+  const asignado: Record<TrimestreKey, number> = { Q1: 0, Q2: 0, Q3: 0, Q4: 0 };
+  const faltantes: TrimestreKey[] = [];
+  for (const q of TRIMESTRES) {
+    const v = mt[q];
+    if (v !== undefined && Number.isFinite(v)) {
+      asignado[q] = v;
+    } else {
+      faltantes.push(q);
+    }
+  }
+  const definidosSum = TRIMESTRES.reduce((a, q) => a + asignado[q], 0);
+  const residuo = (nodo.metaValor ?? 0) - definidosSum;
+  if (faltantes.length > 0 && residuo > 0) {
+    const pesos = faltantes.map((q) => {
+      const diasQ = diasLaborablesEnTrimestre(`${anio}-${q}`, anio, config);
+      return diasQ > 0 ? diasQ : 1;
+    });
+    const sumaPesos = pesos.reduce((a, b) => a + b, 0);
+    faltantes.forEach((q, i) => {
+      asignado[q] = (residuo * pesos[i]) / sumaPesos;
+    });
+  }
+  return asignado;
+}
+
+/**
+ * Plan del periodo para un nodo, teniendo en cuenta `metaPorTrimestre` si está definido.
+ * Fallback: cálculo clásico por `cadencia` + `metaValor` + calendario laborable.
+ */
+export function metaParaNodoEnPeriodo(
+  nodo: NodoArbol,
+  vista: VistaPeriodoArbol,
+  periodoKey: string,
+  anio: number,
+  config: PlanArbolConfigAnio | undefined,
+): number | undefined {
+  const distTrim = distribucionTrimestralEfectiva(nodo, anio, config);
+  if (distTrim) {
+    if (vista === "anio") {
+      return TRIMESTRES.reduce((acc, q) => acc + distTrim[q], 0);
+    }
+    if (vista === "trimestre") {
+      const q = trimestreKeyDesdeQ(periodoKey);
+      if (!q) return undefined;
+      return distTrim[q];
+    }
+    if (vista === "mes") {
+      const q = trimestreKeyDesdeMes(periodoKey);
+      if (!q) return undefined;
+      const diasMes = diasLaborablesEnMes(periodoKey, anio, config);
+      const diasTrim = diasLaborablesEnTrimestre(`${anio}-${q}`, anio, config);
+      if (diasTrim <= 0) return diasMes > 0 ? distTrim[q] / 3 : 0;
+      return (distTrim[q] * diasMes) / diasTrim;
+    }
+    if (vista === "semana") {
+      const mk = mesKeyFromDate(parseLocalDateKey(periodoKey));
+      const q = trimestreKeyDesdeMes(mk);
+      if (!q) return undefined;
+      const diasSem = diasLaborablesEnSemanaISO(periodoKey, anio, config);
+      const diasTrim = diasLaborablesEnTrimestre(`${anio}-${q}`, anio, config);
+      if (diasTrim <= 0) return 0;
+      return (distTrim[q] * diasSem) / diasTrim;
+    }
+  }
+  const metaAnual = metaAnualEfectivaDeNodo(nodo);
+  return metaParaPeriodo(nodo.cadencia, metaAnual, vista, periodoKey, anio, config);
+}
+
+/** Indica si el plan del periodo proviene de `metaPorTrimestre` (plan fijado) o del cálculo derivado anual. */
+export function planEsFijadoPorTrimestre(
+  nodo: NodoArbol,
+  vista: VistaPeriodoArbol,
+  periodoKey: string,
+): boolean {
+  if (!nodoTieneMetaPorTrimestre(nodo)) return false;
+  const mt = nodo.metaPorTrimestre!;
+  if (vista === "trimestre") {
+    const q = trimestreKeyDesdeQ(periodoKey);
+    return q ? mt[q] !== undefined && Number.isFinite(mt[q]!) : false;
+  }
+  if (vista === "mes") {
+    const q = trimestreKeyDesdeMes(periodoKey);
+    return q ? mt[q] !== undefined && Number.isFinite(mt[q]!) : false;
+  }
+  if (vista === "anio") return true;
+  if (vista === "semana") {
+    const mk = mesKeyFromDate(parseLocalDateKey(periodoKey));
+    const q = trimestreKeyDesdeMes(mk);
+    return q ? mt[q] !== undefined && Number.isFinite(mt[q]!) : false;
+  }
+  return false;
 }

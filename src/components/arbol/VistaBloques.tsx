@@ -12,7 +12,13 @@ import {
 } from "react";
 import { useAppDispatch, useAppState } from "@/lib/context";
 import { generateId } from "@/lib/store";
-import { EMPTY_ARBOL, type NodoArbol, type PlanArbolConfigAnio, type RegistroNodo } from "@/lib/types";
+import {
+  EMPTY_ARBOL,
+  type NodoArbol,
+  type PlanArbolConfigAnio,
+  type RegistroNodo,
+  type TrimestreKey,
+} from "@/lib/types";
 import {
   buildArbolIndices,
   cuotaAjustada,
@@ -26,8 +32,10 @@ import {
   mesKeyFromDate,
   mesKeysEnTrimestre,
   metaEfectivaNodoIdx,
+  metaParaNodoEnPeriodo,
   metaParaPeriodo,
   metaSemanalPropuesta,
+  planEsFijadoPorTrimestre,
   mondaysInCalendarYear,
   diasLaborablesEnAnio,
   parseLocalDateKey,
@@ -36,8 +44,6 @@ import {
   realAnioPasadoAgregadoIdx,
   realDelAnioHastaHoyLista,
   realEfectivoEnPeriodoIdx,
-  sumarRegistrosNodoAnioAnteriorLista,
-  sumarRegistrosNodoSimpleLista,
   trimestreKeyFromMesKey,
   type ArbolIndices,
   type VistaPeriodoArbol,
@@ -408,18 +414,29 @@ const TarjetaPeriodo = memo(function TarjetaPeriodo({
   const periodoTipo = periodoTipoDeVista(vista);
 
   const plan = useMemo(
-    () => metaParaPeriodo(raiz.cadencia, raiz.metaValor, vista, periodoKey, year, config),
-    [raiz.cadencia, raiz.metaValor, vista, periodoKey, year, config],
+    () => metaParaNodoEnPeriodo(raiz, vista, periodoKey, year, config),
+    [raiz, vista, periodoKey, year, config],
   );
-  /** Totales de tarjeta = apuntes en la raíz (el usuario suele cargar el total ahí aunque existan ramas). */
-  const regsRaiz = idx.regsPorNodo.get(raiz.id);
+  const planFijado = useMemo(
+    () => planEsFijadoPorTrimestre(raiz, vista, periodoKey),
+    [raiz, vista, periodoKey],
+  );
+  /**
+   * Total real de la tarjeta. Usa recursión por hojas si las hay (con fallback a los registros
+   * directos de la raíz cuando las hojas están vacías), para que el usuario pueda apuntar
+   * un total en la raíz como atajo sin perder el desglose detallado.
+   */
   const real = useMemo(
-    () => sumarRegistrosNodoSimpleLista(regsRaiz, vista, periodoKey, year),
-    [regsRaiz, vista, periodoKey, year],
+    () => realEfectivoEnPeriodoIdx(idx, raiz.id, vista, periodoKey),
+    [idx, raiz.id, vista, periodoKey],
   );
+  /**
+   * Año pasado de la tarjeta: recursa por hojas, con fallback a apuntes directos en la raíz y,
+   * finalmente, al árbol del año anterior emparejado por nombre/path.
+   */
   const anioPasado = useMemo(
-    () => sumarRegistrosNodoAnioAnteriorLista(regsRaiz, vista, periodoKey, year),
-    [regsRaiz, vista, periodoKey, year],
+    () => realAnioPasadoAgregadoIdx(idx, raiz.id, vista, periodoKey),
+    [idx, raiz.id, vista, periodoKey],
   );
 
   const realHastaHoy = useMemo(
@@ -446,7 +463,8 @@ const TarjetaPeriodo = memo(function TarjetaPeriodo({
   const objetivoCumplido = metaAnual > 0 && realHastaHoy >= metaAnual;
 
   const deltaPlan = plan !== undefined ? real - plan : undefined;
-  const deltaAnioPasado = anioPasado > 0 ? real - anioPasado : undefined;
+  const deltaAnioPasado =
+    anioPasado !== undefined && anioPasado > 0 ? real - anioPasado : undefined;
 
   const pct = plan && plan > 0 ? Math.min(100, Math.round((real / plan) * 100)) : real > 0 ? 100 : 0;
   const showProgressBar = estado === "pasado" || estado === "actual";
@@ -488,7 +506,7 @@ const TarjetaPeriodo = memo(function TarjetaPeriodo({
             </p>
             <div className="mt-2 space-y-1 border-t border-border/50 pt-2">
               <MetricLine
-                label="Plan original"
+                label={planFijado ? "Plan (fijado en config)" : "Plan original (prorrateo)"}
                 value={plan !== undefined ? `${fmtNum(plan)} ${unidad}` : "—"}
                 accent="muted"
               />
@@ -499,7 +517,7 @@ const TarjetaPeriodo = memo(function TarjetaPeriodo({
                   accent={deltaPlan >= 0 ? "good" : "bad"}
                 />
               )}
-              {anioPasado > 0 && (
+              {anioPasado !== undefined && (
                 <MetricLine
                   label="Año pasado (referencia)"
                   value={`${fmtNum(anioPasado)} ${unidad}`}
@@ -540,7 +558,7 @@ const TarjetaPeriodo = memo(function TarjetaPeriodo({
             )}
             <div className="mt-2 space-y-1 border-t border-border/50 pt-2">
               <MetricLine
-                label="Plan original"
+                label={planFijado ? "Plan (fijado en config)" : "Plan original (prorrateo)"}
                 value={plan !== undefined ? `${fmtNum(plan)} ${unidad}` : "—"}
                 accent="muted"
               />
@@ -572,7 +590,7 @@ const TarjetaPeriodo = memo(function TarjetaPeriodo({
             )}
             <div className="mt-2 space-y-1 border-t border-border/50 pt-2">
               <MetricLine
-                label="Plan original"
+                label={planFijado ? "Plan (fijado en config)" : "Plan original (prorrateo)"}
                 value={plan !== undefined ? `${fmtNum(plan)} ${unidad}` : "—"}
                 accent="muted"
               />
@@ -882,6 +900,10 @@ const FilaHojaArbol = memo(function FilaHojaArbol({
     () => planAgregadoEnPeriodoIdx(idx, nodo, vista, periodoKey, config),
     [idx, nodo, vista, periodoKey, config],
   );
+  const planFijado = useMemo(
+    () => planEsFijadoPorTrimestre(nodo, vista, periodoKey),
+    [nodo, vista, periodoKey],
+  );
   const real = useMemo(
     () => realEfectivoEnPeriodoIdx(idx, nodo.id, vista, periodoKey),
     [idx, nodo.id, vista, periodoKey],
@@ -954,6 +976,14 @@ const FilaHojaArbol = memo(function FilaHojaArbol({
       >
         <span className="text-muted">
           Plan <strong className="tabular-nums text-foreground">{plan !== undefined ? fmtNum(plan) : "—"}</strong>
+          {planFijado && plan !== undefined && (
+            <span
+              className="ml-1 rounded bg-accent/15 px-1 text-[9px] font-medium uppercase tracking-wide text-accent"
+              title="Plan fijado en «Plan trimestral de ramas y hojas»"
+            >
+              fijado
+            </span>
+          )}
         </span>
         <span className="text-muted">
           Real <strong className="tabular-nums text-foreground">{fmtNum(real)}</strong>
@@ -962,7 +992,10 @@ const FilaHojaArbol = memo(function FilaHojaArbol({
           )}
         </span>
         <span className="text-muted">
-          Año pasado <strong className="tabular-nums text-foreground">{anioPasado > 0 ? fmtNum(anioPasado) : "—"}</strong>
+          Año pasado{" "}
+          <strong className="tabular-nums text-foreground">
+            {anioPasado !== undefined ? fmtNum(anioPasado) : "—"}
+          </strong>
           {unidadesAnioPasado !== undefined && Number.isFinite(unidadesAnioPasado) && unidadesAnioPasado !== 0 && (
             <span className="ml-1 text-muted">· {fmtNum(unidadesAnioPasado)} uds</span>
           )}
@@ -1223,7 +1256,10 @@ const FilaRama = memo(function FilaRama({
           Real <strong className="tabular-nums text-foreground">{fmtNum(real)}</strong>
         </span>
         <span className="text-muted">
-          Año pasado <strong className="tabular-nums text-foreground">{anioPasado > 0 ? fmtNum(anioPasado) : "—"}</strong>
+          Año pasado{" "}
+          <strong className="tabular-nums text-foreground">
+            {anioPasado !== undefined ? fmtNum(anioPasado) : "—"}
+          </strong>
         </span>
         {deltaPlan !== undefined && (
           <span className={`tabular-nums ${deltaPlan >= 0 ? "text-emerald-700 dark:text-emerald-300" : "text-red-700 dark:text-red-300"}`}>
@@ -1511,12 +1547,9 @@ function BloqueSemanas({ ctx }: { ctx: ContextoBloque }) {
         )}
         {semanasMes.map((mk) => {
           const isVac = noActivas.has(mk);
-          const plan = isVac
-            ? 0
-            : metaParaPeriodo(ctx.raiz.cadencia, ctx.raiz.metaValor, "semana", mk, ctx.year, ctx.config);
-          const regsRaizSem = ctx.idx.regsPorNodo.get(ctx.raiz.id);
-          const real = sumarRegistrosNodoSimpleLista(regsRaizSem, "semana", mk, ctx.year);
-          const anioPasado = sumarRegistrosNodoAnioAnteriorLista(regsRaizSem, "semana", mk, ctx.year);
+          const plan = isVac ? 0 : metaParaNodoEnPeriodo(ctx.raiz, "semana", mk, ctx.year, ctx.config);
+          const real = realEfectivoEnPeriodoIdx(ctx.idx, ctx.raiz.id, "semana", mk);
+          const anioPasado = realAnioPasadoAgregadoIdx(ctx.idx, ctx.raiz.id, "semana", mk);
           const valor = ctx.registros.find(
             (r) => r.nodoId === ctx.raiz.id && r.periodoTipo === "semana" && r.periodoKey === mk,
           )?.valor;
@@ -1562,7 +1595,7 @@ function BloqueSemanas({ ctx }: { ctx: ContextoBloque }) {
                             Δ plan {fmtNum(delta, { signed: true })}
                           </span>
                         )}
-                        {anioPasado > 0 && (
+                        {anioPasado !== undefined && (
                           <span>
                             Año pasado <strong className="tabular-nums text-foreground">{fmtNum(anioPasado)}</strong>
                           </span>
@@ -1744,6 +1777,452 @@ function BloqueSemanas({ ctx }: { ctx: ContextoBloque }) {
   );
 }
 
+const TRIMESTRE_LABELS: { key: TrimestreKey; label: string }[] = [
+  { key: "Q1", label: "Q1" },
+  { key: "Q2", label: "Q2" },
+  { key: "Q3", label: "Q3" },
+  { key: "Q4", label: "Q4" },
+];
+
+function getAyTrimPorHoja(
+  idx: ArbolIndices,
+  hoja: NodoArbol,
+  year: number,
+): Record<TrimestreKey, number | undefined> {
+  const out: Record<TrimestreKey, number | undefined> = { Q1: undefined, Q2: undefined, Q3: undefined, Q4: undefined };
+  for (const { key } of TRIMESTRE_LABELS) {
+    out[key] = realAnioPasadoAgregadoIdx(idx, hoja.id, "trimestre", `${year}-${key}`);
+  }
+  return out;
+}
+
+/** Tabla de configuración trimestral para las hojas de una rama (o la rama misma si no tiene hojas). */
+const PlanTrimestralConfigRama = memo(function PlanTrimestralConfigRama({
+  rama,
+  idx,
+  year,
+  unidad,
+}: {
+  rama: NodoArbol;
+  idx: ArbolIndices;
+  year: number;
+  unidad: string;
+}) {
+  const dispatch = useAppDispatch();
+  const hojas = hijosSumaDirectosIdx(idx, rama.id);
+  const nodosConfig = hojas.length > 0 ? hojas : [rama];
+  const ayYear = year - 1;
+
+  const setMetaTrim = useCallback(
+    (nodo: NodoArbol, q: TrimestreKey, nuevoValor: number | undefined) => {
+      const base = nodo.metaPorTrimestre ? { ...nodo.metaPorTrimestre } : {};
+      if (nuevoValor === undefined || !Number.isFinite(nuevoValor)) {
+        delete base[q];
+      } else {
+        base[q] = nuevoValor;
+      }
+      const algunoDefinido = TRIMESTRE_LABELS.some(
+        ({ key }) => base[key] !== undefined && Number.isFinite(base[key]!),
+      );
+      dispatch({
+        type: "UPDATE_NODO_ARBOL",
+        id: nodo.id,
+        changes: { metaPorTrimestre: algunoDefinido ? base : undefined },
+      });
+    },
+    [dispatch],
+  );
+
+  const setMetaAnual = useCallback(
+    (nodo: NodoArbol, nuevo: number | undefined) => {
+      dispatch({ type: "UPDATE_NODO_ARBOL", id: nodo.id, changes: { metaValor: nuevo } });
+    },
+    [dispatch],
+  );
+
+  const aplicarEstacionalidadAY = useCallback(
+    (nodo: NodoArbol) => {
+      const metaAnual = nodo.metaValor;
+      if (metaAnual === undefined || metaAnual <= 0) return;
+      const ay = getAyTrimPorHoja(idx, nodo, year);
+      const total = TRIMESTRE_LABELS.reduce((acc, { key }) => acc + (ay[key] ?? 0), 0);
+      if (total <= 0) return;
+      const nuevas: Partial<Record<TrimestreKey, number>> = {};
+      for (const { key } of TRIMESTRE_LABELS) {
+        const ayQ = ay[key];
+        if (ayQ !== undefined && ayQ > 0) {
+          nuevas[key] = Math.round(((metaAnual * ayQ) / total) * 100) / 100;
+        }
+      }
+      dispatch({ type: "UPDATE_NODO_ARBOL", id: nodo.id, changes: { metaPorTrimestre: nuevas } });
+    },
+    [idx, year, dispatch],
+  );
+
+  const repartirEquitativo = useCallback(
+    (nodo: NodoArbol) => {
+      const metaAnual = nodo.metaValor;
+      if (metaAnual === undefined || metaAnual <= 0) return;
+      const v = Math.round((metaAnual / 4) * 100) / 100;
+      const nuevas: Partial<Record<TrimestreKey, number>> = { Q1: v, Q2: v, Q3: v, Q4: v };
+      dispatch({ type: "UPDATE_NODO_ARBOL", id: nodo.id, changes: { metaPorTrimestre: nuevas } });
+    },
+    [dispatch],
+  );
+
+  const limpiarTrimestres = useCallback(
+    (nodo: NodoArbol) => {
+      dispatch({ type: "UPDATE_NODO_ARBOL", id: nodo.id, changes: { metaPorTrimestre: undefined } });
+    },
+    [dispatch],
+  );
+
+  const aplicarATodasAY = useCallback(() => {
+    for (const h of hojas) aplicarEstacionalidadAY(h);
+  }, [hojas, aplicarEstacionalidadAY]);
+
+  const ramaAy = realAnioPasadoAgregadoIdx(idx, rama.id, "anio", String(year));
+  const totalAyHojas = hojas.reduce((acc, h) => {
+    const v = realAnioPasadoAgregadoIdx(idx, h.id, "anio", String(year));
+    return acc + (v ?? 0);
+  }, 0);
+  const algunaHojaTieneAY = totalAyHojas > 0;
+
+  return (
+    <div className="rounded border border-border bg-surface/40 px-3 py-2">
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <p className="text-sm font-medium text-foreground">{rama.nombre}</p>
+        <span className="text-[11px] text-muted">
+          {ramaAy !== undefined && (
+            <>
+              AY {ayYear}:{" "}
+              <strong className="tabular-nums text-foreground">
+                {fmtNum(ramaAy)} {unidad}
+              </strong>
+            </>
+          )}
+        </span>
+      </div>
+      {hojas.length > 0 && (
+        <div className="mt-2 flex flex-wrap gap-2">
+          <button
+            type="button"
+            disabled={!algunaHojaTieneAY}
+            title={
+              algunaHojaTieneAY
+                ? `Para cada hoja con datos de ${ayYear}, reparte su meta anual en la misma proporción (€) que el año pasado.`
+                : `No hay datos de ${ayYear} en las hojas de esta rama`
+            }
+            onClick={aplicarATodasAY}
+            className="rounded border border-border px-2 py-1 text-[11px] font-medium text-foreground hover:bg-surface disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            Aplicar estacionalidad AY a todas las hojas
+          </button>
+        </div>
+      )}
+      <div className="mt-2 overflow-x-auto">
+        <table className="min-w-full border-collapse text-[11px]">
+          <thead>
+            <tr className="text-left text-muted">
+              <th className="py-1 pr-2 font-medium">{hojas.length > 0 ? "Hoja" : "Rama"}</th>
+              {TRIMESTRE_LABELS.map(({ key, label }) => (
+                <th key={key} className="px-1 py-1 font-medium">
+                  {label}
+                </th>
+              ))}
+              <th className="px-1 py-1 text-right font-medium">Plan año</th>
+              <th className="px-1 py-1 text-right font-medium">Meta anual</th>
+              <th className="px-1 py-1 font-medium">Acciones</th>
+            </tr>
+          </thead>
+          <tbody>
+            {nodosConfig.map((nodo) => {
+              const ay = getAyTrimPorHoja(idx, nodo, year);
+              const ayTotalAnual = realAnioPasadoAgregadoIdx(idx, nodo.id, "anio", String(year));
+              const mt = nodo.metaPorTrimestre ?? {};
+              const sumPlan = TRIMESTRE_LABELS.reduce(
+                (acc, { key }) => acc + (Number.isFinite(mt[key]!) ? (mt[key] as number) : 0),
+                0,
+              );
+              const metaAnual = nodo.metaValor;
+              const cuadre =
+                metaAnual !== undefined && metaAnual > 0 && sumPlan > 0
+                  ? Math.abs(sumPlan - metaAnual) < 0.5
+                    ? "ok"
+                    : "dif"
+                  : "n/a";
+              return (
+                <tr key={nodo.id} className="align-top border-t border-border/50">
+                  <td className="py-2 pr-2">
+                    <div className="text-[12px] font-medium text-foreground">{nodo.nombre}</div>
+                    {ayTotalAnual !== undefined && (
+                      <div className="text-[10px] text-muted">
+                        AY {ayYear}:{" "}
+                        <strong className="tabular-nums text-foreground">
+                          {fmtNum(ayTotalAnual)} {unidad}
+                        </strong>
+                      </div>
+                    )}
+                  </td>
+                  {TRIMESTRE_LABELS.map(({ key }) => {
+                    const valor = mt[key];
+                    const ayQ = ay[key];
+                    return (
+                      <td key={key} className="px-1 py-1">
+                        <div className="flex flex-col gap-0.5">
+                          <NumberInput
+                            value={valor}
+                            onCommit={(v) => setMetaTrim(nodo, key, v)}
+                            ariaLabel={`Plan ${key} de ${nodo.nombre}`}
+                            unidad={unidad}
+                          />
+                          <div className="text-[10px] text-muted">
+                            AY:{" "}
+                            <strong className="tabular-nums text-foreground">
+                              {ayQ !== undefined ? `${fmtNum(ayQ)} ${unidad}` : "—"}
+                            </strong>
+                          </div>
+                        </div>
+                      </td>
+                    );
+                  })}
+                  <td className="px-1 py-2 text-right align-middle">
+                    <strong className="tabular-nums text-foreground">
+                      {sumPlan > 0 ? `${fmtNum(sumPlan)} ${unidad}` : "—"}
+                    </strong>
+                  </td>
+                  <td className="px-1 py-1 align-middle">
+                    <NumberInput
+                      value={metaAnual}
+                      onCommit={(v) => setMetaAnual(nodo, v)}
+                      ariaLabel={`Meta anual de ${nodo.nombre}`}
+                      unidad={unidad}
+                    />
+                    {cuadre === "dif" && metaAnual !== undefined && (
+                      <div className="mt-1 text-[10px] text-amber-700 dark:text-amber-200">
+                        Diferencia: {fmtNum(metaAnual - sumPlan, { signed: true })} {unidad}
+                      </div>
+                    )}
+                    {cuadre === "ok" && (
+                      <div className="mt-1 text-[10px] text-emerald-700 dark:text-emerald-300">Cuadra</div>
+                    )}
+                  </td>
+                  <td className="px-1 py-1 align-middle">
+                    <div className="flex flex-col gap-1">
+                      <button
+                        type="button"
+                        disabled={!(metaAnual && metaAnual > 0) || ayTotalAnual === undefined || ayTotalAnual <= 0}
+                        onClick={() => aplicarEstacionalidadAY(nodo)}
+                        title={`Reparte la meta anual usando las proporciones reales de ${ayYear}`}
+                        className="whitespace-nowrap rounded border border-border px-2 py-1 text-[10px] text-foreground hover:bg-surface disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        Estacionalidad AY
+                      </button>
+                      <button
+                        type="button"
+                        disabled={!(metaAnual && metaAnual > 0)}
+                        onClick={() => repartirEquitativo(nodo)}
+                        className="whitespace-nowrap rounded border border-border px-2 py-1 text-[10px] text-foreground hover:bg-surface disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        Repartir 25/25/25/25
+                      </button>
+                      {nodo.metaPorTrimestre && (
+                        <button
+                          type="button"
+                          onClick={() => limpiarTrimestres(nodo)}
+                          className="whitespace-nowrap rounded px-2 py-1 text-[10px] text-muted hover:text-red-600"
+                        >
+                          Borrar plan trim.
+                        </button>
+                      )}
+                    </div>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+});
+
+/** Panel con estacionalidad histórica del año pasado y alertas de cuadre del plan trimestral. */
+const PanelEstacionalidadPlan = memo(function PanelEstacionalidadPlan({
+  raiz,
+  ramas,
+  idx,
+  year,
+  unidad,
+}: {
+  raiz: NodoArbol;
+  ramas: NodoArbol[];
+  idx: ArbolIndices;
+  year: number;
+  unidad: string;
+}) {
+  const ayYear = year - 1;
+  const ayTrim: Record<TrimestreKey, number> = { Q1: 0, Q2: 0, Q3: 0, Q4: 0 };
+  for (const { key } of TRIMESTRE_LABELS) {
+    const v = realAnioPasadoAgregadoIdx(idx, raiz.id, "trimestre", `${year}-${key}`);
+    ayTrim[key] = v ?? 0;
+  }
+  const sumAy = TRIMESTRE_LABELS.reduce((acc, { key }) => acc + ayTrim[key], 0);
+
+  // Plan total por trimestre = suma del plan por nodo para ramas.
+  const planTrim: Record<TrimestreKey, number> = { Q1: 0, Q2: 0, Q3: 0, Q4: 0 };
+  let algunoPlanFijado = false;
+  for (const rama of ramas) {
+    if (rama.relacionConPadre !== "suma") continue;
+    const hojas = hijosSumaDirectosIdx(idx, rama.id);
+    const nodosConfig = hojas.length > 0 ? hojas : [rama];
+    for (const nodo of nodosConfig) {
+      if (!nodoTieneMetaPorTrimestreHelper(nodo)) continue;
+      const mt = nodo.metaPorTrimestre!;
+      for (const { key } of TRIMESTRE_LABELS) {
+        const v = mt[key];
+        if (v !== undefined && Number.isFinite(v)) {
+          planTrim[key] += v;
+          algunoPlanFijado = true;
+        }
+      }
+    }
+  }
+  const sumPlan = TRIMESTRE_LABELS.reduce((acc, { key }) => acc + planTrim[key], 0);
+
+  // Alertas de cuadre: hojas con metaPorTrimestre cuya suma difiera >15% de su metaValor anual.
+  const alertas: { nombre: string; sum: number; meta: number }[] = [];
+  for (const rama of ramas) {
+    const hojas = hijosSumaDirectosIdx(idx, rama.id);
+    const nodosConfig = hojas.length > 0 ? hojas : [rama];
+    for (const nodo of nodosConfig) {
+      if (!nodoTieneMetaPorTrimestreHelper(nodo)) continue;
+      const mt = nodo.metaPorTrimestre!;
+      const sum = TRIMESTRE_LABELS.reduce(
+        (acc, { key }) => acc + (Number.isFinite(mt[key]!) ? (mt[key] as number) : 0),
+        0,
+      );
+      const meta = nodo.metaValor;
+      if (meta === undefined || meta <= 0) continue;
+      const diff = Math.abs(sum - meta) / meta;
+      if (diff > 0.15) alertas.push({ nombre: nodo.nombre, sum, meta });
+    }
+  }
+
+  return (
+    <div className="mb-3 grid gap-2 sm:grid-cols-2">
+      <div className="rounded border border-border bg-surface/40 p-2">
+        <p className="text-[11px] font-medium text-foreground">Estacionalidad real {ayYear}</p>
+        {sumAy > 0 ? (
+          <>
+            <div className="mt-1 grid grid-cols-4 gap-1 text-[11px]">
+              {TRIMESTRE_LABELS.map(({ key, label }) => {
+                const pct = (ayTrim[key] / sumAy) * 100;
+                return (
+                  <div key={key} className="rounded bg-background px-1 py-1 text-center">
+                    <div className="text-muted">{label}</div>
+                    <div className="tabular-nums font-medium text-foreground">
+                      {pct.toFixed(1).replace(".", ",")} %
+                    </div>
+                    <div className="text-[9px] text-muted">
+                      {fmtNum(ayTrim[key])} {unidad}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+            <p className="mt-1 text-[10px] text-muted">
+              Total {ayYear}:{" "}
+              <strong className="tabular-nums text-foreground">
+                {fmtNum(sumAy)} {unidad}
+              </strong>
+            </p>
+          </>
+        ) : (
+          <p className="mt-1 text-[11px] text-muted">
+            Aún no hay datos del año pasado. Los cálculos se actualizarán en cuanto haya registros de {ayYear}.
+          </p>
+        )}
+      </div>
+      <div className="rounded border border-border bg-surface/40 p-2">
+        <p className="text-[11px] font-medium text-foreground">Plan trimestral {year}</p>
+        {algunoPlanFijado ? (
+          <>
+            <div className="mt-1 grid grid-cols-4 gap-1 text-[11px]">
+              {TRIMESTRE_LABELS.map(({ key, label }) => {
+                const pct = sumPlan > 0 ? (planTrim[key] / sumPlan) * 100 : 0;
+                const ayPct = sumAy > 0 ? (ayTrim[key] / sumAy) * 100 : 0;
+                const delta = sumAy > 0 ? pct - ayPct : undefined;
+                return (
+                  <div key={key} className="rounded bg-background px-1 py-1 text-center">
+                    <div className="text-muted">{label}</div>
+                    <div className="tabular-nums font-medium text-foreground">
+                      {pct.toFixed(1).replace(".", ",")} %
+                    </div>
+                    <div className="text-[9px] text-muted">
+                      {fmtNum(planTrim[key])} {unidad}
+                    </div>
+                    {delta !== undefined && Math.abs(delta) >= 0.5 && (
+                      <div
+                        className={`text-[9px] tabular-nums ${
+                          delta >= 0 ? "text-emerald-700 dark:text-emerald-300" : "text-amber-700 dark:text-amber-200"
+                        }`}
+                      >
+                        {delta >= 0 ? "+" : ""}
+                        {delta.toFixed(1).replace(".", ",")} pp AY
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+            <div className="mt-1 flex flex-wrap items-baseline justify-between gap-2 text-[10px]">
+              <span className="text-muted">
+                Plan total fijado:{" "}
+                <strong className="tabular-nums text-foreground">
+                  {fmtNum(sumPlan)} {unidad}
+                </strong>
+              </span>
+              {raiz.metaValor !== undefined && (
+                <span className={sumPlan > raiz.metaValor * 1.01 || sumPlan < raiz.metaValor * 0.99 ? "text-amber-700 dark:text-amber-200" : "text-muted"}>
+                  Meta anual:{" "}
+                  <strong className="tabular-nums text-foreground">
+                    {fmtNum(raiz.metaValor)} {unidad}
+                  </strong>
+                </span>
+              )}
+            </div>
+          </>
+        ) : (
+          <p className="mt-1 text-[11px] text-muted">
+            Aún no has fijado ningún trimestre. Usa la tabla de abajo o el botón «Aplicar estacionalidad AY» para arrancar.
+          </p>
+        )}
+      </div>
+      {alertas.length > 0 && (
+        <div className="sm:col-span-2 rounded border border-amber-400/60 bg-amber-500/10 p-2 text-[11px] text-amber-900 dark:text-amber-100">
+          <p className="font-medium">Hojas cuya suma trimestral no cuadra con su meta anual (&gt;15 %):</p>
+          <ul className="mt-1 list-inside list-disc">
+            {alertas.slice(0, 6).map((a) => (
+              <li key={a.nombre}>
+                {a.nombre}: suma trimestres {fmtNum(a.sum)} {unidad} vs meta anual {fmtNum(a.meta)} {unidad} (diferencia{" "}
+                {fmtNum(a.meta - a.sum, { signed: true })} {unidad}).
+              </li>
+            ))}
+            {alertas.length > 6 && <li>... y {alertas.length - 6} más</li>}
+          </ul>
+        </div>
+      )}
+    </div>
+  );
+});
+
+function nodoTieneMetaPorTrimestreHelper(nodo: NodoArbol): boolean {
+  const mt = nodo.metaPorTrimestre;
+  if (!mt) return false;
+  return TRIMESTRE_LABELS.some(({ key }) => mt[key] !== undefined && Number.isFinite(mt[key]!));
+}
+
 export interface VistaBloquesProps {
   raiz: NodoArbol;
   year: number;
@@ -1838,6 +2317,8 @@ export function VistaBloques({ raiz, year }: VistaBloquesProps) {
                     acc + (totalAnual > 0 ? ((metaEfectivaNodoIdx(idx, r) ?? 0) / totalAnual) * 100 : 0),
                   0,
                 );
+              const ayYear = year - 1;
+              const ayRaiz = realAnioPasadoAgregadoIdx(idx, raiz.id, "anio", String(year));
               return (
                 <>
                   {ramas.map((rama) => {
@@ -1856,6 +2337,22 @@ export function VistaBloques({ raiz, year }: VistaBloquesProps) {
                           return acc + (mv / metaPlaneada!) * 100;
                         }, 0)
                       : 0;
+                    const ayRama = realAnioPasadoAgregadoIdx(idx, rama.id, "anio", String(year));
+                    const pctAyRama =
+                      ayRaiz !== undefined && ayRaiz > 0 && ayRama !== undefined
+                        ? (ayRama / ayRaiz) * 100
+                        : undefined;
+                    // Datos por hoja (AY) para poder repartir según proporción histórica.
+                    const ayHojas = hojasCfg.map((h) => ({
+                      hoja: h,
+                      ay: realAnioPasadoAgregadoIdx(idx, h.id, "anio", String(year)),
+                    }));
+                    const sumAyHojas = ayHojas.reduce(
+                      (acc, x) => acc + (x.ay !== undefined ? x.ay : 0),
+                      0,
+                    );
+                    const puedeAplicarAY =
+                      planeadaOk && sumAyHojas > 0 && ayHojas.some((x) => x.ay !== undefined && x.ay > 0);
                     return (
                       <div key={rama.id} className="rounded border border-border bg-surface/40 px-3 py-2">
                         <div className="flex flex-wrap items-baseline justify-between gap-2">
@@ -1888,6 +2385,24 @@ export function VistaBloques({ raiz, year }: VistaBloquesProps) {
                                 <span className="text-muted"> del total (según suma hojas)</span>
                               </>
                             )}
+                            {ayRama !== undefined && (
+                              <>
+                                <span className="mx-1 text-border">|</span>
+                                AY {ayYear}:{" "}
+                                <strong className="tabular-nums text-foreground">
+                                  {fmtNum(ayRama)} {unidad}
+                                </strong>
+                                {pctAyRama !== undefined && (
+                                  <>
+                                    {" "}·{" "}
+                                    <strong className="tabular-nums text-foreground">
+                                      {pctAyRama.toFixed(1).replace(".", ",")} %
+                                    </strong>
+                                    <span className="text-muted"> del total AY</span>
+                                  </>
+                                )}
+                              </>
+                            )}
                           </span>
                         </div>
                         <div className="mt-2 flex flex-wrap gap-2">
@@ -1900,6 +2415,32 @@ export function VistaBloques({ raiz, year }: VistaBloquesProps) {
                           >
                             + hoja
                           </button>
+                          {conHojasCfg && (
+                            <button
+                              type="button"
+                              disabled={!puedeAplicarAY}
+                              title={
+                                !puedeAplicarAY
+                                  ? "Necesitas meta planeada > 0 y al menos una hoja con datos de año pasado"
+                                  : `Reparte ${fmtNum(metaPlaneada)} ${unidad} entre las hojas usando las proporciones reales de ${ayYear}`
+                              }
+                              onClick={() => {
+                                if (!puedeAplicarAY || metaPlaneada === undefined) return;
+                                for (const { hoja, ay } of ayHojas) {
+                                  if (ay === undefined || !Number.isFinite(ay) || ay <= 0) continue;
+                                  const nuevaMeta = metaPlaneada * (ay / sumAyHojas);
+                                  dispatch({
+                                    type: "UPDATE_NODO_ARBOL",
+                                    id: hoja.id,
+                                    changes: { metaValor: Math.round(nuevaMeta * 100) / 100 },
+                                  });
+                                }
+                              }}
+                              className="rounded-lg border border-border px-2 py-1 text-[11px] font-medium text-foreground hover:bg-surface disabled:cursor-not-allowed disabled:opacity-50"
+                            >
+                              Aplicar proporción del año pasado
+                            </button>
+                          )}
                         </div>
                         {ramaHojaFormConfigId === rama.id && (
                           <FormNuevaHoja
@@ -1979,18 +2520,42 @@ export function VistaBloques({ raiz, year }: VistaBloquesProps) {
                                   planeadaOk && hoja.metaValor !== undefined && Number.isFinite(hoja.metaValor)
                                     ? (hoja.metaValor / metaPlaneada!) * 100
                                     : undefined;
+                                const ayHoja = realAnioPasadoAgregadoIdx(idx, hoja.id, "anio", String(year));
+                                const pctAyHoja =
+                                  ayRama !== undefined && ayRama > 0 && ayHoja !== undefined
+                                    ? (ayHoja / ayRama) * 100
+                                    : undefined;
                                 return (
                                   <div key={hoja.id} className="rounded border border-border/40 p-2">
                                     <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
                                       <span className="text-[11px] font-medium text-foreground">{hoja.nombre}</span>
-                                      {pctHojaPlaneada !== undefined && (
-                                        <span className="text-[10px] text-muted">
-                                          <strong className="tabular-nums text-foreground">
-                                            {pctHojaPlaneada.toFixed(1).replace(".", ",")} %
-                                          </strong>{" "}
-                                          de la meta planeada
-                                        </span>
-                                      )}
+                                      <span className="flex flex-wrap items-baseline gap-x-2 text-[10px] text-muted">
+                                        {pctHojaPlaneada !== undefined && (
+                                          <span>
+                                            <strong className="tabular-nums text-foreground">
+                                              {pctHojaPlaneada.toFixed(1).replace(".", ",")} %
+                                            </strong>{" "}
+                                            de la meta planeada
+                                          </span>
+                                        )}
+                                        {ayHoja !== undefined && (
+                                          <span>
+                                            <span className="text-border">|</span> AY {ayYear}:{" "}
+                                            <strong className="tabular-nums text-foreground">
+                                              {fmtNum(ayHoja)} {unidad}
+                                            </strong>
+                                            {pctAyHoja !== undefined && (
+                                              <>
+                                                {" "}·{" "}
+                                                <strong className="tabular-nums text-foreground">
+                                                  {pctAyHoja.toFixed(1).replace(".", ",")} %
+                                                </strong>
+                                                <span className="text-muted"> de la rama AY</span>
+                                              </>
+                                            )}
+                                          </span>
+                                        )}
+                                      </span>
                                     </div>
                                     <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
                                       <label className="flex flex-col gap-1 text-[11px] text-muted">
@@ -2117,6 +2682,39 @@ export function VistaBloques({ raiz, year }: VistaBloquesProps) {
             })
           }
         />
+      </SeccionColapsable>
+
+      <SeccionColapsable
+        storageKey={`arbol.bloque.plan-trimestral.${year}`}
+        defaultOpen={false}
+        titulo="Plan trimestral de ramas y hojas"
+        resumen={`${ramas.length} ${ramas.length === 1 ? "rama" : "ramas"}`}
+      >
+        <p className="text-[11px] text-muted">
+          Aquí decides la <strong>estacionalidad</strong>: cuánto vas a facturar en cada trimestre. El plan se introduce por{" "}
+          <strong>hoja</strong> (producto). Al fijar un trimestre, la tarjeta de ese trimestre y los meses que contiene usan
+          ese valor en lugar del prorrateo automático. Si dejas un trimestre vacío, el residuo de la meta anual se reparte
+          entre los vacíos proporcional a sus días laborables. Usa «Estacionalidad AY» para copiar las proporciones reales del
+          año pasado.
+        </p>
+        <PanelEstacionalidadPlan raiz={raiz} ramas={ramas} idx={idx} year={year} unidad={unidad} />
+        <div className="space-y-3">
+          {ramas.length === 0 ? (
+            <p className="rounded border border-dashed border-border px-3 py-3 text-sm text-muted">
+              Aún no has añadido ramas.
+            </p>
+          ) : (
+            ramas.map((rama) => (
+              <PlanTrimestralConfigRama
+                key={rama.id}
+                rama={rama}
+                idx={idx}
+                year={year}
+                unidad={unidad}
+              />
+            ))
+          )}
+        </div>
       </SeccionColapsable>
     </div>
   );
