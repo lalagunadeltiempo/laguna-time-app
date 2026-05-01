@@ -319,3 +319,133 @@ describe("realEfectivoEnPeriodoIdx con fallback a registros directos", () => {
     expect(realEfectivoEnPeriodoIdx(idx, "r26", "mes", "2026-01")).toBe(9999);
   });
 });
+
+/**
+ * Regresión del reset de datos: tras borrar todos los apuntes manuales en ramas y raíces,
+ * el Real y el AY que se muestran en la raíz siguen cuadrando como suma de las hojas.
+ */
+describe("post-reset: raíz cuadra con suma de hojas", () => {
+  const raiz2025 = mkNodo({
+    id: "r25",
+    anio: 2025,
+    orden: 0,
+    nombre: "Facturación",
+    tipo: "resultado",
+    cadencia: "anual",
+    relacionConPadre: "explica",
+    contadorModo: "manual",
+    metaUnidad: "€",
+  });
+  const aulas2025 = mkNodo({
+    id: "a25",
+    anio: 2025,
+    parentId: "r25",
+    orden: 0,
+    nombre: "Aulas",
+    tipo: "palanca",
+    cadencia: "anual",
+    relacionConPadre: "suma",
+    contadorModo: "manual",
+  });
+  const acidez2025 = mkNodo({
+    id: "ac25",
+    anio: 2025,
+    parentId: "a25",
+    orden: 0,
+    nombre: "Acidez",
+    tipo: "palanca",
+    cadencia: "anual",
+    relacionConPadre: "suma",
+    contadorModo: "manual",
+  });
+  const infertilidad2025 = mkNodo({
+    id: "if25",
+    anio: 2025,
+    parentId: "a25",
+    orden: 1,
+    nombre: "Infertilidad",
+    tipo: "palanca",
+    cadencia: "anual",
+    relacionConPadre: "suma",
+    contadorModo: "manual",
+  });
+  const raiz2026 = mkNodo({
+    id: "r26",
+    anio: 2026,
+    orden: 0,
+    nombre: "Facturación",
+    tipo: "resultado",
+    cadencia: "anual",
+    relacionConPadre: "explica",
+    contadorModo: "manual",
+    metaUnidad: "€",
+  });
+  const aulas2026 = mkNodo({
+    id: "a26",
+    anio: 2026,
+    parentId: "r26",
+    orden: 0,
+    nombre: "Aulas",
+    tipo: "palanca",
+    cadencia: "anual",
+    relacionConPadre: "suma",
+    contadorModo: "manual",
+  });
+  const acidez2026 = mkNodo({
+    id: "ac26",
+    anio: 2026,
+    parentId: "a26",
+    orden: 0,
+    nombre: "Acidez",
+    tipo: "palanca",
+    cadencia: "anual",
+    relacionConPadre: "suma",
+    contadorModo: "manual",
+  });
+  const infertilidad2026 = mkNodo({
+    id: "if26",
+    anio: 2026,
+    parentId: "a26",
+    orden: 1,
+    nombre: "Infertilidad",
+    tipo: "palanca",
+    cadencia: "anual",
+    relacionConPadre: "suma",
+    contadorModo: "manual",
+  });
+
+  const nodos = [
+    raiz2025,
+    aulas2025,
+    acidez2025,
+    infertilidad2025,
+    raiz2026,
+    aulas2026,
+    acidez2026,
+    infertilidad2026,
+  ];
+
+  it("Real de la raíz 2026 = suma del Real de sus hojas (sin apuntes en ramas ni raíz)", () => {
+    const registros = [
+      mkReg({ id: "rac", nodoId: "ac26", periodoTipo: "mes", periodoKey: "2026-01", valor: 1200 }),
+      mkReg({ id: "rif", nodoId: "if26", periodoTipo: "mes", periodoKey: "2026-01", valor: 800 }),
+    ];
+    const idx = buildArbolIndices(registros, nodos, 2026);
+    expect(realEfectivoEnPeriodoIdx(idx, "ac26", "mes", "2026-01")).toBe(1200);
+    expect(realEfectivoEnPeriodoIdx(idx, "if26", "mes", "2026-01")).toBe(800);
+    expect(realEfectivoEnPeriodoIdx(idx, "a26", "mes", "2026-01")).toBe(2000);
+    expect(realEfectivoEnPeriodoIdx(idx, "r26", "mes", "2026-01")).toBe(2000);
+  });
+
+  it("AY de la raíz 2026 = suma del AY de sus hojas por path (sin apuntes manuales en 2026)", () => {
+    const registros = [
+      mkReg({ id: "ay1", nodoId: "ac25", periodoTipo: "mes", periodoKey: "2025-01", valor: 1037 }),
+      mkReg({ id: "ay2", nodoId: "if25", periodoTipo: "mes", periodoKey: "2025-01", valor: 500 }),
+    ];
+    const idx = buildArbolIndices(registros, nodos, 2026);
+    expect(realAnioPasadoAgregadoIdx(idx, "ac26", "mes", "2026-01")).toBe(1037);
+    expect(realAnioPasadoAgregadoIdx(idx, "if26", "mes", "2026-01")).toBe(500);
+    expect(realAnioPasadoAgregadoIdx(idx, "a26", "mes", "2026-01")).toBe(1537);
+    expect(realAnioPasadoAgregadoIdx(idx, "r26", "mes", "2026-01")).toBe(1537);
+  });
+});

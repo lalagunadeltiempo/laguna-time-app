@@ -645,90 +645,34 @@ const TarjetaPeriodo = memo(function TarjetaPeriodo({
         </details>
       )}
 
-      {(() => {
+      {/* El apunte directo en la raíz solo tiene sentido cuando aún no hay hojas. Si ya hay estructura,
+          todos los apuntes se hacen a nivel hoja y la raíz se calcula por suma. */}
+      {vista === "mes" && ramas.length === 0 && (() => {
         const regActual = registros.find(
           (r) => r.nodoId === raiz.id && r.periodoTipo === periodoTipo && r.periodoKey === periodoKey,
         );
-        const ayKey = desplazarUnAnio(periodoTipo, periodoKey);
-        const regAy = registros.find(
-          (r) => r.nodoId === raiz.id && r.periodoTipo === periodoTipo && r.periodoKey === ayKey,
-        );
         return (
-          <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
-            <div className="flex flex-col gap-1">
-              <label className="flex flex-col gap-1 text-[11px] text-muted">
-                Apuntar real (total {titulo})
-                <NumberInput
-                  value={regActual?.valor}
-                  onCommit={(v) =>
-                    upsert({
-                      nodoId: raiz.id,
-                      periodoTipo,
-                      periodoKey,
-                      valor: v,
-                      unidades: regActual?.unidades,
-                    })
-                  }
-                  ariaLabel={`Real ${titulo}`}
-                  unidad={unidad}
-                />
-              </label>
-              <label className="flex items-center gap-2 text-[10px] text-muted">
-                <span className="shrink-0">Uds</span>
-                <NumberInput
-                  value={regActual?.unidades}
-                  onCommit={(u) =>
-                    upsert({
-                      nodoId: raiz.id,
-                      periodoTipo,
-                      periodoKey,
-                      valor: regActual?.valor,
-                      unidades: u,
-                      soloUnidades: true,
-                    })
-                  }
-                  ariaLabel={`Unidades ${titulo}`}
-                  unidad="uds"
-                />
-              </label>
-            </div>
-            <div className="flex flex-col gap-1">
-              <label className="flex flex-col gap-1 text-[11px] text-muted">
-                Año pasado (cargar)
-                <NumberInput
-                  value={regAy?.valor}
-                  onCommit={(v) =>
-                    upsert({
-                      nodoId: raiz.id,
-                      periodoTipo,
-                      periodoKey: ayKey,
-                      valor: v,
-                      unidades: regAy?.unidades,
-                    })
-                  }
-                  ariaLabel={`Año pasado ${titulo}`}
-                  unidad={unidad}
-                />
-              </label>
-              <label className="flex items-center gap-2 text-[10px] text-muted">
-                <span className="shrink-0">Uds</span>
-                <NumberInput
-                  value={regAy?.unidades}
-                  onCommit={(u) =>
-                    upsert({
-                      nodoId: raiz.id,
-                      periodoTipo,
-                      periodoKey: ayKey,
-                      valor: regAy?.valor,
-                      unidades: u,
-                      soloUnidades: true,
-                    })
-                  }
-                  ariaLabel={`Unidades año pasado ${titulo}`}
-                  unidad="uds"
-                />
-              </label>
-            </div>
+          <div className="mt-3">
+            <label className="flex flex-col gap-1 text-[11px] text-muted">
+              Apuntar real (total {titulo})
+              <NumberInput
+                value={regActual?.valor}
+                onCommit={(v) =>
+                  upsert({
+                    nodoId: raiz.id,
+                    periodoTipo,
+                    periodoKey,
+                    valor: v,
+                    unidades: regActual?.unidades,
+                  })
+                }
+                ariaLabel={`Real ${titulo}`}
+                unidad={unidad}
+              />
+            </label>
+            <p className="mt-1 text-[10px] text-muted">
+              Cuando añadas ramas y hojas, el real de la raíz se calculará automáticamente como suma de las hojas.
+            </p>
           </div>
         );
       })()}
@@ -1006,8 +950,10 @@ const FilaHojaArbol = memo(function FilaHojaArbol({
           </span>
         )}
       </div>
-      <div className={`mt-2 grid grid-cols-1 gap-2 ${compact ? "" : "sm:grid-cols-2"}`}>
-        <div className="flex flex-col gap-1 text-[10px] text-muted">
+      {/* Solo las hojas se apuntan, y solo en mes o semana. La rama/raíz se calculan por suma.
+          El año pasado se resuelve automáticamente por nombre/path; no hay input manual. */}
+      {modoStoragePrefix === "hoja" && (vista === "mes" || vista === "semana") && (
+        <div className="mt-2 flex flex-col gap-1 text-[10px] text-muted">
           <div className="flex items-center justify-between gap-2">
             <span>Apuntar real</span>
             <span className="inline-flex overflow-hidden rounded border border-border text-[9px]">
@@ -1101,49 +1047,7 @@ const FilaHojaArbol = memo(function FilaHojaArbol({
             />
           </label>
         </div>
-        <div className="flex flex-col gap-1">
-          <label className="flex flex-col gap-1 text-[10px] text-muted">
-            {modoStoragePrefix === "hoja" ? "Referencia año anterior (opcional)" : "Año pasado"}
-            <NumberInput
-              value={valorAnioPasado}
-              onCommit={(v) =>
-                upsert({
-                  nodoId: nodo.id,
-                  periodoTipo,
-                  periodoKey: ayKey,
-                  valor: v,
-                  unidades: unidadesAnioPasado,
-                })
-              }
-              ariaLabel={`${modoStoragePrefix === "hoja" ? "Referencia año anterior" : "Año pasado"} ${nodo.nombre}`}
-              unidad={unidad}
-            />
-            {modoStoragePrefix === "hoja" && (
-              <span className="text-[9px] leading-snug text-muted">
-                Si la hoja no existía el año pasado no hay dato automático: puedes dejarlo vacío o escribir un importe manual si quieres comparar (p. ej. una parte del año pasado de la rama).
-              </span>
-            )}
-          </label>
-          <label className="flex items-center gap-2 text-[10px] text-muted">
-            <span className="shrink-0">Uds</span>
-            <NumberInput
-              value={unidadesAnioPasado}
-              onCommit={(u) =>
-                upsert({
-                  nodoId: nodo.id,
-                  periodoTipo,
-                  periodoKey: ayKey,
-                  valor: valorAnioPasado,
-                  unidades: u,
-                  soloUnidades: true,
-                })
-              }
-              ariaLabel={`Unidades año pasado ${nodo.nombre}`}
-              unidad="uds"
-            />
-          </label>
-        </div>
-      </div>
+      )}
     </div>
   );
 });
@@ -1553,10 +1457,6 @@ function BloqueSemanas({ ctx }: { ctx: ContextoBloque }) {
           const valor = ctx.registros.find(
             (r) => r.nodoId === ctx.raiz.id && r.periodoTipo === "semana" && r.periodoKey === mk,
           )?.valor;
-          const ayKey = desplazarUnAnio("semana", mk);
-          const valorAy = ctx.registros.find(
-            (r) => r.nodoId === ctx.raiz.id && r.periodoTipo === "semana" && r.periodoKey === ayKey,
-          )?.valor;
           const delta = plan !== undefined ? real - plan : undefined;
           const pct = plan && plan > 0 ? Math.min(100, Math.round((real / plan) * 100)) : real > 0 ? 100 : 0;
           const estadoSem = estadoPeriodo("semana", mk, ctx.year);
@@ -1661,7 +1561,9 @@ function BloqueSemanas({ ctx }: { ctx: ContextoBloque }) {
                     </div>
                   )}
 
-                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                  {/* Solo se permite apuntar directamente en la semana cuando aún no hay ramas.
+                      Con estructura, los apuntes viven en las hojas (bloque «Por rama» debajo). */}
+                  {ramasQueSuman.length === 0 && (
                     <label className="flex flex-col gap-0.5 text-[10px] text-muted">
                       Apuntar real
                       <NumberInput
@@ -1673,18 +1575,7 @@ function BloqueSemanas({ ctx }: { ctx: ContextoBloque }) {
                         unidad={ctx.unidad}
                       />
                     </label>
-                    <label className="flex flex-col gap-0.5 text-[10px] text-muted">
-                      Año pasado
-                      <NumberInput
-                        value={valorAy}
-                        onCommit={(v) =>
-                          upsert({ nodoId: ctx.raiz.id, periodoTipo: "semana", periodoKey: ayKey, valor: v })
-                        }
-                        ariaLabel={`Año pasado ${mk}`}
-                        unidad={ctx.unidad}
-                      />
-                    </label>
-                  </div>
+                  )}
 
                   {ramasQueSuman.length > 0 && (
                     <details className="mt-2 rounded-lg border border-border/60 bg-surface/25">
@@ -2296,12 +2187,71 @@ export function VistaBloques({ raiz, year }: VistaBloquesProps) {
       <SeccionColapsable
         storageKey={`arbol.bloque.ramas-config.${year}`}
         defaultOpen={false}
-        titulo="Ramas (configuración anual)"
+        titulo="Configuración anual"
         resumen={`${ramas.length} ${ramas.length === 1 ? "rama" : "ramas"}`}
       >
         <p className="text-[11px] text-muted">
-          Las ramas son las cosas que sumas para llegar al objetivo del año (ej. aulas, planes, individual). Con <strong>hojas</strong>, la <strong>meta planeada de la rama</strong> es tu estimación en € (también puedes repartir las hojas en % de esa meta); lo que cuenta de cara al total del año es la <strong>suma real en €</strong> de las hojas. Para los apuntes facturados, usa mes/trimestre/semanas arriba (solo €).
+          Aquí defines los parámetros del año: el objetivo total (raíz) y las ramas que lo componen (por ejemplo aulas, planes, individual). Las ramas con <strong>hojas</strong> usan la suma de sus hojas como objetivo efectivo; las ramas sin hojas usan su propia meta. Los apuntes facturados se hacen en las hojas desde la vista de mes o semana, nunca aquí.
         </p>
+        <div className="mb-3 rounded border border-accent/40 bg-accent/5 px-3 py-2">
+          <p className="text-sm font-medium text-foreground">Raíz del año: {raiz.nombre}</p>
+          <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-3">
+            <label className="flex flex-col gap-1 text-[11px] text-muted">
+              Nombre
+              <input
+                defaultValue={raiz.nombre}
+                onBlur={(e) => {
+                  const v = e.target.value.trim();
+                  if (v && v !== raiz.nombre) {
+                    dispatch({ type: "UPDATE_NODO_ARBOL", id: raiz.id, changes: { nombre: v } });
+                  }
+                }}
+                className="rounded border border-border bg-background px-2 py-1.5 text-sm"
+              />
+            </label>
+            <label className="flex flex-col gap-1 text-[11px] text-muted">
+              Unidad (ej. €)
+              <input
+                defaultValue={raiz.metaUnidad ?? ""}
+                onBlur={(e) => {
+                  const v = e.target.value.trim();
+                  if (v !== (raiz.metaUnidad ?? "")) {
+                    dispatch({ type: "UPDATE_NODO_ARBOL", id: raiz.id, changes: { metaUnidad: v || undefined } });
+                  }
+                }}
+                className="rounded border border-border bg-background px-2 py-1.5 text-sm"
+              />
+            </label>
+            <label className="flex flex-col gap-1 text-[11px] text-muted">
+              Objetivo anual ({unidad || "número"})
+              <NumberInput
+                value={raiz.metaValor}
+                onCommit={(v) =>
+                  dispatch({ type: "UPDATE_NODO_ARBOL", id: raiz.id, changes: { metaValor: v } })
+                }
+                ariaLabel={`Objetivo anual de ${raiz.nombre} ${year}`}
+                unidad={unidad}
+              />
+            </label>
+          </div>
+          <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
+            <p className="text-[10px] text-muted">
+              Cambia el objetivo anual cuando quieras; el plan se recalcula automáticamente. La suma de las metas de las ramas debería coincidir con este total.
+            </p>
+            <button
+              type="button"
+              onClick={() => {
+                const ok = window.confirm(
+                  `¿Borrar todo el año ${year} (${raiz.nombre})? Se eliminarán la raíz, las ramas, las hojas y todos los registros apuntados. No se puede deshacer.`,
+                );
+                if (ok) dispatch({ type: "DELETE_NODO_ARBOL", id: raiz.id });
+              }}
+              className="rounded border border-red-400/60 px-2 py-1 text-[11px] font-medium text-red-700 hover:bg-red-500/10 dark:text-red-300"
+            >
+              Borrar año {year}
+            </button>
+          </div>
+        </div>
         <div className="space-y-2">
           {ramas.length === 0 ? (
             <p className="rounded border border-dashed border-border px-3 py-3 text-sm text-muted">
