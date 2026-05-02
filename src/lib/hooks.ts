@@ -428,6 +428,9 @@ export interface PlannedBlock {
   origen: PlannedBlockOrigen;
   /** Responsable del entregable (si está). */
   responsable?: string;
+  /** Responsable del paso contextual (si existe). Permite mostrar chips por-paso
+   *  cuando un mismo entregable tiene pasos asignados a miembros distintos. */
+  pasoResponsable?: string;
   /** El bloque aparece por un paso del `targetUser`, no porque el entregable sea suyo. */
   pasoTuyo?: boolean;
 }
@@ -593,6 +596,9 @@ export function usePlannedBlocks(dateKey: string, targetUser?: string | null): P
       const planTsUsuario = planTsDe(ent, effectiveTarget);
       const planMatchesDate = planTsUsuario ? planTsUsuario.slice(0, 10) === dateKey : false;
 
+      const pasoCtx = siguientePasoId ? pasosE.find((p) => p.id === siguientePasoId) : undefined;
+      const pasoResponsable = pasoCtx?.responsable;
+
       result.push({
         id: `ent-${ent.id}`,
         title: ent.nombre,
@@ -609,6 +615,7 @@ export function usePlannedBlocks(dateKey: string, targetUser?: string | null): P
         planInicioTs: planMatchesDate ? planTsUsuario : null,
         origen,
         responsable: ent.responsable,
+        pasoResponsable,
         pasoTuyo: tienePasoMio,
       });
     }

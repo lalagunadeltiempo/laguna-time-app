@@ -75,6 +75,68 @@ export function InlineNombre({
   );
 }
 
+function inicialesMiembro(nombre: string): string {
+  const parts = nombre.trim().split(/\s+/);
+  if (parts.length === 0) return "?";
+  if (parts.length === 1) return parts[0].slice(0, 1).toUpperCase();
+  return (parts[0][0] + parts[1][0]).toUpperCase();
+}
+
+/** Busca el color hex de un miembro por nombre (case-insensitive, sin tildes). Fallback: gris. */
+export function colorMiembro(nombre: string | undefined, miembros: MiembroInfo[]): string {
+  if (!nombre) return "#94a3b8";
+  const target = nombre
+    .normalize("NFKD")
+    .replace(/\p{Diacritic}/gu, "")
+    .trim()
+    .toLowerCase();
+  const m = miembros.find(
+    (x) =>
+      x.nombre
+        .normalize("NFKD")
+        .replace(/\p{Diacritic}/gu, "")
+        .trim()
+        .toLowerCase() === target,
+  );
+  return m?.color ?? "#94a3b8";
+}
+
+/** Chip con el color y el nombre del miembro. Si `resaltado`, aplica borde/fondo acento para
+ *  indicar "ojo, este bloque es de otro usuario y tú lo ves de refilón". */
+export function ChipMiembro({
+  nombre,
+  miembros,
+  resaltado = false,
+  compact = false,
+  title,
+}: {
+  nombre: string | undefined;
+  miembros: MiembroInfo[];
+  resaltado?: boolean;
+  compact?: boolean;
+  title?: string;
+}) {
+  if (!nombre) return null;
+  const hex = colorMiembro(nombre, miembros);
+  const size = compact ? "h-4 w-4 text-[9px]" : "h-5 w-5 text-[10px]";
+  const borderClass = resaltado ? "border border-accent/70 ring-1 ring-accent/40" : "";
+  return (
+    <span
+      className={`inline-flex shrink-0 items-center gap-1 rounded-full bg-surface/80 py-0.5 pl-0.5 pr-2 text-[10px] font-medium text-foreground ${borderClass}`}
+      title={title ?? `Responsable: ${nombre}`}
+    >
+      <span
+        aria-hidden
+        className={`flex shrink-0 items-center justify-center rounded-full font-semibold text-white ${size}`}
+        style={{ backgroundColor: hex }}
+      >
+        {inicialesMiembro(nombre)}
+      </span>
+      {!compact && <span className="truncate">{nombre}</span>}
+    </span>
+  );
+}
+
 /** Select compacto de responsable. */
 export function ResponsableSelect({
   value,

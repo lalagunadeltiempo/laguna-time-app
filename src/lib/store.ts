@@ -230,7 +230,7 @@ export function getLocalSavedAt(): string | null {
 
 /* ---- Supabase (cloud persistence) ---- */
 
-const WORKSPACE_ID = "workspace-laguna";
+export const WORKSPACE_ID = "workspace-laguna";
 
 export interface CloudLoadResult {
   data: AppState | null;
@@ -389,11 +389,11 @@ export function saveStateCloud(userId: string, state: AppState, onMerged?: (merg
     if (pending.onMerged) {
       try { pending.onMerged(stateToSave); } catch { /* noop */ }
     }
-  }, 300);
+  }, 150);
 }
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
-function mergeCloudReviews(local: AppState, cloud: AppState): AppState {
+export function mergeCloudReviews(local: AppState, cloud: AppState): AppState {
   const merged = { ...local };
   /** No reintroducir notas borradas en otro cliente (tombstones en `deleted.notas`). */
   const delNotas = new Set([...(local.deleted?.notas ?? []), ...(cloud.deleted?.notas ?? [])]);
@@ -465,6 +465,54 @@ export function flushPendingCloudSave(): void {
     });
   } catch {
     // Best-effort fallback
+  }
+}
+
+/**
+ * Supabase Realtime: se suscribe a cambios UPDATE de la fila workspace en `user_data`.
+ * Al recibir un cambio, invoca `onRemoteChange`. El caller decide qué hacer (p.ej. disparar
+ * un `pullAndMerge`). Devuelve una función de unsubscribe. Si Realtime no está disponible
+ * (falta env, falta feature en la tabla, etc.), devuelve un unsubscribe no-op y el polling
+ * sigue cubriendo la sincronización como fallback.
+ *
+ * Detalle de filtrado: solo procesamos el evento si el `updated_at` del payload es más
+ * reciente que el del último guardado propio. Así evitamos un bucle push → pull → merge
+ * tras cada escritura de este cliente.
+ */
+export function subscribeToUserDataChanges(
+  onRemoteChange: (payload: { updatedAt: string; state?: AppState }) => void,
+): () => void {
+  const supabase = getSupabase();
+  if (!supabase) return () => {};
+  try {
+    const channel = supabase
+      .channel("user_data_changes_workspace")
+      .on(
+        "postgres_changes",
+        {
+          event: "UPDATE",
+          schema: "public",
+          table: "user_data",
+          filter: `user_id=eq.${WORKSPACE_ID}`,
+        },
+        (payload: unknown) => {
+          const row = (payload as { new?: { state?: AppState; updated_at?: string } })?.new;
+          if (!row) return;
+          const updatedAt = row.updated_at ?? new Date().toISOString();
+          onRemoteChange({ updatedAt, state: row.state });
+        },
+      )
+      .subscribe();
+    return () => {
+      try {
+        supabase.removeChannel(channel);
+      } catch {
+        // noop
+      }
+    };
+  } catch (err) {
+    console.warn("[subscribeToUserDataChanges] Realtime init falló:", err);
+    return () => {};
   }
 }
 

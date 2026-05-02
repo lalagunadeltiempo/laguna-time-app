@@ -3,6 +3,7 @@
 import { useState, useCallback, useMemo, useEffect, type ReactNode } from "react";
 import { AuthGate } from "@/components/AuthGate";
 import { AppProvider, useAppState, useAppDispatch } from "@/lib/context";
+import { PresenceProvider } from "@/lib/presence";
 import { useStaleStepCleanup, buildClosedPasoFin, type StaleSopStep } from "@/lib/hooks";
 import { UsuarioContext, useUsuario, puedeVerArbolObjetivos } from "@/lib/usuario";
 import { getSupabase } from "@/lib/supabase";
@@ -219,6 +220,7 @@ function AppShell({ userId, displayName }: { userId: string; displayName: string
   return (
     <AppProvider userId={userId} displayName={displayName}>
       <UsuarioWithRol userId={userId} nombre={displayName}>
+      <PresenceProvider>
       <StaleStepHandler />
       <div className="flex h-dvh overflow-hidden bg-background text-foreground">
         {/* ── Sidebar (desktop md+) ── */}
@@ -464,6 +466,7 @@ function AppShell({ userId, displayName }: { userId: string; displayName: string
           </div>
         )}
       </div>
+      </PresenceProvider>
       </UsuarioWithRol>
     </AppProvider>
   );

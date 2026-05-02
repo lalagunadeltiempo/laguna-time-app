@@ -13,7 +13,9 @@ import { NuevoPaso } from "./NuevoPaso";
 import { VistaInbox } from "./VistaInbox";
 import HierarchyPicker from "./shared/HierarchyPicker";
 import { RegistrarSesionIconButton } from "./shared/RegistrarSesionPopover";
-import { ResponsableSelect } from "./plan/InlineEditors";
+import { ChipMiembro, ResponsableSelect } from "./plan/InlineEditors";
+import { useMensajesNoLeidos } from "./shared/HiloEntregable";
+import { usePresenciaEntregable } from "@/lib/presence";
 import { ResponsableToggle, type ResponsableFilter } from "./plan/PlanMes";
 import { ambitoDeArea } from "@/lib/types";
 
@@ -605,6 +607,7 @@ function EndOfDayFlow({
 }) {
   const dispatch = useAppDispatch();
   const state = useAppState();
+  const { nombre: currentUser } = useUsuario();
   const todayKey = toDateKey(new Date());
 
   function markContinueTomorrow(paso: Paso) {
@@ -685,12 +688,23 @@ function EndOfDayFlow({
               ))}
               {pasosActivos.map((paso) => {
                 const ent = state.entregables.find((e) => e.id === paso.entregableId);
+                const resp = paso.responsable ?? ent?.responsable;
+                const esDeOtro = !!resp && !!currentUser && resp !== currentUser;
                 return (
                   <div key={paso.id} className="flex items-center gap-3 rounded-xl border border-border bg-surface p-3">
                     <div className="min-w-0 flex-1">
                       <p className="truncate text-sm font-medium text-foreground">{paso.nombre}</p>
                       {ent && <p className="truncate text-xs text-muted">{ent.nombre} · paso legacy</p>}
                     </div>
+                    {resp && (
+                      <ChipMiembro
+                        nombre={resp}
+                        miembros={state.miembros}
+                        resaltado={esDeOtro}
+                        compact
+                        title={paso.responsable ? `Paso asignado a ${resp}` : `Responsable del entregable: ${resp}`}
+                      />
+                    )}
                     <button
                       onClick={() => markContinueTomorrow(paso)}
                       className="shrink-0 rounded-lg bg-accent-soft px-3 py-1.5 text-xs font-medium text-accent transition-colors hover:bg-accent/20"
@@ -745,6 +759,7 @@ function EndOfDayFlow({
 function PlannedRow({ block, onStart, onCerrarPorHoy, todayKey, pasoBadgeLabel = "Paso tuyo" }: { block: PlannedBlock; onStart: () => void; onCerrarPorHoy?: (block: PlannedBlock) => void; todayKey: string; pasoBadgeLabel?: string }) {
   const state = useAppState();
   const dispatch = useAppDispatch();
+  const { nombre: currentUser } = useUsuario();
   const hora = block.planInicioTs ? (() => {
     const d = new Date(block.planInicioTs!);
     return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
@@ -757,6 +772,11 @@ function PlannedRow({ block, onStart, onCerrarPorHoy, todayKey, pasoBadgeLabel =
         return proj ? ambitoDeArea(proj.area) === "empresa" : false;
       })()
     : false;
+  // Responsable del paso si existe (hereda del entregable si no está definido).
+  const responsablePaso = block.pasoResponsable ?? block.responsable;
+  const esDeOtro = !!responsablePaso && !!currentUser && responsablePaso !== currentUser;
+  const noLeidos = useMensajesNoLeidos(block.entregableId);
+  const presentes = usePresenciaEntregable(block.entregableId);
   return (
     <div className="flex items-center gap-2 rounded-xl border-l-[3px] bg-surface/50 px-3 py-2.5" style={{ borderLeftColor: block.hex }}>
       {hora ? (
@@ -770,9 +790,48 @@ function PlannedRow({ block, onStart, onCerrarPorHoy, todayKey, pasoBadgeLabel =
           {block.pasoTuyo && (
             <span className="ml-1.5 rounded bg-amber-100 px-1.5 py-0.5 text-[9px] font-semibold uppercase text-amber-700 dark:bg-amber-500/20 dark:text-amber-300">{pasoBadgeLabel}</span>
           )}
+          {noLeidos > 0 && (
+            <span
+              className="ml-1.5 inline-flex items-center gap-0.5 rounded-full bg-accent px-1.5 py-0.5 align-middle text-[9px] font-semibold uppercase text-white"
+              title={`${noLeidos} ${noLeidos === 1 ? "mensaje" : "mensajes"} sin leer en este entregable`}
+            >
+              <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+              </svg>
+              {noLeidos}
+            </span>
+          )}
         </p>
-        <p className="truncate text-[11px] text-muted">{block.subtitle}</p>
+        <p className="truncate text-[11px] text-muted">
+          {block.subtitle}
+          {block.siguientePasoNombre && (
+            <span className="ml-1 text-muted/80">· {block.siguientePasoNombre}</span>
+          )}
+        </p>
       </div>
+      {presentes.length > 0 && (
+        <span
+          className="inline-flex items-center gap-0.5"
+          title={`${presentes.join(", ")} ${presentes.length === 1 ? "está viendo" : "están viendo"} este entregable ahora`}
+        >
+          {presentes.map((n) => (
+            <ChipMiembro key={n} nombre={n} miembros={state.miembros} compact />
+          ))}
+        </span>
+      )}
+      {isEmpresa && responsablePaso && (
+        <ChipMiembro
+          nombre={responsablePaso}
+          miembros={state.miembros}
+          resaltado={esDeOtro}
+          compact
+          title={
+            block.pasoResponsable
+              ? `Paso asignado a ${responsablePaso}`
+              : `Responsable del entregable: ${responsablePaso}`
+          }
+        />
+      )}
       {isEmpresa && block.entregableId && (
         <ResponsableSelect
           value={block.responsable}

@@ -1,4 +1,4 @@
-import type { AppState, Nota, PlanArbolConfigAnio } from "./types";
+import type { AppState, MensajeEntregable, Nota, PlanArbolConfigAnio } from "./types";
 import { EMPTY_ARBOL } from "./types";
 
 function stripNotasTombstones<T extends { notas?: Nota[] }>(item: T, delNotas: Set<string>): T {
@@ -45,18 +45,119 @@ export function mergeStates(a: AppState, b: AppState): AppState {
     return Array.from(map.values());
   }
 
+  /**
+   * Merge profundo: garantiza que ningún campo con id (notas, review, sesiones, implicados)
+   * se pierda porque el objeto al que pertenece "pierde" el prefer top-level. El ganador del
+   * prefer aporta el resto de campos escalares (nombre, estado, diasHechos, fechas, etc.).
+   */
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const preferPaso = (x: any, y: any) => {
-    if (x.finTs && !y.finTs) return x;
-    if (y.finTs && !x.finTs) return y;
-    return (x.inicioTs ?? "") >= (y.inicioTs ?? "") ? x : y;
+  const unirNotas = (a: any, b: any) => {
+    const mA: Nota[] = Array.isArray(a) ? a : [];
+    const mB: Nota[] = Array.isArray(b) ? b : [];
+    const map = new Map<string, Nota>();
+    for (const n of mA) map.set(n.id, n);
+    for (const n of mB) {
+      const prev = map.get(n.id);
+      // Si ya existe, nos quedamos con el más reciente por creadoTs.
+      if (!prev || (n.creadoTs ?? "") > (prev.creadoTs ?? "")) map.set(n.id, n);
+    }
+    return Array.from(map.values()).sort((x, y) => (x.creadoTs ?? "").localeCompare(y.creadoTs ?? ""));
+  };
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const unirPorClave = (a: any, b: any, keyFn: (x: any) => string) => {
+    const arrA: unknown[] = Array.isArray(a) ? a : [];
+    const arrB: unknown[] = Array.isArray(b) ? b : [];
+    const map = new Map<string, unknown>();
+    for (const it of arrA) map.set(keyFn(it), it);
+    for (const it of arrB) if (!map.has(keyFn(it))) map.set(keyFn(it), it);
+    return Array.from(map.values());
   };
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const preferMore = (x: any, y: any) => {
-    if ((x.diasHechos ?? 0) > (y.diasHechos ?? 0)) return x;
-    if ((y.diasHechos ?? 0) > (x.diasHechos ?? 0)) return y;
-    return x;
+    const winner = (x.diasHechos ?? 0) >= (y.diasHechos ?? 0) ? x : y;
+    const loser = winner === x ? y : x;
+    // Si `winner` no tiene review y `loser` sí, lo adoptamos; si ambos tienen, gana la fecha más reciente.
+    const reviewW = winner.review;
+    const reviewL = loser.review;
+    const review =
+      reviewW && reviewL
+        ? (reviewW.fecha ?? "") >= (reviewL.fecha ?? "")
+          ? reviewW
+          : reviewL
+        : reviewW ?? reviewL ?? undefined;
+    const notas = unirNotas(x.notas, y.notas);
+    const sesiones = unirPorClave(x.sesiones, y.sesiones, (s) => (s as { inicioTs?: string }).inicioTs ?? "");
+    const implicados = unirPorClave(x.implicados, y.implicados, (i) => (i as { nombre?: string }).nombre ?? "");
+    // contexto escalar (notas:string): preservamos la versión más larga de cualquiera de los dos
+    // clientes para que nadie pierda un párrafo escrito en paralelo.
+    const ctxW = winner.contexto;
+    const ctxL = loser.contexto;
+    let contexto = ctxW;
+    if (ctxW && ctxL) {
+      const tW = String(ctxW.notas ?? "");
+      const tL = String(ctxL.notas ?? "");
+      const notasLarga = tW.length >= tL.length ? tW : tL;
+      contexto = {
+        urls: unirPorClave(ctxW.urls, ctxL.urls, (u) => (u as { url?: string }).url ?? JSON.stringify(u)),
+        apps: Array.from(new Set([...(ctxW.apps ?? []), ...(ctxL.apps ?? [])])),
+        notas: notasLarga,
+      };
+    }
+    // Pizarras por usuario: merge por clave, conservando el texto más largo por miembro.
+    const pizW: Record<string, string> = winner.pizarraByUser ?? {};
+    const pizL: Record<string, string> = loser.pizarraByUser ?? {};
+    let pizarraByUser: Record<string, string> | undefined;
+    const users = new Set([...Object.keys(pizW), ...Object.keys(pizL)]);
+    if (users.size > 0) {
+      pizarraByUser = {};
+      for (const u of users) {
+        const tW = String(pizW[u] ?? "");
+        const tL = String(pizL[u] ?? "");
+        pizarraByUser[u] = tW.length >= tL.length ? tW : tL;
+      }
+    }
+    return {
+      ...winner,
+      ...(notas.length || winner.notas ? { notas } : {}),
+      ...(review ? { review } : {}),
+      ...(sesiones.length ? { sesiones } : {}),
+      ...(implicados.length ? { implicados } : {}),
+      ...(contexto ? { contexto } : {}),
+      ...(pizarraByUser ? { pizarraByUser } : {}),
+    };
+  };
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const preferPaso = (x: any, y: any) => {
+    let winner: any; // eslint-disable-line @typescript-eslint/no-explicit-any
+    if (x.finTs && !y.finTs) winner = x;
+    else if (y.finTs && !x.finTs) winner = y;
+    else winner = (x.inicioTs ?? "") >= (y.inicioTs ?? "") ? x : y;
+    const loser = winner === x ? y : x;
+    const notas = unirNotas(x.notas, y.notas);
+    const implicados = unirPorClave(x.implicados, y.implicados, (i) => (i as { nombre?: string }).nombre ?? "");
+    // contexto escalar (notas:string): conservamos la versión con más texto para no perder trabajo.
+    const ctxW = winner.contexto;
+    const ctxL = loser.contexto;
+    let contexto = ctxW;
+    if (ctxW && ctxL) {
+      const tW = String(ctxW.notas ?? "");
+      const tL = String(ctxL.notas ?? "");
+      const notasLarga = tW.length >= tL.length ? tW : tL;
+      contexto = {
+        urls: unirPorClave(ctxW.urls, ctxL.urls, (u) => (u as { url?: string }).url ?? JSON.stringify(u)),
+        apps: Array.from(new Set([...(ctxW.apps ?? []), ...(ctxL.apps ?? [])])),
+        notas: notasLarga,
+      };
+    }
+    return {
+      ...winner,
+      ...(notas.length || winner.notas ? { notas } : {}),
+      ...(implicados.length ? { implicados } : {}),
+      ...(contexto ? { contexto } : {}),
+    };
   };
 
   const emptyDel = {
@@ -68,6 +169,7 @@ export function mergeStates(a: AppState, b: AppState): AppState {
     notas: [] as string[],
     arbolNodos: [] as string[],
     arbolRegistros: [] as string[],
+    mensajes: [] as string[],
   };
   const delA = { ...emptyDel, ...(a.deleted ?? {}) };
   const delB = { ...emptyDel, ...(b.deleted ?? {}) };
@@ -80,6 +182,7 @@ export function mergeStates(a: AppState, b: AppState): AppState {
     notas: Array.from(new Set([...(delA.notas ?? []), ...(delB.notas ?? [])])),
     arbolNodos: Array.from(new Set([...(delA.arbolNodos ?? []), ...(delB.arbolNodos ?? [])])),
     arbolRegistros: Array.from(new Set([...(delA.arbolRegistros ?? []), ...(delB.arbolRegistros ?? [])])),
+    mensajes: Array.from(new Set([...(delA.mensajes ?? []), ...(delB.mensajes ?? [])])),
   };
 
   const delNotas = new Set(deleted.notas ?? []);
@@ -91,6 +194,15 @@ export function mergeStates(a: AppState, b: AppState): AppState {
   const delPl = new Set(deleted.plantillas);
   const delArbolNodos = new Set(deleted.arbolNodos);
   const delArbolRegs = new Set(deleted.arbolRegistros);
+  const delMensajes = new Set(deleted.mensajes);
+
+  const preferMensaje = (x: MensajeEntregable, y: MensajeEntregable): MensajeEntregable => {
+    const eX = x.editado ?? x.creado ?? "";
+    const eY = y.editado ?? y.creado ?? "";
+    const base = eX >= eY ? x : y;
+    const leidoPor = Array.from(new Set([...(x.leidoPor ?? []), ...(y.leidoPor ?? [])]));
+    return { ...base, leidoPor };
+  };
 
   const reflA = a.arbol?.reflexiones ?? [];
   const reflB = b.arbol?.reflexiones ?? [];
@@ -125,6 +237,8 @@ export function mergeStates(a: AppState, b: AppState): AppState {
     ejecuciones: unionById(a.ejecuciones ?? [], b.ejecuciones ?? []),
     miembros: unionById(a.miembros ?? [], b.miembros ?? []),
     activityLog: unionById(a.activityLog ?? [], b.activityLog ?? []),
+    mensajes: unionById(a.mensajes ?? [], b.mensajes ?? [], preferMensaje)
+      .filter((m) => !delMensajes.has(m.id) && !delEnt.has(m.entregableId)),
     arbol: {
       nodos: unionById(a.arbol?.nodos ?? EMPTY_ARBOL.nodos, b.arbol?.nodos ?? EMPTY_ARBOL.nodos)
         .filter((n) => !delArbolNodos.has(n.id)),
@@ -156,6 +270,7 @@ export function statesDiffer(a: AppState, b: AppState): boolean {
   if (a.plantillas.length !== b.plantillas.length) return true;
   if ((a.contactos?.length ?? 0) !== (b.contactos?.length ?? 0)) return true;
   if ((a.inbox?.length ?? 0) !== (b.inbox?.length ?? 0)) return true;
+  if ((a.mensajes?.length ?? 0) !== (b.mensajes?.length ?? 0)) return true;
 
   const idSetEq = (xs: { id: string }[], ys: { id: string }[]): boolean => {
     if (xs.length !== ys.length) return false;
@@ -170,7 +285,14 @@ export function statesDiffer(a: AppState, b: AppState): boolean {
   if (!idSetEq(a.plantillas, b.plantillas)) return true;
   if (!idSetEq(a.arbol?.nodos ?? [], b.arbol?.nodos ?? [])) return true;
   if (!idSetEq(a.arbol?.registros ?? [], b.arbol?.registros ?? [])) return true;
+  if (!idSetEq(a.mensajes ?? [], b.mensajes ?? [])) return true;
   if ((a.arbol?.reflexiones?.length ?? 0) !== (b.arbol?.reflexiones?.length ?? 0)) return true;
+
+  // Huellas de contenido: detectan cambios dentro de notas y mensajes aunque los IDs
+  // sean los mismos (el merge profundo puede añadir notas/mensajes del otro cliente).
+  if (notasFingerprint(a) !== notasFingerprint(b)) return true;
+  if (mensajesFingerprint(a) !== mensajesFingerprint(b)) return true;
+  if (contextoFingerprint(a) !== contextoFingerprint(b)) return true;
 
   const dA = a.deleted, dB = b.deleted;
   if (!!dA !== !!dB) return true;
@@ -191,6 +313,65 @@ export function statesDiffer(a: AppState, b: AppState): boolean {
     if (!arrEq(dA.arbolNodos, dB.arbolNodos)) return true;
     if (!arrEq(dA.arbolRegistros, dB.arbolRegistros)) return true;
     if (!arrEq(dA.notas, dB.notas)) return true;
+    if (!arrEq(dA.mensajes, dB.mensajes)) return true;
   }
   return false;
+}
+
+/**
+ * Huella textual barata del contenido de las notas de cada entidad con notas.
+ * Sirve para que `statesDiffer` detecte cuando el merge añade notas dentro de
+ * entidades existentes (mismo ID pero contenido distinto). Basta con concatenar
+ * IDs de notas ordenados por entidad: si cambia cualquier id, cambia el hash.
+ */
+function notasFingerprint(s: AppState): string {
+  const chunks: string[] = [];
+  const pushArr = (prefix: string, arr: { id: string; notas?: Nota[] }[] | undefined) => {
+    if (!arr) return;
+    for (const it of arr) {
+      const ids = (it.notas ?? []).map((n) => n.id).sort().join(",");
+      if (ids) chunks.push(`${prefix}:${it.id}=${ids}`);
+    }
+  };
+  pushArr("pr", s.proyectos);
+  pushArr("rs", s.resultados);
+  pushArr("en", s.entregables);
+  pushArr("pa", s.pasos);
+  pushArr("pl", s.plantillas);
+  return chunks.sort().join("|");
+}
+
+function mensajesFingerprint(s: AppState): string {
+  const arr = s.mensajes ?? [];
+  return arr
+    .map((m) => `${m.id}:${m.editado ?? m.creado ?? ""}:${(m.leidoPor ?? []).slice().sort().join(",")}`)
+    .sort()
+    .join("|");
+}
+
+/**
+ * Huella del contenido textual que no tiene id (contexto.notas de entregable y paso).
+ * Al ser `string`, el único modo de saber si cambió es comparar el texto literal.
+ * Longitud + hash simple es suficiente: ya no volvemos a considerar los estados
+ * "iguales" cuando el único cambio es un edit en la pizarra de contexto.
+ */
+function contextoFingerprint(s: AppState): string {
+  const chunks: string[] = [];
+  for (const e of s.entregables) {
+    const n = e.contexto?.notas;
+    if (n !== undefined) chunks.push(`e:${e.id}:${n.length}:${hashStr(n)}`);
+  }
+  for (const p of s.pasos) {
+    const n = p.contexto?.notas;
+    if (n !== undefined) chunks.push(`p:${p.id}:${n.length}:${hashStr(n)}`);
+  }
+  return chunks.sort().join("|");
+}
+
+function hashStr(s: string): number {
+  let h = 0;
+  for (let i = 0; i < s.length; i++) {
+    h = (h * 31 + s.charCodeAt(i)) | 0;
+  }
+  return h;
 }

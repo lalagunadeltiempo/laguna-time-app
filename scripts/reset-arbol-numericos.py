@@ -144,6 +144,15 @@ def main() -> int:
     regs_tras_borrado = [r for r in registros if r["id"] not in ids_regs_a_borrar]
     regs_borrados = len(regs_a_borrar)
 
+    # --- 2.5. Tombstones: evitar que clientes con estado local viejo "resuciten" lo borrado. ---
+    deleted = state.get("deleted") or {}
+    prev_deleted_regs = set(deleted.get("arbolRegistros") or [])
+    prev_deleted_nodos = set(deleted.get("arbolNodos") or [])
+    new_deleted_regs = sorted(prev_deleted_regs | ids_regs_a_borrar)
+    new_deleted_nodos = sorted(prev_deleted_nodos | ids_nodos_2027)
+    tombstones_regs_nuevas = len(set(new_deleted_regs) - prev_deleted_regs)
+    tombstones_nodos_nuevas = len(set(new_deleted_nodos) - prev_deleted_nodos)
+
     # --- 3. Limpiar metas en 2025/2026 ---
     nodos_limpiados = 0
     for n in nodos_tras_borrado:
@@ -164,6 +173,9 @@ def main() -> int:
     print(f"  Registros borrados: {regs_borrados} (de {total_regs})")
     print(f"  Nodos 2027 borrados: {nodos_borrados}")
     print(f"  Nodos 2025/26 con meta limpiada: {nodos_limpiados}")
+    print(f"  Lápidas nuevas en deleted.arbolRegistros: {tombstones_regs_nuevas}")
+    print(f"  Lápidas nuevas en deleted.arbolNodos:    {tombstones_nodos_nuevas}")
+    print(f"  Lápidas totales tras reset: {len(new_deleted_regs)} registros + {len(new_deleted_nodos)} nodos")
     eur_borrado = sum_valor(regs_a_borrar)
     eur_restante = sum_valor(regs_tras_borrado)
     print(f"  Total € en registros a borrar: {eur_borrado:,.2f}")
@@ -189,6 +201,18 @@ def main() -> int:
     # configs intactos
     arbol["configs"] = configs
     state["arbol"] = arbol
+
+    # Tombstones: garantía de que los clientes con estado local viejo no resuciten los datos.
+    deleted["arbolRegistros"] = new_deleted_regs
+    deleted["arbolNodos"] = new_deleted_nodos
+    # Rellena defaults para no romper merge si la fila venía sin ciertos campos.
+    deleted.setdefault("proyectos", [])
+    deleted.setdefault("resultados", [])
+    deleted.setdefault("entregables", [])
+    deleted.setdefault("pasos", [])
+    deleted.setdefault("plantillas", [])
+    deleted.setdefault("notas", [])
+    state["deleted"] = deleted
 
     supabase_upsert(url, key, state)
     print()

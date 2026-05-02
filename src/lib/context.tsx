@@ -22,6 +22,8 @@ import {
   setLoadedSuccessfully,
   didLoadSuccessfully,
   markCloudLoadOk,
+  mergeCloudReviews,
+  subscribeToUserDataChanges,
   INITIAL_STATE,
   generateId,
 } from "./store";
@@ -280,7 +282,11 @@ export function AppProvider({ userId, displayName, children }: ProviderProps) {
       lastSync = Date.now();
       const result = await loadStateCloud(userId);
       if (!result.data) return;
-      const merged = mergeStates(stateRef.current, result.data);
+      // Paso 1: unión por id con tombstones y merge profundo (notas, sesiones, mensajes…).
+      // Paso 2: mergeCloudReviews rescata reviews/notas del cloud que siguieran ausentes
+      //         en el estado local (especialmente en pulls fríos tras volver a la pestaña).
+      let merged = mergeStates(stateRef.current, result.data);
+      merged = mergeCloudReviews(merged, result.data);
       if (statesDiffer(stateRef.current, merged)) {
         dispatch({ type: "INIT", state: merged });
       }
@@ -296,23 +302,41 @@ export function AppProvider({ userId, displayName, children }: ProviderProps) {
         flushPendingCloudSave();
         return;
       }
-      void pullAndMerge(5000);
+      void pullAndMerge(3000);
     }
 
     window.addEventListener("beforeunload", handleBeforeUnload);
     document.addEventListener("visibilitychange", handleVisibilityChange);
 
-    // Sync periódico para detectar cambios hechos desde otro dispositivo/pestaña
-    // sin tener que cambiar de pestaña. 30s es buen equilibrio tráfico/UX.
+    // Sync periódico como fallback por si la websocket Realtime cae. Realtime
+    // empuja cambios en caliente (<1s), pero el polling evita quedarse huérfano
+    // si se pierde la conexión.
     const intervalId = setInterval(() => {
       if (document.visibilityState !== "visible") return;
-      void pullAndMerge(15000);
-    }, 30000);
+      void pullAndMerge(10000);
+    }, 15000);
+
+    // Realtime: suscripción a cambios UPDATE de la fila workspace. En cuanto Beltrán
+    // guarda algo, la websocket empuja un mensaje y forzamos un pull inmediato.
+    // Si Realtime no está disponible (p.ej. la tabla no tiene replicación activada),
+    // `subscribeToUserDataChanges` devuelve un unsubscribe no-op y seguimos solo con
+    // polling + focus-pull, sin romper nada.
+    const unsubRealtime =
+      userId === "local"
+        ? () => {}
+        : subscribeToUserDataChanges(() => {
+            void pullAndMerge(0);
+          });
 
     return () => {
       window.removeEventListener("beforeunload", handleBeforeUnload);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
       clearInterval(intervalId);
+      try {
+        unsubRealtime();
+      } catch {
+        // noop
+      }
     };
   }, [userId]);
 

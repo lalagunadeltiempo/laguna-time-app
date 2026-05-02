@@ -10,7 +10,11 @@ import { AREA_COLORS } from "@/lib/types";
 import { toDateKey } from "@/lib/date-utils";
 import { Timer } from "./Timer";
 import { NotasSection } from "./shared/NotasSection";
+import { HiloEntregable } from "./shared/HiloEntregable";
+import { PizarraPersonal } from "./shared/PizarraPersonal";
 import { EditableText } from "./shared/EditableText";
+import { ChipMiembro } from "./plan/InlineEditors";
+import { useFocoEntregable, usePresenciaEntregable } from "@/lib/presence";
 import { RegistrarSesionIconButton, EditarSesionPopover } from "./shared/RegistrarSesionPopover";
 
 interface Props {
@@ -47,6 +51,10 @@ export function EntregableActivoCard({ entregable, mode = "trabajo" }: Props) {
   const dispatch = useAppDispatch();
   const { nombre: currentUser } = useUsuario();
   const { resultado, proyecto } = useArbol(entregable.id);
+  // Presencia: anuncia al resto que estamos dentro de este entregable y pinta
+  // los chips de otros miembros que lo tengan abierto a la vez.
+  useFocoEntregable(entregable.id);
+  const presentes = usePresenciaEntregable(entregable.id);
 
   const pasosDelEntregable = useMemo(
     () =>
@@ -389,7 +397,20 @@ export function EntregableActivoCard({ entregable, mode = "trabajo" }: Props) {
 
           {/* Editable name */}
           <div>
-            <p className="text-[10px] font-semibold uppercase tracking-wider text-zinc-400 dark:text-zinc-500 mb-1">Entregable</p>
+            <div className="mb-1 flex flex-wrap items-center gap-1.5">
+              <p className="text-[10px] font-semibold uppercase tracking-wider text-zinc-400 dark:text-zinc-500">Entregable</p>
+              {presentes.length > 0 && (
+                <span
+                  className="inline-flex items-center gap-1 rounded-full border border-amber-300/70 bg-amber-100/70 px-1.5 py-0.5 text-[9px] font-medium text-amber-800 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-200"
+                  title={`${presentes.join(", ")} ${presentes.length === 1 ? "también está viendo este entregable" : "también están viendo este entregable"} ahora mismo`}
+                >
+                  También aquí:
+                  {presentes.map((n) => (
+                    <ChipMiembro key={n} nombre={n} miembros={state.miembros} compact />
+                  ))}
+                </span>
+              )}
+            </div>
             <EditableText
               value={entregable.nombre}
               onChange={(v) => dispatch({ type: "RENAME_ENTREGABLE", id: entregable.id, nombre: v })}
@@ -686,11 +707,18 @@ export function EntregableActivoCard({ entregable, mode = "trabajo" }: Props) {
             </div>
           </div>
 
-          {/* Notas */}
+          {/* Notas (compartidas con el equipo). */}
           <div className="space-y-1.5">
-            <p className="text-[10px] font-semibold uppercase tracking-wider text-zinc-400 dark:text-zinc-500">Notas</p>
+            <p className="text-[10px] font-semibold uppercase tracking-wider text-zinc-400 dark:text-zinc-500">Notas compartidas</p>
             <NotasSection notas={entregable.notas ?? []} nivel="entregable" targetId={entregable.id} />
           </div>
+
+          {/* Pizarra personal: espacio privado por miembro para evitar pisarse. */}
+          <PizarraPersonal entregableId={entregable.id} />
+
+          {/* Hilo de mensajes (chat colaborativo del equipo sobre este entregable). */}
+          <HiloEntregable entregableId={entregable.id} defaultCollapsed />
+
 
           {/* Historial de sesiones */}
           <div className="space-y-1.5">

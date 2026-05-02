@@ -202,6 +202,12 @@ export interface Entregable {
   enEsperaDe?: { tipo: "equipo" | "externo"; nombre: string } | null;
   /** ISO timestamp de cuándo se marcó "en espera". Informativo. */
   enEsperaDesde?: string | null;
+  /**
+   * Pizarra personal de cada miembro, mapeada por nombre de usuario. Sirve para que
+   * Gabi y Beltrán tomen notas en paralelo sobre el mismo entregable sin pisarse.
+   * El contexto común (`contexto.notas`, URLs, apps) sigue siendo el "Compartido".
+   */
+  pizarraByUser?: Record<string, string>;
 }
 
 /** Sesión de trabajo sobre un entregable: cronómetro + pausas. */
@@ -363,6 +369,21 @@ export interface ActivityEntry {
   ruta?: string;
 }
 
+/**
+ * Mensaje de chat asociado a un entregable. Los miembros del workspace pueden
+ * hablar del entregable sin perder el hilo ni pisarse las notas.
+ */
+export interface MensajeEntregable {
+  id: string;
+  entregableId: string;
+  autor: string;
+  texto: string;
+  creado: string;
+  editado?: string;
+  /** Nombres de miembros que ya han visto el mensaje. El autor siempre está. */
+  leidoPor?: string[];
+}
+
 /** Resultado real frente al registro en el árbol de drivers. */
 export type EstadoRealidadRegistro = "cumplido" | "superado" | "por_debajo";
 
@@ -462,6 +483,8 @@ export interface DeletedTombstones {
   notas?: string[];
   arbolNodos?: string[];
   arbolRegistros?: string[];
+  /** IDs de mensajes del chat de entregable borrados. */
+  mensajes?: string[];
 }
 
 export interface AppState {
@@ -477,6 +500,8 @@ export interface AppState {
   pasosActivos: string[];
   miembros: MiembroInfo[];
   activityLog: ActivityEntry[];
+  /** Hilos de chat por entregable. */
+  mensajes?: MensajeEntregable[];
   arbol: PlanArbolState;
   deleted?: DeletedTombstones;
   planConfig?: PlanConfig;

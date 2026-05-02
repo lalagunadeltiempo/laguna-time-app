@@ -10,7 +10,10 @@ import {
   type Area, type Entregable, type Ambito,
 } from "@/lib/types";
 import { ResponsableToggle, type ResponsableFilter } from "./PlanMes";
+import { ChipMiembro } from "./InlineEditors";
 import { EntregableActivoCard } from "../EntregableActivo";
+import { useMensajesNoLeidos } from "../shared/HiloEntregable";
+import { usePresenciaEntregable } from "@/lib/presence";
 
 function addDays(d: Date, n: number) { const r = new Date(d); r.setDate(r.getDate() + n); return r; }
 
@@ -64,6 +67,12 @@ interface Block {
   planInicioTs?: string | null;
   /** El bloque entra para `targetUser` por un paso suyo (no por ser responsable del entregable). */
   pasoTuyo?: boolean;
+  /** Responsable del entregable (heredado del PlannedBlock). */
+  responsable?: string;
+  /** Responsable del paso contextual si existe. Prioriza sobre `responsable` al pintar el chip. */
+  pasoResponsable?: string;
+  /** Nombre del siguiente paso, para mostrar "· Compra parking" junto al subtítulo. */
+  siguientePasoNombre?: string;
   /** Índice de la sesión dentro de `entregable.sesiones` (solo bloques `done`/`active`). */
   sesionIdx?: number;
   /** ISO timestamp de inicio de la sesión, para edición inline. */
@@ -76,6 +85,71 @@ function hhmmFromIso(iso: string | null | undefined): string | null {
   if (!iso) return null;
   const d = new Date(iso);
   return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+}
+
+/**
+ * Input de hora para planificar. Problema de Chrome con `<input type="time">`:
+ * dispara onChange en cuanto parsea una hora válida parcial (p. ej. al escribir
+ * "15:0" ya lo acepta como "15:00"). Eso provocaba que un entregable saltase
+ * a "Por hora" a medias de escribir.
+ *
+ * Solución: `draft` local que solo se commitea al salir del input (blur) o al
+ * pulsar Enter. Si el usuario lo vacía, lo commitea inmediatamente (sirve como
+ * atajo para quitar la hora).
+ */
+function HoraInput({
+  value,
+  onCommit,
+  hex,
+}: {
+  value: string | null;
+  onCommit: (hhmm: string | null) => void;
+  hex: string;
+}) {
+  const [draft, setDraft] = useState<string>(value ?? "");
+  const [focused, setFocused] = useState(false);
+  // Si cambia el valor externo (otro usuario, cancelación, etc.) y no estamos
+  // editando, reflejamos el valor nuevo.
+  useEffect(() => {
+    if (!focused) setDraft(value ?? "");
+  }, [value, focused]);
+  const commitIfChanged = () => {
+    const next = draft || null;
+    if (next === (value ?? null)) return;
+    onCommit(next);
+  };
+  return (
+    <input
+      type="time"
+      value={draft}
+      onChange={(e) => {
+        const v = e.target.value;
+        setDraft(v);
+        // Si el usuario borra la hora, aplicamos ya (atajo útil).
+        if (!v) onCommit(null);
+      }}
+      onFocus={() => setFocused(true)}
+      onBlur={() => {
+        setFocused(false);
+        commitIfChanged();
+      }}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") {
+          e.preventDefault();
+          commitIfChanged();
+          (e.target as HTMLInputElement).blur();
+        }
+        if (e.key === "Escape") {
+          setDraft(value ?? "");
+          (e.target as HTMLInputElement).blur();
+        }
+      }}
+      className="shrink-0 rounded-md bg-background px-1.5 py-0.5 text-[11px] font-bold tabular-nums outline-none focus:ring-1 focus:ring-accent"
+      style={{ color: draft ? hex : undefined, borderColor: hex + "40", borderWidth: 1 }}
+      title={draft ? "Editar hora (Enter o clic fuera para guardar; Esc para cancelar; vacía para quitarla)" : "Asignar hora planificada"}
+      aria-label="Hora planificada"
+    />
+  );
 }
 
 function isoFromDateAndHhmm(dateKey: string, hhmm: string): string {
@@ -942,11 +1016,18 @@ function PlannedBlockRow({ block, hex, isMentor, refDate, onSetTime, onReschedul
   canMoveUp?: boolean;
   canMoveDown?: boolean;
 }) {
+  const state = useAppState();
+  const { nombre: currentUser } = useUsuario();
   const [showMenu, setShowMenu] = useState(false);
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [customDate, setCustomDate] = useState("");
   const [confirmDelete, setConfirmDelete] = useState(false);
   const horaPlan = hhmmFromIso(block.planInicioTs);
+  const responsablePaso = block.pasoResponsable ?? block.responsable;
+  const esDeOtro = !!responsablePaso && !!currentUser && responsablePaso !== currentUser;
+  const esEmpresa = block.area === "financiera" || block.area === "operativa" || block.area === "comercial" || block.area === "administrativa";
+  const noLeidos = useMensajesNoLeidos(block.entregableId);
+  const presentes = usePresenciaEntregable(block.entregableId);
 
   return (
     <div className="flex items-center gap-2 rounded-lg border-l-[3px] px-3 py-2.5"
@@ -976,14 +1057,10 @@ function PlannedBlockRow({ block, hex, isMentor, refDate, onSetTime, onReschedul
         </div>
       )}
       {!isMentor ? (
-        <input
-          type="time"
-          value={horaPlan ?? ""}
-          onChange={(e) => onSetTime(e.target.value || null)}
-          className="shrink-0 rounded-md bg-background px-1.5 py-0.5 text-[11px] font-bold tabular-nums outline-none focus:ring-1 focus:ring-accent"
-          style={{ color: horaPlan ? hex : undefined, borderColor: hex + "40", borderWidth: 1 }}
-          title={horaPlan ? "Editar hora planificada (vacía para quitarla)" : "Asignar hora planificada"}
-          aria-label="Hora planificada"
+        <HoraInput
+          value={horaPlan}
+          onCommit={onSetTime}
+          hex={hex}
         />
       ) : horaPlan ? (
         <span className="shrink-0 rounded-md bg-background px-2 py-0.5 text-[11px] font-bold tabular-nums" style={{ color: hex }}>{horaPlan}</span>
@@ -1003,8 +1080,19 @@ function PlannedBlockRow({ block, hex, isMentor, refDate, onSetTime, onReschedul
               {block.pasoTuyo && (
                 <span className="ml-1.5 rounded bg-amber-100 px-1.5 py-0.5 text-[9px] font-semibold uppercase text-amber-700 dark:bg-amber-500/20 dark:text-amber-300">{pasoBadgeLabel}</span>
               )}
+              {noLeidos > 0 && (
+                <span
+                  className="ml-1.5 inline-flex items-center gap-0.5 rounded-full bg-accent px-1.5 py-0.5 align-middle text-[9px] font-semibold uppercase text-white"
+                  title={`${noLeidos} ${noLeidos === 1 ? "mensaje" : "mensajes"} sin leer en este entregable`}
+                >
+                  💬 {noLeidos}
+                </span>
+              )}
             </p>
-            <p className="truncate text-xs text-muted">{block.subtitle}</p>
+            <p className="truncate text-xs text-muted">
+              {block.subtitle}
+              {block.siguientePasoNombre && <span className="ml-1 text-muted/80">· {block.siguientePasoNombre}</span>}
+            </p>
           </button>
         ) : (
           <>
@@ -1013,8 +1101,19 @@ function PlannedBlockRow({ block, hex, isMentor, refDate, onSetTime, onReschedul
               {block.pasoTuyo && (
                 <span className="ml-1.5 rounded bg-amber-100 px-1.5 py-0.5 text-[9px] font-semibold uppercase text-amber-700 dark:bg-amber-500/20 dark:text-amber-300">{pasoBadgeLabel}</span>
               )}
+              {noLeidos > 0 && (
+                <span
+                  className="ml-1.5 inline-flex items-center gap-0.5 rounded-full bg-accent px-1.5 py-0.5 align-middle text-[9px] font-semibold uppercase text-white"
+                  title={`${noLeidos} ${noLeidos === 1 ? "mensaje" : "mensajes"} sin leer`}
+                >
+                  💬 {noLeidos}
+                </span>
+              )}
             </p>
-            <p className="truncate text-xs text-muted">{block.subtitle}</p>
+            <p className="truncate text-xs text-muted">
+              {block.subtitle}
+              {block.siguientePasoNombre && <span className="ml-1 text-muted/80">· {block.siguientePasoNombre}</span>}
+            </p>
           </>
         )}
         {/* Inline actions */}
@@ -1049,6 +1148,25 @@ function PlannedBlockRow({ block, hex, isMentor, refDate, onSetTime, onReschedul
           </div>
         )}
       </div>
+      {presentes.length > 0 && (
+        <span
+          className="inline-flex items-center gap-0.5"
+          title={`${presentes.join(", ")} ${presentes.length === 1 ? "está viendo" : "están viendo"} este entregable ahora`}
+        >
+          {presentes.map((n) => (
+            <ChipMiembro key={n} nombre={n} miembros={state.miembros} compact />
+          ))}
+        </span>
+      )}
+      {esEmpresa && responsablePaso && (
+        <ChipMiembro
+          nombre={responsablePaso}
+          miembros={state.miembros}
+          resaltado={esDeOtro}
+          compact
+          title={block.pasoResponsable ? `Paso asignado a ${responsablePaso}` : `Responsable del entregable: ${responsablePaso}`}
+        />
+      )}
       {!isMentor && (
         <div className="flex shrink-0 flex-wrap items-center justify-end gap-1">
           {onOpenDetalle && (

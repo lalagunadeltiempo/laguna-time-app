@@ -103,6 +103,162 @@ function MetricLine({ label, value, accent }: { label: string; value: string; ac
   );
 }
 
+/** Modos del árbol: cada uno despliega/pliega las secciones pensadas para esa fase del uso. */
+type ModoArbol = "revisar" | "configurar" | "planificar";
+
+function useModoArbol(year: number): [ModoArbol, (next: ModoArbol) => void] {
+  const storageKey = `arbol.modo.${year}`;
+  const [modo, setModoState] = useState<ModoArbol>("revisar");
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      const raw = window.localStorage.getItem(storageKey);
+      if (raw === "configurar" || raw === "planificar" || raw === "revisar") {
+        setModoState(raw);
+      }
+    } catch {
+      /* ignore */
+    }
+  }, [storageKey]);
+  const setModo = useCallback(
+    (next: ModoArbol) => {
+      setModoState(next);
+      if (typeof window === "undefined") return;
+      try {
+        window.localStorage.setItem(storageKey, next);
+      } catch {
+        /* ignore */
+      }
+    },
+    [storageKey],
+  );
+  return [modo, setModo];
+}
+
+function SelectorModoArbol({ modo, onChange }: { modo: ModoArbol; onChange: (m: ModoArbol) => void }) {
+  const opciones: { id: ModoArbol; label: string; desc: string }[] = [
+    { id: "revisar", label: "Revisar", desc: "Ver Real vs Plan en trimestres, meses y semanas" },
+    { id: "configurar", label: "Configurar", desc: "Definir ramas, hojas y objetivo anual" },
+    { id: "planificar", label: "Planificar", desc: "Repartir la meta por trimestres usando el año pasado como referencia" },
+  ];
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      <span className="text-[11px] uppercase tracking-wider text-muted">Modo</span>
+      <div className="inline-flex overflow-hidden rounded-lg border border-border">
+        {opciones.map((o) => {
+          const activo = modo === o.id;
+          return (
+            <button
+              key={o.id}
+              type="button"
+              onClick={() => startTransition(() => onChange(o.id))}
+              title={o.desc}
+              className={`px-3 py-1.5 text-xs font-medium transition-colors ${
+                activo
+                  ? "bg-accent text-white"
+                  : "bg-background text-muted hover:bg-surface hover:text-foreground"
+              }`}
+            >
+              {o.label}
+            </button>
+          );
+        })}
+      </div>
+      <span className="text-[11px] text-muted hidden sm:inline">
+        {opciones.find((o) => o.id === modo)?.desc}
+      </span>
+    </div>
+  );
+}
+
+/**
+ * Resumen ejecutivo: 4 tarjetas con el objetivo anual, el real acumulado hasta hoy,
+ * el gap (cuánto falta) y el ritmo necesario por mes para cerrar el año.
+ * Sirve para tener de un vistazo si vas bien o mal sin leer tablas.
+ */
+function ResumenEjecutivoAnio({
+  year,
+  unidad,
+  metaAnual,
+  realYTD,
+  gap,
+  ritmoNecesarioMes,
+  pctAvance,
+}: {
+  year: number;
+  unidad: string;
+  metaAnual: number;
+  realYTD: number;
+  gap: number;
+  ritmoNecesarioMes: number;
+  pctAvance: number;
+}) {
+  if (metaAnual <= 0) return null;
+  const cumplido = gap <= 0;
+  return (
+    <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+      <TarjetaKpi
+        label="Objetivo anual"
+        valor={fmtNum(metaAnual)}
+        unidad={unidad}
+        subtitulo={`${year}`}
+      />
+      <TarjetaKpi
+        label="Real acumulado"
+        valor={fmtNum(realYTD)}
+        unidad={unidad}
+        subtitulo={`${Math.round(pctAvance)}% del objetivo`}
+        tone={cumplido ? "ok" : pctAvance >= 80 ? "warn" : undefined}
+      />
+      <TarjetaKpi
+        label={cumplido ? "Objetivo superado" : "Falta"}
+        valor={cumplido ? "✓" : fmtNum(gap)}
+        unidad={cumplido ? "" : unidad}
+        subtitulo={cumplido ? "por " + fmtNum(Math.abs(gap)) + " " + unidad : "para llegar al objetivo"}
+        tone={cumplido ? "ok" : "warn"}
+      />
+      <TarjetaKpi
+        label="Ritmo necesario"
+        valor={cumplido ? "—" : fmtNum(ritmoNecesarioMes)}
+        unidad={cumplido ? "" : `${unidad} / mes`}
+        subtitulo={cumplido ? "Sobrando" : "de media los meses que quedan"}
+        tone={cumplido ? "ok" : undefined}
+      />
+    </div>
+  );
+}
+
+function TarjetaKpi({
+  label,
+  valor,
+  unidad,
+  subtitulo,
+  tone,
+}: {
+  label: string;
+  valor: string;
+  unidad: string;
+  subtitulo?: string;
+  tone?: "ok" | "warn";
+}) {
+  const toneClass =
+    tone === "ok"
+      ? "border-emerald-300/60 bg-emerald-50/80 dark:border-emerald-500/30 dark:bg-emerald-500/10"
+      : tone === "warn"
+        ? "border-amber-300/60 bg-amber-50/80 dark:border-amber-500/30 dark:bg-amber-500/10"
+        : "border-border bg-surface/50";
+  return (
+    <div className={`rounded-xl border px-3 py-2 ${toneClass}`}>
+      <p className="text-[10px] uppercase tracking-wider text-muted">{label}</p>
+      <p className="mt-0.5 text-lg font-bold tabular-nums text-foreground">
+        {valor}
+        {unidad && <span className="ml-1 text-xs font-medium text-muted">{unidad}</span>}
+      </p>
+      {subtitulo && <p className="text-[10px] text-muted">{subtitulo}</p>}
+    </div>
+  );
+}
+
 /** Estado booleano persistido en localStorage. SSR-safe: lee solo tras montar para evitar hydration mismatch. */
 function useLocalBoolean(storageKey: string, defaultOpen: boolean): [boolean, (next: boolean) => void] {
   const [open, setOpenState] = useState<boolean>(defaultOpen);
@@ -138,6 +294,7 @@ function SeccionColapsable({
   titulo,
   resumen,
   children,
+  forceOpen,
 }: {
   storageKey: string;
   defaultOpen: boolean;
@@ -145,8 +302,11 @@ function SeccionColapsable({
   /** Texto pequeño a la derecha del título (resumen) cuando está cerrada o abierta. */
   resumen?: React.ReactNode;
   children: React.ReactNode;
+  /** Si se pasa, ignora el estado persistido y usa este valor (para modos del árbol). */
+  forceOpen?: boolean;
 }) {
-  const [open, setOpen] = useLocalBoolean(storageKey, defaultOpen);
+  const [persisted, setOpen] = useLocalBoolean(storageKey, defaultOpen);
+  const open = forceOpen === undefined ? persisted : forceOpen;
   return (
     <section className="overflow-hidden rounded-xl border border-border/60 bg-surface/30">
       <button
@@ -1300,11 +1460,12 @@ function NuevaRamaForm({ raiz, onAdd }: { raiz: NodoArbol; onAdd: (n: Omit<NodoA
 }
 
 /** Bloque Año: una sola tarjeta + ramas. */
-function BloqueAnio({ ctx }: { ctx: ContextoBloque }) {
+function BloqueAnio({ ctx, forceOpen }: { ctx: ContextoBloque; forceOpen?: boolean }) {
   return (
     <SeccionColapsable
       storageKey={`arbol.bloque.anio.${ctx.year}`}
       defaultOpen={true}
+      forceOpen={forceOpen}
       titulo={`Año ${ctx.year}`}
       resumen={ctx.raiz.metaValor !== undefined ? `Objetivo ${fmtNum(ctx.raiz.metaValor)} ${ctx.unidad}` : undefined}
     >
@@ -1320,12 +1481,13 @@ function BloqueAnio({ ctx }: { ctx: ContextoBloque }) {
 }
 
 /** Bloque Trimestres: 4 tarjetas. */
-function BloqueTrimestres({ ctx }: { ctx: ContextoBloque }) {
+function BloqueTrimestres({ ctx, forceOpen }: { ctx: ContextoBloque; forceOpen?: boolean }) {
   const trims = [`${ctx.year}-Q1`, `${ctx.year}-Q2`, `${ctx.year}-Q3`, `${ctx.year}-Q4`];
   return (
     <SeccionColapsable
       storageKey={`arbol.bloque.trimestres.${ctx.year}`}
       defaultOpen={false}
+      forceOpen={forceOpen}
       titulo="Trimestres"
     >
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 sm:gap-5">
@@ -1344,7 +1506,7 @@ function BloqueTrimestres({ ctx }: { ctx: ContextoBloque }) {
 }
 
 /** Bloque Meses: pestañas Q1..Q4. */
-function BloqueMeses({ ctx }: { ctx: ContextoBloque }) {
+function BloqueMeses({ ctx, forceOpen }: { ctx: ContextoBloque; forceOpen?: boolean }) {
   const qActualKey = `${ctx.year}-Q${Math.floor(new Date().getMonth() / 3) + 1}`;
   const [tab, setTab] = useState<string>(qActualKey);
   const tabs = [`${ctx.year}-Q1`, `${ctx.year}-Q2`, `${ctx.year}-Q3`, `${ctx.year}-Q4`];
@@ -1352,6 +1514,7 @@ function BloqueMeses({ ctx }: { ctx: ContextoBloque }) {
   return (
     <SeccionColapsable
       storageKey={`arbol.bloque.meses.${ctx.year}`}
+      forceOpen={forceOpen}
       defaultOpen={false}
       titulo="Meses"
       resumen={tab.slice(-2)}
@@ -1392,7 +1555,7 @@ function BloqueMeses({ ctx }: { ctx: ContextoBloque }) {
 }
 
 /** Bloque Semanas: pestañas mes, lista vertical de semanas. */
-function BloqueSemanas({ ctx }: { ctx: ContextoBloque }) {
+function BloqueSemanas({ ctx, forceOpen }: { ctx: ContextoBloque; forceOpen?: boolean }) {
   const dispatch = useAppDispatch();
   const noActivas = new Set(ctx.config?.semanasNoActivas ?? defaultSemanasNoActivas(ctx.year));
   const todos = useMemo(() => mondaysInCalendarYear(ctx.year), [ctx.year]);
@@ -1421,6 +1584,7 @@ function BloqueSemanas({ ctx }: { ctx: ContextoBloque }) {
     <SeccionColapsable
       storageKey={`arbol.bloque.semanas.${ctx.year}`}
       defaultOpen={false}
+      forceOpen={forceOpen}
       titulo="Semanas"
       resumen={MESES_CORTOS_ES[mesTabIdx]}
     >
@@ -1858,6 +2022,16 @@ const PlanTrimestralConfigRama = memo(function PlanTrimestralConfigRama({
                   {TRIMESTRE_LABELS.map(({ key }) => {
                     const valor = mt[key];
                     const ayQ = ay[key];
+                    // Porcentaje de este trimestre sobre el total AY del nodo (si hay).
+                    const pctAY =
+                      ayQ !== undefined && ayTotalAnual && ayTotalAnual > 0
+                        ? Math.round((ayQ / ayTotalAnual) * 100)
+                        : undefined;
+                    // Porcentaje del plan actual sobre la meta anual, para comparar.
+                    const pctPlan =
+                      valor !== undefined && metaAnual && metaAnual > 0
+                        ? Math.round((valor / metaAnual) * 100)
+                        : undefined;
                     return (
                       <td key={key} className="px-1 py-1">
                         <div className="flex flex-col gap-0.5">
@@ -1867,11 +2041,21 @@ const PlanTrimestralConfigRama = memo(function PlanTrimestralConfigRama({
                             ariaLabel={`Plan ${key} de ${nodo.nombre}`}
                             unidad={unidad}
                           />
+                          {pctPlan !== undefined && (
+                            <div className="text-[10px] text-muted">
+                              Plan: <strong className="tabular-nums text-foreground">{pctPlan}%</strong> del año
+                            </div>
+                          )}
                           <div className="text-[10px] text-muted">
                             AY:{" "}
                             <strong className="tabular-nums text-foreground">
                               {ayQ !== undefined ? `${fmtNum(ayQ)} ${unidad}` : "—"}
                             </strong>
+                            {pctAY !== undefined && (
+                              <span className="ml-1 rounded bg-surface px-1 text-[9px] tabular-nums">
+                                {pctAY}%
+                              </span>
+                            )}
                           </div>
                         </div>
                       </td>
@@ -2165,8 +2349,76 @@ export function VistaBloques({ raiz, year }: VistaBloquesProps) {
   const cuotaSemanal =
     raiz.metaValor !== undefined && diasLaborables > 0 ? metaSemanalPropuesta(raiz.metaValor, year, config) : 0;
 
+  // Modo de uso del árbol: Revisar (por defecto), Configurar o Planificar.
+  // Persistido por usuario+año en localStorage. Según el modo, ciertas
+  // secciones quedan fijas abiertas o cerradas (forceOpen).
+  const [modo, setModo] = useModoArbol(year);
+
+  // Real acumulado del año hasta hoy (raíz) y gap vs objetivo.
+  const realYTD = useMemo(
+    () => realDelAnioHastaHoyLista(idx.regsPorNodo.get(raiz.id), year),
+    [idx, raiz.id, year],
+  );
+  const metaAnual = raiz.metaValor ?? 0;
+  const gap = Math.max(0, metaAnual - realYTD);
+  const hoy = new Date();
+  const esAnioEnCurso = hoy.getFullYear() === year;
+  const esAnioFuturo = hoy.getFullYear() < year;
+  const mesesRestantes = esAnioFuturo
+    ? 12
+    : esAnioEnCurso
+      ? Math.max(0, 12 - hoy.getMonth() - Math.min(1, hoy.getDate() / 20))
+      : 0;
+  const ritmoNecesarioMes = mesesRestantes > 0 ? gap / mesesRestantes : 0;
+  const pctAvance = metaAnual > 0 ? Math.min(200, (realYTD / metaAnual) * 100) : 0;
+
+  const forceByModo = useMemo(() => {
+    switch (modo) {
+      case "configurar":
+        return {
+          anio: false,
+          trimestres: false,
+          meses: false,
+          semanas: false,
+          configAnual: true,
+          planTrim: false,
+        };
+      case "planificar":
+        return {
+          anio: false,
+          trimestres: true,
+          meses: false,
+          semanas: false,
+          configAnual: false,
+          planTrim: true,
+        };
+      case "revisar":
+      default:
+        return {
+          anio: true,
+          trimestres: true,
+          meses: true,
+          semanas: false,
+          configAnual: false,
+          planTrim: false,
+        };
+    }
+  }, [modo]);
+
   return (
     <div className="space-y-6">
+      <SelectorModoArbol modo={modo} onChange={setModo} />
+
+      <ResumenEjecutivoAnio
+        year={year}
+        unidad={unidad}
+        metaAnual={metaAnual}
+        realYTD={realYTD}
+        gap={gap}
+        ritmoNecesarioMes={ritmoNecesarioMes}
+        pctAvance={pctAvance}
+      />
+
       <div className="rounded-xl border border-accent/30 bg-accent/5 px-3 py-2 text-[12px] text-foreground">
         En {year} hay <strong>{diasLaborables}</strong> días laborables (lun–vie; excluyen tus semanas de descanso y los festivos
         {config?.comunidadAutonoma ? " nacionales y autonómicos que configuraste" : " nacionales"}).{" "}
@@ -2179,14 +2431,15 @@ export function VistaBloques({ raiz, year }: VistaBloquesProps) {
         {cuadre && <span className="ml-2 rounded bg-amber-500/15 px-2 py-0.5 text-amber-900 dark:text-amber-100">{cuadre}</span>}
       </div>
 
-      <BloqueAnio ctx={ctx} />
-      <BloqueTrimestres ctx={ctx} />
-      <BloqueMeses ctx={ctx} />
-      <BloqueSemanas ctx={ctx} />
+      <BloqueAnio ctx={ctx} forceOpen={forceByModo.anio} />
+      <BloqueTrimestres ctx={ctx} forceOpen={forceByModo.trimestres} />
+      <BloqueMeses ctx={ctx} forceOpen={forceByModo.meses} />
+      <BloqueSemanas ctx={ctx} forceOpen={forceByModo.semanas} />
 
       <SeccionColapsable
         storageKey={`arbol.bloque.ramas-config.${year}`}
         defaultOpen={false}
+        forceOpen={forceByModo.configAnual}
         titulo="Configuración anual"
         resumen={`${ramas.length} ${ramas.length === 1 ? "rama" : "ramas"}`}
       >
@@ -2637,6 +2890,7 @@ export function VistaBloques({ raiz, year }: VistaBloquesProps) {
       <SeccionColapsable
         storageKey={`arbol.bloque.plan-trimestral.${year}`}
         defaultOpen={false}
+        forceOpen={forceByModo.planTrim}
         titulo="Plan trimestral de ramas y hojas"
         resumen={`${ramas.length} ${ramas.length === 1 ? "rama" : "ramas"}`}
       >

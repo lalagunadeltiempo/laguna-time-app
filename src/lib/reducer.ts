@@ -14,6 +14,7 @@ import type {
   EjecucionSOP,
   AmbitoLabels,
   ActivityEntry,
+  MensajeEntregable,
   NodoArbol,
   RegistroNodo,
   PlanArbolConfigAnio,
@@ -170,6 +171,11 @@ export type Action =
       changes: Partial<Pick<import("./types").ReflexionTrimestre, "funciono" | "noFunciono" | "cambios">>;
     }
   | { type: "SET_REVIEW"; nivel: "proyecto" | "resultado" | "entregable" | "plantilla"; targetId: string; review: ReviewMark }
+  | { type: "ADD_MENSAJE"; payload: MensajeEntregable }
+  | { type: "UPDATE_MENSAJE"; id: string; changes: Partial<Pick<MensajeEntregable, "texto">> & { editado?: string } }
+  | { type: "DELETE_MENSAJE"; id: string }
+  | { type: "MARCAR_MENSAJES_LEIDOS"; entregableId: string; usuario: string }
+  | { type: "SET_ENTREGABLE_PIZARRA_USUARIO"; id: string; usuario: string; texto: string }
   | { type: "SET_MTP"; mtp: string };
 
 function swapSiblings<T extends { id: string }>(
@@ -213,6 +219,7 @@ const EMPTY_DELETED: DeletedTombstones = {
   notas: [],
   arbolNodos: [],
   arbolRegistros: [],
+  mensajes: [],
 };
 
 function addTombstones(
@@ -1004,13 +1011,21 @@ export function reducer(state: AppState, action: Action): AppState {
     case "DELETE_ENTREGABLE": {
       const eIds = new Set([action.id]);
       const cascadedPasos = state.pasos.filter((p) => p.entregableId === action.id).map((p) => p.id);
+      const mensajesBorrados = (state.mensajes ?? [])
+        .filter((m) => m.entregableId === action.id)
+        .map((m) => m.id);
       return {
         ...state,
         entregables: state.entregables.filter((e) => e.id !== action.id),
         pasos: state.pasos.filter((p) => p.entregableId !== action.id),
+        mensajes: (state.mensajes ?? []).filter((m) => m.entregableId !== action.id),
         pasosActivos: clearPasosActivos(state, eIds),
         ejecuciones: state.ejecuciones.filter((ej) => ej.entregableId !== action.id),
-        deleted: addTombstones(state.deleted, { entregables: [action.id], pasos: cascadedPasos }),
+        deleted: addTombstones(state.deleted, {
+          entregables: [action.id],
+          pasos: cascadedPasos,
+          mensajes: mensajesBorrados,
+        }),
       };
     }
 
@@ -1924,6 +1939,63 @@ export function reducer(state: AppState, action: Action): AppState {
 
     case "SET_MTP":
       return { ...state, mtp: action.mtp };
+
+    case "ADD_MENSAJE": {
+      const existing = state.mensajes ?? [];
+      if (existing.some((m) => m.id === action.payload.id)) return state;
+      return { ...state, mensajes: [...existing, action.payload] };
+    }
+
+    case "UPDATE_MENSAJE": {
+      const existing = state.mensajes ?? [];
+      return {
+        ...state,
+        mensajes: existing.map((m) =>
+          m.id === action.id
+            ? { ...m, ...action.changes, editado: action.changes.editado ?? new Date().toISOString() }
+            : m,
+        ),
+      };
+    }
+
+    case "DELETE_MENSAJE": {
+      const existing = state.mensajes ?? [];
+      return {
+        ...state,
+        mensajes: existing.filter((m) => m.id !== action.id),
+        deleted: addTombstones(state.deleted, { mensajes: [action.id] }),
+      };
+    }
+
+    case "SET_ENTREGABLE_PIZARRA_USUARIO": {
+      return {
+        ...state,
+        entregables: state.entregables.map((e) => {
+          if (e.id !== action.id) return e;
+          const prev = e.pizarraByUser ?? {};
+          const next = { ...prev, [action.usuario]: action.texto };
+          // Si el texto queda vacío, quitamos la entrada para no ensuciar el estado.
+          if (!action.texto) delete next[action.usuario];
+          return { ...e, pizarraByUser: next };
+        }),
+      };
+    }
+
+    case "MARCAR_MENSAJES_LEIDOS": {
+      const existing = state.mensajes ?? [];
+      const { entregableId, usuario } = action;
+      if (!usuario) return state;
+      let cambios = false;
+      const next = existing.map((m) => {
+        if (m.entregableId !== entregableId) return m;
+        const leidoPor = m.leidoPor ?? [];
+        if (leidoPor.includes(usuario)) return m;
+        cambios = true;
+        return { ...m, leidoPor: [...leidoPor, usuario] };
+      });
+      if (!cambios) return state;
+      return { ...state, mensajes: next };
+    }
 
     case "UPDATE_PLAN_CONFIG": {
       const current = state.planConfig ?? PLAN_CONFIG_DEFAULT;
