@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useRef, useMemo, useEffect } from "react";
+import { useState, useCallback, useRef, useMemo, useEffect, Fragment } from "react";
 import { useAppState, useAppDispatch } from "@/lib/context";
 import { useArbol } from "@/lib/hooks";
 import { useUsuario } from "@/lib/usuario";
@@ -13,7 +13,7 @@ import { NotasSection } from "./shared/NotasSection";
 import { HiloEntregable } from "./shared/HiloEntregable";
 import { PizarraPersonal } from "./shared/PizarraPersonal";
 import { EditableText } from "./shared/EditableText";
-import { ChipMiembro } from "./plan/InlineEditors";
+import { ChipMiembro, ResponsableSelect } from "./plan/InlineEditors";
 import { useFocoEntregable, usePresenciaEntregable } from "@/lib/presence";
 import { RegistrarSesionIconButton, EditarSesionPopover } from "./shared/RegistrarSesionPopover";
 
@@ -61,6 +61,12 @@ export function EntregableActivoCard({ entregable, mode = "trabajo" }: Props) {
       state.pasos
         .filter((p) => p.entregableId === entregable.id)
         .sort((a, b) => {
+          // Pasos hechos (finTs definido o estado "hecho") bajan al final para
+          // mantener visible lo que queda por hacer. Dentro de cada grupo se
+          // respeta el `orden` manual y como desempate el `inicioTs`.
+          const ah = (a.estado === "hecho" || !!a.finTs) ? 1 : 0;
+          const bh = (b.estado === "hecho" || !!b.finTs) ? 1 : 0;
+          if (ah !== bh) return ah - bh;
           const ao = a.orden ?? 999;
           const bo = b.orden ?? 999;
           if (ao !== bo) return ao - bo;
@@ -68,6 +74,12 @@ export function EntregableActivoCard({ entregable, mode = "trabajo" }: Props) {
         }),
     [state.pasos, entregable.id],
   );
+
+  // Índice del primer paso hecho (si hay), para pintar el separador visual.
+  const idxPrimerHecho = useMemo(() => {
+    const i = pasosDelEntregable.findIndex((p) => p.estado === "hecho" || !!p.finTs);
+    return i === -1 ? null : i;
+  }, [pasosDelEntregable]);
 
   const contexto: Contexto = entregable.contexto ?? EMPTY_CONTEXTO;
   const implicados: Implicado[] = entregable.implicados ?? [];
@@ -438,8 +450,22 @@ export function EntregableActivoCard({ entregable, mode = "trabajo" }: Props) {
                 const done = p.estado === "hecho" || !!p.finTs;
                 const isFirst = idx === 0;
                 const isLast = idx === pasosDelEntregable.length - 1;
+                const isStartOfDone = idxPrimerHecho !== null && idx === idxPrimerHecho;
+                const responsablePaso = p.responsable || entregable.responsable || "";
+                const responsableHeredado = !p.responsable && !!entregable.responsable;
                 return (
-                  <div key={p.id} className="flex items-center gap-2 rounded-lg px-2 py-1.5 text-xs hover:bg-zinc-50 dark:hover:bg-zinc-800">
+                  <Fragment key={p.id}>
+                    {isStartOfDone && (
+                      <div
+                        className="flex items-center gap-2 px-2 pt-2 text-[10px] font-medium uppercase tracking-wider text-zinc-400 dark:text-zinc-500"
+                        aria-label="Separador de pasos hechos"
+                      >
+                        <span className="h-px flex-1 bg-zinc-200 dark:bg-zinc-700" />
+                        <span>Hechos</span>
+                        <span className="h-px flex-1 bg-zinc-200 dark:bg-zinc-700" />
+                      </div>
+                    )}
+                    <div className="flex items-center gap-2 rounded-lg px-2 py-1.5 text-xs hover:bg-zinc-50 dark:hover:bg-zinc-800">
                     <div className="flex shrink-0 flex-col">
                       <button
                         type="button"
@@ -531,6 +557,18 @@ export function EntregableActivoCard({ entregable, mode = "trabajo" }: Props) {
                         </button>
                       )
                     )}
+                    <ResponsableSelect
+                      value={responsablePaso || undefined}
+                      miembros={state.miembros}
+                      onChange={(next) =>
+                        dispatch({
+                          type: "UPDATE_PASO",
+                          id: p.id,
+                          changes: { responsable: next || undefined },
+                        })
+                      }
+                      className={responsableHeredado ? "italic text-muted/70" : ""}
+                    />
                     <button
                       type="button"
                       onClick={() => dispatch({ type: "DELETE_PASO", id: p.id })}
@@ -539,7 +577,8 @@ export function EntregableActivoCard({ entregable, mode = "trabajo" }: Props) {
                     >
                       ✕
                     </button>
-                  </div>
+                    </div>
+                  </Fragment>
                 );
               })}
               {showAddPaso ? (
@@ -586,9 +625,16 @@ export function EntregableActivoCard({ entregable, mode = "trabajo" }: Props) {
             {!showImplicados && implicados.length > 0 && (
               <div className="flex flex-wrap gap-1">
                 {implicados.map((i) => (
-                  <span key={`${i.tipo}-${i.nombre}`} className="rounded-md border px-2 py-0.5 text-[10px] font-medium"
-                    style={{ borderColor: i.tipo === "externo" ? "#f472b6" : borderColor, backgroundColor: i.tipo === "externo" ? "#fdf2f8" : `${borderColor}10`, color: i.tipo === "externo" ? "#be185d" : borderColor }}>
+                  <span key={`${i.tipo}-${i.nombre}`} className="inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-[10px] font-medium"
+                    style={{ borderColor: i.tipo === "externo" ? "#f472b6" : borderColor, backgroundColor: i.tipo === "externo" ? "#fdf2f8" : `${borderColor}10`, color: i.tipo === "externo" ? "#be185d" : borderColor }}
+                    title={i.auto ? "Añadido automáticamente al asignarle un paso" : undefined}
+                  >
                     {i.nombre}
+                    {i.auto && (
+                      <span className="rounded-sm bg-white/70 px-1 text-[8px] font-semibold uppercase tracking-wide text-muted dark:bg-zinc-900/70">
+                        auto
+                      </span>
+                    )}
                   </span>
                 ))}
               </div>

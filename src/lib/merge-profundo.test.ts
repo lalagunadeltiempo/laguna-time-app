@@ -289,4 +289,52 @@ describe("Mensajes de entregable: merge y tombstones", () => {
     const merged = mergeStates(a, b);
     expect(merged.mensajes ?? []).toEqual([]);
   });
+
+  it("resuelve un mensaje: gana la versión con `resueltoTs` más reciente", () => {
+    const a = baseState({
+      mensajes: [
+        msg("m-1", {
+          estado: "resuelto",
+          resueltoPor: "Gabi",
+          resueltoTs: "2026-05-02T10:00:00.000Z",
+        }),
+      ],
+    });
+    const b = baseState({
+      mensajes: [msg("m-1", { estado: "abierto" })],
+    });
+    const merged = mergeStates(a, b);
+    expect(merged.mensajes?.[0].estado).toBe("resuelto");
+    expect(merged.mensajes?.[0].resueltoPor).toBe("Gabi");
+  });
+
+  it("reabrir posterior gana sobre resolver previo", () => {
+    const a = baseState({
+      mensajes: [
+        msg("m-1", {
+          estado: "resuelto",
+          resueltoPor: "Gabi",
+          resueltoTs: "2026-05-02T10:00:00.000Z",
+        }),
+      ],
+    });
+    const b = baseState({
+      mensajes: [
+        msg("m-1", {
+          estado: "abierto",
+          resueltoTs: "2026-05-02T11:00:00.000Z",
+        }),
+      ],
+    });
+    const merged = mergeStates(a, b);
+    expect(merged.mensajes?.[0].estado).toBe("abierto");
+    expect(merged.mensajes?.[0].resueltoPor).toBeUndefined();
+  });
+
+  it("preserva `paraQuien` explícito frente a broadcast al mergear", () => {
+    const a = baseState({ mensajes: [msg("m-1", { paraQuien: ["Beltrán"] })] });
+    const b = baseState({ mensajes: [msg("m-1")] });
+    const merged = mergeStates(a, b);
+    expect(merged.mensajes?.[0].paraQuien).toEqual(["Beltrán"]);
+  });
 });

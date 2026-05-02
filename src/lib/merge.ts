@@ -197,11 +197,45 @@ export function mergeStates(a: AppState, b: AppState): AppState {
   const delMensajes = new Set(deleted.mensajes);
 
   const preferMensaje = (x: MensajeEntregable, y: MensajeEntregable): MensajeEntregable => {
+    // Base: la copia con timestamp de edición (o creación) más reciente.
     const eX = x.editado ?? x.creado ?? "";
     const eY = y.editado ?? y.creado ?? "";
     const base = eX >= eY ? x : y;
+
+    // Merge de leídos: unión, nadie debería "desleer" lo que ya vio.
     const leidoPor = Array.from(new Set([...(x.leidoPor ?? []), ...(y.leidoPor ?? [])]));
-    return { ...base, leidoPor };
+
+    // Merge de destinatarios: si uno es broadcast (undefined/[]) y el otro
+    // explicita destinatarios, gana el que explicita. Si ambos explícitos,
+    // gana el más reciente (el que marcamos como base).
+    const paraQuienBase = base.paraQuien;
+    const paraX = x.paraQuien && x.paraQuien.length > 0 ? x.paraQuien : undefined;
+    const paraY = y.paraQuien && y.paraQuien.length > 0 ? y.paraQuien : undefined;
+    const paraQuien = paraQuienBase && paraQuienBase.length > 0
+      ? paraQuienBase
+      : (paraX ?? paraY);
+
+    // Resolución: gana el `resueltoTs` más reciente (sea resuelto o reabierto).
+    const rX = x.resueltoTs ?? "";
+    const rY = y.resueltoTs ?? "";
+    let estado: MensajeEntregable["estado"] = base.estado;
+    let resueltoPor: string | undefined = base.resueltoPor;
+    let resueltoTs: string | undefined = base.resueltoTs;
+    if (rX || rY) {
+      const ganador = rX >= rY ? x : y;
+      estado = ganador.estado ?? "abierto";
+      resueltoPor = ganador.resueltoPor;
+      resueltoTs = ganador.resueltoTs;
+    }
+
+    return {
+      ...base,
+      leidoPor,
+      paraQuien,
+      estado,
+      resueltoPor,
+      resueltoTs,
+    };
   };
 
   const reflA = a.arbol?.reflexiones ?? [];

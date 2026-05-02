@@ -146,6 +146,7 @@ export type Action =
   | { type: "ADD_NOTA"; nivel: "paso" | "entregable" | "resultado" | "proyecto" | "plantilla"; targetId: string; nota: Nota }
   | { type: "DELETE_NOTA"; nivel: "paso" | "entregable" | "resultado" | "proyecto" | "plantilla"; targetId: string; notaId: string }
   | { type: "UPDATE_NOTA"; nivel: "paso" | "entregable" | "resultado" | "proyecto" | "plantilla"; targetId: string; notaId: string; changes: Partial<Pick<Nota, "texto" | "titulo">> }
+  | { type: "REORDER_NOTA"; nivel: "paso" | "entregable" | "resultado" | "proyecto" | "plantilla"; targetId: string; notaId: string; direction: "up" | "down" }
   | { type: "CONVERT_ENTREGABLE_TO_SOP"; entregableId: string }
   | { type: "SYNC_ENTREGABLE_TO_PLANTILLA"; entregableId: string }
   | { type: "LOG_ACTIVITY"; entry: ActivityEntry }
@@ -172,9 +173,11 @@ export type Action =
     }
   | { type: "SET_REVIEW"; nivel: "proyecto" | "resultado" | "entregable" | "plantilla"; targetId: string; review: ReviewMark }
   | { type: "ADD_MENSAJE"; payload: MensajeEntregable }
-  | { type: "UPDATE_MENSAJE"; id: string; changes: Partial<Pick<MensajeEntregable, "texto">> & { editado?: string } }
+  | { type: "UPDATE_MENSAJE"; id: string; changes: Partial<Pick<MensajeEntregable, "texto" | "paraQuien">> & { editado?: string } }
   | { type: "DELETE_MENSAJE"; id: string }
   | { type: "MARCAR_MENSAJES_LEIDOS"; entregableId: string; usuario: string }
+  | { type: "RESOLVER_MENSAJE"; id: string; usuario: string }
+  | { type: "REABRIR_MENSAJE"; id: string }
   | { type: "SET_ENTREGABLE_PIZARRA_USUARIO"; id: string; usuario: string; texto: string }
   | { type: "SET_MTP"; mtp: string };
 
@@ -195,6 +198,35 @@ function swapSiblings<T extends { id: string }>(
   const copy = [...arr];
   [copy[idx1], copy[idx2]] = [copy[idx2], copy[idx1]];
   return copy;
+}
+
+/** Asegura que el responsable de un paso figura como "implicado" del
+ *  entregable asociado. Se usa al crear/activar/cerrar/actualizar pasos para
+ *  que el trabajo colaborativo automatice lo que antes había que añadir a
+ *  mano. Marcamos el implicado con `auto: true` sólo si es nuevo, para que el
+ *  usuario pueda distinguir a los que añadió explícitamente. Si ya existía un
+ *  implicado con ese nombre, respetamos sus flags (no tocamos `auto`). */
+function ensureImplicadoResponsablePaso(
+  state: AppState,
+  entregableId: string,
+  responsable: string | undefined | null,
+): AppState {
+  const nombre = (responsable ?? "").trim();
+  if (!nombre) return state;
+  let cambiado = false;
+  const entregables = state.entregables.map((e) => {
+    if (e.id !== entregableId) return e;
+    const lista = e.implicados ?? [];
+    const yaEsta = lista.some((i) => i.nombre === nombre);
+    if (yaEsta) return e;
+    cambiado = true;
+    return {
+      ...e,
+      implicados: [...lista, { tipo: "equipo" as const, nombre, auto: true }],
+    };
+  });
+  if (!cambiado) return state;
+  return { ...state, entregables };
 }
 
 function entregableIdsDe(state: AppState, resultadoIds: Set<string>): Set<string> {
@@ -331,11 +363,16 @@ export function reducer(state: AppState, action: Action): AppState {
           : [...state.pasosActivos, action.payload.id],
       };
       newState = autoTransitionToEnMarcha(newState, action.payload.entregableId);
+      newState = ensureImplicadoResponsablePaso(newState, action.payload.entregableId, action.payload.responsable);
       return newState;
     }
 
-    case "ADD_PASO":
-      return { ...state, pasos: [...state.pasos, action.payload] };
+    case "ADD_PASO": {
+      const nuevo = action.payload;
+      let ns: AppState = { ...state, pasos: [...state.pasos, nuevo] };
+      ns = ensureImplicadoResponsablePaso(ns, nuevo.entregableId, nuevo.responsable);
+      return ns;
+    }
 
     case "ACTIVATE_PASO": {
       const paso = state.pasos.find((p) => p.id === action.id);
@@ -435,14 +472,22 @@ export function reducer(state: AppState, action: Action): AppState {
         }),
       };
       newState = autoTransitionToEnMarcha(newState, updated.entregableId);
+      newState = ensureImplicadoResponsablePaso(newState, updated.entregableId, updated.responsable);
       return newState;
     }
 
     case "RENAME_PASO":
       return { ...state, pasos: state.pasos.map((p) => p.id === action.id ? { ...p, nombre: action.nombre } : p) };
 
-    case "UPDATE_PASO":
-      return { ...state, pasos: state.pasos.map((p) => p.id === action.id ? { ...p, ...action.changes } : p) };
+    case "UPDATE_PASO": {
+      const antes = state.pasos.find((p) => p.id === action.id);
+      let ns: AppState = { ...state, pasos: state.pasos.map((p) => p.id === action.id ? { ...p, ...action.changes } : p) };
+      const nuevoResp = action.changes.responsable;
+      if (nuevoResp !== undefined && nuevoResp !== antes?.responsable && antes) {
+        ns = ensureImplicadoResponsablePaso(ns, antes.entregableId, nuevoResp);
+      }
+      return ns;
+    }
 
     case "UPDATE_PASO_TIMES": {
       const { id, inicioTs, finTs } = action;
@@ -1435,6 +1480,26 @@ export function reducer(state: AppState, action: Action): AppState {
       return state;
     }
 
+    case "REORDER_NOTA": {
+      const { nivel: nv, targetId: tid, notaId: nid, direction } = action;
+      const swap = (notas: Nota[] | undefined): Nota[] | undefined => {
+        if (!notas || notas.length < 2) return notas;
+        const idx = notas.findIndex((n) => n.id === nid);
+        if (idx === -1) return notas;
+        const target = direction === "up" ? idx - 1 : idx + 1;
+        if (target < 0 || target >= notas.length) return notas;
+        const copy = [...notas];
+        [copy[idx], copy[target]] = [copy[target], copy[idx]];
+        return copy;
+      };
+      if (nv === "paso") return { ...state, pasos: state.pasos.map((p) => p.id === tid ? { ...p, notas: swap(p.notas) } : p) };
+      if (nv === "entregable") return { ...state, entregables: state.entregables.map((e) => e.id === tid ? { ...e, notas: swap(e.notas) } : e) };
+      if (nv === "resultado") return { ...state, resultados: state.resultados.map((r) => r.id === tid ? { ...r, notas: swap(r.notas) } : r) };
+      if (nv === "proyecto") return { ...state, proyectos: state.proyectos.map((p) => p.id === tid ? { ...p, notas: swap(p.notas) } : p) };
+      if (nv === "plantilla") return { ...state, plantillas: state.plantillas.map((pl) => pl.id === tid ? { ...pl, notas: swap(pl.notas) } : pl) };
+      return state;
+    }
+
     // --- Activity log ---
     case "LOG_ACTIVITY":
       return { ...state, activityLog: [...state.activityLog, action.entry] };
@@ -1977,6 +2042,39 @@ export function reducer(state: AppState, action: Action): AppState {
           // Si el texto queda vacío, quitamos la entrada para no ensuciar el estado.
           if (!action.texto) delete next[action.usuario];
           return { ...e, pizarraByUser: next };
+        }),
+      };
+    }
+
+    case "RESOLVER_MENSAJE": {
+      const existing = state.mensajes ?? [];
+      const ts = new Date().toISOString();
+      return {
+        ...state,
+        mensajes: existing.map((m) =>
+          m.id === action.id
+            ? { ...m, estado: "resuelto" as const, resueltoPor: action.usuario, resueltoTs: ts }
+            : m,
+        ),
+      };
+    }
+
+    case "REABRIR_MENSAJE": {
+      const existing = state.mensajes ?? [];
+      const ts = new Date().toISOString();
+      return {
+        ...state,
+        mensajes: existing.map((m) => {
+          if (m.id !== action.id) return m;
+          // Al reabrir limpiamos la marca de resolución y actualizamos
+          // `resueltoTs` a "ahora" para que el merge elija esta versión
+          // frente a una reso previa que circule por la nube.
+          return {
+            ...m,
+            estado: "abierto" as const,
+            resueltoPor: undefined,
+            resueltoTs: ts,
+          };
         }),
       };
     }

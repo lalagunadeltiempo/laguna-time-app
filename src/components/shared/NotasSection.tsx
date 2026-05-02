@@ -228,9 +228,11 @@ export function NotasSection({ notas, nivel, targetId }: Props) {
         </div>
       )}
 
-      {notas.map((n) => {
+      {notas.map((n, idx) => {
         const isOpen = expanded.has(n.id);
         const isEditing = editingId === n.id;
+        const isFirst = idx === 0;
+        const isLast = idx === notas.length - 1;
         const headerLabel = n.titulo?.trim() || previewFromMarkdown(n.texto, 80) || "Sin título";
         const tieneTitulo = !!n.titulo?.trim();
         const baseCls = isMentorNote(n)
@@ -288,6 +290,30 @@ export function NotasSection({ notas, nivel, targetId }: Props) {
                 </div>
               </button>
               <div className="flex shrink-0 items-center gap-1">
+                {notas.length >= 2 && (
+                  <div className="flex flex-col">
+                    <button
+                      type="button"
+                      onClick={() => dispatch({ type: "REORDER_NOTA", nivel, targetId, notaId: n.id, direction: "up" })}
+                      disabled={isFirst}
+                      className="text-[8px] leading-none text-muted opacity-50 hover:opacity-100 disabled:opacity-20"
+                      title="Subir nota"
+                      aria-label="Subir nota"
+                    >
+                      ▲
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => dispatch({ type: "REORDER_NOTA", nivel, targetId, notaId: n.id, direction: "down" })}
+                      disabled={isLast}
+                      className="text-[8px] leading-none text-muted opacity-50 hover:opacity-100 disabled:opacity-20"
+                      title="Bajar nota"
+                      aria-label="Bajar nota"
+                    >
+                      ▼
+                    </button>
+                  </div>
+                )}
                 {canEdit(n) && (
                   <button
                     type="button"

@@ -233,6 +233,10 @@ export interface Implicado {
   tipo: "equipo" | "externo";
   nombre: string;
   contactoId?: string;
+  /** Si es true, fue añadido automáticamente por asignar a este miembro como
+   *  responsable de algún paso. Se usa para pintar un badge "auto" y para que
+   *  borrarlo manualmente se considere una decisión consciente del usuario. */
+  auto?: boolean;
 }
 
 export interface PausaEntry {
@@ -373,6 +377,14 @@ export interface ActivityEntry {
  * Mensaje de chat asociado a un entregable. Los miembros del workspace pueden
  * hablar del entregable sin perder el hilo ni pisarse las notas.
  */
+/** Estado de un mensaje dentro del hilo de un entregable.
+ *  - `abierto`: pendiente de respuesta/lectura (típicamente al crearlo).
+ *  - `resuelto`: alguien lo ha dado por zanjado (acuerdo, respuesta, etc.).
+ *  - `duda`: la autora deja explícitamente marcado que espera aclaración.
+ *  Se diseñó este conjunto mínimo para que el flujo "alguien te pregunta,
+ *  alguien responde y cierra" sea visible sin crear una app de tickets. */
+export type EstadoMensaje = "abierto" | "resuelto" | "duda";
+
 export interface MensajeEntregable {
   id: string;
   entregableId: string;
@@ -382,6 +394,16 @@ export interface MensajeEntregable {
   editado?: string;
   /** Nombres de miembros que ya han visto el mensaje. El autor siempre está. */
   leidoPor?: string[];
+  /** Miembros a los que va dirigido el mensaje (subset del equipo). Si está
+   *  vacío o undefined el mensaje se considera "para todos" (broadcast). */
+  paraQuien?: string[];
+  /** Estado del mensaje. Si no se informa se asume "abierto". */
+  estado?: EstadoMensaje;
+  /** Miembro que marcó el mensaje como resuelto. */
+  resueltoPor?: string;
+  /** ISO del momento en que se marcó como resuelto. Se usa además para
+   *  decidir el ganador en merges concurrentes (last-write-wins local). */
+  resueltoTs?: string;
 }
 
 /** Resultado real frente al registro en el árbol de drivers. */
