@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useRef, useMemo, useEffect, Fragment } from "react";
+import { useState, useCallback, useRef, useMemo, useEffect } from "react";
 import { useAppState, useAppDispatch } from "@/lib/context";
 import { useArbol } from "@/lib/hooks";
 import { useUsuario } from "@/lib/usuario";
@@ -75,11 +75,15 @@ export function EntregableActivoCard({ entregable, mode = "trabajo" }: Props) {
     [state.pasos, entregable.id],
   );
 
-  // Índice del primer paso hecho (si hay), para pintar el separador visual.
-  const idxPrimerHecho = useMemo(() => {
-    const i = pasosDelEntregable.findIndex((p) => p.estado === "hecho" || !!p.finTs);
-    return i === -1 ? null : i;
-  }, [pasosDelEntregable]);
+  // Separamos pendientes y hechos para pintar secciones distintas.
+  const pasosPendientes = useMemo(
+    () => pasosDelEntregable.filter((p) => p.estado !== "hecho" && !p.finTs),
+    [pasosDelEntregable],
+  );
+  const pasosDados = useMemo(
+    () => pasosDelEntregable.filter((p) => p.estado === "hecho" || !!p.finTs),
+    [pasosDelEntregable],
+  );
 
   const contexto: Contexto = entregable.contexto ?? EMPTY_CONTEXTO;
   const implicados: Implicado[] = entregable.implicados ?? [];
@@ -357,6 +361,131 @@ export function EntregableActivoCard({ entregable, mode = "trabajo" }: Props) {
     addPasoRef.current?.focus();
   }
 
+  /** Render de una fila de paso. Se usa desde las dos secciones
+   *  (pendientes y hechos). `isFirst`/`isLast` son relativos al subgrupo
+   *  para que las flechas ▲/▼ se deshabiliten en los bordes y no se pueda
+   *  empujar un paso de un grupo al otro accidentalmente. */
+  function renderPasoRow(p: Paso, isFirst: boolean, isLast: boolean) {
+    const done = p.estado === "hecho" || !!p.finTs;
+    const responsablePaso = p.responsable || entregable.responsable || "";
+    const responsableHeredado = !p.responsable && !!entregable.responsable;
+    return (
+      <div key={p.id} className="flex items-center gap-2 rounded-lg px-2 py-1.5 text-xs hover:bg-zinc-50 dark:hover:bg-zinc-800">
+        <div className="flex shrink-0 flex-col">
+          <button
+            type="button"
+            onClick={() => dispatch({ type: "REORDER_PASO", id: p.id, direction: "up" })}
+            disabled={isFirst}
+            className="text-[8px] leading-none text-zinc-300 hover:text-zinc-600 disabled:opacity-20 disabled:hover:text-zinc-300"
+            title="Subir"
+            aria-label="Subir paso"
+          >
+            ▲
+          </button>
+          <button
+            type="button"
+            onClick={() => dispatch({ type: "REORDER_PASO", id: p.id, direction: "down" })}
+            disabled={isLast}
+            className="text-[8px] leading-none text-zinc-300 hover:text-zinc-600 disabled:opacity-20 disabled:hover:text-zinc-300"
+            title="Bajar"
+            aria-label="Bajar paso"
+          >
+            ▼
+          </button>
+        </div>
+        <button
+          type="button"
+          onClick={() => togglePaso(p)}
+          className="h-4 w-4 shrink-0 rounded border-2 flex items-center justify-center"
+          style={{
+            borderColor: done ? borderColor : "#d4d4d8",
+            backgroundColor: done ? borderColor : "transparent",
+          }}
+          aria-label={done ? "Desmarcar" : "Marcar como hecho"}
+        >
+          {done && (
+            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+              <polyline points="20 6 9 17 4 12" />
+            </svg>
+          )}
+        </button>
+        <EditableText
+          value={p.nombre}
+          onChange={(v) => dispatch({ type: "RENAME_PASO", id: p.id, nombre: v })}
+          className={`flex-1 text-xs ${done ? "text-zinc-400 dark:text-zinc-500 line-through" : "text-zinc-700 dark:text-zinc-300"}`}
+        />
+        {done && p.inicioTs && p.finTs && (
+          editingDurId === p.id ? (
+            <div className="flex shrink-0 items-center gap-1">
+              <input
+                type="number"
+                min={1}
+                value={editingDurDraft}
+                onChange={(e) => setEditingDurDraft(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") { e.preventDefault(); saveEditDuracion(p); }
+                  if (e.key === "Escape") cancelEditDuracion();
+                }}
+                autoFocus
+                onFocus={(e) => e.currentTarget.select()}
+                className="w-12 rounded border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 px-1 py-0.5 text-right text-[10px] tabular-nums text-zinc-700 dark:text-zinc-200 focus:outline-none"
+                style={{ borderColor: `${borderColor}80` }}
+                aria-label="Duración en minutos"
+              />
+              <span className="text-[10px] text-zinc-400">min</span>
+              <button
+                type="button"
+                onClick={() => saveEditDuracion(p)}
+                className="rounded px-1.5 py-0.5 text-[10px] font-medium text-white"
+                style={{ backgroundColor: borderColor }}
+                title="Guardar"
+              >
+                ✓
+              </button>
+              <button
+                type="button"
+                onClick={cancelEditDuracion}
+                className="rounded px-1 py-0.5 text-[10px] text-zinc-400 hover:text-zinc-600"
+                title="Cancelar"
+              >
+                ✕
+              </button>
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={() => startEditDuracion(p)}
+              className="shrink-0 rounded px-1 py-0.5 text-[10px] font-medium tabular-nums text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700 dark:text-zinc-500 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
+              title={`${new Date(p.inicioTs).toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" })} → ${new Date(p.finTs).toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" })} · clic para editar`}
+            >
+              {fmtPasoDuration(p.inicioTs, p.finTs)}
+            </button>
+          )
+        )}
+        <ResponsableSelect
+          value={responsablePaso || undefined}
+          miembros={state.miembros}
+          onChange={(next) =>
+            dispatch({
+              type: "UPDATE_PASO",
+              id: p.id,
+              changes: { responsable: next || undefined },
+            })
+          }
+          className={responsableHeredado ? "italic text-muted/70" : ""}
+        />
+        <button
+          type="button"
+          onClick={() => dispatch({ type: "DELETE_PASO", id: p.id })}
+          className="shrink-0 text-[10px] text-zinc-300 hover:text-red-400"
+          title="Eliminar paso"
+        >
+          ✕
+        </button>
+      </div>
+    );
+  }
+
   return (
     <div className="rounded-xl border-2 overflow-hidden" style={{ borderColor }}>
       {/* Header */}
@@ -440,178 +569,7 @@ export function EntregableActivoCard({ entregable, mode = "trabajo" }: Props) {
             </span>
           </div>
 
-          {/* Checklist de pasos */}
-          <div className="space-y-1">
-            <p className="text-[10px] font-semibold uppercase tracking-wider text-zinc-400 dark:text-zinc-500">
-              Pasos de este entregable
-            </p>
-            <div className="space-y-0.5">
-              {pasosDelEntregable.map((p, idx) => {
-                const done = p.estado === "hecho" || !!p.finTs;
-                const isFirst = idx === 0;
-                const isLast = idx === pasosDelEntregable.length - 1;
-                const isStartOfDone = idxPrimerHecho !== null && idx === idxPrimerHecho;
-                const responsablePaso = p.responsable || entregable.responsable || "";
-                const responsableHeredado = !p.responsable && !!entregable.responsable;
-                return (
-                  <Fragment key={p.id}>
-                    {isStartOfDone && (
-                      <div
-                        className="flex items-center gap-2 px-2 pt-2 text-[10px] font-medium uppercase tracking-wider text-zinc-400 dark:text-zinc-500"
-                        aria-label="Separador de pasos hechos"
-                      >
-                        <span className="h-px flex-1 bg-zinc-200 dark:bg-zinc-700" />
-                        <span>Hechos</span>
-                        <span className="h-px flex-1 bg-zinc-200 dark:bg-zinc-700" />
-                      </div>
-                    )}
-                    <div className="flex items-center gap-2 rounded-lg px-2 py-1.5 text-xs hover:bg-zinc-50 dark:hover:bg-zinc-800">
-                    <div className="flex shrink-0 flex-col">
-                      <button
-                        type="button"
-                        onClick={() => dispatch({ type: "REORDER_PASO", id: p.id, direction: "up" })}
-                        disabled={isFirst}
-                        className="text-[8px] leading-none text-zinc-300 hover:text-zinc-600 disabled:opacity-20 disabled:hover:text-zinc-300"
-                        title="Subir"
-                        aria-label="Subir paso"
-                      >
-                        ▲
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => dispatch({ type: "REORDER_PASO", id: p.id, direction: "down" })}
-                        disabled={isLast}
-                        className="text-[8px] leading-none text-zinc-300 hover:text-zinc-600 disabled:opacity-20 disabled:hover:text-zinc-300"
-                        title="Bajar"
-                        aria-label="Bajar paso"
-                      >
-                        ▼
-                      </button>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => togglePaso(p)}
-                      className="h-4 w-4 shrink-0 rounded border-2 flex items-center justify-center"
-                      style={{
-                        borderColor: done ? borderColor : "#d4d4d8",
-                        backgroundColor: done ? borderColor : "transparent",
-                      }}
-                      aria-label={done ? "Desmarcar" : "Marcar como hecho"}
-                    >
-                      {done && (
-                        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
-                          <polyline points="20 6 9 17 4 12" />
-                        </svg>
-                      )}
-                    </button>
-                    <EditableText
-                      value={p.nombre}
-                      onChange={(v) => dispatch({ type: "RENAME_PASO", id: p.id, nombre: v })}
-                      className={`flex-1 text-xs ${done ? "text-zinc-400 dark:text-zinc-500 line-through" : "text-zinc-700 dark:text-zinc-300"}`}
-                    />
-                    {done && p.inicioTs && p.finTs && (
-                      editingDurId === p.id ? (
-                        <div className="flex shrink-0 items-center gap-1">
-                          <input
-                            type="number"
-                            min={1}
-                            value={editingDurDraft}
-                            onChange={(e) => setEditingDurDraft(e.target.value)}
-                            onKeyDown={(e) => {
-                              if (e.key === "Enter") { e.preventDefault(); saveEditDuracion(p); }
-                              if (e.key === "Escape") cancelEditDuracion();
-                            }}
-                            autoFocus
-                            onFocus={(e) => e.currentTarget.select()}
-                            className="w-12 rounded border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 px-1 py-0.5 text-right text-[10px] tabular-nums text-zinc-700 dark:text-zinc-200 focus:outline-none"
-                            style={{ borderColor: `${borderColor}80` }}
-                            aria-label="Duración en minutos"
-                          />
-                          <span className="text-[10px] text-zinc-400">min</span>
-                          <button
-                            type="button"
-                            onClick={() => saveEditDuracion(p)}
-                            className="rounded px-1.5 py-0.5 text-[10px] font-medium text-white"
-                            style={{ backgroundColor: borderColor }}
-                            title="Guardar"
-                          >
-                            ✓
-                          </button>
-                          <button
-                            type="button"
-                            onClick={cancelEditDuracion}
-                            className="rounded px-1 py-0.5 text-[10px] text-zinc-400 hover:text-zinc-600"
-                            title="Cancelar"
-                          >
-                            ✕
-                          </button>
-                        </div>
-                      ) : (
-                        <button
-                          type="button"
-                          onClick={() => startEditDuracion(p)}
-                          className="shrink-0 rounded px-1 py-0.5 text-[10px] font-medium tabular-nums text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700 dark:text-zinc-500 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
-                          title={`${new Date(p.inicioTs).toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" })} → ${new Date(p.finTs).toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" })} · clic para editar`}
-                        >
-                          {fmtPasoDuration(p.inicioTs, p.finTs)}
-                        </button>
-                      )
-                    )}
-                    <ResponsableSelect
-                      value={responsablePaso || undefined}
-                      miembros={state.miembros}
-                      onChange={(next) =>
-                        dispatch({
-                          type: "UPDATE_PASO",
-                          id: p.id,
-                          changes: { responsable: next || undefined },
-                        })
-                      }
-                      className={responsableHeredado ? "italic text-muted/70" : ""}
-                    />
-                    <button
-                      type="button"
-                      onClick={() => dispatch({ type: "DELETE_PASO", id: p.id })}
-                      className="shrink-0 text-[10px] text-zinc-300 hover:text-red-400"
-                      title="Eliminar paso"
-                    >
-                      ✕
-                    </button>
-                    </div>
-                  </Fragment>
-                );
-              })}
-              {showAddPaso ? (
-                <div className="flex items-center gap-1 px-2 py-1">
-                  <input
-                    ref={addPasoRef}
-                    type="text"
-                    value={newPasoName}
-                    onChange={(e) => setNewPasoName(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" && newPasoName.trim()) addPaso();
-                      if (e.key === "Escape") { setShowAddPaso(false); setNewPasoName(""); }
-                    }}
-                    autoFocus
-                    placeholder="Nombre del paso..."
-                    className="flex-1 rounded border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 px-1.5 py-1 text-[10px] focus:outline-none text-zinc-800 dark:text-zinc-200"
-                    style={{ borderColor: `${borderColor}60` }}
-                  />
-                  <button type="button" onClick={addPaso} className="rounded px-2 py-1 text-[10px] font-medium text-white" style={{ backgroundColor: borderColor }}>+</button>
-                  <button type="button" onClick={() => { setShowAddPaso(false); setNewPasoName(""); }} className="text-[10px] text-zinc-400 hover:text-zinc-600">✕</button>
-                </div>
-              ) : (
-                <button type="button" onClick={() => setShowAddPaso(true)}
-                  className="flex items-center gap-1 px-2 py-1 text-[10px] hover:text-zinc-700"
-                  style={{ color: `${borderColor}99` }}>
-                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></svg>
-                  Añadir paso
-                </button>
-              )}
-            </div>
-          </div>
-
-          {/* Implicados */}
+          {/* 1. Implicados */}
           <div className="space-y-1.5">
             <button type="button" onClick={() => setShowImplicados((s) => !s)}
               className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-zinc-400 dark:text-zinc-500">
@@ -706,89 +664,169 @@ export function EntregableActivoCard({ entregable, mode = "trabajo" }: Props) {
             )}
           </div>
 
-          {/* URLs */}
-          <div className="space-y-1.5">
-            <p className="text-[10px] font-semibold uppercase tracking-wider text-zinc-400 dark:text-zinc-500">Contexto</p>
-            {contexto.urls.map((u, i) => (
-              editUrlIdx === i ? (
-                <div key={`url-${i}-${u.url}`} className="space-y-1 rounded border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800 p-1.5">
-                  <input type="text" value={editUrlDraft.url} onChange={(e) => setEditUrlDraft({ ...editUrlDraft, url: e.target.value })}
-                    placeholder="https://..." className="w-full rounded border border-zinc-200 dark:border-zinc-700 px-1.5 py-1 text-[10px] bg-white dark:bg-zinc-900 text-zinc-800 dark:text-zinc-200 focus:outline-none" style={{ borderColor: `${borderColor}60` }} />
-                  <div className="flex gap-1">
-                    <input type="text" value={editUrlDraft.nombre} onChange={(e) => setEditUrlDraft({ ...editUrlDraft, nombre: e.target.value })}
-                      placeholder="Nombre" className="flex-1 rounded border border-zinc-200 dark:border-zinc-700 px-1.5 py-1 text-[10px] bg-white dark:bg-zinc-900 text-zinc-800 dark:text-zinc-200 focus:outline-none" />
-                    <input type="text" value={editUrlDraft.descripcion} onChange={(e) => setEditUrlDraft({ ...editUrlDraft, descripcion: e.target.value })}
-                      placeholder="Descripción" className="flex-1 rounded border border-zinc-200 dark:border-zinc-700 px-1.5 py-1 text-[10px] bg-white dark:bg-zinc-900 text-zinc-800 dark:text-zinc-200 focus:outline-none" />
-                  </div>
-                  <div className="flex gap-1 justify-end">
-                    <button onClick={() => saveEditUrl(i)} className="rounded px-2 py-0.5 text-[10px] font-medium text-white" style={{ backgroundColor: borderColor }}>Guardar</button>
-                    <button onClick={() => setEditUrlIdx(null)} className="text-[10px] text-zinc-400 px-2 py-0.5">Cancelar</button>
-                  </div>
+          {/* 2. Mensajes (hilo de chat del entregable). */}
+          <HiloEntregable entregableId={entregable.id} />
+
+          {/* 3. Pasos pendientes. Siempre visibles: son el trabajo por hacer. */}
+          <div className="space-y-1">
+            <p className="text-[10px] font-semibold uppercase tracking-wider text-zinc-400 dark:text-zinc-500">
+              Pasos pendientes ({pasosPendientes.length})
+            </p>
+            <div className="space-y-0.5">
+              {pasosPendientes.length === 0 && (
+                <p className="px-2 py-1 text-[11px] italic text-muted">
+                  No quedan pasos pendientes en este entregable.
+                </p>
+              )}
+              {pasosPendientes.map((p, idx) => renderPasoRow(p, idx === 0, idx === pasosPendientes.length - 1))}
+              {showAddPaso ? (
+                <div className="flex items-center gap-1 px-2 py-1">
+                  <input
+                    ref={addPasoRef}
+                    type="text"
+                    value={newPasoName}
+                    onChange={(e) => setNewPasoName(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" && newPasoName.trim()) addPaso();
+                      if (e.key === "Escape") { setShowAddPaso(false); setNewPasoName(""); }
+                    }}
+                    autoFocus
+                    placeholder="Nombre del paso..."
+                    className="flex-1 rounded border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 px-1.5 py-1 text-[10px] focus:outline-none text-zinc-800 dark:text-zinc-200"
+                    style={{ borderColor: `${borderColor}60` }}
+                  />
+                  <button type="button" onClick={addPaso} className="rounded px-2 py-1 text-[10px] font-medium text-white" style={{ backgroundColor: borderColor }}>+</button>
+                  <button type="button" onClick={() => { setShowAddPaso(false); setNewPasoName(""); }} className="text-[10px] text-zinc-400 hover:text-zinc-600">✕</button>
                 </div>
               ) : (
-                <div key={`url-${i}-${u.url}`} className="flex items-start gap-1 rounded border border-zinc-100 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800 p-1.5">
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-[10px] font-medium text-zinc-800 dark:text-zinc-200">{u.nombre}</p>
-                    {u.descripcion && <p className="truncate text-[10px] text-zinc-400 dark:text-zinc-500">{u.descripcion}</p>}
-                    <a href={u.url} target="_blank" rel="noopener noreferrer" className="block truncate text-[10px] hover:underline" style={{ color: borderColor }}>{u.url}</a>
+                <button type="button" onClick={() => setShowAddPaso(true)}
+                  className="flex items-center gap-1 px-2 py-1 text-[10px] hover:text-zinc-700"
+                  style={{ color: `${borderColor}99` }}>
+                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></svg>
+                  Añadir paso
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* 4. URLs. Plegable: tanto la consulta como el formulario de alta
+               van dentro para que no ocupen sitio cuando hay muchas. */}
+          <details className="group space-y-1.5">
+            <summary className="flex cursor-pointer list-none items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-zinc-400 dark:text-zinc-500">
+              <span aria-hidden className="text-[10px] transition-transform group-open:rotate-90">▶</span>
+              URLs ({contexto.urls.length})
+            </summary>
+            <div className="mt-1.5 space-y-1.5">
+              {contexto.urls.map((u, i) => (
+                editUrlIdx === i ? (
+                  <div key={`url-${i}-${u.url}`} className="space-y-1 rounded border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800 p-1.5">
+                    <input type="text" value={editUrlDraft.url} onChange={(e) => setEditUrlDraft({ ...editUrlDraft, url: e.target.value })}
+                      placeholder="https://..." className="w-full rounded border border-zinc-200 dark:border-zinc-700 px-1.5 py-1 text-[10px] bg-white dark:bg-zinc-900 text-zinc-800 dark:text-zinc-200 focus:outline-none" style={{ borderColor: `${borderColor}60` }} />
+                    <div className="flex gap-1">
+                      <input type="text" value={editUrlDraft.nombre} onChange={(e) => setEditUrlDraft({ ...editUrlDraft, nombre: e.target.value })}
+                        placeholder="Nombre" className="flex-1 rounded border border-zinc-200 dark:border-zinc-700 px-1.5 py-1 text-[10px] bg-white dark:bg-zinc-900 text-zinc-800 dark:text-zinc-200 focus:outline-none" />
+                      <input type="text" value={editUrlDraft.descripcion} onChange={(e) => setEditUrlDraft({ ...editUrlDraft, descripcion: e.target.value })}
+                        placeholder="Descripción" className="flex-1 rounded border border-zinc-200 dark:border-zinc-700 px-1.5 py-1 text-[10px] bg-white dark:bg-zinc-900 text-zinc-800 dark:text-zinc-200 focus:outline-none" />
+                    </div>
+                    <div className="flex gap-1 justify-end">
+                      <button onClick={() => saveEditUrl(i)} className="rounded px-2 py-0.5 text-[10px] font-medium text-white" style={{ backgroundColor: borderColor }}>Guardar</button>
+                      <button onClick={() => setEditUrlIdx(null)} className="text-[10px] text-zinc-400 px-2 py-0.5">Cancelar</button>
+                    </div>
                   </div>
-                  <button onClick={() => { setEditUrlIdx(i); setEditUrlDraft({ ...u }); }}
-                    className="text-[10px] text-zinc-300 hover:text-zinc-600" title="Editar">✎</button>
-                  <button onClick={() => removeUrl(i)} className="text-[10px] text-zinc-300 hover:text-red-400">✕</button>
+                ) : (
+                  <div key={`url-${i}-${u.url}`} className="flex items-start gap-1 rounded border border-zinc-100 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800 p-1.5">
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-[10px] font-medium text-zinc-800 dark:text-zinc-200">{u.nombre}</p>
+                      {u.descripcion && <p className="truncate text-[10px] text-zinc-400 dark:text-zinc-500">{u.descripcion}</p>}
+                      <a href={u.url} target="_blank" rel="noopener noreferrer" className="block truncate text-[10px] hover:underline" style={{ color: borderColor }}>{u.url}</a>
+                    </div>
+                    <button onClick={() => { setEditUrlIdx(i); setEditUrlDraft({ ...u }); }}
+                      className="text-[10px] text-zinc-300 hover:text-zinc-600" title="Editar">✎</button>
+                    <button onClick={() => removeUrl(i)} className="text-[10px] text-zinc-300 hover:text-red-400">✕</button>
+                  </div>
+                )
+              ))}
+              <div className="space-y-1 rounded border border-dashed border-zinc-200 dark:border-zinc-700 p-1.5">
+                <input type="text" value={urlDraft.url} onChange={(e) => setUrlDraft({ ...urlDraft, url: e.target.value })}
+                  onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addUrl(); } }}
+                  placeholder="https://..." className="w-full rounded border border-zinc-200 dark:border-zinc-700 px-1.5 py-1 text-[10px] bg-white dark:bg-zinc-800 text-zinc-800 dark:text-zinc-200 focus:outline-none" style={{ borderColor: `${borderColor}40` }} />
+                <div className="flex gap-1">
+                  <input type="text" value={urlDraft.nombre} onChange={(e) => setUrlDraft({ ...urlDraft, nombre: e.target.value })}
+                    onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addUrl(); } }}
+                    placeholder="Nombre" className="flex-1 rounded border border-zinc-200 dark:border-zinc-700 px-1.5 py-1 text-[10px] bg-white dark:bg-zinc-800 text-zinc-800 dark:text-zinc-200 focus:outline-none" />
+                  <input type="text" value={urlDraft.descripcion} onChange={(e) => setUrlDraft({ ...urlDraft, descripcion: e.target.value })}
+                    onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addUrl(); } }}
+                    placeholder="Descripción" className="flex-1 rounded border border-zinc-200 dark:border-zinc-700 px-1.5 py-1 text-[10px] bg-white dark:bg-zinc-800 text-zinc-800 dark:text-zinc-200 focus:outline-none" />
                 </div>
-              )
-            ))}
-            <div className="space-y-1 rounded border border-dashed border-zinc-200 dark:border-zinc-700 p-1.5">
-              <input type="text" value={urlDraft.url} onChange={(e) => setUrlDraft({ ...urlDraft, url: e.target.value })}
-                onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addUrl(); } }}
-                placeholder="https://..." className="w-full rounded border border-zinc-200 dark:border-zinc-700 px-1.5 py-1 text-[10px] bg-white dark:bg-zinc-800 text-zinc-800 dark:text-zinc-200 focus:outline-none" style={{ borderColor: `${borderColor}40` }} />
-              <div className="flex gap-1">
-                <input type="text" value={urlDraft.nombre} onChange={(e) => setUrlDraft({ ...urlDraft, nombre: e.target.value })}
-                  onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addUrl(); } }}
-                  placeholder="Nombre" className="flex-1 rounded border border-zinc-200 dark:border-zinc-700 px-1.5 py-1 text-[10px] bg-white dark:bg-zinc-800 text-zinc-800 dark:text-zinc-200 focus:outline-none" />
-                <input type="text" value={urlDraft.descripcion} onChange={(e) => setUrlDraft({ ...urlDraft, descripcion: e.target.value })}
-                  onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addUrl(); } }}
-                  placeholder="Descripción" className="flex-1 rounded border border-zinc-200 dark:border-zinc-700 px-1.5 py-1 text-[10px] bg-white dark:bg-zinc-800 text-zinc-800 dark:text-zinc-200 focus:outline-none" />
               </div>
             </div>
-          </div>
+          </details>
 
-          {/* Notas (compartidas con el equipo). */}
-          <div className="space-y-1.5">
-            <p className="text-[10px] font-semibold uppercase tracking-wider text-zinc-400 dark:text-zinc-500">Notas compartidas</p>
-            <NotasSection notas={entregable.notas ?? []} nivel="entregable" targetId={entregable.id} />
-          </div>
-
-          {/* Pizarra personal: espacio privado por miembro para evitar pisarse. */}
-          <PizarraPersonal entregableId={entregable.id} />
-
-          {/* Hilo de mensajes (chat colaborativo del equipo sobre este entregable). */}
-          <HiloEntregable entregableId={entregable.id} defaultCollapsed />
-
-
-          {/* Historial de sesiones */}
-          <div className="space-y-1.5">
-            <div className="flex items-center justify-between">
-              <p className="text-[10px] font-semibold uppercase tracking-wider text-zinc-400 dark:text-zinc-500">
-                Sesiones ({sesiones.length})
-              </p>
-              <RegistrarSesionIconButton
-                entregableId={entregable.id}
-                variant="ghost"
-                title="Añadir sesión a mano"
-              >
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <circle cx="12" cy="12" r="9" />
-                  <polyline points="12 7 12 12 15 14" />
-                  <path d="M19 4v4M17 6h4" />
-                </svg>
-                <span>+ Añadir sesión a mano</span>
-              </RegistrarSesionIconButton>
+          {/* 5. Notas compartidas del equipo. Plegable (el editor queda dentro). */}
+          <details className="group space-y-1.5">
+            <summary className="flex cursor-pointer list-none items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-zinc-400 dark:text-zinc-500">
+              <span aria-hidden className="text-[10px] transition-transform group-open:rotate-90">▶</span>
+              Notas ({(entregable.notas ?? []).length})
+            </summary>
+            <div className="mt-1.5">
+              <NotasSection notas={entregable.notas ?? []} nivel="entregable" targetId={entregable.id} />
             </div>
-            {sesiones.length > 0 && (
-              <SesionesEntregableHistory sesiones={sesiones} borderColor={borderColor} hideTitle entregableId={entregable.id} />
-            )}
-          </div>
+          </details>
+
+          {/* 6. Pasos dados (ya terminados). Plegable: si hay muchos no estorban. */}
+          <details className="group space-y-1.5">
+            <summary className="flex cursor-pointer list-none items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-zinc-400 dark:text-zinc-500">
+              <span aria-hidden className="text-[10px] transition-transform group-open:rotate-90">▶</span>
+              Pasos dados ({pasosDados.length})
+            </summary>
+            <div className="mt-1.5 space-y-0.5">
+              {pasosDados.length === 0 ? (
+                <p className="px-2 py-1 text-[11px] italic text-muted">Aún no hay pasos hechos.</p>
+              ) : (
+                pasosDados.map((p, idx) => renderPasoRow(p, idx === 0, idx === pasosDados.length - 1))
+              )}
+            </div>
+          </details>
+
+          {/* 7. Pizarra personal: espacio privado por miembro. */}
+          <details className="group space-y-1.5">
+            <summary className="flex cursor-pointer list-none items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-zinc-400 dark:text-zinc-500">
+              <span aria-hidden className="text-[10px] transition-transform group-open:rotate-90">▶</span>
+              Pizarra personal
+            </summary>
+            <div className="mt-1.5">
+              <PizarraPersonal entregableId={entregable.id} />
+            </div>
+          </details>
+
+          {/* 8. Historial de sesiones. */}
+          <details className="group space-y-1.5">
+            <summary className="flex cursor-pointer list-none items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-zinc-400 dark:text-zinc-500">
+              <span aria-hidden className="text-[10px] transition-transform group-open:rotate-90">▶</span>
+              Sesiones ({sesiones.length})
+            </summary>
+            <div className="mt-1.5 space-y-1.5">
+              <div className="flex items-center justify-end">
+                <RegistrarSesionIconButton
+                  entregableId={entregable.id}
+                  variant="ghost"
+                  title="Añadir sesión a mano"
+                >
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <circle cx="12" cy="12" r="9" />
+                    <polyline points="12 7 12 12 15 14" />
+                    <path d="M19 4v4M17 6h4" />
+                  </svg>
+                  <span>+ Añadir sesión a mano</span>
+                </RegistrarSesionIconButton>
+              </div>
+              {sesiones.length > 0 ? (
+                <SesionesEntregableHistory sesiones={sesiones} borderColor={borderColor} hideTitle entregableId={entregable.id} />
+              ) : (
+                <p className="text-[11px] italic text-muted">Sin sesiones registradas todavía.</p>
+              )}
+            </div>
+          </details>
 
           {/* Acciones */}
           {!isDetalle && (
