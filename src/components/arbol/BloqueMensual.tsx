@@ -9,23 +9,32 @@
  * `realEfectivoEnPeriodo` prioriza el registro del mes sobre la suma
  * de semanas cuando ambos están presentes.
  *
+ * Cierre de mes:
+ *  - El usuario marca "Cerrar mes" cuando da el mes por finalizado.
+ *  - Antes de cerrar, los meses se asumen "a plan" en el cálculo del
+ *    Replan: un mes sin apunte aún no penaliza el replan de los siguientes.
+ *  - Al cerrar, el real real (incluso 0) entra al acumulado y los meses
+ *    posteriores ven su replan ajustado.
+ *  - El propio mes cerrado deja de mostrar "Replan sugerido": ya no se
+ *    replanifica.
+ *
  * Optimizaciones de rendimiento:
- *  - LazyDetails: el desglose «Apuntar real» no se monta hasta que el
- *    usuario abre la tarjeta. Así entrar a la pantalla pinta sólo las
- *    12 cabeceras.
+ *  - LazyDetails: el desglose «Apuntar real» y cada rama dentro del
+ *    desglose se montan bajo demanda. Así entrar a la pantalla pinta sólo
+ *    las 12 cabeceras.
  *  - RegistrosIndex: lookup O(1) de cada input, sin `find` linear.
  *  - React.memo: cada tarjeta ignora re-renders si su mes no cambia.
  */
-import { memo, useMemo } from "react";
+import { memo, useCallback, useMemo } from "react";
+import { useAppDispatch } from "@/lib/context";
 import type { NodoArbol, PlanArbolConfigAnio } from "@/lib/types";
 import {
-  cuotaAjustada,
   estadoPeriodo,
   hijosSumaDirectosIdx,
   metaParaNodoEnPeriodo,
   planAgregadoEnPeriodoIdx,
-  realDelAnioHastaHoyLista,
   realEfectivoEnPeriodoIdx,
+  replanMensualSerie,
   type ArbolIndices,
 } from "@/lib/arbol-tiempo";
 import {
@@ -35,6 +44,7 @@ import {
   type RegistrosIndex,
   claveRegistro,
   fmtNum,
+  usePersistedOpen,
   useUpsertRegistro,
 } from "./arbol-comunes";
 
@@ -64,13 +74,33 @@ interface BloqueMensualProps {
 }
 
 export function BloqueMensual({ raiz, ramas, regsIndex, idx, config, year, unidad }: BloqueMensualProps) {
-  const realYTD = useMemo(
-    () => realDelAnioHastaHoyLista(idx.regsPorNodo.get(raiz.id), year),
-    [idx, raiz.id, year],
+  // Reales mes a mes de la raíz, para la serie de replan.
+  const realPorMes = useMemo(() => {
+    const m = new Map<string, number>();
+    for (let i = 1; i <= 12; i++) {
+      const k = `${year}-${String(i).padStart(2, "0")}`;
+      m.set(k, realEfectivoEnPeriodoIdx(idx, raiz.id, "mes", k));
+    }
+    return m;
+  }, [idx, raiz.id, year]);
+  // Set de meses cerrados, derivado de la config del año.
+  const mesesCerrados = useMemo(
+    () => new Set(config?.mesesCerrados ?? []),
+    [config?.mesesCerrados],
   );
-  const ajuste = useMemo(
-    () => cuotaAjustada({ metaAnual: raiz.metaValor ?? 0, realHastaHoy: realYTD, anio: year, config }),
-    [raiz.metaValor, realYTD, year, config],
+  // Replan por mes: cada mes considera "cumple plan" los meses anteriores
+  // abiertos y el real real de los cerrados. Funciona igual para años
+  // pasados (simulación), actual o futuros.
+  const replanPorMes = useMemo(
+    () =>
+      replanMensualSerie({
+        metaAnual: raiz.metaValor ?? 0,
+        realPorMes,
+        mesesCerrados,
+        anio: year,
+        config,
+      }),
+    [raiz.metaValor, realPorMes, mesesCerrados, year, config],
   );
 
   return (
@@ -80,7 +110,7 @@ export function BloqueMensual({ raiz, ramas, regsIndex, idx, config, year, unida
           <span aria-hidden className="mr-2 inline-block text-[10px] text-muted">▼</span>
           MENSUAL
           <span className="ml-2 text-[11px] font-normal text-muted">
-            — plan automático; apunta aquí el real del mes si no llevas la semana
+            — apunta el real y, cuando lo des por terminado, ciérralo para que el resto del año se ajuste
           </span>
         </h2>
       </summary>
@@ -100,7 +130,8 @@ export function BloqueMensual({ raiz, ramas, regsIndex, idx, config, year, unida
               unidad={unidad}
               periodoKey={periodoKey}
               label={MESES_ES[i]}
-              replan={ajuste.mesRestante(periodoKey)}
+              replan={replanPorMes.get(periodoKey)}
+              cerrado={mesesCerrados.has(periodoKey)}
             />
           );
         })}
@@ -120,6 +151,7 @@ const TarjetaMes = memo(function TarjetaMes({
   periodoKey,
   label,
   replan,
+  cerrado,
 }: {
   raiz: NodoArbol;
   ramas: NodoArbol[];
@@ -131,7 +163,9 @@ const TarjetaMes = memo(function TarjetaMes({
   periodoKey: string;
   label: string;
   replan: number | undefined;
+  cerrado: boolean;
 }) {
+  const dispatch = useAppDispatch();
   const plan = useMemo(
     () => metaParaNodoEnPeriodo(raiz, "mes", periodoKey, year, config),
     [raiz, periodoKey, year, config],
@@ -143,7 +177,7 @@ const TarjetaMes = memo(function TarjetaMes({
   const estado = estadoPeriodo("mes", periodoKey, year);
   const deltaPlan = plan !== undefined ? real - plan : undefined;
   const pct = plan && plan > 0 ? Math.min(100, Math.round((real / plan) * 100)) : 0;
-  const showProgress = estado === "pasado" || estado === "actual";
+  const showProgress = estado === "pasado" || estado === "actual" || cerrado;
 
   const ramasConReal = useMemo(
     () => ramas.filter((r) => r.relacionConPadre === "suma"),
@@ -152,28 +186,49 @@ const TarjetaMes = memo(function TarjetaMes({
 
   const regRaiz = ramas.length === 0 ? regsIndex.get(claveRegistro(raiz.id, "mes", periodoKey)) : undefined;
 
+  // El botón de cierre sólo tiene sentido sobre meses que no son futuros:
+  // no se cierra "abril" desde enero. Para años pasados (simulación) y
+  // actuales sí se permite, igual que en años futuros explícitamente
+  // marcados como completados (caso raro pero coherente con el contrato).
+  const puedeCerrar = estado !== "futuro" || cerrado;
+
+  const onToggleCerrado = useCallback(() => {
+    dispatch({ type: "TOGGLE_MES_CERRADO", anio: year, mesKey: periodoKey });
+  }, [dispatch, year, periodoKey]);
+
   return (
-    <div className="min-w-0 rounded-xl border border-border bg-background p-3 shadow-sm">
+    <div
+      className={`min-w-0 rounded-xl border p-3 shadow-sm ${
+        cerrado ? "border-emerald-500/30 bg-emerald-500/5" : "border-border bg-background"
+      }`}
+    >
       <div className="flex items-baseline justify-between gap-2">
         <h3 className="text-sm font-semibold text-foreground">
           {label} <span className="text-[10px] font-normal text-muted">({periodoKey})</span>
         </h3>
-        <span
-          className={`shrink-0 rounded px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide ${
-            estado === "pasado"
-              ? "bg-surface text-muted"
-              : estado === "actual"
-                ? "bg-accent/15 text-accent"
-                : "bg-amber-500/10 text-amber-700 dark:text-amber-200"
-          }`}
-        >
-          {estado}
-        </span>
+        <div className="flex items-center gap-1.5">
+          {cerrado && (
+            <span className="shrink-0 rounded bg-emerald-600/15 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-emerald-700 dark:text-emerald-200">
+              cerrado
+            </span>
+          )}
+          <span
+            className={`shrink-0 rounded px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide ${
+              estado === "pasado"
+                ? "bg-surface text-muted"
+                : estado === "actual"
+                  ? "bg-accent/15 text-accent"
+                  : "bg-amber-500/10 text-amber-700 dark:text-amber-200"
+            }`}
+          >
+            {estado}
+          </span>
+        </div>
       </div>
 
       <div className="mt-3 space-y-1 border-t border-border/50 pt-2">
         <MetricLine label="Plan" value={plan !== undefined ? `${fmtNum(plan)} ${unidad}` : "—"} accent="muted" />
-        {estado !== "pasado" && replan !== undefined && (
+        {!cerrado && replan !== undefined && plan !== undefined && Math.abs(replan - plan) >= 1 && (
           <MetricLine label="Replan sugerido" value={`${fmtNum(replan)} ${unidad}`} accent="muted" />
         )}
         <MetricLine
@@ -192,6 +247,25 @@ const TarjetaMes = memo(function TarjetaMes({
         </div>
       )}
 
+      {puedeCerrar && (
+        <div className="mt-3 flex justify-end">
+          <button
+            type="button"
+            onClick={onToggleCerrado}
+            className={`rounded border px-2 py-1 text-[11px] font-medium transition-colors ${
+              cerrado
+                ? "border-border bg-background text-muted hover:bg-surface"
+                : "border-emerald-600/40 bg-emerald-500/10 text-emerald-700 hover:bg-emerald-500/20 dark:text-emerald-200"
+            }`}
+            title={cerrado
+              ? "Reabre el mes para volver a apuntar reales y reactivar el replan."
+              : "Da el mes por terminado: el real entra en el acumulado y el resto del año se ajusta."}
+          >
+            {cerrado ? "Reabrir mes" : "Cerrar mes (ya no añadiré más)"}
+          </button>
+        </div>
+      )}
+
       {ramasConReal.length > 0 && (
         <LazyDetails
           className="mt-3 rounded-lg border border-border/60 bg-surface/30"
@@ -201,7 +275,7 @@ const TarjetaMes = memo(function TarjetaMes({
             </summary>
           }
         >
-          <div className="space-y-3 border-t border-border/60 px-2 py-2">
+          <div className="space-y-2 border-t border-border/60 px-2 py-2">
             {ramasConReal.map((rama) => (
               <FilaRamaMensual
                 key={rama.id}
@@ -261,44 +335,64 @@ function FilaRamaMensual({
   );
   const existingRama = regsIndex.get(claveRegistro(rama.id, "mes", periodoKey));
 
+  // Persistir abierto/cerrado por (año, rama, mes) en localStorage para que
+  // la usuaria recupere su disposición al volver.
+  const { open, onToggle } = usePersistedOpen(
+    `arbol:${year}:rama:${rama.id}:mes:${periodoKey}`,
+    false,
+  );
+
   return (
-    <div className="rounded border border-border/50 bg-background/60 p-2">
-      <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
-        <span className="text-[12px] font-medium text-foreground">{rama.nombre}</span>
-        <span className="flex flex-wrap gap-x-2 text-[10px] tabular-nums text-muted">
-          <span>
-            Plan: <strong className="text-foreground">{plan !== undefined ? `${fmtNum(plan)} ${unidad}` : "—"}</strong>
-          </span>
-          <span>
-            Real: <strong className="text-foreground">{fmtNum(real)} {unidad}</strong>
-          </span>
-        </span>
+    <LazyDetails
+      className="rounded border border-border/50 bg-background/60"
+      open={open}
+      onToggle={onToggle}
+      summary={
+        <summary className="cursor-pointer list-none px-2 py-1.5 marker:content-none [&::-webkit-details-marker]:hidden">
+          <div className="flex flex-wrap items-baseline justify-between gap-2">
+            <span className="text-[12px] font-medium text-foreground">
+              <span aria-hidden className="mr-1 text-[9px] text-muted">{open ? "▼" : "▶"}</span>
+              {rama.nombre}
+            </span>
+            <span className="flex flex-wrap gap-x-2 text-[10px] tabular-nums text-muted">
+              <span>
+                Plan: <strong className="text-foreground">{plan !== undefined ? `${fmtNum(plan)} ${unidad}` : "—"}</strong>
+              </span>
+              <span>
+                Real: <strong className="text-foreground">{fmtNum(real)} {unidad}</strong>
+              </span>
+            </span>
+          </div>
+        </summary>
+      }
+    >
+      <div className="border-t border-border/40 p-2">
+        {hojas.length === 0 ? (
+          <FilaApunteDirecto
+            nodoId={rama.id}
+            periodoKey={periodoKey}
+            existing={existingRama}
+            unidad={unidad}
+            ariaLabel={`Real ${periodoKey} de ${rama.nombre}`}
+          />
+        ) : (
+          <div className="space-y-2">
+            {hojas.map((hoja) => (
+              <FilaHojaMensual
+                key={hoja.id}
+                hoja={hoja}
+                idx={idx}
+                regsIndex={regsIndex}
+                config={config}
+                year={year}
+                unidad={unidad}
+                periodoKey={periodoKey}
+              />
+            ))}
+          </div>
+        )}
       </div>
-      {hojas.length === 0 ? (
-        <FilaApunteDirecto
-          nodoId={rama.id}
-          periodoKey={periodoKey}
-          existing={existingRama}
-          unidad={unidad}
-          ariaLabel={`Real ${periodoKey} de ${rama.nombre}`}
-        />
-      ) : (
-        <div className="space-y-2">
-          {hojas.map((hoja) => (
-            <FilaHojaMensual
-              key={hoja.id}
-              hoja={hoja}
-              idx={idx}
-              regsIndex={regsIndex}
-              config={config}
-              year={year}
-              unidad={unidad}
-              periodoKey={periodoKey}
-            />
-          ))}
-        </div>
-      )}
-    </div>
+    </LazyDetails>
   );
 }
 
@@ -319,6 +413,7 @@ function FilaHojaMensual({
   unidad: string;
   periodoKey: string;
 }) {
+  void year;
   const plan = planAgregadoEnPeriodoIdx(idx, hoja, "mes", periodoKey, config);
   const real = realEfectivoEnPeriodoIdx(idx, hoja.id, "mes", periodoKey);
   const existing = regsIndex.get(claveRegistro(hoja.id, "mes", periodoKey));

@@ -166,6 +166,7 @@ export type Action =
   /** Mueve todos los registros de fromNodoId a toNodoId (mismo periodoTipo/periodoKey; sin fusionar duplicados). */
   | { type: "REASSIGN_REGISTROS_NODO"; fromNodoId: string; toNodoId: string }
   | { type: "SET_ARBOL_CONFIG_ANIO"; config: PlanArbolConfigAnio }
+  | { type: "TOGGLE_MES_CERRADO"; anio: number; mesKey: string }
   | { type: "REPLACE_ARBOL_STATE"; arbol: PlanArbolState }
   | {
       type: "UPSERT_REFLEXION_TRIMESTRE";
@@ -1875,6 +1876,33 @@ export function reducer(state: AppState, action: Action): AppState {
         arbol: {
           ...arbol,
           configs: [...others, action.config].sort((a, b) => a.anio - b.anio),
+        },
+      };
+    }
+
+    case "TOGGLE_MES_CERRADO": {
+      // Marca/desmarca un mes (`YYYY-MM`) como "cerrado". Solo afecta al
+      // cálculo del replan; los registros del mes siguen existiendo y se
+      // pueden seguir consultando aunque esté cerrado.
+      const arbol = state.arbol ?? EMPTY_ARBOL;
+      const existing = arbol.configs.find((c) => c.anio === action.anio);
+      const baseConfig: PlanArbolConfigAnio = existing
+        ? { ...existing }
+        : { anio: action.anio, semanasNoActivas: [] };
+      const set = new Set(baseConfig.mesesCerrados ?? []);
+      if (set.has(action.mesKey)) set.delete(action.mesKey);
+      else set.add(action.mesKey);
+      const mesesCerrados = Array.from(set).sort();
+      const nextConfig: PlanArbolConfigAnio = {
+        ...baseConfig,
+        mesesCerrados: mesesCerrados.length > 0 ? mesesCerrados : undefined,
+      };
+      const others = arbol.configs.filter((c) => c.anio !== action.anio);
+      return {
+        ...state,
+        arbol: {
+          ...arbol,
+          configs: [...others, nextConfig].sort((a, b) => a.anio - b.anio),
         },
       };
     }

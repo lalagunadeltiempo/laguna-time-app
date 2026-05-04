@@ -39,10 +39,18 @@ function unionConfigs(a: PlanArbolConfigAnio[], b: PlanArbolConfigAnio[]): PlanA
     if (!prev) {
       map.set(c.anio, { ...c });
     } else {
+      // mesesCerrados se une por unión: si Gabi cerró marzo y Beltrán cerró
+      // abril desde clientes distintos, el merge guarda ambos. Reabrir
+      // requiere que el cierre desaparezca de ambos lados (simétrico al
+      // toggle), lo que equivale a "no cerrado" en ambos.
+      const cerradosA = new Set(prev.mesesCerrados ?? []);
+      const cerradosB = new Set(c.mesesCerrados ?? []);
+      const mesesCerrados = Array.from(new Set([...cerradosA, ...cerradosB])).sort();
       map.set(c.anio, {
         anio: c.anio,
         semanasNoActivas: [...new Set([...prev.semanasNoActivas, ...c.semanasNoActivas])].sort(),
         comunidadAutonoma: c.comunidadAutonoma ?? prev.comunidadAutonoma,
+        ...(mesesCerrados.length > 0 ? { mesesCerrados } : {}),
       });
     }
   }
@@ -422,6 +430,7 @@ export function statesDiffer(a: AppState, b: AppState): boolean {
   if (!idSetEq(a.arbol?.registros ?? [], b.arbol?.registros ?? [])) return true;
   if (!idSetEq(a.mensajes ?? [], b.mensajes ?? [])) return true;
   if ((a.arbol?.reflexiones?.length ?? 0) !== (b.arbol?.reflexiones?.length ?? 0)) return true;
+  if (configsFingerprint(a) !== configsFingerprint(b)) return true;
 
   // Huellas de contenido: detectan cambios dentro de notas y mensajes aunque los IDs
   // sean los mismos (el merge profundo puede añadir notas/mensajes del otro cliente).
@@ -503,6 +512,24 @@ function contextoFingerprint(s: AppState): string {
     if (n !== undefined) chunks.push(`p:${p.id}:${n.length}:${hashStr(n)}`);
   }
   return chunks.sort().join("|");
+}
+
+/**
+ * Huella ligera de la config por año del árbol (semanasNoActivas, CCAA y
+ * `mesesCerrados`). Sin esto, dos clientes con el mismo número de configs
+ * pero un cierre de mes distinto pasaban como "iguales" y no se aplicaba
+ * el merge en el cliente local tras el pull.
+ */
+function configsFingerprint(s: AppState): string {
+  const cfgs = s.arbol?.configs ?? [];
+  return cfgs
+    .map((c) => {
+      const sem = (c.semanasNoActivas ?? []).slice().sort().join(",");
+      const cer = (c.mesesCerrados ?? []).slice().sort().join(",");
+      return `${c.anio}|${c.comunidadAutonoma ?? ""}|S:${sem}|C:${cer}`;
+    })
+    .sort()
+    .join("|");
 }
 
 /**

@@ -2,7 +2,14 @@ import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { PlanArbolConfigAnio } from "./types";
-import { cuotaAjustada, defaultSemanasNoActivas } from "./arbol-tiempo";
+import {
+  cuotaAjustada,
+  defaultSemanasNoActivas,
+  diasLaborablesEnAnio,
+  diasLaborablesEnMes,
+  replanMensualSerie,
+  replanTrimestralSerie,
+} from "./arbol-tiempo";
 
 /**
  * Tests del rediseño del Árbol de objetivos como vista temporal.
@@ -82,6 +89,121 @@ describe("Replan mensual sube si llevas retraso", () => {
     });
     const mesMayo = `${anio}-05`;
     expect(ajusteAdelantado.mesRestante(mesMayo)).toBeLessThan(ajusteAlDia.mesRestante(mesMayo));
+  });
+});
+
+describe("Replan por mes/trimestre a partir de la serie de reales (con cierre de mes)", () => {
+  const anio = 2025;
+  const config: PlanArbolConfigAnio = { anio, semanasNoActivas: defaultSemanasNoActivas(anio) };
+  const metaAnual = 450_000;
+
+  const planLineal = (k: string) =>
+    (metaAnual * diasLaborablesEnMes(k, anio, config)) / diasLaborablesEnAnio(anio, config);
+
+  it("sin meses cerrados, el replan de cada mes coincide con el plan lineal", () => {
+    // Aunque haya reales apuntados, mientras los meses estén "abiertos" se
+    // asume que cumplirán plan: no hay razón aún para replanificar.
+    const realPorMes = new Map<string, number>([[`${anio}-01`, 100_000]]);
+    const replan = replanMensualSerie({ metaAnual, realPorMes, anio, config });
+    for (let i = 1; i <= 12; i++) {
+      const k = `${anio}-${String(i).padStart(2, "0")}`;
+      expect(replan.get(k)).toBeCloseTo(planLineal(k), 6);
+    }
+  });
+
+  it("al cerrar enero por encima del plan, el replan de febrero baja por debajo del plan lineal", () => {
+    const ene = `${anio}-01`;
+    const feb = `${anio}-02`;
+    const realPorMes = new Map<string, number>([[ene, planLineal(ene) + 10_000]]);
+    const replan = replanMensualSerie({
+      metaAnual,
+      realPorMes,
+      mesesCerrados: new Set([ene]),
+      anio,
+      config,
+    });
+
+    // El propio enero, al ser el primero, su replan no se ve afectado por
+    // su cierre (no hay meses anteriores a considerar).
+    expect(replan.get(ene)).toBeCloseTo(planLineal(ene), 6);
+    expect(replan.get(feb)!).toBeLessThan(planLineal(feb));
+  });
+
+  it("al cerrar enero por debajo del plan, el replan de febrero sube por encima del plan lineal", () => {
+    const ene = `${anio}-01`;
+    const feb = `${anio}-02`;
+    const realPorMes = new Map<string, number>([[ene, planLineal(ene) / 2]]);
+    const replan = replanMensualSerie({
+      metaAnual,
+      realPorMes,
+      mesesCerrados: new Set([ene]),
+      anio,
+      config,
+    });
+    expect(replan.get(feb)!).toBeGreaterThan(planLineal(feb));
+  });
+
+  it("cerrar un mes con real=0 explícito penaliza el replan de los siguientes", () => {
+    // Si el usuario cierra enero declarando 0€ facturados (mes muerto), los
+    // meses siguientes deben asumir más carga.
+    const ene = `${anio}-01`;
+    const feb = `${anio}-02`;
+    const realPorMes = new Map<string, number>([[ene, 0]]);
+    const replanCerrado = replanMensualSerie({
+      metaAnual,
+      realPorMes,
+      mesesCerrados: new Set([ene]),
+      anio,
+      config,
+    });
+    const replanAbierto = replanMensualSerie({
+      metaAnual,
+      realPorMes,
+      anio,
+      config,
+    });
+    expect(replanCerrado.get(feb)!).toBeGreaterThan(replanAbierto.get(feb)!);
+    expect(replanCerrado.get(feb)!).toBeGreaterThan(planLineal(feb));
+  });
+
+  it("Q2 baja si los tres meses de Q1 se cierran adelantados", () => {
+    const mesesQ1 = ["01", "02", "03"].map((m) => `${anio}-${m}`);
+    const realPorMes = new Map<string, number>(
+      mesesQ1.map((k) => [k, planLineal(k) * 1.2]),
+    );
+    const replan = replanTrimestralSerie({
+      metaAnual,
+      realPorMes,
+      mesesCerrados: new Set(mesesQ1),
+      anio,
+      config,
+    });
+
+    const q1 = `${anio}-Q1`;
+    const q2 = `${anio}-Q2`;
+    const diasQ1 = mesesQ1.reduce((a, mk) => a + diasLaborablesEnMes(mk, anio, config), 0);
+    const planQ1 = (metaAnual * diasQ1) / diasLaborablesEnAnio(anio, config);
+    expect(replan.get(q1)).toBeCloseTo(planQ1, 6);
+
+    const mesesQ2 = ["04", "05", "06"].map((m) => `${anio}-${m}`);
+    const diasQ2 = mesesQ2.reduce((a, mk) => a + diasLaborablesEnMes(mk, anio, config), 0);
+    const planQ2 = (metaAnual * diasQ2) / diasLaborablesEnAnio(anio, config);
+    expect(replan.get(q2)!).toBeLessThan(planQ2);
+  });
+
+  it("cerrar enero con la meta cumplida deja a 0 el replan de los meses posteriores", () => {
+    const ene = `${anio}-01`;
+    const realPorMes = new Map<string, number>([[ene, metaAnual]]);
+    const replan = replanMensualSerie({
+      metaAnual,
+      realPorMes,
+      mesesCerrados: new Set([ene]),
+      anio,
+      config,
+    });
+    for (let i = 2; i <= 12; i++) {
+      expect(replan.get(`${anio}-${String(i).padStart(2, "0")}`)).toBe(0);
+    }
   });
 });
 

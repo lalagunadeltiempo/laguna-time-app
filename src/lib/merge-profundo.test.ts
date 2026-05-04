@@ -348,6 +348,50 @@ describe("statesDiffer detecta cambios dentro de notas, mensajes y contexto", ()
   });
 });
 
+describe("Cierre de meses: merge de la config del año", () => {
+  it("une `mesesCerrados` cuando dos clientes cierran meses distintos", () => {
+    const a = baseState({
+      arbol: {
+        nodos: [],
+        registros: [],
+        configs: [{ anio: 2025, semanasNoActivas: [], mesesCerrados: ["2025-01", "2025-02"] }],
+        reflexiones: [],
+      },
+    });
+    const b = baseState({
+      arbol: {
+        nodos: [],
+        registros: [],
+        configs: [{ anio: 2025, semanasNoActivas: [], mesesCerrados: ["2025-03"] }],
+        reflexiones: [],
+      },
+    });
+    const merged = mergeStates(a, b);
+    const cfg = merged.arbol?.configs.find((c) => c.anio === 2025);
+    expect(cfg?.mesesCerrados).toEqual(["2025-01", "2025-02", "2025-03"]);
+  });
+
+  it("`statesDiffer` detecta cuando uno cerró un mes y el otro no", () => {
+    const a = baseState({
+      arbol: {
+        nodos: [],
+        registros: [],
+        configs: [{ anio: 2025, semanasNoActivas: [], mesesCerrados: ["2025-01"] }],
+        reflexiones: [],
+      },
+    });
+    const b = baseState({
+      arbol: {
+        nodos: [],
+        registros: [],
+        configs: [{ anio: 2025, semanasNoActivas: [], mesesCerrados: [] }],
+        reflexiones: [],
+      },
+    });
+    expect(statesDiffer(a, b)).toBe(true);
+  });
+});
+
 describe("Mensajes de entregable: merge y tombstones", () => {
   const msg = (id: string, overrides: Partial<MensajeEntregable> = {}): MensajeEntregable => ({
     id,

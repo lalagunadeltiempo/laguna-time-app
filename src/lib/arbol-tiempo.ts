@@ -890,6 +890,108 @@ export function sumarRegistrosNodoAnioAnterior(
   return sumarRegistrosNodoSimple(registros, nodoId, vista, keyPrev, yearPrev);
 }
 
+/**
+ * Replan mes a mes: para cada mes M del año, calcula cuánto debería
+ * facturarse en M asumiendo que los meses anteriores a M aportan al
+ * acumulado o bien su real (si están **cerrados**) o bien su plan lineal
+ * (si están abiertos), y que lo que falta para llegar a `metaAnual` se
+ * reparte entre los días laborables de M..Diciembre.
+ *
+ * El concepto de "mes cerrado" lo activa el usuario explícitamente; sin
+ * cierre, un mes con real=0 podría ser sólo "aún no apunté", lo cual no
+ * debería penalizar el replan de los meses posteriores.
+ *
+ * Independiente de la fecha "hoy": funciona igual para años pasados,
+ * actual o futuros.
+ */
+export function replanMensualSerie(opts: {
+  metaAnual: number;
+  realPorMes: ReadonlyMap<string, number>;
+  mesesCerrados?: ReadonlySet<string>;
+  anio: number;
+  config: PlanArbolConfigAnio | undefined;
+}): Map<string, number> {
+  const result = new Map<string, number>();
+  const cerrados = opts.mesesCerrados ?? new Set<string>();
+  const mesKeys: string[] = Array.from(
+    { length: 12 },
+    (_, i) => `${opts.anio}-${String(i + 1).padStart(2, "0")}`,
+  );
+  const diasMes = mesKeys.map((k) => diasLaborablesEnMes(k, opts.anio, opts.config));
+  const diasAnio = diasMes.reduce((a, b) => a + b, 0);
+  // Total de días laborables desde el mes i (inclusive) hasta diciembre.
+  const diasDesde: number[] = new Array(12).fill(0);
+  let acum = 0;
+  for (let i = 11; i >= 0; i--) {
+    acum += diasMes[i];
+    diasDesde[i] = acum;
+  }
+  // Plan lineal del mes (servirá como estimación cuando un mes esté abierto).
+  const planLinealMes = diasMes.map((d) => (diasAnio > 0 ? (opts.metaAnual * d) / diasAnio : 0));
+
+  let realAcumAntes = 0;
+  for (let i = 0; i < 12; i++) {
+    const k = mesKeys[i];
+    const falta = Math.max(0, opts.metaAnual - realAcumAntes);
+    const replanI = diasDesde[i] > 0 ? (falta * diasMes[i]) / diasDesde[i] : 0;
+    result.set(k, replanI);
+    // Aportación al acumulado del siguiente mes:
+    //  - mes cerrado: real real (incluso 0).
+    //  - mes abierto: se asume plan lineal (no penalizar el futuro).
+    const aporte = cerrados.has(k)
+      ? opts.realPorMes.get(k) ?? 0
+      : planLinealMes[i];
+    realAcumAntes += aporte;
+  }
+  return result;
+}
+
+/**
+ * Replan trimestre a trimestre: misma lógica que `replanMensualSerie` pero
+ * agregando por trimestre. Requiere `realPorMes` (no por trimestre) porque
+ * el cierre se decide al nivel del mes y necesita sumar mes a mes.
+ */
+export function replanTrimestralSerie(opts: {
+  metaAnual: number;
+  realPorMes: ReadonlyMap<string, number>;
+  mesesCerrados?: ReadonlySet<string>;
+  anio: number;
+  config: PlanArbolConfigAnio | undefined;
+}): Map<string, number> {
+  const result = new Map<string, number>();
+  const cerrados = opts.mesesCerrados ?? new Set<string>();
+  const trimKeys = [1, 2, 3, 4].map((q) => `${opts.anio}-Q${q}`);
+
+  const diasPorQ = trimKeys.map((qKey) =>
+    mesKeysEnTrimestre(qKey).reduce(
+      (a, mk) => a + diasLaborablesEnMes(mk, opts.anio, opts.config),
+      0,
+    ),
+  );
+  const diasAnio = diasPorQ.reduce((a, b) => a + b, 0);
+  const diasDesdeQ: number[] = new Array(4).fill(0);
+  let acumQ = 0;
+  for (let q = 3; q >= 0; q--) {
+    acumQ += diasPorQ[q];
+    diasDesdeQ[q] = acumQ;
+  }
+
+  let realAcumAntes = 0;
+  for (let q = 0; q < 4; q++) {
+    const qKey = trimKeys[q];
+    const falta = Math.max(0, opts.metaAnual - realAcumAntes);
+    const replanQ = diasDesdeQ[q] > 0 ? (falta * diasPorQ[q]) / diasDesdeQ[q] : 0;
+    result.set(qKey, replanQ);
+    for (const mk of mesKeysEnTrimestre(qKey)) {
+      const diasMk = diasLaborablesEnMes(mk, opts.anio, opts.config);
+      const planLinMes = diasAnio > 0 ? (opts.metaAnual * diasMk) / diasAnio : 0;
+      const aporte = cerrados.has(mk) ? opts.realPorMes.get(mk) ?? 0 : planLinMes;
+      realAcumAntes += aporte;
+    }
+  }
+  return result;
+}
+
 /** Cuota ajustada: reparte lo que falta entre los días laborables restantes del año (lun–vie sin descanso ni festivo). */
 export function cuotaAjustada(opts: {
   metaAnual: number;

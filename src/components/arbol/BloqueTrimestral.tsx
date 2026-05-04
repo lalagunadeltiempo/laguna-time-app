@@ -16,13 +16,12 @@
 import { memo, useMemo } from "react";
 import type { NodoArbol, PlanArbolConfigAnio, TrimestreKey } from "@/lib/types";
 import {
-  cuotaAjustada,
   estadoPeriodo,
   hijosSumaDirectosIdx,
   metaParaNodoEnPeriodo,
   planAgregadoEnPeriodoIdx,
-  realDelAnioHastaHoyLista,
   realEfectivoEnPeriodoIdx,
+  replanTrimestralSerie,
   type ArbolIndices,
 } from "@/lib/arbol-tiempo";
 import { CierreTrimestre } from "./CierreTrimestre";
@@ -45,13 +44,32 @@ interface BloqueTrimestralProps {
 }
 
 export function BloqueTrimestral({ raiz, ramas, idx, config, year, unidad }: BloqueTrimestralProps) {
-  const realYTD = useMemo(
-    () => realDelAnioHastaHoyLista(idx.regsPorNodo.get(raiz.id), year),
-    [idx, raiz.id, year],
+  // Reales mes a mes de la raíz, base común para la serie de replan.
+  const realPorMes = useMemo(() => {
+    const m = new Map<string, number>();
+    for (let i = 1; i <= 12; i++) {
+      const k = `${year}-${String(i).padStart(2, "0")}`;
+      m.set(k, realEfectivoEnPeriodoIdx(idx, raiz.id, "mes", k));
+    }
+    return m;
+  }, [idx, raiz.id, year]);
+  const mesesCerrados = useMemo(
+    () => new Set(config?.mesesCerrados ?? []),
+    [config?.mesesCerrados],
   );
-  const ajuste = useMemo(
-    () => cuotaAjustada({ metaAnual: raiz.metaValor ?? 0, realHastaHoy: realYTD, anio: year, config }),
-    [raiz.metaValor, realYTD, year, config],
+  // Replan por trimestre: cada Q ajusta lo que queda asumiendo "cumple plan"
+  // los meses anteriores que aún no estén cerrados. Funciona igual para
+  // años pasados, actual y futuros.
+  const replanPorQ = useMemo(
+    () =>
+      replanTrimestralSerie({
+        metaAnual: raiz.metaValor ?? 0,
+        realPorMes,
+        mesesCerrados,
+        anio: year,
+        config,
+      }),
+    [raiz.metaValor, realPorMes, mesesCerrados, year, config],
   );
 
   return (
@@ -69,6 +87,12 @@ export function BloqueTrimestral({ raiz, ramas, idx, config, year, unidad }: Blo
       <div className="grid gap-3 border-t border-border/60 p-4 sm:grid-cols-2">
         {TRIMESTRE_LABELS.map(({ key, label }) => {
           const periodoKey = `${year}-${key}`;
+          // Trimestre con todos sus meses cerrados: ya no replanifica.
+          const qNum = parseInt(key.slice(1), 10);
+          const mesesQ = [qNum * 3 - 2, qNum * 3 - 1, qNum * 3].map(
+            (m) => `${year}-${String(m).padStart(2, "0")}`,
+          );
+          const qCerrado = mesesQ.every((mk) => mesesCerrados.has(mk));
           return (
             <TarjetaTrimestre
               key={periodoKey}
@@ -81,7 +105,8 @@ export function BloqueTrimestral({ raiz, ramas, idx, config, year, unidad }: Blo
               trimestreKey={key}
               periodoKey={periodoKey}
               label={label}
-              replan={ajuste.trimRestante(periodoKey)}
+              replan={replanPorQ.get(periodoKey)}
+              qCerrado={qCerrado}
             />
           );
         })}
@@ -101,6 +126,7 @@ const TarjetaTrimestre = memo(function TarjetaTrimestre({
   periodoKey,
   label,
   replan,
+  qCerrado,
 }: {
   raiz: NodoArbol;
   ramas: NodoArbol[];
@@ -112,6 +138,7 @@ const TarjetaTrimestre = memo(function TarjetaTrimestre({
   periodoKey: string;
   label: string;
   replan: number | undefined;
+  qCerrado: boolean;
 }) {
   const plan = useMemo(
     () => metaParaNodoEnPeriodo(raiz, "trimestre", periodoKey, year, config),
@@ -148,7 +175,7 @@ const TarjetaTrimestre = memo(function TarjetaTrimestre({
 
       <div className="mt-3 space-y-1 border-t border-border/50 pt-2">
         <MetricLine label="Plan" value={plan !== undefined ? `${fmtNum(plan)} ${unidad}` : "—"} accent="muted" />
-        {estado !== "pasado" && replan !== undefined && (
+        {!qCerrado && replan !== undefined && plan !== undefined && Math.abs(replan - plan) >= 1 && (
           <MetricLine label="Replan sugerido" value={`${fmtNum(replan)} ${unidad}`} accent="muted" />
         )}
         <MetricLine

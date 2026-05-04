@@ -483,6 +483,14 @@ export interface PlanArbolConfigAnio {
    * Omitido o vacío: solo se aplican festivos del conjunto nacional estándar del dataset.
    */
   comunidadAutonoma?: string;
+  /**
+   * Meses (`YYYY-MM`) que el usuario ha cerrado explícitamente (declarado
+   * "ya no apuntaré más aquí"). Se usa para el cálculo de Replan:
+   *  - Cerrado: cuenta el real (incluso si es 0) en el acumulado previo.
+   *  - Abierto: se asume que cumple plan lineal en el acumulado previo, para
+   *    que un mes sin apunte aún no penalice el replan de los siguientes.
+   */
+  mesesCerrados?: string[];
 }
 
 /** Reflexión guardada al cierre de un trimestre. */

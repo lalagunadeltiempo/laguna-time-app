@@ -301,6 +301,40 @@ export function LazyDetails({
   );
 }
 
+/**
+ * Estado abierto/cerrado para `<details>` persistido en `localStorage`. La
+ * clave es estable (incluye año, contexto, ID) y sólo guardamos el cambio
+ * cuando el usuario abre o cierra explícitamente. Útil para mantener el
+ * desplegado de ramas dentro de cada mes entre sesiones.
+ */
+export function usePersistedOpen(storageKey: string, defaultOpen = false): {
+  open: boolean;
+  onToggle: (next: boolean) => void;
+} {
+  const [open, setOpen] = useState<boolean>(() => {
+    if (typeof window === "undefined") return defaultOpen;
+    try {
+      const v = window.localStorage.getItem(storageKey);
+      if (v === null) return defaultOpen;
+      return v === "1";
+    } catch {
+      return defaultOpen;
+    }
+  });
+  const onToggle = useCallback(
+    (next: boolean) => {
+      setOpen(next);
+      try {
+        window.localStorage.setItem(storageKey, next ? "1" : "0");
+      } catch {
+        /* noop: navegador sin localStorage o cuota llena */
+      }
+    },
+    [storageKey],
+  );
+  return { open, onToggle };
+}
+
 /** Devuelve un Map con callback memoizado para lookup por clave. */
 export function useRegistroExistente(
   index: RegistrosIndex,
