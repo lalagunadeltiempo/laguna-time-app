@@ -97,6 +97,51 @@ export function mergeStates(a: AppState, b: AppState): AppState {
     return Array.from(map.values());
   };
 
+  /**
+   * Une las preparaciones de trabajo por usuario sin pisarlas, para que si un
+   * cliente añade días y otro cierra pasos (sube `diasHechos`), al mergear no
+   * se pierda la preparación semanal del primero.
+   */
+  const unirDiasPorUsuario = (
+    a: Record<string, string[]> | undefined,
+    b: Record<string, string[]> | undefined,
+  ): Record<string, string[]> | undefined => {
+    const ma = a ?? {};
+    const mb = b ?? {};
+    const users = new Set<string>([...Object.keys(ma), ...Object.keys(mb)]);
+    if (users.size === 0) return undefined;
+    const out: Record<string, string[]> = {};
+    for (const u of users) {
+      const set = new Set<string>([...(ma[u] ?? []), ...(mb[u] ?? [])]);
+      out[u] = Array.from(set).sort();
+    }
+    return out;
+  };
+
+  const unirPlanInicioPorUsuario = (
+    a: Record<string, string | null> | undefined,
+    b: Record<string, string | null> | undefined,
+  ): Record<string, string | null> | undefined => {
+    const ma = a ?? {};
+    const mb = b ?? {};
+    const users = new Set<string>([...Object.keys(ma), ...Object.keys(mb)]);
+    if (users.size === 0) return undefined;
+    const out: Record<string, string | null> = {};
+    for (const u of users) {
+      const va = ma[u] ?? null;
+      const vb = mb[u] ?? null;
+      if (va && vb) {
+        // Ambos tienen hora fijada: nos quedamos con la más reciente (última vez
+        // que el miembro eligió empezar). Es LWW por valor ISO, no por cuándo se
+        // guardó, pero es la mejor heurística sin metadatos de edición.
+        out[u] = va >= vb ? va : vb;
+      } else {
+        out[u] = va ?? vb ?? null;
+      }
+    }
+    return out;
+  };
+
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const preferMore = (x: any, y: any) => {
     const winner = (x.diasHechos ?? 0) >= (y.diasHechos ?? 0) ? x : y;
@@ -144,8 +189,23 @@ export function mergeStates(a: AppState, b: AppState): AppState {
         pizarraByUser[u] = tW.length >= tL.length ? tW : tL;
       }
     }
+    // Preparación semanal por usuario: nunca debe perderse. El ganador
+    // top-level puede traer `diasHechos` mayor sin traer los días que el
+    // otro cliente preparó (preparación semanal vs. trabajo diario son
+    // acciones desacopladas).
+    const diasPlanificadosByUser = unirDiasPorUsuario(x.diasPlanificadosByUser, y.diasPlanificadosByUser);
+    const planInicioTsByUser = unirPlanInicioPorUsuario(x.planInicioTsByUser, y.planInicioTsByUser);
+    const semanasActivas = Array.from(
+      new Set<string>([...(x.semanasActivas ?? []), ...(y.semanasActivas ?? [])]),
+    ).sort();
+    const semana = winner.semana ?? loser.semana ?? null;
+
     return {
       ...winner,
+      semana,
+      ...(semanasActivas.length ? { semanasActivas } : {}),
+      ...(diasPlanificadosByUser ? { diasPlanificadosByUser } : {}),
+      ...(planInicioTsByUser ? { planInicioTsByUser } : {}),
       ...(notas.length || winner.notas ? { notas } : {}),
       ...(review ? { review } : {}),
       ...(sesiones.length ? { sesiones } : {}),
@@ -368,6 +428,7 @@ export function statesDiffer(a: AppState, b: AppState): boolean {
   if (notasFingerprint(a) !== notasFingerprint(b)) return true;
   if (mensajesFingerprint(a) !== mensajesFingerprint(b)) return true;
   if (contextoFingerprint(a) !== contextoFingerprint(b)) return true;
+  if (planPorUsuarioFingerprint(a) !== planPorUsuarioFingerprint(b)) return true;
 
   const dA = a.deleted, dB = b.deleted;
   if (!!dA !== !!dB) return true;
@@ -440,6 +501,32 @@ function contextoFingerprint(s: AppState): string {
   for (const p of s.pasos) {
     const n = p.contexto?.notas;
     if (n !== undefined) chunks.push(`p:${p.id}:${n.length}:${hashStr(n)}`);
+  }
+  return chunks.sort().join("|");
+}
+
+/**
+ * Huella de la preparación semanal por miembro de cada entregable. Garantiza
+ * que, tras un merge en la nube, el cliente local vuelva a dispatchar el
+ * estado unido aunque los IDs y conteos coincidan. Sin esto, un merge que
+ * añade días planificados del otro cliente podía pasar inadvertido y perderse
+ * en el siguiente save local.
+ */
+function planPorUsuarioFingerprint(s: AppState): string {
+  const chunks: string[] = [];
+  for (const e of s.entregables) {
+    const dias = e.diasPlanificadosByUser ?? {};
+    const horas = e.planInicioTsByUser ?? {};
+    const semanas = e.semanasActivas ?? [];
+    const users = Array.from(new Set([...Object.keys(dias), ...Object.keys(horas)])).sort();
+    const partes: string[] = [];
+    for (const u of users) {
+      const d = (dias[u] ?? []).slice().sort().join(",");
+      const h = horas[u] ?? "";
+      partes.push(`${u}:${d}@${h}`);
+    }
+    const sem = semanas.slice().sort().join(",");
+    if (partes.length || sem) chunks.push(`e:${e.id}:${partes.join(";")}|S:${sem}`);
   }
   return chunks.sort().join("|");
 }

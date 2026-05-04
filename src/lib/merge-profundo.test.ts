@@ -163,6 +163,108 @@ describe("Merge profundo de entregables", () => {
     expect(piz["Beltrán"]).toBe("beltran escribió un párrafo completo con info");
   });
 
+  it("preferMore conserva los días planificados por cada miembro aunque otro cliente suba diasHechos", () => {
+    // Gabi preparó la semana: marcó 3 días para trabajar el entregable.
+    const a = baseState({
+      entregables: [
+        mkEntregable({
+          id: "e-1",
+          diasHechos: 0,
+          diasPlanificadosByUser: {
+            Gabi: ["2026-05-05", "2026-05-06", "2026-05-07"],
+          },
+          semanasActivas: ["2026-05-04"],
+        }),
+      ],
+    });
+    // Beltrán desde su cliente cerró un paso: diasHechos subió, pero su
+    // copia no tiene los días que Gabi acaba de preparar.
+    const b = baseState({
+      entregables: [
+        mkEntregable({
+          id: "e-1",
+          diasHechos: 1,
+          diasPlanificadosByUser: {
+            Beltrán: ["2026-05-05"],
+          },
+          semanasActivas: ["2026-05-04"],
+        }),
+      ],
+    });
+    const merged = mergeStates(a, b);
+    const ent = merged.entregables[0];
+    expect(ent.diasHechos).toBe(1);
+    expect(ent.diasPlanificadosByUser?.Gabi?.sort()).toEqual([
+      "2026-05-05",
+      "2026-05-06",
+      "2026-05-07",
+    ]);
+    expect(ent.diasPlanificadosByUser?.["Beltrán"]).toEqual(["2026-05-05"]);
+  });
+
+  it("preferMore une planInicioTsByUser por miembro sin pisar la hora del otro", () => {
+    const a = baseState({
+      entregables: [
+        mkEntregable({
+          id: "e-1",
+          diasHechos: 2,
+          planInicioTsByUser: { Gabi: "2026-05-05T09:00:00.000Z" },
+        }),
+      ],
+    });
+    const b = baseState({
+      entregables: [
+        mkEntregable({
+          id: "e-1",
+          diasHechos: 1,
+          planInicioTsByUser: { Beltrán: "2026-05-05T10:30:00.000Z" },
+        }),
+      ],
+    });
+    const merged = mergeStates(a, b);
+    const horas = merged.entregables[0].planInicioTsByUser ?? {};
+    expect(horas.Gabi).toBe("2026-05-05T09:00:00.000Z");
+    expect(horas["Beltrán"]).toBe("2026-05-05T10:30:00.000Z");
+  });
+
+  it("preferMore une semanasActivas aunque los clientes tengan listas distintas", () => {
+    const a = baseState({
+      entregables: [
+        mkEntregable({ id: "e-1", diasHechos: 2, semanasActivas: ["2026-05-04"] }),
+      ],
+    });
+    const b = baseState({
+      entregables: [
+        mkEntregable({ id: "e-1", diasHechos: 1, semanasActivas: ["2026-05-11"] }),
+      ],
+    });
+    const merged = mergeStates(a, b);
+    expect(merged.entregables[0].semanasActivas?.sort()).toEqual([
+      "2026-05-04",
+      "2026-05-11",
+    ]);
+  });
+
+  it("statesDiffer detecta que cambió la planificación por usuario (misma cardinalidad)", () => {
+    const a = baseState({
+      entregables: [
+        mkEntregable({
+          id: "e-1",
+          diasPlanificadosByUser: { Gabi: ["2026-05-05"] },
+        }),
+      ],
+    });
+    const b = baseState({
+      entregables: [
+        mkEntregable({
+          id: "e-1",
+          diasPlanificadosByUser: { Gabi: ["2026-05-05", "2026-05-06"] },
+        }),
+      ],
+    });
+    expect(statesDiffer(a, b)).toBe(true);
+  });
+
   it("preferMore une sesiones por inicioTs sin duplicar", () => {
     const ses = (inicioTs: string) => ({ inicioTs, finTs: null });
     const a = baseState({
