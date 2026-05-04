@@ -8,7 +8,6 @@ import { generateId } from "@/lib/store";
 import { defaultSemanasNoActivas, ensureConfigAnio } from "@/lib/arbol-tiempo";
 import { EMPTY_ARBOL, type NodoArbol } from "@/lib/types";
 import { VacacionesEditor } from "@/components/arbol/VacacionesEditor";
-import { CierreTrimestre } from "@/components/arbol/CierreTrimestre";
 
 const VistaBloques = dynamic(
   () => import("@/components/arbol/VistaBloques").then((m) => ({ default: m.VistaBloques })),
@@ -49,9 +48,10 @@ function CrearObjetivoAnualForm({ year }: { year: number }) {
         dispatch({ type: "ADD_NODO_ARBOL", payload });
       }}
     >
-      <h2 className="text-lg font-semibold text-foreground">Pon tu objetivo del año {year}</h2>
+      <h2 className="text-lg font-semibold text-foreground">Este año {year} quiero facturar…</h2>
       <p className="text-sm text-muted">
-        Solo dos cosas: cómo lo llamas y cuánto. Las ramas (lo que sumas para llegar) las añades luego.
+        Pon cuánto quieres sumar y en qué unidad. Las ramas y hojas (lo que sumas para llegar) las añades después en el
+        bloque Anual.
       </p>
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
         <label className="flex flex-col gap-1 text-[12px] text-muted">
@@ -101,15 +101,6 @@ export function PantallaArbolObjetivos() {
 
   const [year, setYear] = useState(() => new Date().getFullYear());
   const [vacOpen, setVacOpen] = useState(false);
-
-  const trimestreKey = useMemo(() => {
-    const now = new Date();
-    if (year === now.getFullYear()) {
-      const q = Math.floor(now.getMonth() / 3) + 1;
-      return `${year}-Q${q}`;
-    }
-    return `${year}-Q1`;
-  }, [year]);
 
   const configsEffective = useMemo(() => ensureConfigAnio(arbol.configs, year), [arbol.configs, year]);
   const config = useMemo(() => configsEffective.find((c) => c.anio === year), [configsEffective, year]);
@@ -194,10 +185,7 @@ export function PantallaArbolObjetivos() {
       {!raizPrincipal ? (
         <CrearObjetivoAnualForm year={year} />
       ) : (
-        <>
-          <CierreTrimestre key={`${year}-${trimestreKey}`} anio={year} trimestreKey={trimestreKey} />
-          <VistaBloques raiz={raizPrincipal} year={year} />
-        </>
+        <VistaBloques raiz={raizPrincipal} year={year} />
       )}
 
       {vacOpen && (
