@@ -22,6 +22,7 @@ import type {
   ReviewMark,
   DeletedTombstones,
   PlanConfig,
+  SesionEntregable,
 } from "./types";
 import { PLAN_CONFIG_DEFAULT, EMPTY_ARBOL } from "./types";
 import { minutosEfectivos } from "./duration";
@@ -51,17 +52,18 @@ export type Action =
   | { type: "UPDATE_ENTREGABLE"; id: string; changes: Partial<Pick<Entregable, "nombre" | "responsable" | "tipo" | "plantillaId" | "diasEstimados" | "estado" | "fechaLimite" | "fechaInicio" | "planNivel" | "semana" | "fechaCompromiso" | "semanasActivas" | "diasPlanificados" | "planInicioTs" | "diasPlanificadosByUser" | "planInicioTsByUser">> }
   | { type: "OCULTAR_ENTREGABLE_HASTA"; id: string; hasta: string | null }
   // --- Sesiones del entregable (cronómetro al nivel de entregable) ---
-  | { type: "START_ENTREGABLE"; id: string; ts?: string }
-  | { type: "PAUSE_ENTREGABLE_SESION"; id: string; ts?: string }
-  | { type: "RESUME_ENTREGABLE_SESION"; id: string; ts?: string }
-  | { type: "END_ENTREGABLE_SESION"; id: string; ts?: string }
-  | { type: "FINISH_ENTREGABLE"; id: string; ts?: string }
-  | { type: "DISCARD_ENTREGABLE_SESION"; id: string }
+  | { type: "START_ENTREGABLE"; id: string; ts?: string; autor?: string }
+  | { type: "PAUSE_ENTREGABLE_SESION"; id: string; ts?: string; autor?: string }
+  | { type: "RESUME_ENTREGABLE_SESION"; id: string; ts?: string; autor?: string }
+  | { type: "END_ENTREGABLE_SESION"; id: string; ts?: string; autor?: string }
+  | { type: "FINISH_ENTREGABLE"; id: string; ts?: string; autor?: string }
+  | { type: "DISCARD_ENTREGABLE_SESION"; id: string; autor?: string }
+  | { type: "SESION_HEARTBEAT"; id: string; autor: string; ts?: string }
   /** Marca un entregable como "en espera de…" (cierra cualquier sesión abierta) o lo
    *  reabre (`enEsperaDe = null`). Al reabrir manualmente vuelve a `planificado`.
    *  El reducer también auto-reabre cuando se añade un día/semana en chips. */
-  | { type: "SET_ENTREGABLE_EN_ESPERA"; id: string; enEsperaDe: { tipo: "equipo" | "externo"; nombre: string } | null; ts?: string }
-  | { type: "APPEND_SESION_ENTREGABLE"; id: string; inicioTs: string; finTs: string }
+  | { type: "SET_ENTREGABLE_EN_ESPERA"; id: string; enEsperaDe: { tipo: "equipo" | "externo"; nombre: string } | null; ts?: string; autor?: string }
+  | { type: "APPEND_SESION_ENTREGABLE"; id: string; inicioTs: string; finTs: string; autor?: string }
   /** Edita los timestamps de una sesión concreta (por índice).
    *  - `inicioTs` se actualiza siempre.
    *  - `finTs` puede ser null → la sesión vuelve/sigue en curso. */
@@ -200,6 +202,44 @@ function swapSiblings<T extends { id: string }>(
   return copy;
 }
 
+/** ¿Este entregable tiene algún paso asociado? Cuando es así, `diasHechos`
+ *  deja de ser un contador autoritativo; la cuenta real se deriva de
+ *  `pasos.filter(done)`. Se usa para evitar que dos clientes que cierran
+ *  pasos distintos en paralelo terminen con el mismo contador "grande"
+ *  (LWW de max) y pierdan uno de los incrementos. */
+function entregableTienePasos(state: AppState, entregableId: string): boolean {
+  return state.pasos.some((p) => p.entregableId === entregableId);
+}
+
+/** Devuelve el índice de la sesión abierta "dueña" del usuario dado.
+ *  Prioriza la sesión abierta cuyo `autor` coincida exactamente con
+ *  `autor`; si no existe ninguna y sí hay sesiones abiertas "sin autor"
+ *  (heredadas de antes de la migración), devolvemos la última para no
+ *  romper el flujo antiguo. Si no hay autor (acción antigua), devolvemos
+ *  la última abierta como hacía el reducer original. */
+function indiceSesionAbierta(
+  sesiones: SesionEntregable[],
+  autor: string | undefined,
+): number | undefined {
+  if (sesiones.length === 0) return undefined;
+  if (autor) {
+    for (let i = sesiones.length - 1; i >= 0; i--) {
+      const s = sesiones[i];
+      if (s.finTs === null && s.autor === autor) return i;
+    }
+    // Fallback: sesión abierta heredada sin autor (pre-migración).
+    for (let i = sesiones.length - 1; i >= 0; i--) {
+      const s = sesiones[i];
+      if (s.finTs === null && !s.autor) return i;
+    }
+    return undefined;
+  }
+  for (let i = sesiones.length - 1; i >= 0; i--) {
+    if (sesiones[i].finTs === null) return i;
+  }
+  return undefined;
+}
+
 /** Asegura que el responsable de un paso figura como "implicado" del
  *  entregable asociado. Se usa al crear/activar/cerrar/actualizar pasos para
  *  que el trabajo colaborativo automatice lo que antes había que añadir a
@@ -213,6 +253,11 @@ function ensureImplicadoResponsablePaso(
 ): AppState {
   const nombre = (responsable ?? "").trim();
   if (!nombre) return state;
+  // Si el usuario ya borró explícitamente a este implicado en este
+  // entregable, no lo resucitamos: respetamos la decisión humana. Para
+  // volver a añadirlo hay que hacerlo a mano.
+  const lapidas = state.deleted?.implicados ?? [];
+  if (lapidas.includes(tombstoneImplicadoKey(entregableId, nombre))) return state;
   let cambiado = false;
   const entregables = state.entregables.map((e) => {
     if (e.id !== entregableId) return e;
@@ -252,7 +297,14 @@ const EMPTY_DELETED: DeletedTombstones = {
   arbolNodos: [],
   arbolRegistros: [],
   mensajes: [],
+  implicados: [],
 };
+
+/** Clave canónica para lápidas de implicado. Incluye el entregable para que
+ *  un borrado en un entregable no afecte al mismo nombre en otros. */
+export function tombstoneImplicadoKey(entregableId: string, nombre: string): string {
+  return `${entregableId}::${nombre}`;
+}
 
 function addTombstones(
   existing: DeletedTombstones | undefined,
@@ -399,6 +451,9 @@ export function reducer(state: AppState, action: Action): AppState {
       const reopenPaso = state.pasos.find((p) => p.id === action.id);
       if (!reopenPaso || !reopenPaso.finTs) return state;
       const now = new Date().toISOString();
+      // Si el entregable tiene pasos, el contador se deriva del array.
+      // No tocamos `diasHechos` para evitar desincronías con el merge.
+      const tienePasos = entregableTienePasos(state, reopenPaso.entregableId);
       return {
         ...state,
         pasos: state.pasos.map((p) =>
@@ -412,11 +467,11 @@ export function reducer(state: AppState, action: Action): AppState {
               }
             : p
         ),
-        entregables: state.entregables.map((e) =>
-          e.id === reopenPaso.entregableId
-            ? { ...e, diasHechos: Math.max(0, e.diasHechos - 1) }
-            : e
-        ),
+        entregables: state.entregables.map((e) => {
+          if (e.id !== reopenPaso.entregableId) return e;
+          if (tienePasos) return e;
+          return { ...e, diasHechos: Math.max(0, e.diasHechos - 1) };
+        }),
         pasosActivos: state.pasosActivos.includes(action.id)
           ? state.pasosActivos
           : [...state.pasosActivos, action.id],
@@ -461,6 +516,11 @@ export function reducer(state: AppState, action: Action): AppState {
       if (!state.pasos.some((p) => p.id === updated.id)) return state;
       const alreadyClosed = state.pasos.find((p) => p.id === updated.id)?.finTs;
       const terminado = updated.siguientePaso?.tipo === "fin";
+      // Si el entregable tiene pasos (caso normal), el contador real se
+      // deriva del array. Dejamos de incrementar `diasHechos` para no
+      // perder incrementos concurrentes (dos clientes que cierran dos
+      // pasos distintos a la vez terminaban compartiendo el mismo +1).
+      const tienePasos = entregableTienePasos(state, updated.entregableId);
       let newState = {
         ...state,
         pasos: state.pasos.map((p) => (p.id === updated.id ? updated : p)),
@@ -468,6 +528,7 @@ export function reducer(state: AppState, action: Action): AppState {
         entregables: state.entregables.map((e) => {
           if (e.id !== updated.entregableId) return e;
           const nuevoEstado: Entregable["estado"] = terminado ? "hecho" : (e.estado === "hecho" ? "hecho" : "en_proceso");
+          if (tienePasos) return { ...e, estado: nuevoEstado };
           return { ...e, diasHechos: alreadyClosed ? e.diasHechos : e.diasHechos + 1, estado: nuevoEstado };
         }),
       };
@@ -563,20 +624,29 @@ export function reducer(state: AppState, action: Action): AppState {
     // --- Sesiones del entregable ---
     case "START_ENTREGABLE": {
       const ts = action.ts ?? new Date().toISOString();
+      const autor = action.autor;
       return {
         ...state,
         entregables: state.entregables.map((e) => {
           if (e.id !== action.id) return e;
           const sesiones = Array.isArray(e.sesiones) ? e.sesiones : [];
-          const abierta = sesiones.find((s) => s.finTs === null);
-          if (abierta) {
+          // ¿Este usuario ya tiene su propia sesión abierta? Si sí, no crea
+          // otra (evita duplicados al pulsar dos veces). OJO: sí permitimos
+          // que otros miembros tengan la suya abierta en paralelo.
+          const yaAbierta = autor
+            ? sesiones.some((s) => s.finTs === null && s.autor === autor)
+            : sesiones.some((s) => s.finTs === null && !s.autor);
+          if (yaAbierta) {
             return { ...e, estado: "en_proceso", ocultoHasta: null };
           }
           return {
             ...e,
             estado: "en_proceso",
             ocultoHasta: null,
-            sesiones: [...sesiones, { inicioTs: ts, finTs: null, pausas: [] }],
+            sesiones: [
+              ...sesiones,
+              { inicioTs: ts, finTs: null, pausas: [], autor, heartbeatTs: ts },
+            ],
           };
         }),
       };
@@ -589,7 +659,7 @@ export function reducer(state: AppState, action: Action): AppState {
         entregables: state.entregables.map((e) => {
           if (e.id !== action.id) return e;
           const sesiones = Array.isArray(e.sesiones) ? [...e.sesiones] : [];
-          const idx = sesiones.map((s, i) => ({ s, i })).reverse().find(({ s }) => s.finTs === null)?.i;
+          const idx = indiceSesionAbierta(sesiones, action.autor);
           if (idx === undefined) return e;
           const ses = sesiones[idx];
           const pausas = Array.isArray(ses.pausas) ? [...ses.pausas] : [];
@@ -609,7 +679,7 @@ export function reducer(state: AppState, action: Action): AppState {
         entregables: state.entregables.map((e) => {
           if (e.id !== action.id) return e;
           const sesiones = Array.isArray(e.sesiones) ? [...e.sesiones] : [];
-          const idx = sesiones.map((s, i) => ({ s, i })).reverse().find(({ s }) => s.finTs === null)?.i;
+          const idx = indiceSesionAbierta(sesiones, action.autor);
           if (idx === undefined) return e;
           const ses = sesiones[idx];
           const pausas = Array.isArray(ses.pausas) ? ses.pausas.map((p) => p.resumeTs === null ? { ...p, resumeTs: ts } : p) : [];
@@ -626,7 +696,7 @@ export function reducer(state: AppState, action: Action): AppState {
         entregables: state.entregables.map((e) => {
           if (e.id !== action.id) return e;
           const sesiones = Array.isArray(e.sesiones) ? [...e.sesiones] : [];
-          const idx = sesiones.map((s, i) => ({ s, i })).reverse().find(({ s }) => s.finTs === null)?.i;
+          const idx = indiceSesionAbierta(sesiones, action.autor);
           if (idx === undefined) return e;
           const ses = sesiones[idx];
           const pausas = Array.isArray(ses.pausas) ? ses.pausas.map((p) => p.resumeTs === null ? { ...p, resumeTs: ts } : p) : [];
@@ -642,8 +712,11 @@ export function reducer(state: AppState, action: Action): AppState {
         ...state,
         entregables: state.entregables.map((e) => {
           if (e.id !== action.id) return e;
+          // Al cerrar como "hecho" sólo cerramos la sesión abierta del autor
+          // (si la tiene). El resto de miembros que sigan con su sesión
+          // abierta la conservan hasta que decidan cerrarla.
           const sesiones = Array.isArray(e.sesiones) ? [...e.sesiones] : [];
-          const idx = sesiones.map((s, i) => ({ s, i })).reverse().find(({ s }) => s.finTs === null)?.i;
+          const idx = indiceSesionAbierta(sesiones, action.autor);
           if (idx !== undefined) {
             const ses = sesiones[idx];
             const pausas = Array.isArray(ses.pausas) ? ses.pausas.map((p) => p.resumeTs === null ? { ...p, resumeTs: ts } : p) : [];
@@ -660,9 +733,26 @@ export function reducer(state: AppState, action: Action): AppState {
         entregables: state.entregables.map((e) => {
           if (e.id !== action.id) return e;
           const sesiones = Array.isArray(e.sesiones) ? [...e.sesiones] : [];
-          const idx = sesiones.map((s, i) => ({ s, i })).reverse().find(({ s }) => s.finTs === null)?.i;
+          const idx = indiceSesionAbierta(sesiones, action.autor);
           if (idx === undefined) return e;
           sesiones.splice(idx, 1);
+          return { ...e, sesiones };
+        }),
+      };
+    }
+
+    case "SESION_HEARTBEAT": {
+      const ts = action.ts ?? new Date().toISOString();
+      return {
+        ...state,
+        entregables: state.entregables.map((e) => {
+          if (e.id !== action.id) return e;
+          const sesiones = Array.isArray(e.sesiones) ? [...e.sesiones] : [];
+          const idx = indiceSesionAbierta(sesiones, action.autor);
+          if (idx === undefined) return e;
+          const ses = sesiones[idx];
+          if (ses.heartbeatTs === ts) return e;
+          sesiones[idx] = { ...ses, heartbeatTs: ts };
           return { ...e, sesiones };
         }),
       };
@@ -675,9 +765,10 @@ export function reducer(state: AppState, action: Action): AppState {
         entregables: state.entregables.map((e) => {
           if (e.id !== action.id) return e;
           if (action.enEsperaDe) {
-            // Cerramos cualquier sesión abierta (similar a END_ENTREGABLE_SESION).
+            // Cerramos la sesión abierta del autor (no todas) — coherente con
+            // FINISH_ENTREGABLE: cada quien maneja la suya.
             const sesiones = Array.isArray(e.sesiones) ? [...e.sesiones] : [];
-            const idx = sesiones.map((s, i) => ({ s, i })).reverse().find(({ s }) => s.finTs === null)?.i;
+            const idx = indiceSesionAbierta(sesiones, action.autor);
             if (idx !== undefined) {
               const ses = sesiones[idx];
               const pausas = Array.isArray(ses.pausas)
@@ -706,7 +797,7 @@ export function reducer(state: AppState, action: Action): AppState {
     }
 
     case "APPEND_SESION_ENTREGABLE": {
-      const { id, inicioTs, finTs } = action;
+      const { id, inicioTs, finTs, autor } = action;
       if (!inicioTs || !finTs) return state;
       if (new Date(finTs).getTime() <= new Date(inicioTs).getTime()) return state;
       return {
@@ -714,7 +805,7 @@ export function reducer(state: AppState, action: Action): AppState {
         entregables: state.entregables.map((e) => {
           if (e.id !== id) return e;
           const sesiones = Array.isArray(e.sesiones) ? [...e.sesiones] : [];
-          sesiones.push({ inicioTs, finTs, pausas: [] });
+          sesiones.push({ inicioTs, finTs, pausas: [], autor });
           // Ordenamos por inicioTs ascendente para mantener coherencia histórica.
           sesiones.sort((a, b) => a.inicioTs.localeCompare(b.inicioTs));
           return { ...e, sesiones };
@@ -785,11 +876,26 @@ export function reducer(state: AppState, action: Action): AppState {
         entregables: state.entregables.map((e) => e.id === action.id ? { ...e, contexto: action.contexto } : e),
       };
 
-    case "UPDATE_ENTREGABLE_IMPLICADOS":
+    case "UPDATE_ENTREGABLE_IMPLICADOS": {
+      // Detectamos qué implicados se han quitado respecto al estado previo
+      // y les ponemos lápida para que el merge con otro cliente no los
+      // resucite. El implicado "auto" añadido por ser responsable de un
+      // paso también se puede borrar manualmente y su lápida manda.
+      const anterior = state.entregables.find((e) => e.id === action.id);
+      const nombresAntes = new Set((anterior?.implicados ?? []).map((i) => i.nombre));
+      const nombresDespues = new Set((action.implicados ?? []).map((i) => i.nombre));
+      const quitados: string[] = [];
+      for (const n of nombresAntes) {
+        if (!nombresDespues.has(n)) quitados.push(tombstoneImplicadoKey(action.id, n));
+      }
       return {
         ...state,
         entregables: state.entregables.map((e) => e.id === action.id ? { ...e, implicados: action.implicados } : e),
+        deleted: quitados.length > 0
+          ? addTombstones(state.deleted, { implicados: quitados })
+          : state.deleted,
       };
+    }
 
     case "SET_ENTREGABLE_PLAN_INICIO": {
       // Hora planificada PERSONAL por usuario. Mantenemos `diasPlanificadosByUser`
@@ -1506,26 +1612,97 @@ export function reducer(state: AppState, action: Action): AppState {
 
     // --- Reordenar ---
     case "REORDER_PASO": {
+      // Orden fraccionario. Sólo modificamos el `orden` del paso movido,
+      // asignándole el punto medio entre su nuevo vecino anterior y el
+      // siguiente. Así dos clientes que reordenan pasos distintos en el
+      // mismo entregable NO se pisan (cada uno sólo cambia su propio
+      // paso). Si detectamos que los vecinos están demasiado pegados
+      // (precisión agotada), rebalanceamos todo el entregable de nuevo
+      // a pasos de 1024.
       const p = state.pasos.find((x) => x.id === action.id);
       if (!p) return state;
-      const siblings = state.pasos.filter((x) => x.entregableId === p.entregableId).map((x) => x.id);
-      const swapped = swapSiblings(state.pasos, action.id, action.direction, siblings);
-      // Reasignar `orden` 1..N a los pasos del entregable según su nueva
-      // posición en el array. Sin esto, los consumidores que ordenan por
-      // `paso.orden` (p. ej. EntregableActivo) no verían el cambio.
-      const ordenIdx = new Map<string, number>();
-      let i = 1;
-      for (const x of swapped) {
-        if (x.entregableId === p.entregableId) {
-          ordenIdx.set(x.id, i);
-          i += 1;
-        }
+
+      // Lista ordenada actual por `orden` (con fallback a la posición
+      // natural en el array si falta). Damos un `orden` inicial a los que
+      // no lo tengan para no colisionar con el recién movido.
+      const hermanosConIdx = state.pasos
+        .map((x, idx) => ({ paso: x, idx }))
+        .filter(({ paso }) => paso.entregableId === p.entregableId);
+
+      const conOrden = hermanosConIdx.map(({ paso, idx }) => ({
+        id: paso.id,
+        orden: typeof paso.orden === "number" ? paso.orden : (idx + 1) * 1024,
+      }));
+      conOrden.sort((a, b) => a.orden - b.orden || a.id.localeCompare(b.id));
+
+      const posActual = conOrden.findIndex((s) => s.id === action.id);
+      if (posActual === -1) return state;
+      const posNueva = action.direction === "up" ? posActual - 1 : posActual + 1;
+      if (posNueva < 0 || posNueva >= conOrden.length) return state;
+
+      // Vecinos del paso movido en su nueva posición:
+      // - si va arriba (pos - 1), el paso que antes estaba en (pos - 1)
+      //   ahora queda DEBAJO, y el vecino superior es el que está en (pos - 2).
+      // - simétrico hacia abajo.
+      const prev = action.direction === "up"
+        ? conOrden[posActual - 2]
+        : conOrden[posActual + 1];
+      const next = action.direction === "up"
+        ? conOrden[posActual - 1]
+        : conOrden[posActual + 2];
+
+      const prevOrden = prev?.orden;
+      const nextOrden = next?.orden;
+      let nuevoOrden: number;
+      if (prevOrden === undefined && nextOrden !== undefined) {
+        nuevoOrden = nextOrden - 1024;
+      } else if (prevOrden !== undefined && nextOrden === undefined) {
+        nuevoOrden = prevOrden + 1024;
+      } else if (prevOrden !== undefined && nextOrden !== undefined) {
+        nuevoOrden = (prevOrden + nextOrden) / 2;
+      } else {
+        nuevoOrden = 1024;
       }
-      const repaired = swapped.map((x) => {
-        const nuevo = ordenIdx.get(x.id);
-        return nuevo !== undefined ? { ...x, orden: nuevo } : x;
-      });
-      return { ...state, pasos: repaired };
+
+      // Si la separación es demasiado pequeña, rebalanceamos todo el
+      // entregable. Este caso es raro (haría falta reordenar cientos de
+      // veces la misma posición) pero lo cubrimos para no acumular
+      // errores de coma flotante.
+      const separacionOk =
+        (prevOrden === undefined || Math.abs(nuevoOrden - prevOrden) > 1e-6) &&
+        (nextOrden === undefined || Math.abs(nextOrden - nuevoOrden) > 1e-6);
+
+      if (!separacionOk) {
+        // Construimos el orden objetivo y rebalanceamos todos los hermanos
+        // a 1024, 2048, 3072… en la nueva posición lógica.
+        const resecuencia: string[] = [];
+        for (let i = 0; i < conOrden.length; i++) {
+          if (i === posActual) continue;
+          if (i === posNueva) {
+            if (action.direction === "up") {
+              resecuencia.push(action.id);
+              resecuencia.push(conOrden[i].id);
+            } else {
+              resecuencia.push(conOrden[i].id);
+              resecuencia.push(action.id);
+            }
+          } else {
+            resecuencia.push(conOrden[i].id);
+          }
+        }
+        const ordenPorId = new Map<string, number>();
+        resecuencia.forEach((id, i) => ordenPorId.set(id, (i + 1) * 1024));
+        const pasosReb = state.pasos.map((x) => {
+          const nu = ordenPorId.get(x.id);
+          return nu !== undefined ? { ...x, orden: nu } : x;
+        });
+        return { ...state, pasos: pasosReb };
+      }
+
+      return {
+        ...state,
+        pasos: state.pasos.map((x) => (x.id === action.id ? { ...x, orden: nuevoOrden } : x)),
+      };
     }
     case "REORDER_PROYECTO": {
       const p = state.proyectos.find((x) => x.id === action.id);

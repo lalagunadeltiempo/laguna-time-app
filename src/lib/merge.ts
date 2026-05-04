@@ -9,6 +9,29 @@ function stripNotasTombstones<T extends { notas?: Nota[] }>(item: T, delNotas: S
   return { ...item, notas: next };
 }
 
+/** Combina dos versiones del campo `contexto.notas` (string libre) sin
+ *  perder contenido. Si son iguales, devolvemos uno. Si uno es prefijo o
+ *  contiene al otro, nos quedamos con el más completo (asumimos que quien
+ *  escribió más aún conserva lo anterior). En cualquier otro caso, los
+ *  concatenamos con un separador para que el usuario vea ambas versiones
+ *  y decida a mano cuál conservar. Mejor ruido que pérdida silenciosa. */
+export function combinarNotasTexto(a: string, b: string): string {
+  const ta = (a ?? "").trim();
+  const tb = (b ?? "").trim();
+  if (ta === tb) return a.length >= b.length ? a : b;
+  if (!ta) return b;
+  if (!tb) return a;
+  if (ta.startsWith(tb) || ta.endsWith(tb) || ta.includes(tb)) return a;
+  if (tb.startsWith(ta) || tb.endsWith(ta) || tb.includes(ta)) return b;
+  // Los dos textos aportan información única: los concatenamos en el
+  // orden winner→loser con una separación visible. Evitamos duplicar un
+  // separador ya presente para no crecer en cada merge.
+  const sep = "\n\n--- (también) ---\n\n";
+  if (a.includes(sep) && a.includes(b)) return a;
+  if (b.includes(sep) && b.includes(a)) return b;
+  return `${a}${sep}${b}`;
+}
+
 function unionConfigs(a: PlanArbolConfigAnio[], b: PlanArbolConfigAnio[]): PlanArbolConfigAnio[] {
   const map = new Map<number, PlanArbolConfigAnio>();
   for (const c of [...a, ...b]) {
@@ -90,19 +113,22 @@ export function mergeStates(a: AppState, b: AppState): AppState {
     const notas = unirNotas(x.notas, y.notas);
     const sesiones = unirPorClave(x.sesiones, y.sesiones, (s) => (s as { inicioTs?: string }).inicioTs ?? "");
     const implicados = unirPorClave(x.implicados, y.implicados, (i) => (i as { nombre?: string }).nombre ?? "");
-    // contexto escalar (notas:string): preservamos la versión más larga de cualquiera de los dos
-    // clientes para que nadie pierda un párrafo escrito en paralelo.
+    // contexto escalar (notas:string): antes guardábamos el MÁS LARGO y
+    // descartábamos el otro, lo que podía hacer desaparecer texto escrito
+    // por el otro cliente. Ahora, si ambos textos son distintos, los
+    // CONSERVAMOS concatenados con un separador para no perder trabajo.
+    // Si uno es prefijo del otro, nos quedamos con el más completo.
     const ctxW = winner.contexto;
     const ctxL = loser.contexto;
     let contexto = ctxW;
     if (ctxW && ctxL) {
       const tW = String(ctxW.notas ?? "");
       const tL = String(ctxL.notas ?? "");
-      const notasLarga = tW.length >= tL.length ? tW : tL;
+      const notasCombinadas = combinarNotasTexto(tW, tL);
       contexto = {
         urls: unirPorClave(ctxW.urls, ctxL.urls, (u) => (u as { url?: string }).url ?? JSON.stringify(u)),
         apps: Array.from(new Set([...(ctxW.apps ?? []), ...(ctxL.apps ?? [])])),
-        notas: notasLarga,
+        notas: notasCombinadas,
       };
     }
     // Pizarras por usuario: merge por clave, conservando el texto más largo por miembro.
@@ -138,18 +164,19 @@ export function mergeStates(a: AppState, b: AppState): AppState {
     const loser = winner === x ? y : x;
     const notas = unirNotas(x.notas, y.notas);
     const implicados = unirPorClave(x.implicados, y.implicados, (i) => (i as { nombre?: string }).nombre ?? "");
-    // contexto escalar (notas:string): conservamos la versión con más texto para no perder trabajo.
+    // contexto escalar (notas:string): mismo criterio que para entregables —
+    // concatenamos si son distintos para no perder texto escrito en paralelo.
     const ctxW = winner.contexto;
     const ctxL = loser.contexto;
     let contexto = ctxW;
     if (ctxW && ctxL) {
       const tW = String(ctxW.notas ?? "");
       const tL = String(ctxL.notas ?? "");
-      const notasLarga = tW.length >= tL.length ? tW : tL;
+      const notasCombinadas = combinarNotasTexto(tW, tL);
       contexto = {
         urls: unirPorClave(ctxW.urls, ctxL.urls, (u) => (u as { url?: string }).url ?? JSON.stringify(u)),
         apps: Array.from(new Set([...(ctxW.apps ?? []), ...(ctxL.apps ?? [])])),
-        notas: notasLarga,
+        notas: notasCombinadas,
       };
     }
     return {
@@ -170,6 +197,7 @@ export function mergeStates(a: AppState, b: AppState): AppState {
     arbolNodos: [] as string[],
     arbolRegistros: [] as string[],
     mensajes: [] as string[],
+    implicados: [] as string[],
   };
   const delA = { ...emptyDel, ...(a.deleted ?? {}) };
   const delB = { ...emptyDel, ...(b.deleted ?? {}) };
@@ -183,6 +211,7 @@ export function mergeStates(a: AppState, b: AppState): AppState {
     arbolNodos: Array.from(new Set([...(delA.arbolNodos ?? []), ...(delB.arbolNodos ?? [])])),
     arbolRegistros: Array.from(new Set([...(delA.arbolRegistros ?? []), ...(delB.arbolRegistros ?? [])])),
     mensajes: Array.from(new Set([...(delA.mensajes ?? []), ...(delB.mensajes ?? [])])),
+    implicados: Array.from(new Set([...(delA.implicados ?? []), ...(delB.implicados ?? [])])),
   };
 
   const delNotas = new Set(deleted.notas ?? []);
@@ -259,7 +288,19 @@ export function mergeStates(a: AppState, b: AppState): AppState {
       .map((r) => stripNotasTombstones(r, delNotas)),
     entregables: unionById(a.entregables, b.entregables, preferMore)
       .filter((e) => !delEnt.has(e.id))
-      .map((e) => stripNotasTombstones(e, delNotas)),
+      .map((e) => stripNotasTombstones(e, delNotas))
+      .map((e) => {
+        // Lápidas de implicados: si en algún cliente se quitó
+        // explícitamente `nombre` del entregable `e.id`, el merge no lo
+        // resucita aunque el otro cliente aún lo tuviera.
+        const lapidas = new Set(deleted.implicados ?? []);
+        if (lapidas.size === 0) return e;
+        const implicados = (e.implicados ?? []).filter(
+          (i: { nombre: string }) => !lapidas.has(`${e.id}::${i.nombre}`),
+        );
+        if (implicados.length === (e.implicados?.length ?? 0)) return e;
+        return { ...e, implicados };
+      }),
     pasos: unionById(a.pasos, b.pasos, preferPaso)
       .filter((p) => !delPas.has(p.id))
       .map((p) => stripNotasTombstones(p, delNotas)),
@@ -348,6 +389,7 @@ export function statesDiffer(a: AppState, b: AppState): boolean {
     if (!arrEq(dA.arbolRegistros, dB.arbolRegistros)) return true;
     if (!arrEq(dA.notas, dB.notas)) return true;
     if (!arrEq(dA.mensajes, dB.mensajes)) return true;
+    if (!arrEq(dA.implicados, dB.implicados)) return true;
   }
   return false;
 }

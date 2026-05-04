@@ -215,6 +215,15 @@ export interface SesionEntregable {
   inicioTs: string;          // ISO
   finTs: string | null;      // null mientras la sesión está en curso
   pausas?: PausaEntry[];     // pausas dentro de la sesión
+  /** Miembro del equipo que abrió esta sesión. Se añadió para que varias
+   *  personas puedan tener una sesión abierta a la vez en el mismo
+   *  entregable sin pisarse el cronómetro. Si falta, es una sesión antigua
+   *  creada antes de la migración (se trata como "sin dueño claro"). */
+  autor?: string;
+  /** Último heartbeat ISO que emite el cliente dueño de la sesión mientras
+   *  la tiene abierta. Se usa para cerrar automáticamente sesiones huérfanas
+   *  (p. ej. pestaña cerrada sin pulsar "Cerrar"). */
+  heartbeatTs?: string;
 }
 
 export interface UrlRef {
@@ -507,6 +516,11 @@ export interface DeletedTombstones {
   arbolRegistros?: string[];
   /** IDs de mensajes del chat de entregable borrados. */
   mensajes?: string[];
+  /** Implicados eliminados a mano del entregable. Clave canónica
+   *  `"${entregableId}::${nombre}"` (nombre case-sensitive tal cual se guarda
+   *  en `implicados[].nombre`). Evita que el merge con otro cliente —que
+   *  todavía tiene al implicado en su copia— lo resucite. */
+  implicados?: string[];
 }
 
 export interface AppState {

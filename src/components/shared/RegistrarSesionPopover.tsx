@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useAppDispatch } from "@/lib/context";
+import { useUsuario } from "@/lib/usuario";
 
 function pad(n: number): string {
   return String(n).padStart(2, "0");
@@ -47,6 +48,7 @@ interface PopoverProps {
  */
 export function RegistrarSesionPopover({ entregableId, defaultDateKey, onClose }: PopoverProps) {
   const dispatch = useAppDispatch();
+  const { nombre: currentUser } = useUsuario();
   const [fechaInicio, setFechaInicio] = useState(() => buildDefaults(defaultDateKey).inicio);
   const [fechaFin, setFechaFin] = useState(() => buildDefaults(defaultDateKey).fin);
   const [marcarHecho, setMarcarHecho] = useState(false);
@@ -68,9 +70,9 @@ export function RegistrarSesionPopover({ entregableId, defaultDateKey, onClose }
     const inicioTs = new Date(fechaInicio).toISOString();
     const finTs = new Date(fechaFin).toISOString();
     if (new Date(finTs) <= new Date(inicioTs)) return;
-    dispatch({ type: "APPEND_SESION_ENTREGABLE", id: entregableId, inicioTs, finTs });
+    dispatch({ type: "APPEND_SESION_ENTREGABLE", id: entregableId, inicioTs, finTs, autor: currentUser });
     if (marcarHecho) {
-      dispatch({ type: "FINISH_ENTREGABLE", id: entregableId, ts: finTs });
+      dispatch({ type: "FINISH_ENTREGABLE", id: entregableId, ts: finTs, autor: currentUser });
     }
     onClose();
   }

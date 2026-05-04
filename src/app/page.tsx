@@ -4,6 +4,7 @@ import { useState, useCallback, useMemo, useEffect, type ReactNode } from "react
 import { AuthGate } from "@/components/AuthGate";
 import { AppProvider, useAppState, useAppDispatch } from "@/lib/context";
 import { PresenceProvider } from "@/lib/presence";
+import { useNotificacionesMensajesDirigidos } from "@/lib/notificaciones";
 import { useStaleStepCleanup, buildClosedPasoFin, type StaleSopStep } from "@/lib/hooks";
 import { UsuarioContext, useUsuario, puedeVerArbolObjetivos } from "@/lib/usuario";
 import { getSupabase } from "@/lib/supabase";
@@ -222,6 +223,7 @@ function AppShell({ userId, displayName }: { userId: string; displayName: string
       <UsuarioWithRol userId={userId} nombre={displayName}>
       <PresenceProvider>
       <StaleStepHandler />
+      <NotificacionesMensajesHandler />
       <div className="flex h-dvh overflow-hidden bg-background text-foreground">
         {/* ── Sidebar (desktop md+) ── */}
         <aside
@@ -542,6 +544,15 @@ function HoyBadge() {
       {count}
     </span>
   );
+}
+
+/** Monta el hook que dispara notificaciones de navegador cuando otro
+ *  miembro me envía un mensaje dirigido en un entregable mientras la
+ *  pestaña está en segundo plano. Se declara como componente vacío para
+ *  colocarlo dentro del `AppProvider` sin acoplarlo a ninguna vista. */
+function NotificacionesMensajesHandler() {
+  useNotificacionesMensajesDirigidos();
+  return null;
 }
 
 function StaleStepHandler() {

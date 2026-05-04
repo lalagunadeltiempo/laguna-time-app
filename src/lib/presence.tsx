@@ -117,7 +117,20 @@ export function PresenceProvider({ children }: { children: ReactNode }) {
         }
       });
 
+    // Cuando el usuario cierra la pestaña/navegador, mandamos un
+    // `untrack` explícito para que el resto de clientes no lo vean como
+    // "fantasma" mientras Supabase caduca su presencia por timeout.
+    const onBeforeUnload = () => {
+      try {
+        void channel.untrack();
+      } catch {
+        // noop
+      }
+    };
+    window.addEventListener("beforeunload", onBeforeUnload);
+
     return () => {
+      window.removeEventListener("beforeunload", onBeforeUnload);
       try {
         supabase.removeChannel(channel);
       } catch {

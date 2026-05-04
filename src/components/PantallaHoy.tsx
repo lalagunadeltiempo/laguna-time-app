@@ -220,8 +220,10 @@ export function PantallaHoy() {
       dispatch({ type: "RESCHEDULE_NEXT_PASO", pasoId: block.pasoId, newDate: null });
     }
 
-    // Nuevo modelo: empezamos una sesión del entregable.
-    dispatch({ type: "START_ENTREGABLE", id: block.entregableId });
+    // Nuevo modelo: empezamos una sesión del entregable. Se la atribuimos
+    // al usuario actual para que varias personas puedan tener su sesión
+    // abierta a la vez en el mismo entregable sin pisarse el cronómetro.
+    dispatch({ type: "START_ENTREGABLE", id: block.entregableId, autor: currentUser });
   }
 
   return (

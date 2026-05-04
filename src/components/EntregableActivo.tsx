@@ -139,8 +139,39 @@ export function EntregableActivoCard({ entregable, mode = "trabajo" }: Props) {
     () => Array.isArray(entregable.sesiones) ? entregable.sesiones : [],
     [entregable.sesiones],
   );
-  const sesionAbierta = sesiones.find((s) => s.finTs === null) ?? null;
+  // Mi sesión abierta: prioriza la propia (autor === currentUser). Si no
+  // tengo pero sí hay una heredada sin autor (pre-migración), la adopto
+  // para que el flujo de "pausar/cerrar" siga funcionando en datos antiguos.
+  const sesionAbierta = useMemo(() => {
+    const mia = sesiones.find((s) => s.finTs === null && s.autor === currentUser);
+    if (mia) return mia;
+    const huerfana = sesiones.find((s) => s.finTs === null && !s.autor);
+    return huerfana ?? null;
+  }, [sesiones, currentUser]);
   const pausasSesion: PausaEntry[] = sesionAbierta?.pausas ?? [];
+  // Sesiones abiertas de otros miembros (informativo en la cabecera).
+  const sesionesOtros = useMemo(
+    () =>
+      sesiones.filter(
+        (s) => s.finTs === null && s.autor && s.autor !== currentUser,
+      ),
+    [sesiones, currentUser],
+  );
+
+  // Heartbeat de la sesión propia mientras esté abierta. Se usa para
+  // identificar sesiones huérfanas (cliente que cerró sin pulsar "Cerrar").
+  // Cada 45s mandamos un tick. En producción el reducer lo persiste y el
+  // merge elige el más reciente.
+  useEffect(() => {
+    const mia = sesionAbierta && sesionAbierta.autor === currentUser;
+    if (!mia) return;
+    const emit = () => {
+      dispatch({ type: "SESION_HEARTBEAT", id: entregable.id, autor: currentUser });
+    };
+    emit();
+    const id = setInterval(emit, 45000);
+    return () => clearInterval(id);
+  }, [sesionAbierta, currentUser, entregable.id, dispatch]);
   const isPaused = !!pausasSesion.length && !pausasSesion[pausasSesion.length - 1].resumeTs;
 
   const [expanded, setExpanded] = useState(isDetalle);
@@ -264,13 +295,13 @@ export function EntregableActivoCard({ entregable, mode = "trabajo" }: Props) {
     // del día. NO toca la planificación: si mañana sigue planificado en el
     // calendario semanal, volverá a aparecer; si no, se planifica desde
     // Plan Mapa/Trimestre/Mes/Semana.
-    dispatch({ type: "END_ENTREGABLE_SESION", id: entregable.id });
+    dispatch({ type: "END_ENTREGABLE_SESION", id: entregable.id, autor: currentUser });
     const hoy = toDateKey(new Date());
     dispatch({ type: "OCULTAR_ENTREGABLE_HASTA", id: entregable.id, hasta: hoy });
     setShowCloseOptions(false);
   }
   function handleFinalizar() {
-    dispatch({ type: "FINISH_ENTREGABLE", id: entregable.id });
+    dispatch({ type: "FINISH_ENTREGABLE", id: entregable.id, autor: currentUser });
     setShowCloseOptions(false);
     setShowEsperaPicker(false);
   }
@@ -279,6 +310,7 @@ export function EntregableActivoCard({ entregable, mode = "trabajo" }: Props) {
       type: "SET_ENTREGABLE_EN_ESPERA",
       id: entregable.id,
       enEsperaDe: { tipo: "equipo", nombre },
+      autor: currentUser,
     });
     setShowEsperaPicker(false);
     setShowCloseOptions(false);
@@ -291,21 +323,22 @@ export function EntregableActivoCard({ entregable, mode = "trabajo" }: Props) {
       type: "SET_ENTREGABLE_EN_ESPERA",
       id: entregable.id,
       enEsperaDe: { tipo: "externo", nombre },
+      autor: currentUser,
     });
     setShowEsperaPicker(false);
     setShowCloseOptions(false);
     setEsperaExternoDraft("");
   }
   function handleDescartarSesion() {
-    dispatch({ type: "DISCARD_ENTREGABLE_SESION", id: entregable.id });
+    dispatch({ type: "DISCARD_ENTREGABLE_SESION", id: entregable.id, autor: currentUser });
     setShowDiscard(false);
   }
 
   function handlePause() {
-    dispatch({ type: "PAUSE_ENTREGABLE_SESION", id: entregable.id });
+    dispatch({ type: "PAUSE_ENTREGABLE_SESION", id: entregable.id, autor: currentUser });
   }
   function handleResume() {
-    dispatch({ type: "RESUME_ENTREGABLE_SESION", id: entregable.id });
+    dispatch({ type: "RESUME_ENTREGABLE_SESION", id: entregable.id, autor: currentUser });
   }
 
   function togglePaso(p: Paso) {
@@ -339,6 +372,9 @@ export function EntregableActivoCard({ entregable, mode = "trabajo" }: Props) {
   function addPaso() {
     const nombre = newPasoName.trim();
     if (!nombre) return;
+    // Índice fraccionario: separación grande (1024) para que haya hueco de
+    // sobra al reordenar a la mitad entre dos pasos sin tener que tocar
+    // al resto de pasos del entregable.
     const maxOrden = pasosDelEntregable.reduce((m, p) => Math.max(m, p.orden ?? 0), 0);
     dispatch({
       type: "ADD_PASO",
@@ -346,7 +382,7 @@ export function EntregableActivoCard({ entregable, mode = "trabajo" }: Props) {
         id: generateId(),
         entregableId: entregable.id,
         nombre,
-        orden: maxOrden + 1,
+        orden: (maxOrden || 0) + 1024,
         inicioTs: null,
         finTs: null,
         estado: "pendiente",
@@ -548,6 +584,17 @@ export function EntregableActivoCard({ entregable, mode = "trabajo" }: Props) {
                   También aquí:
                   {presentes.map((n) => (
                     <ChipMiembro key={n} nombre={n} miembros={state.miembros} compact />
+                  ))}
+                </span>
+              )}
+              {sesionesOtros.length > 0 && (
+                <span
+                  className="inline-flex items-center gap-1 rounded-full border border-emerald-300/70 bg-emerald-100/70 px-1.5 py-0.5 text-[9px] font-medium text-emerald-800 dark:border-emerald-500/40 dark:bg-emerald-500/10 dark:text-emerald-200"
+                  title={`${sesionesOtros.map((s) => s.autor).join(", ")} ${sesionesOtros.length === 1 ? "tiene" : "tienen"} su propia sesión en curso ahora mismo`}
+                >
+                  Trabajando:
+                  {sesionesOtros.map((s) => (
+                    <ChipMiembro key={s.autor ?? ""} nombre={s.autor} miembros={state.miembros} compact />
                   ))}
                 </span>
               )}

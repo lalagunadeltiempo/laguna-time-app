@@ -338,3 +338,80 @@ describe("Mensajes de entregable: merge y tombstones", () => {
     expect(merged.mensajes?.[0].paraQuien).toEqual(["Beltrán"]);
   });
 });
+
+describe("Lápidas de implicados", () => {
+  it("deleted.implicados elimina al miembro del entregable aunque el otro cliente aún lo tenga", () => {
+    const a = baseState({
+      entregables: [
+        mkEntregable({
+          id: "e-1",
+          implicados: [
+            { tipo: "equipo", nombre: "Gabi" },
+            { tipo: "equipo", nombre: "Beltrán" },
+          ],
+        }),
+      ],
+      deleted: {
+        proyectos: [], resultados: [], entregables: [], pasos: [], plantillas: [],
+        notas: [], mensajes: [], implicados: ["e-1::Beltrán"],
+      },
+    });
+    const b = baseState({
+      entregables: [
+        mkEntregable({
+          id: "e-1",
+          implicados: [
+            { tipo: "equipo", nombre: "Gabi" },
+            { tipo: "equipo", nombre: "Beltrán" },
+          ],
+        }),
+      ],
+    });
+    const merged = mergeStates(a, b);
+    const imps = merged.entregables[0].implicados ?? [];
+    expect(imps.map((i) => i.nombre)).toEqual(["Gabi"]);
+    expect(merged.deleted?.implicados ?? []).toContain("e-1::Beltrán");
+  });
+});
+
+describe("contexto.notas: no se pierde texto en merge concurrente", () => {
+  it("concatena textos distintos de ambos clientes con un separador", () => {
+    const a = baseState({
+      entregables: [
+        mkEntregable({
+          id: "e-1",
+          contexto: { urls: [], apps: [], notas: "Gabi escribió aquí\n- idea 1" },
+        }),
+      ],
+    });
+    const b = baseState({
+      entregables: [
+        mkEntregable({
+          id: "e-1",
+          contexto: { urls: [], apps: [], notas: "Beltrán añadió\n- idea 2" },
+        }),
+      ],
+    });
+    const merged = mergeStates(a, b);
+    const notas = String(merged.entregables[0].contexto?.notas ?? "");
+    expect(notas).toContain("Gabi escribió aquí");
+    expect(notas).toContain("Beltrán añadió");
+  });
+
+  it("si un texto contiene al otro, se queda con el más completo (no duplica)", () => {
+    const largo = "Gabi escribió aquí\n- idea 1\n- idea 2";
+    const corto = "Gabi escribió aquí";
+    const a = baseState({
+      entregables: [
+        mkEntregable({ id: "e-1", contexto: { urls: [], apps: [], notas: largo } }),
+      ],
+    });
+    const b = baseState({
+      entregables: [
+        mkEntregable({ id: "e-1", contexto: { urls: [], apps: [], notas: corto } }),
+      ],
+    });
+    const merged = mergeStates(a, b);
+    expect(merged.entregables[0].contexto?.notas).toBe(largo);
+  });
+});
