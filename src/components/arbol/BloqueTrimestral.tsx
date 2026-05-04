@@ -13,7 +13,7 @@
  * Aquí NO se edita el plan. El real se introduce en el bloque Mensual
  * o Semanal.
  */
-import { useMemo } from "react";
+import { memo, useMemo } from "react";
 import type { NodoArbol, PlanArbolConfigAnio, TrimestreKey } from "@/lib/types";
 import {
   cuotaAjustada,
@@ -26,7 +26,7 @@ import {
   type ArbolIndices,
 } from "@/lib/arbol-tiempo";
 import { CierreTrimestre } from "./CierreTrimestre";
-import { MetricLine, fmtNum } from "./arbol-comunes";
+import { LazyDetails, MetricLine, fmtNum } from "./arbol-comunes";
 
 const TRIMESTRE_LABELS: { key: TrimestreKey; label: string }[] = [
   { key: "Q1", label: "Q1" },
@@ -90,7 +90,7 @@ export function BloqueTrimestral({ raiz, ramas, idx, config, year, unidad }: Blo
   );
 }
 
-function TarjetaTrimestre({
+const TarjetaTrimestre = memo(function TarjetaTrimestre({
   raiz,
   ramas,
   idx,
@@ -174,12 +174,16 @@ function TarjetaTrimestre({
         </div>
       )}
 
-      {/* Desglose por ramas y hojas */}
+      {/* Desglose por ramas y hojas (montado bajo demanda) */}
       {ramas.length > 0 && (
-        <details className="mt-3 rounded-lg border border-border/60 bg-surface/30">
-          <summary className="cursor-pointer list-none px-3 py-2 text-[11px] font-medium text-muted marker:content-none [&::-webkit-details-marker]:hidden">
-            Desglose por ramas ({ramas.length})
-          </summary>
+        <LazyDetails
+          className="mt-3 rounded-lg border border-border/60 bg-surface/30"
+          summary={
+            <summary className="cursor-pointer list-none px-3 py-2 text-[11px] font-medium text-muted marker:content-none [&::-webkit-details-marker]:hidden">
+              Desglose por ramas ({ramas.length})
+            </summary>
+          }
+        >
           <div className="space-y-2 border-t border-border/60 px-2 py-2">
             {ramas.map((rama) => (
               <FilaRamaTrimestral
@@ -193,10 +197,12 @@ function TarjetaTrimestre({
               />
             ))}
           </div>
-        </details>
+        </LazyDetails>
       )}
 
-      {/* Reflexión de cierre: sólo tiene sentido en trimestres pasados o el actual */}
+      {/* Reflexión de cierre: sólo tiene sentido en trimestres pasados o el actual.
+          El form real (3 textareas con debounce) se monta al abrir; así no
+          pagamos 4 cierres al entrar a la pantalla. */}
       {estado !== "futuro" && (
         <div className="mt-3">
           <CierreTrimestre key={`${year}-${trimestreKey}`} anio={year} trimestreKey={periodoKey} />
@@ -204,7 +210,7 @@ function TarjetaTrimestre({
       )}
     </div>
   );
-}
+});
 
 function FilaRamaTrimestral({
   rama,

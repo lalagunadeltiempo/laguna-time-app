@@ -4,9 +4,33 @@ import { useMemo, useState } from "react";
 import { useAppDispatch, useAppState } from "@/lib/context";
 import { EMPTY_ARBOL } from "@/lib/types";
 
-/** Reflexión de cierre de trimestre con 3 textareas. Se guarda con debounce a estado y persiste por trimestre.
- *  El padre debe pasar `key={`${anio}-${trimestreKey}`}` para que se reinicialice al cambiar de trimestre. */
+/**
+ * Reflexión de cierre de trimestre. Tres textareas con commit en `onBlur`.
+ *
+ * Está envuelta en un `<details>` cerrado por defecto; el formulario
+ * real (que lee del estado global) NO se monta hasta que el usuario
+ * abra el desplegable. De este modo, renderizar el bloque trimestral
+ * con sus 4 trimestres no paga 4 suscripciones al store: sólo las que
+ * el usuario abra.
+ */
 export function CierreTrimestre({ anio, trimestreKey }: { anio: number; trimestreKey: string }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <details
+      className="mb-4 rounded-xl border border-border bg-surface/40"
+      open={open}
+      onToggle={(e) => setOpen((e.currentTarget as HTMLDetailsElement).open)}
+    >
+      <summary className="cursor-pointer list-none px-4 py-3 text-sm font-medium text-foreground marker:content-none [&::-webkit-details-marker]:hidden">
+        Cierre de trimestre · {trimestreKey}
+        <span className="ml-2 text-xs font-normal text-muted">— qué funcionó, qué no, qué cambias</span>
+      </summary>
+      {open ? <CierreTrimestreBody anio={anio} trimestreKey={trimestreKey} /> : null}
+    </details>
+  );
+}
+
+function CierreTrimestreBody({ anio, trimestreKey }: { anio: number; trimestreKey: string }) {
   const state = useAppState();
   const dispatch = useAppDispatch();
   const arbol = state.arbol ?? EMPTY_ARBOL;
@@ -34,46 +58,40 @@ export function CierreTrimestre({ anio, trimestreKey }: { anio: number; trimestr
   }
 
   return (
-    <details className="mb-4 rounded-xl border border-border bg-surface/40">
-      <summary className="cursor-pointer list-none px-4 py-3 text-sm font-medium text-foreground marker:content-none [&::-webkit-details-marker]:hidden">
-        Cierre de trimestre · {trimestreKey}
-        <span className="ml-2 text-xs font-normal text-muted">— qué funcionó, qué no, qué cambias</span>
-      </summary>
-      <div className="grid gap-3 border-t border-border/60 p-4 sm:grid-cols-3">
-        <label className="block">
-          <span className="mb-1 block text-[11px] font-medium text-muted">Lo que funcionó</span>
-          <textarea
-            value={funciono}
-            onChange={(e) => setFunciono(e.target.value)}
-            onBlur={() => commit({ funciono })}
-            rows={4}
-            placeholder="Lo que sí salió como esperabas."
-            className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm"
-          />
-        </label>
-        <label className="block">
-          <span className="mb-1 block text-[11px] font-medium text-muted">Lo que no funcionó</span>
-          <textarea
-            value={noFunciono}
-            onChange={(e) => setNoFunciono(e.target.value)}
-            onBlur={() => commit({ noFunciono })}
-            rows={4}
-            placeholder="Lo que se atascó o no salió."
-            className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm"
-          />
-        </label>
-        <label className="block">
-          <span className="mb-1 block text-[11px] font-medium text-muted">Qué cambias para el siguiente</span>
-          <textarea
-            value={cambios}
-            onChange={(e) => setCambios(e.target.value)}
-            onBlur={() => commit({ cambios })}
-            rows={4}
-            placeholder="Decisiones concretas para el próximo trimestre."
-            className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm"
-          />
-        </label>
-      </div>
-    </details>
+    <div className="grid gap-3 border-t border-border/60 p-4 sm:grid-cols-3">
+      <label className="block">
+        <span className="mb-1 block text-[11px] font-medium text-muted">Lo que funcionó</span>
+        <textarea
+          value={funciono}
+          onChange={(e) => setFunciono(e.target.value)}
+          onBlur={() => commit({ funciono })}
+          rows={4}
+          placeholder="Lo que sí salió como esperabas."
+          className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm"
+        />
+      </label>
+      <label className="block">
+        <span className="mb-1 block text-[11px] font-medium text-muted">Lo que no funcionó</span>
+        <textarea
+          value={noFunciono}
+          onChange={(e) => setNoFunciono(e.target.value)}
+          onBlur={() => commit({ noFunciono })}
+          rows={4}
+          placeholder="Lo que se atascó o no salió."
+          className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm"
+        />
+      </label>
+      <label className="block">
+        <span className="mb-1 block text-[11px] font-medium text-muted">Qué cambias para el siguiente</span>
+        <textarea
+          value={cambios}
+          onChange={(e) => setCambios(e.target.value)}
+          onBlur={() => commit({ cambios })}
+          rows={4}
+          placeholder="Decisiones concretas para el próximo trimestre."
+          className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm"
+        />
+      </label>
+    </div>
   );
 }

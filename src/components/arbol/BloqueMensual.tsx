@@ -8,9 +8,16 @@
  * no tiene hojas, se edita al nivel de rama. La lógica de
  * `realEfectivoEnPeriodo` prioriza el registro del mes sobre la suma
  * de semanas cuando ambos están presentes.
+ *
+ * Optimizaciones de rendimiento:
+ *  - LazyDetails: el desglose «Apuntar real» no se monta hasta que el
+ *    usuario abre la tarjeta. Así entrar a la pantalla pinta sólo las
+ *    12 cabeceras.
+ *  - RegistrosIndex: lookup O(1) de cada input, sin `find` linear.
+ *  - React.memo: cada tarjeta ignora re-renders si su mes no cambia.
  */
-import { useMemo } from "react";
-import type { NodoArbol, PlanArbolConfigAnio, RegistroNodo } from "@/lib/types";
+import { memo, useMemo } from "react";
+import type { NodoArbol, PlanArbolConfigAnio } from "@/lib/types";
 import {
   cuotaAjustada,
   estadoPeriodo,
@@ -21,7 +28,15 @@ import {
   realEfectivoEnPeriodoIdx,
   type ArbolIndices,
 } from "@/lib/arbol-tiempo";
-import { MetricLine, NumberInput, fmtNum, useUpsertRegistro } from "./arbol-comunes";
+import {
+  LazyDetails,
+  MetricLine,
+  NumberInput,
+  type RegistrosIndex,
+  claveRegistro,
+  fmtNum,
+  useUpsertRegistro,
+} from "./arbol-comunes";
 
 const MESES_ES = [
   "Enero",
@@ -41,14 +56,14 @@ const MESES_ES = [
 interface BloqueMensualProps {
   raiz: NodoArbol;
   ramas: NodoArbol[];
-  registros: RegistroNodo[];
+  regsIndex: RegistrosIndex;
   idx: ArbolIndices;
   config: PlanArbolConfigAnio | undefined;
   year: number;
   unidad: string;
 }
 
-export function BloqueMensual({ raiz, ramas, registros, idx, config, year, unidad }: BloqueMensualProps) {
+export function BloqueMensual({ raiz, ramas, regsIndex, idx, config, year, unidad }: BloqueMensualProps) {
   const realYTD = useMemo(
     () => realDelAnioHastaHoyLista(idx.regsPorNodo.get(raiz.id), year),
     [idx, raiz.id, year],
@@ -78,7 +93,7 @@ export function BloqueMensual({ raiz, ramas, registros, idx, config, year, unida
               key={periodoKey}
               raiz={raiz}
               ramas={ramas}
-              registros={registros}
+              regsIndex={regsIndex}
               idx={idx}
               config={config}
               year={year}
@@ -94,10 +109,10 @@ export function BloqueMensual({ raiz, ramas, registros, idx, config, year, unida
   );
 }
 
-function TarjetaMes({
+const TarjetaMes = memo(function TarjetaMes({
   raiz,
   ramas,
-  registros,
+  regsIndex,
   idx,
   config,
   year,
@@ -108,7 +123,7 @@ function TarjetaMes({
 }: {
   raiz: NodoArbol;
   ramas: NodoArbol[];
-  registros: RegistroNodo[];
+  regsIndex: RegistrosIndex;
   idx: ArbolIndices;
   config: PlanArbolConfigAnio | undefined;
   year: number;
@@ -130,7 +145,12 @@ function TarjetaMes({
   const pct = plan && plan > 0 ? Math.min(100, Math.round((real / plan) * 100)) : 0;
   const showProgress = estado === "pasado" || estado === "actual";
 
-  const ramasConReal = ramas.filter((r) => r.relacionConPadre === "suma");
+  const ramasConReal = useMemo(
+    () => ramas.filter((r) => r.relacionConPadre === "suma"),
+    [ramas],
+  );
+
+  const regRaiz = ramas.length === 0 ? regsIndex.get(claveRegistro(raiz.id, "mes", periodoKey)) : undefined;
 
   return (
     <div className="min-w-0 rounded-xl border border-border bg-background p-3 shadow-sm">
@@ -172,19 +192,22 @@ function TarjetaMes({
         </div>
       )}
 
-      {/* Input de real por ramas / hojas */}
       {ramasConReal.length > 0 && (
-        <details className="mt-3 rounded-lg border border-border/60 bg-surface/30">
-          <summary className="cursor-pointer list-none px-3 py-2 text-[11px] font-medium text-muted marker:content-none [&::-webkit-details-marker]:hidden">
-            Apuntar real ({ramasConReal.length} {ramasConReal.length === 1 ? "rama" : "ramas"})
-          </summary>
+        <LazyDetails
+          className="mt-3 rounded-lg border border-border/60 bg-surface/30"
+          summary={
+            <summary className="cursor-pointer list-none px-3 py-2 text-[11px] font-medium text-muted marker:content-none [&::-webkit-details-marker]:hidden">
+              Apuntar real ({ramasConReal.length} {ramasConReal.length === 1 ? "rama" : "ramas"})
+            </summary>
+          }
+        >
           <div className="space-y-3 border-t border-border/60 px-2 py-2">
             {ramasConReal.map((rama) => (
               <FilaRamaMensual
                 key={rama.id}
                 rama={rama}
                 idx={idx}
-                registros={registros}
+                regsIndex={regsIndex}
                 config={config}
                 year={year}
                 unidad={unidad}
@@ -192,27 +215,28 @@ function TarjetaMes({
               />
             ))}
           </div>
-        </details>
+        </LazyDetails>
       )}
 
-      {/* Si la raíz no tiene ramas, permitimos apuntar el real directamente en la raíz. */}
       {ramas.length === 0 && (
-        <FilaApunteDirecto
-          nodoId={raiz.id}
-          registros={registros}
-          periodoKey={periodoKey}
-          unidad={unidad}
-          ariaLabel={`Real ${label} de ${raiz.nombre}`}
-        />
+        <div className="mt-3">
+          <FilaApunteDirecto
+            nodoId={raiz.id}
+            periodoKey={periodoKey}
+            existing={regRaiz}
+            unidad={unidad}
+            ariaLabel={`Real ${label} de ${raiz.nombre}`}
+          />
+        </div>
       )}
     </div>
   );
-}
+});
 
 function FilaRamaMensual({
   rama,
   idx,
-  registros,
+  regsIndex,
   config,
   year,
   unidad,
@@ -220,7 +244,7 @@ function FilaRamaMensual({
 }: {
   rama: NodoArbol;
   idx: ArbolIndices;
-  registros: RegistroNodo[];
+  regsIndex: RegistrosIndex;
   config: PlanArbolConfigAnio | undefined;
   year: number;
   unidad: string;
@@ -235,6 +259,7 @@ function FilaRamaMensual({
     () => realEfectivoEnPeriodoIdx(idx, rama.id, "mes", periodoKey),
     [idx, rama.id, periodoKey],
   );
+  const existingRama = regsIndex.get(claveRegistro(rama.id, "mes", periodoKey));
 
   return (
     <div className="rounded border border-border/50 bg-background/60 p-2">
@@ -252,8 +277,8 @@ function FilaRamaMensual({
       {hojas.length === 0 ? (
         <FilaApunteDirecto
           nodoId={rama.id}
-          registros={registros}
           periodoKey={periodoKey}
+          existing={existingRama}
           unidad={unidad}
           ariaLabel={`Real ${periodoKey} de ${rama.nombre}`}
         />
@@ -264,7 +289,7 @@ function FilaRamaMensual({
               key={hoja.id}
               hoja={hoja}
               idx={idx}
-              registros={registros}
+              regsIndex={regsIndex}
               config={config}
               year={year}
               unidad={unidad}
@@ -280,7 +305,7 @@ function FilaRamaMensual({
 function FilaHojaMensual({
   hoja,
   idx,
-  registros,
+  regsIndex,
   config,
   year,
   unidad,
@@ -288,7 +313,7 @@ function FilaHojaMensual({
 }: {
   hoja: NodoArbol;
   idx: ArbolIndices;
-  registros: RegistroNodo[];
+  regsIndex: RegistrosIndex;
   config: PlanArbolConfigAnio | undefined;
   year: number;
   unidad: string;
@@ -296,6 +321,7 @@ function FilaHojaMensual({
 }) {
   const plan = planAgregadoEnPeriodoIdx(idx, hoja, "mes", periodoKey, config);
   const real = realEfectivoEnPeriodoIdx(idx, hoja.id, "mes", periodoKey);
+  const existing = regsIndex.get(claveRegistro(hoja.id, "mes", periodoKey));
 
   return (
     <div className="rounded border border-border/40 bg-surface/50 px-2 py-1.5">
@@ -312,8 +338,8 @@ function FilaHojaMensual({
       </div>
       <FilaApunteDirecto
         nodoId={hoja.id}
-        registros={registros}
         periodoKey={periodoKey}
+        existing={existing}
         unidad={unidad}
         ariaLabel={`Real ${periodoKey} de ${hoja.nombre}`}
       />
@@ -321,34 +347,33 @@ function FilaHojaMensual({
   );
 }
 
-/** Input simple de "real" del mes para un nodo concreto. */
+/** Input simple de "real" del mes para un nodo concreto. El `existing`
+ *  viene del índice pre-calculado para evitar búsquedas linear. */
 function FilaApunteDirecto({
   nodoId,
-  registros,
   periodoKey,
+  existing,
   unidad,
   ariaLabel,
 }: {
   nodoId: string;
-  registros: RegistroNodo[];
   periodoKey: string;
+  existing: import("@/lib/types").RegistroNodo | undefined;
   unidad: string;
   ariaLabel: string;
 }) {
   const upsert = useUpsertRegistro();
-  const reg = registros.find(
-    (r) => r.nodoId === nodoId && r.periodoTipo === "mes" && r.periodoKey === periodoKey,
-  );
   return (
     <NumberInput
-      value={reg?.valor}
+      value={existing?.valor}
       onCommit={(v) =>
         upsert({
           nodoId,
           periodoTipo: "mes",
           periodoKey,
+          existing,
           valor: v,
-          unidades: reg?.unidades,
+          unidades: existing?.unidades,
         })
       }
       ariaLabel={ariaLabel}

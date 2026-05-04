@@ -1,15 +1,17 @@
 "use client";
 
 /**
- * Bloque SEMANAL: listado de semanas ISO ACTIVAS (excluyendo descansos
- * y festivos del año). Cada semana se despliega y muestra ramas y
- * hojas con su plan semanal (sólo lectura) y un input para apuntar el
- * "real" de esa semana por hoja (o por rama si no hay hojas).
+ * Bloque SEMANAL: listado de semanas ISO ACTIVAS (sin descansos ni
+ * festivos). Cada semana abre bajo demanda y muestra ramas/hojas con
+ * su plan y el input de real.
  *
- * No pintamos "replan" a este nivel para no saturar; el replan vive en
- * el bloque Mensual y Trimestral.
+ * Por defecto sólo se monta la cabecera ligera de cada semana; el
+ * contenido (que puede incluir decenas de inputs) se monta al abrir
+ * gracias a `LazyDetails`. Además los inputs usan el índice de
+ * registros para lookups O(1) y `useUpsertRegistro` ya no se suscribe
+ * al estado global.
  */
-import { useMemo } from "react";
+import { memo, useMemo } from "react";
 import type { NodoArbol, PlanArbolConfigAnio, RegistroNodo } from "@/lib/types";
 import {
   estadoPeriodo,
@@ -21,20 +23,26 @@ import {
   realEfectivoEnPeriodoIdx,
   type ArbolIndices,
 } from "@/lib/arbol-tiempo";
-import { NumberInput, fmtNum, useUpsertRegistro } from "./arbol-comunes";
+import {
+  LazyDetails,
+  NumberInput,
+  type RegistrosIndex,
+  claveRegistro,
+  fmtNum,
+  useUpsertRegistro,
+} from "./arbol-comunes";
 
 interface BloqueSemanalProps {
   raiz: NodoArbol;
   ramas: NodoArbol[];
-  registros: RegistroNodo[];
+  regsIndex: RegistrosIndex;
   idx: ArbolIndices;
   config: PlanArbolConfigAnio | undefined;
   year: number;
   unidad: string;
 }
 
-export function BloqueSemanal({ raiz, ramas, registros, idx, config, year, unidad }: BloqueSemanalProps) {
-  // Lista de lunes del año que son semanas ACTIVAS (no de descanso).
+export function BloqueSemanal({ raiz, ramas, regsIndex, idx, config, year, unidad }: BloqueSemanalProps) {
   const semanasActivas = useMemo(() => {
     const mondays = mondaysInCalendarYear(year);
     const noActivas = new Set(config?.semanasNoActivas ?? []);
@@ -64,7 +72,7 @@ export function BloqueSemanal({ raiz, ramas, registros, idx, config, year, unida
               key={mondayKey}
               raiz={raiz}
               ramas={ramas}
-              registros={registros}
+              regsIndex={regsIndex}
               idx={idx}
               config={config}
               year={year}
@@ -78,10 +86,10 @@ export function BloqueSemanal({ raiz, ramas, registros, idx, config, year, unida
   );
 }
 
-function FilaSemana({
+const FilaSemana = memo(function FilaSemana({
   raiz,
   ramas,
-  registros,
+  regsIndex,
   idx,
   config,
   year,
@@ -90,7 +98,7 @@ function FilaSemana({
 }: {
   raiz: NodoArbol;
   ramas: NodoArbol[];
-  registros: RegistroNodo[];
+  regsIndex: RegistrosIndex;
   idx: ArbolIndices;
   config: PlanArbolConfigAnio | undefined;
   year: number;
@@ -103,55 +111,62 @@ function FilaSemana({
   const plan = planAgregadoEnPeriodoIdx(idx, raiz, "semana", mondayKey, config);
   const real = realEfectivoEnPeriodoIdx(idx, raiz.id, "semana", mondayKey);
   const deltaPlan = plan !== undefined ? real - plan : undefined;
-
-  const ramasConReal = ramas.filter((r) => r.relacionConPadre === "suma");
+  const ramasConReal = useMemo(
+    () => ramas.filter((r) => r.relacionConPadre === "suma"),
+    [ramas],
+  );
+  const regRaiz = ramas.length === 0 ? regsIndex.get(claveRegistro(raiz.id, "semana", mondayKey)) : undefined;
 
   return (
-    <details className="rounded-lg border border-border bg-surface/30" open={estado === "actual"}>
-      <summary className="cursor-pointer list-none px-3 py-2 marker:content-none [&::-webkit-details-marker]:hidden">
-        <div className="flex flex-wrap items-baseline justify-between gap-2">
-          <div className="min-w-0">
-            <p className="text-sm font-medium text-foreground">{label}</p>
-            <p className="text-[10px] text-muted">{rango}</p>
-          </div>
-          <span className="flex flex-wrap items-baseline gap-x-3 text-[11px] tabular-nums text-muted">
-            <span
-              className={`rounded px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide ${
-                estado === "pasado"
-                  ? "bg-surface text-muted"
-                  : estado === "actual"
-                    ? "bg-accent/15 text-accent"
-                    : "bg-amber-500/10 text-amber-700 dark:text-amber-200"
-              }`}
-            >
-              {estado}
-            </span>
-            <span>
-              Plan:{" "}
-              <strong className="text-foreground">{plan !== undefined ? `${fmtNum(plan)} ${unidad}` : "—"}</strong>
-            </span>
-            <span>
-              Real:{" "}
-              <strong
-                className={
-                  deltaPlan !== undefined && deltaPlan < 0
-                    ? "text-red-700 dark:text-red-300"
-                    : "text-foreground"
-                }
+    <LazyDetails
+      className="rounded-lg border border-border bg-surface/30"
+      defaultOpen={estado === "actual"}
+      summary={
+        <summary className="cursor-pointer list-none px-3 py-2 marker:content-none [&::-webkit-details-marker]:hidden">
+          <div className="flex flex-wrap items-baseline justify-between gap-2">
+            <div className="min-w-0">
+              <p className="text-sm font-medium text-foreground">{label}</p>
+              <p className="text-[10px] text-muted">{rango}</p>
+            </div>
+            <span className="flex flex-wrap items-baseline gap-x-3 text-[11px] tabular-nums text-muted">
+              <span
+                className={`rounded px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide ${
+                  estado === "pasado"
+                    ? "bg-surface text-muted"
+                    : estado === "actual"
+                      ? "bg-accent/15 text-accent"
+                      : "bg-amber-500/10 text-amber-700 dark:text-amber-200"
+                }`}
               >
-                {fmtNum(real)} {unidad}
-              </strong>
+                {estado}
+              </span>
+              <span>
+                Plan:{" "}
+                <strong className="text-foreground">{plan !== undefined ? `${fmtNum(plan)} ${unidad}` : "—"}</strong>
+              </span>
+              <span>
+                Real:{" "}
+                <strong
+                  className={
+                    deltaPlan !== undefined && deltaPlan < 0
+                      ? "text-red-700 dark:text-red-300"
+                      : "text-foreground"
+                  }
+                >
+                  {fmtNum(real)} {unidad}
+                </strong>
+              </span>
             </span>
-          </span>
-        </div>
-      </summary>
-
+          </div>
+        </summary>
+      }
+    >
       <div className="space-y-2 border-t border-border/60 px-3 py-2">
         {ramasConReal.length === 0 && ramas.length === 0 ? (
           <FilaApunteSemanal
             nodoId={raiz.id}
-            registros={registros}
             periodoKey={mondayKey}
+            existing={regRaiz}
             unidad={unidad}
             ariaLabel={`Real semana ${label} de ${raiz.nombre}`}
           />
@@ -161,39 +176,37 @@ function FilaSemana({
               key={rama.id}
               rama={rama}
               idx={idx}
-              registros={registros}
+              regsIndex={regsIndex}
               config={config}
-              year={year}
               unidad={unidad}
               mondayKey={mondayKey}
             />
           ))
         )}
       </div>
-    </details>
+    </LazyDetails>
   );
-}
+});
 
 function FilaRamaSemanal({
   rama,
   idx,
-  registros,
+  regsIndex,
   config,
-  year,
   unidad,
   mondayKey,
 }: {
   rama: NodoArbol;
   idx: ArbolIndices;
-  registros: RegistroNodo[];
+  regsIndex: RegistrosIndex;
   config: PlanArbolConfigAnio | undefined;
-  year: number;
   unidad: string;
   mondayKey: string;
 }) {
   const hojas = hijosSumaDirectosIdx(idx, rama.id);
   const plan = planAgregadoEnPeriodoIdx(idx, rama, "semana", mondayKey, config);
   const real = realEfectivoEnPeriodoIdx(idx, rama.id, "semana", mondayKey);
+  const existingRama = regsIndex.get(claveRegistro(rama.id, "semana", mondayKey));
 
   return (
     <div className="rounded border border-border/50 bg-background/60 p-2">
@@ -211,8 +224,8 @@ function FilaRamaSemanal({
       {hojas.length === 0 ? (
         <FilaApunteSemanal
           nodoId={rama.id}
-          registros={registros}
           periodoKey={mondayKey}
+          existing={existingRama}
           unidad={unidad}
           ariaLabel={`Real semana de ${rama.nombre}`}
         />
@@ -220,6 +233,7 @@ function FilaRamaSemanal({
         <div className="space-y-1.5">
           {hojas.map((hoja) => {
             const pHoja = planAgregadoEnPeriodoIdx(idx, hoja, "semana", mondayKey, config);
+            const existingHoja = regsIndex.get(claveRegistro(hoja.id, "semana", mondayKey));
             return (
               <div key={hoja.id} className="rounded border border-border/40 bg-surface/50 px-2 py-1.5">
                 <div className="mb-1 flex flex-wrap items-baseline justify-between gap-2 text-[11px]">
@@ -233,8 +247,8 @@ function FilaRamaSemanal({
                 </div>
                 <FilaApunteSemanal
                   nodoId={hoja.id}
-                  registros={registros}
                   periodoKey={mondayKey}
+                  existing={existingHoja}
                   unidad={unidad}
                   ariaLabel={`Real semana de ${hoja.nombre}`}
                 />
@@ -249,31 +263,29 @@ function FilaRamaSemanal({
 
 function FilaApunteSemanal({
   nodoId,
-  registros,
   periodoKey,
+  existing,
   unidad,
   ariaLabel,
 }: {
   nodoId: string;
-  registros: RegistroNodo[];
   periodoKey: string;
+  existing: RegistroNodo | undefined;
   unidad: string;
   ariaLabel: string;
 }) {
   const upsert = useUpsertRegistro();
-  const reg = registros.find(
-    (r) => r.nodoId === nodoId && r.periodoTipo === "semana" && r.periodoKey === periodoKey,
-  );
   return (
     <NumberInput
-      value={reg?.valor}
+      value={existing?.valor}
       onCommit={(v) =>
         upsert({
           nodoId,
           periodoTipo: "semana",
           periodoKey,
+          existing,
           valor: v,
-          unidades: reg?.unidades,
+          unidades: existing?.unidades,
         })
       }
       ariaLabel={ariaLabel}

@@ -7,10 +7,10 @@
  * utilidad de "línea de métrica". El resto de lógica visual la pone cada
  * bloque en su archivo propio para que puedas leerlos de un vistazo.
  */
-import { useCallback, useEffect, useRef, useState } from "react";
-import { useAppDispatch, useAppState } from "@/lib/context";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useAppDispatch } from "@/lib/context";
 import { generateId } from "@/lib/store";
-import { EMPTY_ARBOL, type RegistroNodo } from "@/lib/types";
+import type { RegistroNodo } from "@/lib/types";
 
 export function isUnidadEuros(unidad?: string): boolean {
   if (!unidad) return false;
@@ -189,30 +189,44 @@ export function PercentInput({
   );
 }
 
-/** Upsert genérico de un registro por (nodoId, periodoTipo, periodoKey).
- *  Si el valor resultante es `undefined` y no había unidades, borra el registro. */
+/** Índice rápido de registros por clave (nodoId|periodoTipo|periodoKey). */
+export type RegistrosIndex = ReadonlyMap<string, RegistroNodo>;
+
+export function claveRegistro(
+  nodoId: string,
+  periodoTipo: RegistroNodo["periodoTipo"],
+  periodoKey: string,
+): string {
+  return `${nodoId}|${periodoTipo}|${periodoKey}`;
+}
+
+export function buildRegistrosIndex(registros: RegistroNodo[]): RegistrosIndex {
+  const m = new Map<string, RegistroNodo>();
+  for (const r of registros) m.set(claveRegistro(r.nodoId, r.periodoTipo, r.periodoKey), r);
+  return m;
+}
+
+/** Upsert genérico de un registro.
+ *
+ *  IMPORTANTE: este hook NO se suscribe al estado global (no llama a
+ *  `useAppState`). El registro existente se pasa por argumento desde el
+ *  caller, que típicamente ya lo tiene en un índice. De esta forma las
+ *  cientos de filas del bloque Semanal/Mensual no re-renderizan cada
+ *  vez que cambia cualquier cosa del estado. */
 export function useUpsertRegistro() {
   const dispatch = useAppDispatch();
-  const registrosRef = useRef<RegistroNodo[]>([]);
-  const state = useAppState();
-  const arbol = state.arbol ?? EMPTY_ARBOL;
-  registrosRef.current = arbol.registros;
   return useCallback(
     (opts: {
       nodoId: string;
       periodoTipo: RegistroNodo["periodoTipo"];
       periodoKey: string;
+      existing?: RegistroNodo;
       valor?: number | undefined;
       unidades?: number | undefined;
       /** Si true y `valor` viene sin especificar, conserva el valor existente. */
       soloUnidades?: boolean;
     }) => {
-      const existing = registrosRef.current.find(
-        (r) =>
-          r.nodoId === opts.nodoId &&
-          r.periodoTipo === opts.periodoTipo &&
-          r.periodoKey === opts.periodoKey,
-      );
+      const existing = opts.existing;
       const nextValor = opts.soloUnidades ? existing?.valor : opts.valor;
       const nextUnidades = opts.unidades;
       if (nextValor === undefined && (nextUnidades === undefined || !Number.isFinite(nextUnidades))) {
@@ -238,6 +252,64 @@ export function useUpsertRegistro() {
       });
     },
     [dispatch],
+  );
+}
+
+/**
+ * Versión perezosa de `<details>`: no monta los children hasta que el
+ * usuario abre el desplegable por primera vez. Una vez abierto, los
+ * children permanecen montados aunque se cierre (mantiene scroll y
+ * estado local de inputs, y evita parpadeos en re-aperturas).
+ *
+ * Es CLAVE para el Árbol de objetivos: sin esto, 40+ semanas × varias
+ * ramas/hojas = cientos de componentes con inputs montados de golpe
+ * bloquean la pestaña al entrar en la pantalla.
+ */
+export function LazyDetails({
+  summary,
+  children,
+  defaultOpen = false,
+  className,
+  open,
+  onToggle,
+}: {
+  summary: ReactNode;
+  children: ReactNode;
+  defaultOpen?: boolean;
+  className?: string;
+  open?: boolean;
+  onToggle?: (open: boolean) => void;
+}) {
+  const isControlled = open !== undefined;
+  const [internalOpen, setInternalOpen] = useState(defaultOpen);
+  const effectiveOpen = isControlled ? open! : internalOpen;
+  const [everOpened, setEverOpened] = useState(defaultOpen || !!open);
+  const handleToggle = useCallback(
+    (e: React.SyntheticEvent<HTMLDetailsElement>) => {
+      const next = (e.currentTarget as HTMLDetailsElement).open;
+      if (next) setEverOpened(true);
+      if (!isControlled) setInternalOpen(next);
+      onToggle?.(next);
+    },
+    [isControlled, onToggle],
+  );
+  return (
+    <details open={effectiveOpen} onToggle={handleToggle} className={className}>
+      {summary}
+      {everOpened ? children : null}
+    </details>
+  );
+}
+
+/** Devuelve un Map con callback memoizado para lookup por clave. */
+export function useRegistroExistente(
+  index: RegistrosIndex,
+): (nodoId: string, periodoTipo: RegistroNodo["periodoTipo"], periodoKey: string) => RegistroNodo | undefined {
+  return useMemo(
+    () =>
+      (nodoId, periodoTipo, periodoKey) =>
+        index.get(claveRegistro(nodoId, periodoTipo, periodoKey)),
+    [index],
   );
 }
 

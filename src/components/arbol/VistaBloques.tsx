@@ -27,7 +27,7 @@ import { BloqueAnual } from "./BloqueAnual";
 import { BloqueTrimestral } from "./BloqueTrimestral";
 import { BloqueMensual } from "./BloqueMensual";
 import { BloqueSemanal } from "./BloqueSemanal";
-import { fmtNum } from "./arbol-comunes";
+import { buildRegistrosIndex, fmtNum } from "./arbol-comunes";
 
 export interface VistaBloquesProps {
   raiz: NodoArbol;
@@ -47,6 +47,7 @@ export function VistaBloques({ raiz, year }: VistaBloquesProps) {
     () => buildArbolIndices(arbol.registros, arbol.nodos, year),
     [arbol.registros, arbol.nodos, year],
   );
+  const regsIndex = useMemo(() => buildRegistrosIndex(arbol.registros), [arbol.registros]);
 
   const diasLaborables = diasLaborablesEnAnio(year, config);
   const cuotaSemanal =
@@ -104,7 +105,7 @@ export function VistaBloques({ raiz, year }: VistaBloquesProps) {
       <BloqueMensual
         raiz={raiz}
         ramas={ramas}
-        registros={arbol.registros}
+        regsIndex={regsIndex}
         idx={idx}
         config={config}
         year={year}
@@ -114,7 +115,7 @@ export function VistaBloques({ raiz, year }: VistaBloquesProps) {
       <BloqueSemanal
         raiz={raiz}
         ramas={ramas}
-        registros={arbol.registros}
+        regsIndex={regsIndex}
         idx={idx}
         config={config}
         year={year}
