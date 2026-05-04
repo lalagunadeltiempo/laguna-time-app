@@ -20,6 +20,7 @@ import {
   hijosSumaDirectos,
   hijosSumaDirectosIdx,
   metaEfectivaNodoIdx,
+  normalizarNombreNodo,
   realAnioPasadoAgregadoIdx,
   type ArbolIndices,
 } from "@/lib/arbol-tiempo";
@@ -49,6 +50,28 @@ export function BloqueAnual({ raiz, ramas, nodos, registros, idx, year, unidad }
   );
   const diffRamas = metaAnual > 0 ? planRamasSuma - metaAnual : 0;
   const cuadreRamasOk = metaAnual === 0 || Math.abs(diffRamas) < 0.01;
+
+  // Botón "Traer estructura de <año-1>": solo se ofrece si existe raíz equivalente
+  // (mismo nombre normalizado, sin parentId) en el año anterior.
+  const anioAnterior = year - 1;
+  const existeAnioAnterior = useMemo(() => {
+    const objetivo = normalizarNombreNodo(raiz.nombre);
+    return nodos.some(
+      (n) =>
+        !n.parentId &&
+        n.anio === anioAnterior &&
+        normalizarNombreNodo(n.nombre) === objetivo,
+    );
+  }, [nodos, raiz.nombre, anioAnterior]);
+  const handleImportar = () => {
+    if (ramas.length > 0) {
+      const ok = window.confirm(
+        "Ya hay ramas este año. ¿Añadir también las del año anterior?",
+      );
+      if (!ok) return;
+    }
+    dispatch({ type: "IMPORT_SUBARBOL_ANIO_ANTERIOR", raizId: raiz.id });
+  };
 
   return (
     <details open className="rounded-xl border border-border bg-background">
@@ -137,18 +160,30 @@ export function BloqueAnual({ raiz, ramas, nodos, registros, idx, year, unidad }
               Cambia el objetivo anual cuando quieras: el plan de trimestres, meses y semanas se recalcula solo. Lo real lo
               apuntas en las otras secciones.
             </p>
-            <button
-              type="button"
-              onClick={() => {
-                const ok = window.confirm(
-                  `¿Borrar todo el año ${year} (${raiz.nombre})? Se eliminarán la raíz, las ramas, las hojas y todos los apuntes. No se puede deshacer.`,
-                );
-                if (ok) dispatch({ type: "DELETE_NODO_ARBOL", id: raiz.id });
-              }}
-              className="rounded border border-red-400/60 px-2 py-1 text-[11px] font-medium text-red-700 hover:bg-red-500/10 dark:text-red-300"
-            >
-              Borrar año {year}
-            </button>
+            <div className="flex flex-wrap items-center gap-2">
+              {existeAnioAnterior && (
+                <button
+                  type="button"
+                  onClick={handleImportar}
+                  title={`Copia ramas y hojas de ${anioAnterior} con sus porcentajes; los € se recalculan contra tu objetivo de ${year}.`}
+                  className="rounded border border-accent/40 bg-accent/5 px-2 py-1 text-[11px] font-medium text-accent hover:bg-accent/10"
+                >
+                  Traer estructura de {anioAnterior}
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => {
+                  const ok = window.confirm(
+                    `¿Borrar todo el año ${year} (${raiz.nombre})? Se eliminarán la raíz, las ramas, las hojas y todos los apuntes. No se puede deshacer.`,
+                  );
+                  if (ok) dispatch({ type: "DELETE_NODO_ARBOL", id: raiz.id });
+                }}
+                className="rounded border border-red-400/60 px-2 py-1 text-[11px] font-medium text-red-700 hover:bg-red-500/10 dark:text-red-300"
+              >
+                Borrar año {year}
+              </button>
+            </div>
           </div>
         </div>
 

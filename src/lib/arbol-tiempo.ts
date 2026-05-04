@@ -3,11 +3,37 @@ import { esDiaLaborable, fechaKeyDesdeDate } from "./festivos-es";
 
 const TRIMESTRES: TrimestreKey[] = ["Q1", "Q2", "Q3", "Q4"];
 
-/** Hijos directos que suman al padre (ramas y hojas). */
+/**
+ * Ordena un grupo de nodos hermanos por su porcentaje sobre el padre, de mayor a menor.
+ *
+ * Como el modelo no almacena `metaPct` explícito, se deriva del cociente entre
+ * `metaValor` propio y el del padre. Dentro del mismo padre el divisor es
+ * constante, así que ordenar por `metaValor` desc equivale a ordenar por % desc.
+ *
+ * Nodos sin `metaValor` (o con valor 0/no finito) se consideran 0 % y van al
+ * final, ordenados estable por `orden` y luego `nombre`. Esto evita que ramas
+ * sin meta tapen a las que sí cuentan, sin perderlas de vista.
+ */
+export function ordenarPorPctDesc(nodos: NodoArbol[]): NodoArbol[] {
+  const score = (n: NodoArbol): number => {
+    const v = n.metaValor;
+    if (v === undefined || !Number.isFinite(v)) return 0;
+    return v;
+  };
+  return [...nodos].sort((a, b) => {
+    const sa = score(a);
+    const sb = score(b);
+    if (sb !== sa) return sb - sa;
+    if (a.orden !== b.orden) return a.orden - b.orden;
+    return a.nombre.localeCompare(b.nombre, "es");
+  });
+}
+
+/** Hijos directos que suman al padre (ramas y hojas), ordenados por % desc. */
 export function hijosSumaDirectos(nodos: NodoArbol[], parentId: string, anio: number): NodoArbol[] {
-  return nodos
-    .filter((n) => n.anio === anio && n.parentId === parentId && n.relacionConPadre === "suma")
-    .sort((a, b) => a.orden - b.orden);
+  return ordenarPorPctDesc(
+    nodos.filter((n) => n.anio === anio && n.parentId === parentId && n.relacionConPadre === "suma"),
+  );
 }
 
 export function tieneHijosSuma(nodos: NodoArbol[], nodoId: string, anio: number): boolean {
@@ -178,11 +204,11 @@ export function buildArbolIndices(registros: RegistroNodo[], nodos: NodoArbol[],
       else nodosPorParent.set(pid, [n]);
     }
   }
-  for (const list of nodosPorParent.values()) {
-    list.sort((a, b) => a.orden - b.orden);
+  for (const [pid, list] of nodosPorParent) {
+    nodosPorParent.set(pid, ordenarPorPctDesc(list));
   }
-  for (const list of nodosPorParentAll.values()) {
-    list.sort((a, b) => a.orden - b.orden);
+  for (const [pid, list] of nodosPorParentAll) {
+    nodosPorParentAll.set(pid, ordenarPorPctDesc(list));
   }
 
   const pathByNodoId = new Map<string, string>();
@@ -723,6 +749,118 @@ export function wouldCreateCycle(nodos: NodoArbol[], nodeId: string, newParentId
   return false;
 }
 
+/**
+ * Clona el subárbol de la raíz "equivalente" del año anterior bajo la raíz destino.
+ *
+ * Pensado para "empezar año nuevo": la usuaria crea la raíz 2027 con su nuevo objetivo
+ * (€), pulsa "Traer estructura del año anterior" y se copian las ramas y hojas con sus
+ * porcentajes; los € de cada nodo se recalculan contra el nuevo objetivo anual.
+ *
+ * Reglas:
+ * - Si no existe una raíz del mismo "ámbito" (mismo nombre normalizado, sin parentId)
+ *   en `anioDestino - 1`, devuelve `{ nuevosNodos: [], copiados: 0 }` (no-op).
+ * - La raíz destino NO se duplica: los hijos directos del origen se reparentan a ella.
+ * - De cada nodo origen se conserva: nombre, descripcion, tipo, cadencia,
+ *   relacionConPadre, orden, metaUnidad, contadorModo. Se descartan registros,
+ *   metaPorTrimestre, proyectoIds/entregableIds y notaAnioAnterior (datos del año
+ *   pasado).
+ * - El `metaValor` del destino se calcula como
+ *   `metaValor_origen / metaValor_raizOrigen * metaValor_raizDestino`. Se redondea a
+ *   dos decimales para mantener coherencia con la edición vía %.
+ * - Si el origen no tiene meta o la raíz origen no tiene total, el destino queda con
+ *   `metaValor` undefined y la usuaria lo afina luego en el bloque Anual.
+ */
+export function clonarEstructuraDeAnioAnterior(opts: {
+  nodos: NodoArbol[];
+  anioDestino: number;
+  raizDestinoId: string;
+  generateId: () => string;
+}): { nuevosNodos: NodoArbol[]; copiados: number } {
+  const { nodos, anioDestino, raizDestinoId, generateId } = opts;
+  const raizDestino = nodos.find((n) => n.id === raizDestinoId);
+  if (!raizDestino || raizDestino.anio !== anioDestino) {
+    return { nuevosNodos: [], copiados: 0 };
+  }
+
+  const anioOrigen = anioDestino - 1;
+  const nombreObjetivo = normalizarNombreNodo(raizDestino.nombre);
+  const raizOrigen = nodos.find(
+    (n) =>
+      !n.parentId &&
+      n.anio === anioOrigen &&
+      normalizarNombreNodo(n.nombre) === nombreObjetivo,
+  );
+  if (!raizOrigen) return { nuevosNodos: [], copiados: 0 };
+
+  // Mapa hijo→padre por id para todo el año origen, para recorrer el subárbol.
+  const hijosPorParent = new Map<string, NodoArbol[]>();
+  for (const n of nodos) {
+    if (n.anio !== anioOrigen) continue;
+    if (!n.parentId) continue;
+    const list = hijosPorParent.get(n.parentId);
+    if (list) list.push(n);
+    else hijosPorParent.set(n.parentId, [n]);
+  }
+
+  const metaRaizOrigen = raizOrigen.metaValor;
+  const metaRaizDestino = raizDestino.metaValor;
+  const puedeDerivarPct =
+    metaRaizOrigen !== undefined && Number.isFinite(metaRaizOrigen) && metaRaizOrigen > 0;
+  const puedePropagar =
+    metaRaizDestino !== undefined && Number.isFinite(metaRaizDestino);
+
+  const idMap = new Map<string, string>();
+  idMap.set(raizOrigen.id, raizDestinoId);
+  const nuevosNodos: NodoArbol[] = [];
+  const ahora = new Date().toISOString();
+
+  // BFS en orden estable (por orden, luego nombre) para que los nuevos `orden`
+  // mantengan la misma secuencia visual que la del año anterior.
+  const queue: NodoArbol[] = [...(hijosPorParent.get(raizOrigen.id) ?? [])];
+  while (queue.length > 0) {
+    const origen = queue.shift()!;
+    const newId = generateId();
+    idMap.set(origen.id, newId);
+
+    let metaPct: number | undefined;
+    if (
+      puedeDerivarPct &&
+      origen.metaValor !== undefined &&
+      Number.isFinite(origen.metaValor)
+    ) {
+      metaPct = (origen.metaValor / (metaRaizOrigen as number)) * 100;
+    }
+    let metaValorNuevo: number | undefined;
+    if (metaPct !== undefined && puedePropagar) {
+      const v = ((metaRaizDestino as number) * metaPct) / 100;
+      metaValorNuevo = Math.round(v * 100) / 100;
+    }
+
+    const newParentId = idMap.get(origen.parentId ?? "") ?? raizDestinoId;
+    const copia: NodoArbol = {
+      id: newId,
+      anio: anioDestino,
+      parentId: newParentId,
+      orden: origen.orden,
+      nombre: origen.nombre,
+      tipo: origen.tipo,
+      cadencia: origen.cadencia,
+      relacionConPadre: origen.relacionConPadre,
+      contadorModo: origen.contadorModo,
+      creado: ahora,
+    };
+    if (origen.descripcion) copia.descripcion = origen.descripcion;
+    if (origen.metaUnidad !== undefined) copia.metaUnidad = origen.metaUnidad;
+    if (metaValorNuevo !== undefined) copia.metaValor = metaValorNuevo;
+    nuevosNodos.push(copia);
+
+    const hijos = hijosPorParent.get(origen.id) ?? [];
+    for (const h of hijos) queue.push(h);
+  }
+
+  return { nuevosNodos, copiados: nuevosNodos.length };
+}
+
 export function metaParaVista(
   cadencia: import("./types").NodoCadencia,
   metaValor: number | undefined,
@@ -1050,11 +1188,11 @@ export function cuotaAjustada(opts: {
   };
 }
 
-/** Hijos directos de `parentId` ordenados por `orden`. */
+/** Hijos directos de `parentId` ordenados por % de la meta del padre, descendente. */
 export function ramasDirectas(nodos: NodoArbol[], parentId: string, anio: number): NodoArbol[] {
-  return nodos
-    .filter((n) => n.anio === anio && n.parentId === parentId)
-    .sort((a, b) => a.orden - b.orden);
+  return ordenarPorPctDesc(
+    nodos.filter((n) => n.anio === anio && n.parentId === parentId),
+  );
 }
 
 /** Devuelve el trimestre `Q1..Q4` que contiene el periodoKey de un mes (`YYYY-MM`). */

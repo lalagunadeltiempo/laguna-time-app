@@ -28,7 +28,8 @@ import { PLAN_CONFIG_DEFAULT, EMPTY_ARBOL } from "./types";
 import { minutosEfectivos } from "./duration";
 import { toDateKey } from "./date-utils";
 import { mesKey, mesesDeTrimestre, mondayKey, trimestreDeMes } from "./semana-utils";
-import { collectSubtreeIds, wouldCreateCycle } from "./arbol-tiempo";
+import { clonarEstructuraDeAnioAnterior, collectSubtreeIds, wouldCreateCycle } from "./arbol-tiempo";
+import { generateId } from "./store";
 
 export type Action =
   | { type: "INIT"; state: AppState }
@@ -161,6 +162,9 @@ export type Action =
     }
   | { type: "DELETE_NODO_ARBOL"; id: string }
   | { type: "MOVE_NODO_ARBOL"; id: string; parentId?: string | null; orden?: number }
+  /** Trae la estructura (ramas + hojas, con sus %) de la raíz equivalente del año
+   *  anterior bajo `raizId`. Si no existe año anterior con la misma raíz, no-op. */
+  | { type: "IMPORT_SUBARBOL_ANIO_ANTERIOR"; raizId: string }
   | { type: "UPSERT_REGISTRO_NODO"; payload: RegistroNodo }
   | { type: "DELETE_REGISTRO_NODO"; id: string }
   /** Mueve todos los registros de fromNodoId a toNodoId (mismo periodoTipo/periodoKey; sin fusionar duplicados). */
@@ -1829,6 +1833,23 @@ export function reducer(state: AppState, action: Action): AppState {
         };
       });
       return { ...state, arbol: { ...arbol, nodos } };
+    }
+
+    case "IMPORT_SUBARBOL_ANIO_ANTERIOR": {
+      const arbol = state.arbol ?? EMPTY_ARBOL;
+      const raiz = arbol.nodos.find((n) => n.id === action.raizId);
+      if (!raiz) return state;
+      const { nuevosNodos, copiados } = clonarEstructuraDeAnioAnterior({
+        nodos: arbol.nodos,
+        anioDestino: raiz.anio,
+        raizDestinoId: raiz.id,
+        generateId,
+      });
+      if (copiados === 0) return state;
+      return {
+        ...state,
+        arbol: { ...arbol, nodos: [...arbol.nodos, ...nuevosNodos] },
+      };
     }
 
     case "UPSERT_REGISTRO_NODO": {
