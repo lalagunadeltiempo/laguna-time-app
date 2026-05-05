@@ -1771,47 +1771,7 @@ export function distribucionTrimestralEfectiva(
   if (faltantes.length === 0 && definidosSum <= 0) {
     return null;
   }
-
-  // Heurísticas defensivas contra `metaPorTrimestre` desincronizado de
-  // `metaValor`. El reducer `UPDATE_META_NODO_RESCALAR_HIJOS` actualiza
-  // `metaValor` pero NO toca `metaPorTrimestre`, así que es fácil que
-  // queden valores antiguos (legacy, importaciones, edición a medio
-  // hacer) que ya no representan la voluntad del usuario. Cuando ese
-  // residuo es claramente "basura" o "obsoleto", preferimos volver al
-  // cálculo derivado de `metaValor` (la única fuente que la usuaria
-  // edita en ANUAL/TRIMESTRAL hoy de forma natural).
-  const metaValor = nodo.metaValor;
-  if (metaValor !== undefined && Number.isFinite(metaValor) && metaValor > 0) {
-    // Lo que terminaría asignándose si respetásemos `metaPorTrimestre`:
-    // los trimestres definidos + el residuo que se prorratearía entre
-    // los faltantes (si lo hay).
-    const residuoProrrateable = faltantes.length > 0 ? Math.max(0, metaValor - definidosSum) : 0;
-    const sumaEfectiva = definidosSum + residuoProrrateable;
-    // (1) Residuo basura: la distribución apenas sumaría nada vs la meta
-    //     anual. Caso típico: `{Q1:1, Q2:1, Q3:1, Q4:1}` con metaValor
-    //     = 9029.45 (placeholder antiguo). 5 % es un umbral conservador:
-    //     si la dist explícita no llega ni a un mes de plan, mejor caer
-    //     al reparto por días laborables de `metaValor`.
-    if (sumaEfectiva < metaValor * 0.05) {
-      return null;
-    }
-    // (2) Distribución obsoleta: TODOS los trimestres están definidos
-    //     (faltantes = []) y la suma se aleja >15 % de `metaValor`. Esto
-    //     pasa cuando la usuaria editó `metaValor` (vía rescalado o
-    //     directamente) y `metaPorTrimestre` quedó stale. Preferimos
-    //     metaValor "vivo". Tolerancia 15 %: deja respirar a planes
-    //     planificados a mano con suma ligeramente distinta (p.ej.
-    //     `{1000,1000,1000,7029}` vs metaValor=9029.45 ⇒ 11 %).
-    if (
-      faltantes.length === 0 &&
-      definidosSum > 0 &&
-      Math.abs(definidosSum - metaValor) / metaValor > 0.15
-    ) {
-      return null;
-    }
-  }
-
-  const residuo = (metaValor ?? 0) - definidosSum;
+  const residuo = (nodo.metaValor ?? 0) - definidosSum;
   if (faltantes.length > 0 && residuo > 0) {
     const pesos = faltantes.map((q) => {
       const diasQ = diasLaborablesEnTrimestre(`${anio}-${q}`, anio, config);

@@ -339,29 +339,13 @@ const TarjetaMes = memo(function TarjetaMes({
             accent={deltaPlan >= 0 ? "good" : "bad"}
           />
         )}
-        {/* AY (año anterior) siempre visible en meses pasados/actuales o
-            cerrados, incluso si no hay datos AY ("—"): la usuaria lo usa
-            como referencia constante para análisis comparativo. En
-            futuros sigue oculta porque comparar el plan futuro con el
-            real del año pasado no aporta a la decisión operativa. */}
-        {(estado !== "futuro" || cerrado) && (
+        {realAY !== undefined && realAY > 0 && (
           <MetricLine
             label={etiquetaAY(periodoKey, year)}
-            value={realAY !== undefined ? `${fmtNum(realAY)} ${unidad}` : "—"}
+            value={`${fmtNum(realAY)} ${unidad}`}
             accent="muted"
           />
         )}
-        {(estado !== "futuro" || cerrado) &&
-          realAY !== undefined &&
-          realAY > 0 &&
-          real > 0 &&
-          mostrarDeltas && (
-            <MetricLine
-              label="Δ vs AY"
-              value={`${fmtNum(real - realAY, { signed: true })} ${unidad}`}
-              accent={real - realAY >= 0 ? "good" : "bad"}
-            />
-          )}
       </div>
 
       {showProgress && (
@@ -481,9 +465,6 @@ function FilaRamaMensual({
     () => realAnioPasadoEnMesIdx(idx, rama.id, periodoKey),
     [idx, rama.id, periodoKey],
   );
-  const estado = estadoPeriodo("mes", periodoKey, year);
-  const mostrarAY = estado !== "futuro";
-  const deltaAY = realAY !== undefined && realAY > 0 && real > 0 ? real - realAY : undefined;
   const existingRama = regsIndex.get(claveRegistro(rama.id, "mes", periodoKey));
 
   // Persistir abierto/cerrado por (año, rama, mes) en localStorage para que
@@ -512,26 +493,10 @@ function FilaRamaMensual({
               <span>
                 Real: <strong className="text-foreground">{fmtNum(real)} {unidad}</strong>
               </span>
-              {/* AY siempre visible en meses pasados/actuales para análisis
-                  comparativo, con "—" cuando no hay histórico. */}
-              {mostrarAY && (
+              {realAY !== undefined && realAY > 0 && (
                 <span>
                   {etiquetaAY(periodoKey, year)}:{" "}
-                  <strong className="text-foreground">
-                    {realAY !== undefined ? `${fmtNum(realAY)} ${unidad}` : "—"}
-                  </strong>
-                </span>
-              )}
-              {mostrarAY && deltaAY !== undefined && (
-                <span
-                  className={
-                    deltaAY >= 0 ? "text-emerald-600 dark:text-emerald-300" : "text-rose-600 dark:text-rose-300"
-                  }
-                >
-                  Δ AY:{" "}
-                  <strong>
-                    {fmtNum(deltaAY, { signed: true })} {unidad}
-                  </strong>
+                  <strong className="text-foreground">{fmtNum(realAY)} {unidad}</strong>
                 </span>
               )}
             </span>
@@ -590,9 +555,6 @@ function FilaHojaMensual({
   const plan = planAgregadoEnPeriodoIdx(idx, hoja, "mes", periodoKey, config);
   const real = realEfectivoEnPeriodoIdx(idx, hoja.id, "mes", periodoKey);
   const realAY = realAnioPasadoEnMesIdx(idx, hoja.id, periodoKey);
-  const estado = estadoPeriodo("mes", periodoKey, year);
-  const mostrarAY = estado !== "futuro";
-  const deltaAY = realAY !== undefined && realAY > 0 && real > 0 ? real - realAY : undefined;
   const existing = regsIndex.get(claveRegistro(hoja.id, "mes", periodoKey));
   const pistaEntregables = useMemo(() => {
     const ids = hoja.entregableIds ?? [];
@@ -630,24 +592,10 @@ function FilaHojaMensual({
           <span>
             Real: <strong className="text-foreground">{fmtNum(real)} {unidad}</strong>
           </span>
-          {mostrarAY && (
+          {realAY !== undefined && realAY > 0 && (
             <span>
               {etiquetaAY(periodoKey, year)}:{" "}
-              <strong className="text-foreground">
-                {realAY !== undefined ? `${fmtNum(realAY)} ${unidad}` : "—"}
-              </strong>
-            </span>
-          )}
-          {mostrarAY && deltaAY !== undefined && (
-            <span
-              className={
-                deltaAY >= 0 ? "text-emerald-600 dark:text-emerald-300" : "text-rose-600 dark:text-rose-300"
-              }
-            >
-              Δ AY:{" "}
-              <strong>
-                {fmtNum(deltaAY, { signed: true })} {unidad}
-              </strong>
+              <strong className="text-foreground">{fmtNum(realAY)} {unidad}</strong>
             </span>
           )}
         </span>
