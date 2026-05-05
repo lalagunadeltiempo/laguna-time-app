@@ -216,6 +216,59 @@ describe("merge árbol · preferNodoLWW", () => {
     expect((out.entregableIds ?? []).sort()).toEqual(["e1", "e2"]);
   });
 
+  it("tombstone de entregableHojaLinks SOBREVIVE a un merge contra un cliente sin tombstone (Bloque 3)", () => {
+    // Mac A acaba de borrar el vínculo (tiene tombstone reciente). Mac B
+    // tiene una copia antigua con el vínculo y sin tombstone.
+    const macA = makeNodo("hoja", {
+      entregableIds: [], // ya borrada localmente
+      actualizado: "2026-05-06T10:00:00.000Z",
+    });
+    const macB = makeNodo("hoja", {
+      entregableIds: ["e1"],
+      actualizado: "2026-05-05T09:00:00.000Z",
+    });
+    const sa = baseState([macA], {
+      deleted: {
+        proyectos: [], resultados: [], entregables: [], pasos: [], plantillas: [],
+        notas: [], mensajes: [], implicados: [], arbolNodos: [], arbolRegistros: [],
+        entregableHojaLinks: { "hoja::e1": "2026-05-06T10:00:00.000Z" },
+      },
+    });
+    const sb = baseState([macB]);
+    // El merge en cualquier orden conserva el borrado y el tombstone.
+    for (const merged of [mergeStates(sa, sb), mergeStates(sb, sa)]) {
+      const out = merged.arbol.nodos.find((n) => n.id === "hoja")!;
+      expect(out.entregableIds ?? []).not.toContain("e1");
+      expect(merged.deleted?.entregableHojaLinks?.["hoja::e1"]).toBe("2026-05-06T10:00:00.000Z");
+    }
+  });
+
+  it("re-vincular después de borrar: el `actualizado` reciente del nodo gana al tombstone viejo", () => {
+    // Mac A: borró ayer (tombstone 5/5) y NO ha vuelto a vincular.
+    // Mac B: acaba de re-vincular hoy (actualizado 6/5) → su nodo tiene e1.
+    const macA = makeNodo("hoja", {
+      entregableIds: [],
+      actualizado: "2026-05-05T10:00:00.000Z",
+    });
+    const macB = makeNodo("hoja", {
+      entregableIds: ["e1"],
+      actualizado: "2026-05-06T11:00:00.000Z",
+    });
+    const sa = baseState([macA], {
+      deleted: {
+        proyectos: [], resultados: [], entregables: [], pasos: [], plantillas: [],
+        notas: [], mensajes: [], implicados: [], arbolNodos: [], arbolRegistros: [],
+        entregableHojaLinks: { "hoja::e1": "2026-05-05T10:00:00.000Z" },
+      },
+    });
+    const sb = baseState([macB]);
+    const merged = mergeStates(sa, sb);
+    const out = merged.arbol.nodos.find((n) => n.id === "hoja")!;
+    // El nodo ganador (B) tiene `actualizado` posterior al tombstone:
+    // el filtrado deja pasar `e1`.
+    expect(out.entregableIds).toEqual(["e1"]);
+  });
+
   it("registros del árbol: LWW por `actualizado` (cubre §2 del audit)", () => {
     const r1A: import("./types").RegistroNodo = {
       id: "r-1", nodoId: "n-1", periodoTipo: "mes", periodoKey: "2026-05",

@@ -189,4 +189,33 @@ describe("Reducer árbol-entregables", () => {
     });
     expect(unlinked.arbol.nodos[0].actualizado).toBe("2026-06-01T10:05:00.000Z");
   });
+
+  it("UNLINK_ENTREGABLE_HOJA escribe tombstone en deleted.entregableHojaLinks", () => {
+    const hoja = { ...makeNodo("hoja-1", 2026, "rama-1", "Hoja 1"), entregableIds: ["ent-1"] };
+    const state = baseState({ arbol: { ...EMPTY_ARBOL, nodos: [hoja] } });
+    const next = reducer(state, {
+      type: "UNLINK_ENTREGABLE_HOJA",
+      entregableId: "ent-1",
+      hojaId: "hoja-1",
+    });
+    expect(next.deleted?.entregableHojaLinks?.["hoja-1::ent-1"]).toBe("2026-06-01T10:00:00.000Z");
+  });
+
+  it("SET_HOJAS_DE_ENTREGABLE escribe tombstones SOLO para las hojas que pierden el vínculo", () => {
+    const raiz = makeNodo("raiz-2026", 2026, undefined, "Objetivo 2026");
+    const rama = makeNodo("rama-1", 2026, "raiz-2026", "Rama 1");
+    const hojaA = { ...makeNodo("hoja-a", 2026, "rama-1", "Hoja A"), entregableIds: ["ent-1"] };
+    const hojaB = makeNodo("hoja-b", 2026, "rama-1", "Hoja B");
+    const state = baseState({ arbol: { ...EMPTY_ARBOL, nodos: [raiz, rama, hojaA, hojaB] } });
+    const next = reducer(state, {
+      type: "SET_HOJAS_DE_ENTREGABLE",
+      entregableId: "ent-1",
+      hojaIds: ["hoja-b"],
+      anio: 2026,
+    });
+    // hoja-a perdió el vínculo → tombstone presente.
+    expect(next.deleted?.entregableHojaLinks?.["hoja-a::ent-1"]).toBe("2026-06-01T10:00:00.000Z");
+    // hoja-b ganó el vínculo → no debe haber tombstone para ella.
+    expect(next.deleted?.entregableHojaLinks?.["hoja-b::ent-1"]).toBeUndefined();
+  });
 });

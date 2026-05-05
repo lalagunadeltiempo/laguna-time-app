@@ -383,6 +383,30 @@ function addTombstones(
   return result;
 }
 
+/** Clave canónica del tombstone de relación MAPA→Árbol (entregable ↔ hoja).
+ *  El merge filtra las relaciones cuyo tombstone tiene ts >= `nodo.actualizado`. */
+export function tombstoneEntregableHojaKey(hojaId: string, entregableId: string): string {
+  return `${hojaId}::${entregableId}`;
+}
+
+/** Añade tombstones LWW para vínculos MAPA→Árbol borrados. Las claves
+ *  ya existentes se sobreescriben con el ts más reciente (los tombstones
+ *  nuevos tienen ts >= los anteriores: si volviste a romper la misma
+ *  relación es porque la habías reenlazado en medio). */
+function addEntregableHojaLinkTombstones(
+  existing: DeletedTombstones | undefined,
+  pares: { hojaId: string; entregableId: string }[],
+  ts: string,
+): DeletedTombstones {
+  const base = { ...EMPTY_DELETED, ...(existing ?? {}) };
+  if (pares.length === 0) return base;
+  const links: Record<string, string> = { ...(base.entregableHojaLinks ?? {}) };
+  for (const { hojaId, entregableId } of pares) {
+    links[tombstoneEntregableHojaKey(hojaId, entregableId)] = ts;
+  }
+  return { ...base, entregableHojaLinks: links };
+}
+
 function autoTransitionToEnMarcha(s: AppState, entregableId: string): AppState {
   const ent = s.entregables.find((e) => e.id === entregableId);
   if (!ent) return s;
@@ -1962,7 +1986,14 @@ export function reducer(state: AppState, action: Action): AppState {
         return { ...n, entregableIds: nextEntregableIds, actualizado: now };
       });
       if (!changed) return state;
-      return { ...state, arbol: { ...arbol, nodos } };
+      // Tombstone para que un cliente con copia antigua (que aún tiene
+      // este vínculo en `entregableIds`) no lo resucite al unir.
+      const deleted = addEntregableHojaLinkTombstones(
+        state.deleted,
+        [{ hojaId: action.hojaId, entregableId: action.entregableId }],
+        now,
+      );
+      return { ...state, arbol: { ...arbol, nodos }, deleted };
     }
 
     case "SET_HOJAS_DE_ENTREGABLE": {
@@ -1984,6 +2015,7 @@ export function reducer(state: AppState, action: Action): AppState {
       const seleccion = new Set(action.hojaIds);
       const now = new Date().toISOString();
       let changed = false;
+      const tombstonesAAnadir: { hojaId: string; entregableId: string }[] = [];
       const nodos = arbol.nodos.map((n) => {
         if (!hojaIdsYear.has(n.id)) return n;
         const tiene = (n.entregableIds ?? []).includes(action.entregableId);
@@ -1993,10 +2025,19 @@ export function reducer(state: AppState, action: Action): AppState {
           ? addEntregableId(n.entregableIds, action.entregableId)
           : removeEntregableId(n.entregableIds, action.entregableId);
         changed = true;
+        // Si la hoja deja de tener este entregable (`tiene && !debeTener`),
+        // añadimos tombstone. El caso opuesto (alta) NO requiere
+        // tombstone — al re-vincular, `actualizado` del nodo será > que
+        // el ts del posible tombstone previo, así que el merge lo
+        // respeta automáticamente (ver `preferNodoLWW`).
+        if (tiene && !debeTener) {
+          tombstonesAAnadir.push({ hojaId: n.id, entregableId: action.entregableId });
+        }
         return { ...n, entregableIds: nextEntregableIds, actualizado: now };
       });
       if (!changed) return state;
-      return { ...state, arbol: { ...arbol, nodos } };
+      const deleted = addEntregableHojaLinkTombstones(state.deleted, tombstonesAAnadir, now);
+      return { ...state, arbol: { ...arbol, nodos }, deleted };
     }
 
     case "MOVE_NODO_ARBOL": {
