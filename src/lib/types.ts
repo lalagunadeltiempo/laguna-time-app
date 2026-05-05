@@ -458,6 +458,15 @@ export interface NodoArbol {
   entregableIds?: string[];
   contadorModo: "manual" | "derivado";
   creado: string;
+  /**
+   * ISO timestamp de la última modificación de cualquier campo del nodo
+   * (nombre, metaValor, metaPorTrimestre, entregableIds, etc). Lo rellena
+   * el reducer en TODAS las acciones que mutan o crean un nodo, y lo usa
+   * `preferNodoLWW` (ver `merge.ts`) como criterio Last-Write-Wins entre
+   * dos copias del mismo nodo viniendo de clientes distintos. Sin este
+   * campo el merge degrada a una unión campo-a-campo conservadora que
+   * intenta NO sobrescribir valores definidos con `undefined`.
+   */
   actualizado?: string;
 }
 
@@ -599,6 +608,15 @@ export interface DeletedTombstones {
    *  en `implicados[].nombre`). Evita que el merge con otro cliente —que
    *  todavía tiene al implicado en su copia— lo resucite. */
   implicados?: string[];
+  /**
+   * Tombstones LWW para vínculos MAPA→Árbol (relación entregable ↔ hoja
+   * del árbol). La clave es `"${hojaId}::${entregableId}"` y el valor es
+   * el ts ISO del momento en que se rompió la relación. Sin esto, una
+   * vez `entregableIds` deja de ser autoritativo (porque el merge unifica
+   * IDs) un cliente que aún no había sincronizado el borrado resucitaba
+   * el vínculo. El merge usa estos tombstones para filtrar relaciones
+   * con marca posterior al `actualizado` del nodo. */
+  entregableHojaLinks?: Record<string, string>;
 }
 
 export interface AppState {

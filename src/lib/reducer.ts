@@ -1863,16 +1863,25 @@ export function reducer(state: AppState, action: Action): AppState {
 
     case "ADD_NODO_ARBOL": {
       const arbol = state.arbol ?? EMPTY_ARBOL;
-      return { ...state, arbol: { ...arbol, nodos: [...arbol.nodos, action.payload] } };
+      const now = new Date().toISOString();
+      // Marcamos `actualizado` también al crear: el merge LWW por nodo
+      // (ver `preferNodoLWW` en merge.ts) lo usa para decidir el ganador
+      // si dos clientes acaban con el mismo id (caso raro pero posible
+      // tras restauraciones manuales o imports cruzados).
+      const payload: NodoArbol = { ...action.payload, actualizado: action.payload.actualizado ?? now };
+      return { ...state, arbol: { ...arbol, nodos: [...arbol.nodos, payload] } };
     }
 
     case "UPDATE_NODO_ARBOL": {
       const arbol = state.arbol ?? EMPTY_ARBOL;
+      const now = new Date().toISOString();
       return {
         ...state,
         arbol: {
           ...arbol,
-          nodos: arbol.nodos.map((n) => (n.id === action.id ? { ...n, ...action.changes } : n)),
+          nodos: arbol.nodos.map((n) =>
+            n.id === action.id ? { ...n, ...action.changes, actualizado: now } : n,
+          ),
         },
       };
     }
@@ -1881,6 +1890,7 @@ export function reducer(state: AppState, action: Action): AppState {
       const arbol = state.arbol ?? EMPTY_ARBOL;
       const nodo = arbol.nodos.find((n) => n.id === action.id);
       if (!nodo) return state;
+      const now = new Date().toISOString();
       // Si se borra la meta (undefined) o no es finita, no hay base para
       // reescalar: actualizamos sólo el nodo y dejamos a los hijos como
       // estén (seguirá saliendo el avisito de "te pasas/te faltan" si
@@ -1893,9 +1903,12 @@ export function reducer(state: AppState, action: Action): AppState {
               nuevaMetaRoot: action.metaValor,
             })
           : new Map<string, number>();
+      // Todos los nodos tocados (root + hijos reescalados) reciben el mismo
+      // ts `actualizado` para que el merge LWW sepa que estos valores son
+      // posteriores a cualquier copia previa en cloud.
       const nodos = arbol.nodos.map((n) => {
-        if (n.id === action.id) return { ...n, metaValor: action.metaValor };
-        if (cambios.has(n.id)) return { ...n, metaValor: cambios.get(n.id) };
+        if (n.id === action.id) return { ...n, metaValor: action.metaValor, actualizado: now };
+        if (cambios.has(n.id)) return { ...n, metaValor: cambios.get(n.id), actualizado: now };
         return n;
       });
       return { ...state, arbol: { ...arbol, nodos } };
@@ -1988,12 +2001,14 @@ export function reducer(state: AppState, action: Action): AppState {
       const newParent =
         action.parentId === undefined ? node.parentId : action.parentId === null ? undefined : action.parentId;
       if (wouldCreateCycle(arbol.nodos, action.id, newParent)) return state;
+      const now = new Date().toISOString();
       const nodos = arbol.nodos.map((n) => {
         if (n.id !== action.id) return n;
         return {
           ...n,
           parentId: newParent,
           orden: action.orden !== undefined ? action.orden : n.orden,
+          actualizado: now,
         };
       });
       return { ...state, arbol: { ...arbol, nodos } };
@@ -2012,9 +2027,16 @@ export function reducer(state: AppState, action: Action): AppState {
         registros: action.modo === "real" ? arbol.registros : undefined,
       });
       if (copiados === 0) return state;
+      // Sellamos `actualizado` en cada nodo recién clonado: sin esto,
+      // un merge contra cloud donde el mismo `id` no existía pero un
+      // empate hipotético prefiriese la copia "antigua" (legacy fallback)
+      // perdería la importación. `clonarEstructuraDeAnioAnterior` vive
+      // en `arbol-tiempo.ts` y no añade el campo por contrato.
+      const now = new Date().toISOString();
+      const nuevosConTs: NodoArbol[] = nuevosNodos.map((n) => ({ ...n, actualizado: now }));
       return {
         ...state,
-        arbol: { ...arbol, nodos: [...arbol.nodos, ...nuevosNodos] },
+        arbol: { ...arbol, nodos: [...arbol.nodos, ...nuevosConTs] },
       };
     }
 
