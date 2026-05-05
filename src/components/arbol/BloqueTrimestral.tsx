@@ -18,6 +18,7 @@ import type { NodoArbol, PlanArbolConfigAnio, TrimestreKey } from "@/lib/types";
 import {
   estadoPeriodo,
   hijosSumaDirectosIdx,
+  mesesCerradosSet,
   metaParaNodoEnPeriodo,
   planAgregadoEnPeriodoIdx,
   realEfectivoEnPeriodoIdx,
@@ -53,10 +54,7 @@ export function BloqueTrimestral({ raiz, ramas, idx, config, year, unidad }: Blo
     }
     return m;
   }, [idx, raiz.id, year]);
-  const mesesCerrados = useMemo(
-    () => new Set(config?.mesesCerrados ?? []),
-    [config?.mesesCerrados],
-  );
+  const mesesCerrados = useMemo(() => mesesCerradosSet(config), [config]);
   // Replan por trimestre: cada Q ajusta lo que queda asumiendo "cumple plan"
   // los meses anteriores que aún no estén cerrados. Funciona igual para
   // años pasados, actual y futuros.
@@ -175,8 +173,12 @@ const TarjetaTrimestre = memo(function TarjetaTrimestre({
 
       <div className="mt-3 space-y-1 border-t border-border/50 pt-2">
         <MetricLine label="Plan" value={plan !== undefined ? `${fmtNum(plan)} ${unidad}` : "—"} accent="muted" />
-        {!qCerrado && replan !== undefined && plan !== undefined && Math.abs(replan - plan) >= 1 && (
-          <MetricLine label="Replan sugerido" value={`${fmtNum(replan)} ${unidad}`} accent="muted" />
+        {replan !== undefined && plan !== undefined && Math.abs(replan - plan) >= 1 && (
+          <MetricLine
+            label={qCerrado ? "Replan que tocaba" : "Replan sugerido"}
+            value={`${fmtNum(replan)} ${unidad}`}
+            accent="muted"
+          />
         )}
         <MetricLine
           label="Real"

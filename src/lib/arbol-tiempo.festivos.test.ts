@@ -4,6 +4,7 @@ import {
   defaultSemanasNoActivas,
   diasLaborablesEnAnio,
   diasLaborablesEnMes,
+  easterVacationMonday,
   metaParaPeriodo,
 } from "./arbol-tiempo";
 
@@ -47,5 +48,22 @@ describe("plan por días laborables (festivos ES)", () => {
     const soloNacional = diasLaborablesEnAnio(2026, config2026);
     const conMadrid = diasLaborablesEnAnio(2026, { ...config2026, comunidadAutonoma: "MD" });
     expect(conMadrid).toBeLessThanOrEqual(soloNacional);
+  });
+});
+
+describe("defaults: Semana Santa", () => {
+  it("Pascua 2025 fue el 20-abr → lunes ISO 2025-04-14", () => {
+    expect(easterVacationMonday(2025)).toBe("2025-04-14");
+    expect(defaultSemanasNoActivas(2025)).toContain("2025-04-14");
+  });
+
+  it("Pascua 2026 cae el 5-abr → lunes ISO 2026-03-30", () => {
+    expect(easterVacationMonday(2026)).toBe("2026-03-30");
+    expect(defaultSemanasNoActivas(2026)).toContain("2026-03-30");
+  });
+
+  it("Pascua 2027 cae el 28-mar → lunes ISO 2027-03-22", () => {
+    expect(easterVacationMonday(2027)).toBe("2027-03-22");
+    expect(defaultSemanasNoActivas(2027)).toContain("2027-03-22");
   });
 });

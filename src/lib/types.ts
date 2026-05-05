@@ -484,13 +484,37 @@ export interface PlanArbolConfigAnio {
    */
   comunidadAutonoma?: string;
   /**
-   * Meses (`YYYY-MM`) que el usuario ha cerrado explícitamente (declarado
-   * "ya no apuntaré más aquí"). Se usa para el cálculo de Replan:
-   *  - Cerrado: cuenta el real (incluso si es 0) en el acumulado previo.
-   *  - Abierto: se asume que cumple plan lineal en el acumulado previo, para
-   *    que un mes sin apunte aún no penalice el replan de los siguientes.
+   * @deprecated Usar `mesesCerradosTs`. Se mantiene como fallback de
+   *  lectura para datos anteriores a la migración 22. La migración la
+   *  vacía: una vez migrado el cliente, `mesesCerrados` deja de ser
+   *  consultado; lectores nuevos hacen fallback aquí solo si llega un
+   *  estado pre-migración (p. ej. push antiguo del backend).
    */
   mesesCerrados?: string[];
+  /**
+   * Meses (`YYYY-MM`) cerrados con timestamp de la última operación
+   * (cierre/reapertura). Se usa para LWW en el merge:
+   *  - Si la entrada existe → mes cerrado.
+   *  - Si la entrada no existe → mes abierto.
+   *  - Al mergear configs entre clientes, gana el ts más reciente por
+   *    mesKey, lo que permite que reabrir desde un cliente se propague
+   *    al otro aunque la nube todavía tenga el cierre antiguo.
+   *
+   * Semántica del cálculo de Replan:
+   *  - Cerrado: cuenta el real (incluso si es 0) en el acumulado previo.
+   *  - Abierto: se asume que cumple plan lineal en el acumulado previo,
+   *    para que un mes sin apunte aún no penalice el replan de los
+   *    siguientes.
+   */
+  mesesCerradosTs?: Record<string, string>;
+  /**
+   * Tombstones LWW de reaperturas: `YYYY-MM` -> ts ISO del momento en
+   * que se reabrió. Necesario para que un cierre antiguo en la nube no
+   * resucite tras un pull (la unión simple no podía expresar
+   * eliminaciones). Si para un `mesKey` el ts de apertura es mayor que
+   * el de cierre, el mes queda abierto en el merge.
+   */
+  mesesAbiertosTs?: Record<string, string>;
 }
 
 /** Reflexión guardada al cierre de un trimestre. */

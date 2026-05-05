@@ -5,7 +5,11 @@ import { useEffect, useMemo, useState } from "react";
 import { useAppDispatch, useAppState } from "@/lib/context";
 import { useIsMentor, usePuedeVerArbol } from "@/lib/usuario";
 import { generateId } from "@/lib/store";
-import { defaultSemanasNoActivas, ensureConfigAnio } from "@/lib/arbol-tiempo";
+import {
+  DEFAULT_COMUNIDAD_AUTONOMA,
+  defaultSemanasNoActivas,
+  ensureConfigAnio,
+} from "@/lib/arbol-tiempo";
 import { EMPTY_ARBOL, type NodoArbol } from "@/lib/types";
 import { VacacionesEditor } from "@/components/arbol/VacacionesEditor";
 
@@ -109,7 +113,11 @@ export function PantallaArbolObjetivos() {
     if (!arbol.configs.some((c) => c.anio === year)) {
       dispatch({
         type: "SET_ARBOL_CONFIG_ANIO",
-        config: { anio: year, semanasNoActivas: defaultSemanasNoActivas(year) },
+        config: {
+          anio: year,
+          semanasNoActivas: defaultSemanasNoActivas(year),
+          comunidadAutonoma: DEFAULT_COMUNIDAD_AUTONOMA,
+        },
       });
     }
   }, [year, arbol.configs, dispatch]);

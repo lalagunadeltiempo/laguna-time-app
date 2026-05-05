@@ -22,9 +22,33 @@ import {
   metaEfectivaNodoIdx,
   normalizarNombreNodo,
   realAnioPasadoAgregadoIdx,
+  realEfectivoEnPeriodoIdx,
   type ArbolIndices,
 } from "@/lib/arbol-tiempo";
 import { NumberInput, PercentInput, fmtNum } from "./arbol-comunes";
+
+/**
+ * Barra fina (real / meta). Verde si llega al 100%, accent en cualquier
+ * otro caso. Mismo patrón visual que en BloqueMensual para que el cerebro
+ * entienda "esto mide lo que llevo".
+ */
+function BarraReal({ real, meta }: { real: number; meta: number | undefined }) {
+  if (!meta || meta <= 0) return null;
+  const pct = Math.max(0, Math.min(100, (real / meta) * 100));
+  return (
+    <div className="mt-2 flex items-center gap-2" aria-hidden>
+      <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-surface">
+        <div
+          className={`h-full rounded-full transition-all ${pct >= 100 ? "bg-emerald-500" : "bg-accent"}`}
+          style={{ width: `${pct}%` }}
+        />
+      </div>
+      <span className="shrink-0 text-[10px] tabular-nums text-muted">
+        {pct.toFixed(0)}%
+      </span>
+    </div>
+  );
+}
 
 interface BloqueAnualProps {
   raiz: NodoArbol;
@@ -47,6 +71,12 @@ export function BloqueAnual({ raiz, ramas, nodos, registros, idx, year, unidad }
         .filter((r) => r.relacionConPadre === "suma")
         .reduce((acc, r) => acc + (metaEfectivaNodoIdx(idx, r) ?? 0), 0),
     [ramas, idx],
+  );
+  // Real anual (suma de todos los registros del año bajo la raíz). Se usa
+  // para la barra de avance YTD que vive solo aquí, en la vista anual.
+  const realRaiz = useMemo(
+    () => realEfectivoEnPeriodoIdx(idx, raiz.id, "anio", String(year)),
+    [idx, raiz.id, year],
   );
   const diffRamas = metaAnual > 0 ? planRamasSuma - metaAnual : 0;
   const cuadreRamasOk = metaAnual === 0 || Math.abs(diffRamas) < 0.01;
@@ -88,6 +118,14 @@ export function BloqueAnual({ raiz, ramas, nodos, registros, idx, year, unidad }
                 {metaAnual > 0 ? `${fmtNum(metaAnual)} ${unidad}` : "—"}
               </strong>
             </span>
+            {metaAnual > 0 && (
+              <span>
+                Real YTD:{" "}
+                <strong className="tabular-nums text-foreground">
+                  {fmtNum(realRaiz)} {unidad}
+                </strong>
+              </span>
+            )}
             <span>
               Ramas suman:{" "}
               <strong
@@ -107,6 +145,7 @@ export function BloqueAnual({ raiz, ramas, nodos, registros, idx, year, unidad }
             </span>
           </div>
         </div>
+        <BarraReal real={realRaiz} meta={metaAnual} />
       </summary>
 
       <div className="space-y-3 border-t border-border/60 p-4">
@@ -264,6 +303,10 @@ function FilaRamaEditable({
   const pctTotal =
     metaAnual > 0 && metaEffRama !== undefined ? (metaEffRama / metaAnual) * 100 : undefined;
   const planeadaOk = metaPlaneada !== undefined && metaPlaneada > 0;
+  const realRama = useMemo(
+    () => realEfectivoEnPeriodoIdx(idx, rama.id, "anio", String(year)),
+    [idx, rama.id, year],
+  );
 
   // Suma de hojas vs meta planeada de la rama (para el avisito de cuadre).
   const sumaHojasEff = useMemo(
@@ -332,8 +375,17 @@ function FilaRamaEditable({
                 <span className="text-muted"> del total</span>
               </>
             )}
+            {metaEffRama !== undefined && metaEffRama > 0 && (
+              <>
+                {" · Real:"}{" "}
+                <strong className="tabular-nums text-foreground">
+                  {fmtNum(realRama)} {unidad}
+                </strong>
+              </>
+            )}
           </span>
         </div>
+        <BarraReal real={realRama} meta={metaEffRama} />
       </summary>
 
       <div className="space-y-3 border-t border-border/50 px-3 py-3">
@@ -498,12 +550,25 @@ function FilaHojaEditable({
       ? (hoja.metaValor / metaPlaneadaRama!) * 100
       : undefined;
   const ayHoja = realAnioPasadoAgregadoIdx(idx, hoja.id, "anio", String(year));
+  const realHoja = useMemo(
+    () => realEfectivoEnPeriodoIdx(idx, hoja.id, "anio", String(year)),
+    [idx, hoja.id, year],
+  );
 
   return (
     <div className="rounded border border-border/50 bg-background/60 p-2">
       <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
         <span className="text-[12px] font-medium text-foreground">{hoja.nombre}</span>
         <span className="text-[10px] text-muted">
+          {hoja.metaValor !== undefined && hoja.metaValor > 0 && (
+            <>
+              Real:{" "}
+              <strong className="tabular-nums text-foreground">
+                {fmtNum(realHoja)} {unidad}
+              </strong>
+              {" · "}
+            </>
+          )}
           {ayHoja !== undefined && (
             <>
               AY {year - 1}:{" "}
@@ -514,6 +579,7 @@ function FilaHojaEditable({
           )}
         </span>
       </div>
+      <BarraReal real={realHoja} meta={hoja.metaValor} />
       <div className="grid grid-cols-1 gap-2 sm:grid-cols-4">
         <label className="flex flex-col gap-1 text-[11px] text-muted">
           Nombre

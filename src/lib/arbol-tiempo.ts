@@ -535,19 +535,77 @@ export function christmasVacationMondays(year: number): string[] {
   return [toMondayDateKeyLocal(m1), toMondayDateKeyLocal(m2)];
 }
 
-/** Agosto completo + dos semanas de Navidad (lunes ISO). */
+/**
+ * Domingo de Pascua (Computus, algoritmo "Anonymous"/Meeus 1990). Devuelve
+ * la fecha local del año `year`. Cubre rangos válidos del calendario
+ * gregoriano sin depender de librerías externas.
+ */
+function easterSunday(year: number): Date {
+  const a = year % 19;
+  const b = Math.floor(year / 100);
+  const c = year % 100;
+  const d = Math.floor(b / 4);
+  const e = b % 4;
+  const f = Math.floor((b + 8) / 25);
+  const g = Math.floor((b - f + 1) / 3);
+  const h = (19 * a + b - d - g + 15) % 30;
+  const i = Math.floor(c / 4);
+  const k = c % 4;
+  const l = (32 + 2 * e + 2 * i - h - k) % 7;
+  const m = Math.floor((a + 11 * h + 22 * l) / 451);
+  const month = Math.floor((h + l - 7 * m + 114) / 31); // 3 = March, 4 = April
+  const day = ((h + l - 7 * m + 114) % 31) + 1;
+  return new Date(year, month - 1, day);
+}
+
+/**
+ * Lunes ISO de la semana que contiene el Domingo de Pascua (Semana Santa).
+ * Por defecto es la semana de descanso típica en España: Lunes Santo,
+ * Jueves Santo, Viernes Santo y Domingo de Resurrección viven en ella.
+ */
+export function easterVacationMonday(year: number): string {
+  const sunday = easterSunday(year);
+  return toMondayDateKeyLocal(sunday);
+}
+
+/** Agosto completo + dos semanas de Navidad + una semana de Semana Santa (lunes ISO). */
 export function defaultSemanasNoActivas(anio: number): string[] {
   const set = new Set<string>();
   for (const mk of mondaysInCalendarYear(anio)) {
     if (weekTouchesAugust(mk, anio)) set.add(mk);
   }
   for (const mk of christmasVacationMondays(anio)) set.add(mk);
+  set.add(easterVacationMonday(anio));
   return [...set].sort();
 }
 
+/** Comunidad autónoma por defecto cuando se crea una config nueva (date-holidays). */
+export const DEFAULT_COMUNIDAD_AUTONOMA = "MD";
+
 export function ensureConfigAnio(configs: PlanArbolConfigAnio[], anio: number): PlanArbolConfigAnio[] {
   if (configs.some((c) => c.anio === anio)) return configs;
-  return [...configs, { anio, semanasNoActivas: defaultSemanasNoActivas(anio) }].sort((a, b) => a.anio - b.anio);
+  return [
+    ...configs,
+    {
+      anio,
+      semanasNoActivas: defaultSemanasNoActivas(anio),
+      comunidadAutonoma: DEFAULT_COMUNIDAD_AUTONOMA,
+    },
+  ].sort((a, b) => a.anio - b.anio);
+}
+
+/**
+ * Set de meses cerrados leyendo `mesesCerradosTs` (modelo nuevo) y, como
+ * fallback de compatibilidad, `mesesCerrados` (modelo legacy pre-migración 22).
+ * Centraliza la lectura para que ningún componente trate los dos campos
+ * por su cuenta.
+ */
+export function mesesCerradosSet(config: PlanArbolConfigAnio | undefined): Set<string> {
+  if (!config) return new Set();
+  if (config.mesesCerradosTs && Object.keys(config.mesesCerradosTs).length > 0) {
+    return new Set(Object.keys(config.mesesCerradosTs));
+  }
+  return new Set(config.mesesCerrados ?? []);
 }
 
 export function semanasActivasCount(anio: number, config: PlanArbolConfigAnio | undefined): number {

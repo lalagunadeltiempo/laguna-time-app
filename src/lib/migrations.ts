@@ -1,13 +1,13 @@
 import type { Action } from "./reducer";
 import type { AppState } from "./types";
 import { EMPTY_ARBOL } from "./types";
-import { defaultSemanasNoActivas } from "./arbol-tiempo";
+import { DEFAULT_COMUNIDAD_AUTONOMA, defaultSemanasNoActivas } from "./arbol-tiempo";
 import { buildSeedSOPs } from "./seed-sops";
 import { buildPersonalSeedData } from "./seed-personal";
 import { buildEmpresaSeedProyectos } from "./seed-proyectos-empresa";
 import { mondayKey, mesKey, mesesDeTrimestre } from "./semana-utils";
 
-export const CURRENT_MIGRATION = 21;
+export const CURRENT_MIGRATION = 22;
 
 type Dispatch = (action: Action) => void;
 
@@ -59,8 +59,48 @@ export function runMigrations(state: AppState, dispatch: Dispatch): void {
     migrateArbolDriversV21(state, dispatch);
   }
 
+  if (version < 22) {
+    migrateArbolMesesCerradosTs(state, dispatch);
+  }
+
   if (version < CURRENT_MIGRATION) {
     dispatch({ type: "SET_MIGRATION_VERSION", version: CURRENT_MIGRATION });
+  }
+}
+
+/**
+ * Migración v22: cierre de mes a LWW por mes.
+ *  - `mesesCerrados: string[]` (legacy) → `mesesCerradosTs: Record<mesKey, ts>`
+ *    asignando un timestamp epoch (`1970-01-01T00:00:00.000Z`) a cada cierre
+ *    existente. Cualquier toggle posterior gana en LWW por ser más reciente.
+ *  - Vacía el campo legacy en el estado. Los lectores siguen aceptándolo
+ *    como fallback para datos pre-migración que llegan por la nube.
+ */
+function migrateArbolMesesCerradosTs(state: AppState, dispatch: Dispatch): void {
+  const base = state.arbol ?? EMPTY_ARBOL;
+  const epoch = "1970-01-01T00:00:00.000Z";
+  let changed = false;
+  const configs = base.configs.map((c) => {
+    const legacy = c.mesesCerrados ?? [];
+    const yaTs = c.mesesCerradosTs ?? {};
+    if (legacy.length === 0) return c;
+    const ts: Record<string, string> = { ...yaTs };
+    for (const mk of legacy) {
+      if (!ts[mk]) ts[mk] = epoch;
+    }
+    changed = true;
+    const next: typeof c = {
+      ...c,
+      mesesCerradosTs: Object.keys(ts).length > 0 ? ts : undefined,
+      mesesCerrados: undefined,
+    };
+    return next;
+  });
+  if (changed) {
+    dispatch({
+      type: "REPLACE_ARBOL_STATE",
+      arbol: { ...base, configs },
+    });
   }
 }
 
@@ -72,7 +112,11 @@ function migrateArbolDriversV21(state: AppState, dispatch: Dispatch): void {
   let changed = false;
   for (const y of [year, year + 1]) {
     if (!configs.some((c) => c.anio === y)) {
-      configs.push({ anio: y, semanasNoActivas: defaultSemanasNoActivas(y) });
+      configs.push({
+        anio: y,
+        semanasNoActivas: defaultSemanasNoActivas(y),
+        comunidadAutonoma: DEFAULT_COMUNIDAD_AUTONOMA,
+      });
       changed = true;
     }
   }

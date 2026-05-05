@@ -15,8 +15,9 @@
  *    Replan: un mes sin apunte aún no penaliza el replan de los siguientes.
  *  - Al cerrar, el real real (incluso 0) entra al acumulado y los meses
  *    posteriores ven su replan ajustado.
- *  - El propio mes cerrado deja de mostrar "Replan sugerido": ya no se
- *    replanifica.
+ *  - El propio mes cerrado pasa a etiquetar el replan como "Replan que
+ *    tocaba" (mismo número, claramente histórico) para que la usuaria
+ *    pueda contrastar Plan / Replan / Real cerrado el mes.
  *
  * Optimizaciones de rendimiento:
  *  - LazyDetails: el desglose «Apuntar real» y cada rama dentro del
@@ -31,6 +32,7 @@ import type { NodoArbol, PlanArbolConfigAnio } from "@/lib/types";
 import {
   estadoPeriodo,
   hijosSumaDirectosIdx,
+  mesesCerradosSet,
   metaParaNodoEnPeriodo,
   planAgregadoEnPeriodoIdx,
   realEfectivoEnPeriodoIdx,
@@ -83,11 +85,8 @@ export function BloqueMensual({ raiz, ramas, regsIndex, idx, config, year, unida
     }
     return m;
   }, [idx, raiz.id, year]);
-  // Set de meses cerrados, derivado de la config del año.
-  const mesesCerrados = useMemo(
-    () => new Set(config?.mesesCerrados ?? []),
-    [config?.mesesCerrados],
-  );
+  // Set de meses cerrados, derivado de la config del año (LWW por mes).
+  const mesesCerrados = useMemo(() => mesesCerradosSet(config), [config]);
   // Replan por mes: cada mes considera "cumple plan" los meses anteriores
   // abiertos y el real real de los cerrados. Funciona igual para años
   // pasados (simulación), actual o futuros.
@@ -228,8 +227,12 @@ const TarjetaMes = memo(function TarjetaMes({
 
       <div className="mt-3 space-y-1 border-t border-border/50 pt-2">
         <MetricLine label="Plan" value={plan !== undefined ? `${fmtNum(plan)} ${unidad}` : "—"} accent="muted" />
-        {!cerrado && replan !== undefined && plan !== undefined && Math.abs(replan - plan) >= 1 && (
-          <MetricLine label="Replan sugerido" value={`${fmtNum(replan)} ${unidad}`} accent="muted" />
+        {replan !== undefined && plan !== undefined && Math.abs(replan - plan) >= 1 && (
+          <MetricLine
+            label={cerrado ? "Replan que tocaba" : "Replan sugerido"}
+            value={`${fmtNum(replan)} ${unidad}`}
+            accent="muted"
+          />
         )}
         <MetricLine
           label="Real"
@@ -427,7 +430,7 @@ function FilaHojaMensual({
             Plan: <strong className="text-foreground">{plan !== undefined ? `${fmtNum(plan)} ${unidad}` : "—"}</strong>
           </span>
           <span>
-            Real acumulado: <strong className="text-foreground">{fmtNum(real)} {unidad}</strong>
+            Real: <strong className="text-foreground">{fmtNum(real)} {unidad}</strong>
           </span>
         </span>
       </div>

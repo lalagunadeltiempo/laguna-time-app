@@ -1890,33 +1890,82 @@ export function reducer(state: AppState, action: Action): AppState {
     }
 
     case "SET_ARBOL_CONFIG_ANIO": {
+      // Preservar campos que el editor no toca (cierres por mes, CCAA si
+      // no se incluye explícitamente). Sin esto, abrir el editor de
+      // semanas de descanso borraría todos los cierres del año.
       const arbol = state.arbol ?? EMPTY_ARBOL;
+      const existing = arbol.configs.find((c) => c.anio === action.config.anio);
+      const merged: PlanArbolConfigAnio = {
+        ...action.config,
+        comunidadAutonoma: action.config.comunidadAutonoma ?? existing?.comunidadAutonoma,
+        mesesCerradosTs: action.config.mesesCerradosTs ?? existing?.mesesCerradosTs,
+        mesesCerrados: action.config.mesesCerrados ?? existing?.mesesCerrados,
+      };
       const others = arbol.configs.filter((c) => c.anio !== action.config.anio);
       return {
         ...state,
         arbol: {
           ...arbol,
-          configs: [...others, action.config].sort((a, b) => a.anio - b.anio),
+          configs: [...others, merged].sort((a, b) => a.anio - b.anio),
         },
       };
     }
 
     case "TOGGLE_MES_CERRADO": {
-      // Marca/desmarca un mes (`YYYY-MM`) como "cerrado". Solo afecta al
-      // cálculo del replan; los registros del mes siguen existiendo y se
-      // pueden seguir consultando aunque esté cerrado.
+      // Marca/desmarca un mes (`YYYY-MM`) como "cerrado" usando LWW por
+      // mes: cada operación actualiza el ts del mes. Reabrir = borrar la
+      // entrada con ts > anterior, así el merge en la nube respeta la
+      // intención del cliente más reciente.
       const arbol = state.arbol ?? EMPTY_ARBOL;
       const existing = arbol.configs.find((c) => c.anio === action.anio);
       const baseConfig: PlanArbolConfigAnio = existing
         ? { ...existing }
-        : { anio: action.anio, semanasNoActivas: [] };
-      const set = new Set(baseConfig.mesesCerrados ?? []);
-      if (set.has(action.mesKey)) set.delete(action.mesKey);
-      else set.add(action.mesKey);
-      const mesesCerrados = Array.from(set).sort();
+        : {
+            anio: action.anio,
+            semanasNoActivas: [],
+          };
+      const tsAhora = new Date().toISOString();
+      const tsActual: Record<string, string> = { ...(baseConfig.mesesCerradosTs ?? {}) };
+      // Compatibilidad con datos pre-migración: si la legacy tiene el mes
+      // pero la nueva no, lo tratamos como cerrado en epoch para que el
+      // toggle (más reciente) gane en LWW.
+      if (!tsActual[action.mesKey] && (baseConfig.mesesCerrados ?? []).includes(action.mesKey)) {
+        tsActual[action.mesKey] = "1970-01-01T00:00:00.000Z";
+      }
+      if (tsActual[action.mesKey]) {
+        // Estaba cerrado → reabrir. Lo eliminamos del map y registramos el
+        // ts del cambio en `mesesAbiertosTs` para que el merge sepa que
+        // este "no cierre" es más reciente que cualquier cierre antiguo.
+        delete tsActual[action.mesKey];
+      } else {
+        tsActual[action.mesKey] = tsAhora;
+      }
+      const mesesCerradosTs = Object.keys(tsActual).length > 0 ? tsActual : undefined;
+      // Limpiar también el legacy del mes que estamos tocando para no
+      // resucitarlo a través del fallback de lectura.
+      const legacyDepurado = (baseConfig.mesesCerrados ?? []).filter((m) => m !== action.mesKey);
+      const mesesCerradosLegacy = legacyDepurado.length > 0 ? legacyDepurado : undefined;
+      // Aperturas explícitas (tombstones LWW): registramos el ts actual
+      // por mesKey para que el merge prefiera "abierto" sobre cualquier
+      // cierre con ts <= este. Un nuevo cierre posterior reescribirá el
+      // ts y volverá a ganar.
+      const aperturasActual: Record<string, string> = {
+        ...(baseConfig.mesesAbiertosTs ?? {}),
+      };
+      if (!tsActual[action.mesKey]) {
+        aperturasActual[action.mesKey] = tsAhora;
+      } else {
+        // Acabamos de cerrar: la apertura previa, si existe, queda
+        // superada por el ts del cierre. La quitamos para no acumular
+        // ruido.
+        delete aperturasActual[action.mesKey];
+      }
+      const mesesAbiertosTs = Object.keys(aperturasActual).length > 0 ? aperturasActual : undefined;
       const nextConfig: PlanArbolConfigAnio = {
         ...baseConfig,
-        mesesCerrados: mesesCerrados.length > 0 ? mesesCerrados : undefined,
+        mesesCerradosTs,
+        mesesCerrados: mesesCerradosLegacy,
+        mesesAbiertosTs,
       };
       const others = arbol.configs.filter((c) => c.anio !== action.anio);
       return {

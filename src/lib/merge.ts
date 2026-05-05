@@ -32,6 +32,20 @@ export function combinarNotasTexto(a: string, b: string): string {
   return `${a}${sep}${b}`;
 }
 
+/**
+ * Promueve `mesesCerrados: string[]` (legacy pre-migración 22) a
+ * `mesesCerradosTs` con timestamp epoch, para que la lógica LWW funcione
+ * de forma uniforme cuando un cliente sin migrar pushea estado a la nube.
+ * No muta la entrada.
+ */
+function readMesesCerradosTs(c: PlanArbolConfigAnio): Record<string, string> {
+  const ts: Record<string, string> = { ...(c.mesesCerradosTs ?? {}) };
+  for (const mk of c.mesesCerrados ?? []) {
+    if (!ts[mk]) ts[mk] = "1970-01-01T00:00:00.000Z";
+  }
+  return ts;
+}
+
 function unionConfigs(a: PlanArbolConfigAnio[], b: PlanArbolConfigAnio[]): PlanArbolConfigAnio[] {
   const map = new Map<number, PlanArbolConfigAnio>();
   for (const c of [...a, ...b]) {
@@ -39,18 +53,57 @@ function unionConfigs(a: PlanArbolConfigAnio[], b: PlanArbolConfigAnio[]): PlanA
     if (!prev) {
       map.set(c.anio, { ...c });
     } else {
-      // mesesCerrados se une por unión: si Gabi cerró marzo y Beltrán cerró
-      // abril desde clientes distintos, el merge guarda ambos. Reabrir
-      // requiere que el cierre desaparezca de ambos lados (simétrico al
-      // toggle), lo que equivale a "no cerrado" en ambos.
-      const cerradosA = new Set(prev.mesesCerrados ?? []);
-      const cerradosB = new Set(c.mesesCerrados ?? []);
-      const mesesCerrados = Array.from(new Set([...cerradosA, ...cerradosB])).sort();
+      // Cierres: LWW por mes. Para cada mesKey de la unión de cierres y
+      // aperturas, gana el ts más reciente; si la apertura es estrictamente
+      // posterior al cierre, el mes queda abierto.
+      const cerradosPrev = readMesesCerradosTs(prev);
+      const cerradosCur = readMesesCerradosTs(c);
+      const aperturasPrev = prev.mesesAbiertosTs ?? {};
+      const aperturasCur = c.mesesAbiertosTs ?? {};
+
+      const mesesCerradosTs: Record<string, string> = {};
+      const mesesAbiertosTs: Record<string, string> = {};
+
+      const todos = new Set<string>([
+        ...Object.keys(cerradosPrev),
+        ...Object.keys(cerradosCur),
+        ...Object.keys(aperturasPrev),
+        ...Object.keys(aperturasCur),
+      ]);
+
+      for (const mk of todos) {
+        const cierreTs = (() => {
+          const t1 = cerradosPrev[mk];
+          const t2 = cerradosCur[mk];
+          if (t1 && t2) return t1 >= t2 ? t1 : t2;
+          return t1 ?? t2;
+        })();
+        const aperturaTs = (() => {
+          const t1 = aperturasPrev[mk];
+          const t2 = aperturasCur[mk];
+          if (t1 && t2) return t1 >= t2 ? t1 : t2;
+          return t1 ?? t2;
+        })();
+        if (cierreTs && aperturaTs) {
+          if (aperturaTs >= cierreTs) {
+            // La apertura es más reciente: tombstone gana, mes abierto.
+            mesesAbiertosTs[mk] = aperturaTs;
+          } else {
+            mesesCerradosTs[mk] = cierreTs;
+          }
+        } else if (cierreTs) {
+          mesesCerradosTs[mk] = cierreTs;
+        } else if (aperturaTs) {
+          mesesAbiertosTs[mk] = aperturaTs;
+        }
+      }
+
       map.set(c.anio, {
         anio: c.anio,
         semanasNoActivas: [...new Set([...prev.semanasNoActivas, ...c.semanasNoActivas])].sort(),
         comunidadAutonoma: c.comunidadAutonoma ?? prev.comunidadAutonoma,
-        ...(mesesCerrados.length > 0 ? { mesesCerrados } : {}),
+        ...(Object.keys(mesesCerradosTs).length > 0 ? { mesesCerradosTs } : {}),
+        ...(Object.keys(mesesAbiertosTs).length > 0 ? { mesesAbiertosTs } : {}),
       });
     }
   }
@@ -522,11 +575,20 @@ function contextoFingerprint(s: AppState): string {
  */
 function configsFingerprint(s: AppState): string {
   const cfgs = s.arbol?.configs ?? [];
+  const fmtTs = (rec: Record<string, string> | undefined): string => {
+    if (!rec) return "";
+    return Object.entries(rec)
+      .map(([k, v]) => `${k}@${v}`)
+      .sort()
+      .join(",");
+  };
   return cfgs
     .map((c) => {
       const sem = (c.semanasNoActivas ?? []).slice().sort().join(",");
-      const cer = (c.mesesCerrados ?? []).slice().sort().join(",");
-      return `${c.anio}|${c.comunidadAutonoma ?? ""}|S:${sem}|C:${cer}`;
+      const legacy = (c.mesesCerrados ?? []).slice().sort().join(",");
+      const cer = fmtTs(c.mesesCerradosTs);
+      const abi = fmtTs(c.mesesAbiertosTs);
+      return `${c.anio}|${c.comunidadAutonoma ?? ""}|S:${sem}|C:${cer}|L:${legacy}|A:${abi}`;
     })
     .sort()
     .join("|");

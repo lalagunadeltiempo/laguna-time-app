@@ -348,13 +348,22 @@ describe("statesDiffer detecta cambios dentro de notas, mensajes y contexto", ()
   });
 });
 
-describe("Cierre de meses: merge de la config del año", () => {
-  it("une `mesesCerrados` cuando dos clientes cierran meses distintos", () => {
+describe("Cierre de meses: merge LWW de la config del año", () => {
+  it("une `mesesCerradosTs` cuando dos clientes cierran meses distintos", () => {
     const a = baseState({
       arbol: {
         nodos: [],
         registros: [],
-        configs: [{ anio: 2025, semanasNoActivas: [], mesesCerrados: ["2025-01", "2025-02"] }],
+        configs: [
+          {
+            anio: 2025,
+            semanasNoActivas: [],
+            mesesCerradosTs: {
+              "2025-01": "2026-05-01T10:00:00.000Z",
+              "2025-02": "2026-05-02T10:00:00.000Z",
+            },
+          },
+        ],
         reflexiones: [],
       },
     });
@@ -362,17 +371,81 @@ describe("Cierre de meses: merge de la config del año", () => {
       arbol: {
         nodos: [],
         registros: [],
-        configs: [{ anio: 2025, semanasNoActivas: [], mesesCerrados: ["2025-03"] }],
+        configs: [
+          {
+            anio: 2025,
+            semanasNoActivas: [],
+            mesesCerradosTs: { "2025-03": "2026-05-03T10:00:00.000Z" },
+          },
+        ],
         reflexiones: [],
       },
     });
     const merged = mergeStates(a, b);
     const cfg = merged.arbol?.configs.find((c) => c.anio === 2025);
-    expect(cfg?.mesesCerrados).toEqual(["2025-01", "2025-02", "2025-03"]);
+    expect(cfg?.mesesCerradosTs && Object.keys(cfg.mesesCerradosTs).sort()).toEqual([
+      "2025-01",
+      "2025-02",
+      "2025-03",
+    ]);
   });
 
-  it("`statesDiffer` detecta cuando uno cerró un mes y el otro no", () => {
-    const a = baseState({
+  it("reabrir un mes localmente sobrevive al merge contra una nube con cierre antiguo", () => {
+    // Cloud todavía tiene el cierre con ts antiguo.
+    const cloud = baseState({
+      arbol: {
+        nodos: [],
+        registros: [],
+        configs: [
+          {
+            anio: 2025,
+            semanasNoActivas: [],
+            mesesCerradosTs: { "2025-01": "2026-05-01T10:00:00.000Z" },
+          },
+        ],
+        reflexiones: [],
+      },
+    });
+    // Local lo acaba de reabrir: tombstone con ts más reciente.
+    const local = baseState({
+      arbol: {
+        nodos: [],
+        registros: [],
+        configs: [
+          {
+            anio: 2025,
+            semanasNoActivas: [],
+            mesesAbiertosTs: { "2025-01": "2026-05-04T15:00:00.000Z" },
+          },
+        ],
+        reflexiones: [],
+      },
+    });
+    const merged = mergeStates(local, cloud);
+    const cfg = merged.arbol?.configs.find((c) => c.anio === 2025);
+    expect(cfg?.mesesCerradosTs).toBeUndefined();
+    // El tombstone de apertura se conserva por si llega un nuevo merge
+    // con el cierre antiguo.
+    expect(cfg?.mesesAbiertosTs?.["2025-01"]).toBe("2026-05-04T15:00:00.000Z");
+  });
+
+  it("acepta el formato legacy `mesesCerrados[]` y lo trata como cierres con ts epoch", () => {
+    const local = baseState({
+      arbol: {
+        nodos: [],
+        registros: [],
+        configs: [
+          {
+            anio: 2025,
+            semanasNoActivas: [],
+            mesesAbiertosTs: { "2025-01": "2026-05-04T15:00:00.000Z" },
+          },
+        ],
+        reflexiones: [],
+      },
+    });
+    // Cliente sin migrar todavía: usa el campo legacy.
+    const cloudLegacy = baseState({
       arbol: {
         nodos: [],
         registros: [],
@@ -380,11 +453,32 @@ describe("Cierre de meses: merge de la config del año", () => {
         reflexiones: [],
       },
     });
+    const merged = mergeStates(local, cloudLegacy);
+    const cfg = merged.arbol?.configs.find((c) => c.anio === 2025);
+    // La apertura local (ts > epoch) gana al cierre legacy.
+    expect(cfg?.mesesCerradosTs).toBeUndefined();
+  });
+
+  it("`statesDiffer` detecta cuando uno cerró un mes y el otro no", () => {
+    const a = baseState({
+      arbol: {
+        nodos: [],
+        registros: [],
+        configs: [
+          {
+            anio: 2025,
+            semanasNoActivas: [],
+            mesesCerradosTs: { "2025-01": "2026-05-01T10:00:00.000Z" },
+          },
+        ],
+        reflexiones: [],
+      },
+    });
     const b = baseState({
       arbol: {
         nodos: [],
         registros: [],
-        configs: [{ anio: 2025, semanasNoActivas: [], mesesCerrados: [] }],
+        configs: [{ anio: 2025, semanasNoActivas: [] }],
         reflexiones: [],
       },
     });
