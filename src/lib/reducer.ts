@@ -362,13 +362,18 @@ export function tombstoneImplicadoKey(entregableId: string, nombre: string): str
   return `${entregableId}::${nombre}`;
 }
 
+/** Sólo claves de `DeletedTombstones` cuyo valor es `string[]`. Excluye
+ *  `entregableHojaLinks`, que es un Record con timestamps y necesita su
+ *  propio helper (ver `addEntregableHojaLinkTombstones`). */
+type StringArrayTombstoneKey = Exclude<keyof DeletedTombstones, "entregableHojaLinks">;
+
 function addTombstones(
   existing: DeletedTombstones | undefined,
-  additions: Partial<Record<keyof DeletedTombstones, string[]>>,
+  additions: Partial<Record<StringArrayTombstoneKey, string[]>>,
 ): DeletedTombstones {
   const base = { ...EMPTY_DELETED, ...(existing ?? {}) };
   const result: DeletedTombstones = { ...base };
-  for (const key of Object.keys(additions) as (keyof DeletedTombstones)[]) {
+  for (const key of Object.keys(additions) as StringArrayTombstoneKey[]) {
     const ids = additions[key];
     if (ids?.length) {
       const prev = (base[key] ?? []) as string[];

@@ -1,7 +1,213 @@
-import type { AppState, MensajeEntregable, Nota, PlanArbolConfigAnio, SesionEntregable } from "./types";
+import type {
+  AppState,
+  MensajeEntregable,
+  NodoArbol,
+  Nota,
+  PlanArbolConfigAnio,
+  SesionEntregable,
+  TrimestreKey,
+} from "./types";
 import { EMPTY_ARBOL } from "./types";
 import { legacySesionId } from "./sesion-id";
 import { dedupSesionesEntregable } from "./sesion-dedup";
+
+/** Clave canónica del tombstone de relación MAPA→Árbol (entregable ↔ hoja). */
+export function entregableHojaTombstoneKey(hojaId: string, entregableId: string): string {
+  return `${hojaId}::${entregableId}`;
+}
+
+/**
+ * Une dos copias del mismo `NodoArbol` viniendo de clientes distintos
+ * sin perder los campos rellenados por el más reciente. Patrón análogo
+ * al que ya se usa para `mesesCerradosTs` y `semanasNoActivasTs` en
+ * `unionConfigs`, pero a nivel de nodo entero.
+ *
+ * Reglas:
+ * 1. Si AMBOS nodos tienen `actualizado`, gana el más reciente (string
+ *    ISO se compara directamente). El ganador aporta TODOS sus campos
+ *    (incluyendo `entregableIds`) — el reducer ahora sella `actualizado`
+ *    en cada mutación, así que cualquier copia "sin un campo" tras una
+ *    edición legítima ya viaja con su nuevo `actualizado`.
+ * 2. Si SOLO UNO tiene `actualizado`, gana ese (mismo razonamiento).
+ * 3. Si NINGUNO tiene `actualizado` (caso legacy: estados anteriores a
+ *    este bloque o tests viejos), no podemos comparar tiempos, así que
+ *    hacemos un merge campo a campo conservador donde para cada campo
+ *    crítico gana el que NO sea `undefined`. Si ambos están definidos
+ *    pero distintos, gana `y` (segundo argumento). Documentamos por qué:
+ *      - `mergeStates(stateToSave, cloudState)` desde `saveStateCloud`:
+ *        `y` = cloudState (remoto). Desde el punto de vista de la
+ *        usuaria, lo que ya estaba en cloud cuando hicimos el GET es
+ *        información que pudo aportar otra sesión; preferimos no
+ *        sobrescribirla con un estado local viejo.
+ *      - `mergeStates(cloudResult.data, localState)` desde `init`:
+ *        `y` = localState. Si el local tiene un valor (no undefined)
+ *        que cloud no tenía, es porque la usuaria lo escribió antes
+ *        en esta sesión y aún no se subió.
+ *      - `mergeStates(stateRef.current, result.data)` desde
+ *        `pullAndMerge` y `mergeStates(merged, _lastCloudSnapshot)`
+ *        desde `flushPendingCloudSave`: `y` es cloud/snapshot remoto,
+ *        misma lógica que `saveStateCloud`.
+ *    En todos los casos, dar preferencia a `y` sobre `x` cuando ambos
+ *    están definidos es defensivo: en ausencia de `actualizado` no
+ *    podemos saber quién es más reciente, así que damos prioridad al
+ *    lado que `mergeStates` históricamente "perdía" para no replicar
+ *    el bug §1 del audit.
+ *
+ * NOTA: para `entregableIds` aplicamos los tombstones de
+ * `deleted.entregableHojaLinks` (Bloque 3) tanto en el camino LWW como
+ * en el camino conservador, para que un borrado de vínculo no se
+ * resucite al unir.
+ */
+export function preferNodoLWW(
+  x: NodoArbol,
+  y: NodoArbol,
+  tombstoneTsByLink: Map<string, string>,
+): NodoArbol {
+  const tx = x.actualizado;
+  const ty = y.actualizado;
+
+  // Caso 1 + 2: al menos uno tiene `actualizado`. Gana el más reciente.
+  if (tx || ty) {
+    let winner: NodoArbol;
+    if (tx && ty) winner = tx >= ty ? x : y;
+    else if (tx) winner = x;
+    else winner = y;
+    // Filtrar entregableIds del ganador respetando tombstones más recientes.
+    const filtered = filtrarEntregableIdsConTombstones(
+      winner.id,
+      winner.entregableIds,
+      winner.actualizado,
+      tombstoneTsByLink,
+    );
+    if (filtered === winner.entregableIds) return winner;
+    return { ...winner, entregableIds: filtered };
+  }
+
+  // Caso 3: ninguno tiene `actualizado` → merge campo a campo conservador.
+  const merged: NodoArbol = { ...x };
+  // Campos donde "ambos definidos pero distintos → gana y" / "uno definido → gana ese".
+  const preferDefined = <K extends keyof NodoArbol>(key: K): void => {
+    const vx = x[key];
+    const vy = y[key];
+    if (vy !== undefined) merged[key] = vy;
+    else if (vx !== undefined) merged[key] = vx;
+  };
+  preferDefined("nombre");
+  preferDefined("descripcion");
+  preferDefined("notaAnioAnterior");
+  preferDefined("metaValor");
+  preferDefined("metaUnidad");
+  preferDefined("parentId");
+  preferDefined("orden");
+  preferDefined("tipo");
+  preferDefined("cadencia");
+  preferDefined("relacionConPadre");
+  preferDefined("contadorModo");
+  preferDefined("anio");
+  // `creado` no se toca: se mantiene el del primer arg (`x`), idéntico
+  // al del segundo en condiciones normales (es el ts de creación del
+  // nodo). En estados legacy con timestamps distintos preferimos no
+  // alterarlo para no inventar fechas.
+
+  // metaPorTrimestre: unión por trimestre, gana el `y` cuando ambos definen el mismo Q.
+  const mptX = x.metaPorTrimestre;
+  const mptY = y.metaPorTrimestre;
+  if (mptX || mptY) {
+    const out: Partial<Record<TrimestreKey, number>> = {};
+    const keys = new Set<TrimestreKey>([
+      ...Object.keys(mptX ?? {}) as TrimestreKey[],
+      ...Object.keys(mptY ?? {}) as TrimestreKey[],
+    ]);
+    for (const k of keys) {
+      const vx = mptX?.[k];
+      const vy = mptY?.[k];
+      if (vy !== undefined) out[k] = vy;
+      else if (vx !== undefined) out[k] = vx;
+    }
+    merged.metaPorTrimestre = Object.keys(out).length > 0 ? out : undefined;
+  }
+
+  // entregableIds y proyectoIds: UNIÓN. Para entregableIds aplicamos
+  // tombstones; para proyectoIds aún no hay tombstones (no es un path
+  // observado de pérdida en producción), conservar la unión simple.
+  const unionEnt = unirIds(x.entregableIds, y.entregableIds);
+  const filteredEnt = filtrarEntregableIdsConTombstones(
+    x.id,
+    unionEnt,
+    undefined, // sin actualizado conocido: todo tombstone gana.
+    tombstoneTsByLink,
+  );
+  merged.entregableIds = filteredEnt && filteredEnt.length > 0 ? filteredEnt : undefined;
+  const unionPr = unirIds(x.proyectoIds, y.proyectoIds);
+  if (unionPr && unionPr.length > 0) merged.proyectoIds = unionPr;
+
+  return merged;
+}
+
+function unirIds(a: string[] | undefined, b: string[] | undefined): string[] | undefined {
+  const sa = a ?? [];
+  const sb = b ?? [];
+  if (sa.length === 0 && sb.length === 0) return undefined;
+  return Array.from(new Set([...sa, ...sb]));
+}
+
+/**
+ * Filtra `entregableIds` quitando aquellos cuyo tombstone
+ * `${nodoId}::${entregableId}` tiene fecha posterior a la marca
+ * `nodoActualizado`. Si el nodo no tiene `actualizado`, cualquier
+ * tombstone gana (no podemos saber si el vínculo se reañadió después
+ * del borrado).
+ *
+ * Devuelve la misma referencia que el input cuando nada se filtra,
+ * para que el caller pueda detectar "no cambió" sin allocar.
+ */
+function filtrarEntregableIdsConTombstones(
+  nodoId: string,
+  entregableIds: string[] | undefined,
+  nodoActualizado: string | undefined,
+  tombstoneTsByLink: Map<string, string>,
+): string[] | undefined {
+  if (!entregableIds || entregableIds.length === 0) return entregableIds;
+  if (tombstoneTsByLink.size === 0) return entregableIds;
+  let cambiado = false;
+  const out: string[] = [];
+  for (const eid of entregableIds) {
+    const ts = tombstoneTsByLink.get(entregableHojaTombstoneKey(nodoId, eid));
+    if (!ts) {
+      out.push(eid);
+      continue;
+    }
+    // Si el nodo no tiene `actualizado` o el tombstone es estrictamente
+    // posterior, el borrado gana. En empate exacto (improbable) gana
+    // también el tombstone: si la usuaria desvinculó al mismo ms, mejor
+    // no resucitar nada.
+    if (!nodoActualizado || ts >= nodoActualizado) {
+      cambiado = true;
+      continue;
+    }
+    out.push(eid);
+  }
+  return cambiado ? out : entregableIds;
+}
+
+/**
+ * Une dos `Record<string, string>` con LWW por clave: para cada clave
+ * presente en alguno de los dos, gana el ts más reciente (string ISO).
+ * Usado para `deleted.entregableHojaLinks` y, si hiciese falta, otros
+ * registros de tombstones con timestamp.
+ */
+function mergeTsRecords(
+  a: Record<string, string> | undefined,
+  b: Record<string, string> | undefined,
+): Record<string, string> | undefined {
+  if (!a && !b) return undefined;
+  const out: Record<string, string> = { ...(a ?? {}) };
+  for (const [k, v] of Object.entries(b ?? {})) {
+    const prev = out[k];
+    if (!prev || v >= prev) out[k] = v;
+  }
+  return Object.keys(out).length > 0 ? out : undefined;
+}
 
 function stripNotasTombstones<T extends { notas?: Nota[] }>(item: T, delNotas: Set<string>): T {
   const arr = item.notas;
@@ -431,6 +637,10 @@ export function mergeStates(a: AppState, b: AppState): AppState {
   };
   const delA = { ...emptyDel, ...(a.deleted ?? {}) };
   const delB = { ...emptyDel, ...(b.deleted ?? {}) };
+  const entregableHojaLinks = mergeTsRecords(
+    a.deleted?.entregableHojaLinks,
+    b.deleted?.entregableHojaLinks,
+  );
   const deleted = {
     proyectos: Array.from(new Set([...(delA.proyectos ?? []), ...(delB.proyectos ?? [])])),
     resultados: Array.from(new Set([...(delA.resultados ?? []), ...(delB.resultados ?? [])])),
@@ -442,6 +652,31 @@ export function mergeStates(a: AppState, b: AppState): AppState {
     arbolRegistros: Array.from(new Set([...(delA.arbolRegistros ?? []), ...(delB.arbolRegistros ?? [])])),
     mensajes: Array.from(new Set([...(delA.mensajes ?? []), ...(delB.mensajes ?? [])])),
     implicados: Array.from(new Set([...(delA.implicados ?? []), ...(delB.implicados ?? [])])),
+    ...(entregableHojaLinks ? { entregableHojaLinks } : {}),
+  };
+
+  // Tombstones de relaciones MAPA→Árbol indexados por clave para que
+  // `preferNodoLWW` pueda filtrar `entregableIds` sin volver a recorrer
+  // el record por cada nodo. Se calcula UNA vez por `mergeStates`.
+  const tombstoneTsByLink = new Map<string, string>(
+    Object.entries(entregableHojaLinks ?? {}),
+  );
+  const preferNodoLWWBound = (x: NodoArbol, y: NodoArbol): NodoArbol =>
+    preferNodoLWW(x, y, tombstoneTsByLink);
+  // Adicionalmente, cualquier nodo (con o sin empate) puede tener un
+  // entregableId con tombstone más reciente que su `actualizado`. El
+  // postProcesado quita esas relaciones de los nodos que sobreviven al
+  // unionById, cubriendo el caso "nodo sin par en el otro lado pero con
+  // un vínculo borrado en el segundo cliente".
+  const aplicarTombstonesEntregableIds = (n: NodoArbol): NodoArbol => {
+    const filtered = filtrarEntregableIdsConTombstones(
+      n.id,
+      n.entregableIds,
+      n.actualizado,
+      tombstoneTsByLink,
+    );
+    if (filtered === n.entregableIds) return n;
+    return { ...n, entregableIds: filtered && filtered.length > 0 ? filtered : undefined };
   };
 
   const delNotas = new Set(deleted.notas ?? []);
@@ -545,10 +780,24 @@ export function mergeStates(a: AppState, b: AppState): AppState {
     mensajes: unionById(a.mensajes ?? [], b.mensajes ?? [], preferMensaje)
       .filter((m) => !delMensajes.has(m.id) && !delEnt.has(m.entregableId)),
     arbol: {
-      nodos: unionById(a.arbol?.nodos ?? EMPTY_ARBOL.nodos, b.arbol?.nodos ?? EMPTY_ARBOL.nodos)
-        .filter((n) => !delArbolNodos.has(n.id)),
-      registros: unionById(a.arbol?.registros ?? EMPTY_ARBOL.registros, b.arbol?.registros ?? EMPTY_ARBOL.registros)
-        .filter((r) => !delArbolRegs.has(r.id) && !delArbolNodos.has(r.nodoId)),
+      // Usamos `preferNodoLWW` para que en empate de id no se descarte
+      // el lado con `actualizado` más reciente (bug §1 del audit). El
+      // post-`map(aplicarTombstonesEntregableIds)` cubre además el caso
+      // donde un nodo sólo aparece en uno de los dos estados pero su
+      // vínculo MAPA→Árbol fue borrado en el otro.
+      nodos: unionById(
+        a.arbol?.nodos ?? EMPTY_ARBOL.nodos,
+        b.arbol?.nodos ?? EMPTY_ARBOL.nodos,
+        preferNodoLWWBound,
+      )
+        .filter((n) => !delArbolNodos.has(n.id))
+        .map(aplicarTombstonesEntregableIds),
+      // Registros: LWW por `actualizado` (campo obligatorio en `RegistroNodo`).
+      registros: unionById(
+        a.arbol?.registros ?? EMPTY_ARBOL.registros,
+        b.arbol?.registros ?? EMPTY_ARBOL.registros,
+        (x, y) => ((x.actualizado ?? "") >= (y.actualizado ?? "") ? x : y),
+      ).filter((r) => !delArbolRegs.has(r.id) && !delArbolNodos.has(r.nodoId)),
       configs: unionConfigs(a.arbol?.configs ?? EMPTY_ARBOL.configs, b.arbol?.configs ?? EMPTY_ARBOL.configs),
       reflexiones: [...reflMap.values()].sort(
         (x, y) => x.anio - y.anio || x.trimestreKey.localeCompare(y.trimestreKey),
