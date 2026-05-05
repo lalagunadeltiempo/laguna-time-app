@@ -21,6 +21,7 @@ import { ResultadoDetalle } from "@/components/ResultadoDetalle";
 import { Buscador } from "@/components/Buscador";
 import { PantallaAyuda } from "@/components/PantallaAyuda";
 import { PantallaArbolObjetivos } from "@/components/PantallaArbolObjetivos";
+import { BackupButton } from "@/components/BackupButton";
 
 type Vista = "hoy" | "plan" | "mapa" | "arbol-objetivos" | "urls" | "cuaderno" | "ayuda" | "resultado";
 
@@ -502,6 +503,14 @@ function UserFooter({ collapsed }: { collapsed: boolean }) {
 
   return (
     <div className="border-t border-border px-2 py-2">
+      {/* Backup siempre visible: red de seguridad anti-pérdida de datos. */}
+      <div className={`mb-1 flex ${collapsed ? "justify-center" : "px-1"}`}>
+        {collapsed ? (
+          <BackupButton variant="icon" />
+        ) : (
+          <BackupButton variant="sidebar" />
+        )}
+      </div>
       <div className={`flex items-center gap-2 rounded-lg px-3 py-2 ${collapsed ? "justify-center" : ""}`}>
         <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-accent text-xs font-bold text-white">
           {nombre.charAt(0).toUpperCase()}
