@@ -7,7 +7,7 @@ import { buildPersonalSeedData } from "./seed-personal";
 import { buildEmpresaSeedProyectos } from "./seed-proyectos-empresa";
 import { mondayKey, mesKey, mesesDeTrimestre } from "./semana-utils";
 
-export const CURRENT_MIGRATION = 22;
+export const CURRENT_MIGRATION = 23;
 
 type Dispatch = (action: Action) => void;
 
@@ -63,8 +63,45 @@ export function runMigrations(state: AppState, dispatch: Dispatch): void {
     migrateArbolMesesCerradosTs(state, dispatch);
   }
 
+  if (version < 23) {
+    migrateArbolDescansosDefault(state, dispatch);
+  }
+
   if (version < CURRENT_MIGRATION) {
     dispatch({ type: "SET_MIGRATION_VERSION", version: CURRENT_MIGRATION });
+  }
+}
+
+/**
+ * Migración v23: aplicar descansos por defecto a configs ya existentes.
+ *
+ * Antes la app sólo creaba `semanasNoActivas` la primera vez que entrabas
+ * a un año nuevo; si la config se quedó sin lunes de agosto/Navidad o
+ * sin la semana de Pascua, el plan repartía meta sobre días que en la
+ * vida real son vacaciones (agosto facturando como un mes normal). Esta
+ * migración hace UNION de los defaults vigentes con lo que ya tenías,
+ * así no perdemos selecciones manuales y rellenamos los huecos.
+ *
+ * Mismo trato para `comunidadAutonoma`: si está vacío, se asigna Madrid.
+ */
+function migrateArbolDescansosDefault(state: AppState, dispatch: Dispatch): void {
+  const base = state.arbol ?? EMPTY_ARBOL;
+  let changed = false;
+  const configs = base.configs.map((c) => {
+    const defaults = defaultSemanasNoActivas(c.anio);
+    const actuales = c.semanasNoActivas ?? [];
+    const merged = Array.from(new Set([...actuales, ...defaults])).sort();
+    const ccaa = c.comunidadAutonoma && c.comunidadAutonoma.trim().length > 0
+      ? c.comunidadAutonoma
+      : DEFAULT_COMUNIDAD_AUTONOMA;
+    const cambio =
+      merged.length !== actuales.length || ccaa !== c.comunidadAutonoma;
+    if (!cambio) return c;
+    changed = true;
+    return { ...c, semanasNoActivas: merged, comunidadAutonoma: ccaa };
+  });
+  if (changed) {
+    dispatch({ type: "REPLACE_ARBOL_STATE", arbol: { ...base, configs } });
   }
 }
 

@@ -114,7 +114,15 @@ export function BloqueMensual({ raiz, ramas, regsIndex, idx, config, year, unida
         </h2>
       </summary>
 
-      <div className="grid gap-3 border-t border-border/60 p-4 sm:grid-cols-2 xl:grid-cols-3">
+      <p className="border-t border-border/60 px-4 pt-3 text-[11px] leading-snug text-muted">
+        Al cerrar un mes verás dos diferencias:
+        <strong className="ml-1 text-foreground">Δ vs plan</strong> (real − compromiso de inicio
+        de año) te ayuda a aprender de cara al próximo año, y
+        <strong className="ml-1 text-foreground">Δ vs replan</strong> (real − lo que tocaba a
+        esa altura) te ayuda a decidir el siguiente mes y trimestre.
+      </p>
+
+      <div className="grid gap-3 p-4 sm:grid-cols-2 xl:grid-cols-3">
         {Array.from({ length: 12 }, (_, i) => {
           const periodoKey = `${year}-${String(i + 1).padStart(2, "0")}`;
           return (
@@ -175,8 +183,14 @@ const TarjetaMes = memo(function TarjetaMes({
   );
   const estado = estadoPeriodo("mes", periodoKey, year);
   const deltaPlan = plan !== undefined ? real - plan : undefined;
+  const deltaReplan = replan !== undefined ? real - replan : undefined;
   const pct = plan && plan > 0 ? Math.min(100, Math.round((real / plan) * 100)) : 0;
   const showProgress = estado === "pasado" || estado === "actual" || cerrado;
+  // Mostrar Δ vs replan sólo si el replan se diferencia del plan en algo
+  // visible (>= 1 unidad). Si replan ≈ plan, Δ vs replan repetiría Δ vs
+  // plan y aporta ruido.
+  const replanDistintoDePlan =
+    plan !== undefined && replan !== undefined && Math.abs(replan - plan) >= 1;
 
   const ramasConReal = useMemo(
     () => ramas.filter((r) => r.relacionConPadre === "suma"),
@@ -239,6 +253,20 @@ const TarjetaMes = memo(function TarjetaMes({
           value={`${fmtNum(real)} ${unidad}`}
           accent={deltaPlan !== undefined ? (deltaPlan >= 0 ? "good" : "bad") : undefined}
         />
+        {cerrado && deltaPlan !== undefined && (
+          <MetricLine
+            label="Δ vs plan"
+            value={`${fmtNum(deltaPlan, { signed: true })} ${unidad}`}
+            accent={deltaPlan >= 0 ? "good" : "bad"}
+          />
+        )}
+        {cerrado && deltaReplan !== undefined && replanDistintoDePlan && (
+          <MetricLine
+            label="Δ vs replan"
+            value={`${fmtNum(deltaReplan, { signed: true })} ${unidad}`}
+            accent={deltaReplan >= 0 ? "good" : "bad"}
+          />
+        )}
       </div>
 
       {showProgress && (

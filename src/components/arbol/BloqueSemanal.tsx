@@ -18,7 +18,10 @@ import {
   formatWeekRange,
   hijosSumaDirectosIdx,
   isoWeekLabelFromMondayKey,
+  mesKeyFromDate,
+  mesesCerradosSet,
   mondaysInCalendarYear,
+  parseLocalDateKey,
   planAgregadoEnPeriodoIdx,
   realEfectivoEnPeriodoIdx,
   type ArbolIndices,
@@ -30,6 +33,7 @@ import {
   claveRegistro,
   fmtNum,
   useUpsertRegistro,
+  usePersistedOpen,
 } from "./arbol-comunes";
 
 interface BloqueSemanalProps {
@@ -49,6 +53,31 @@ export function BloqueSemanal({ raiz, ramas, regsIndex, idx, config, year, unida
     return mondays.filter((m) => !noActivas.has(m));
   }, [year, config]);
 
+  const mesesCerrados = useMemo(() => mesesCerradosSet(config), [config]);
+
+  // Toggle estético: por defecto NO mostramos las semanas vacías de meses
+  // cerrados (la usuaria no quiere verlas si no llegó a usarlas). El
+  // cálculo del plan/replan no depende de esto en absoluto.
+  const { open: mostrarVaciasCerradas, onToggle: setMostrarVaciasCerradas } = usePersistedOpen(
+    `arbol:${year}:semanal:mostrar-vacias-cerradas`,
+    false,
+  );
+
+  // Filtrado: una semana se oculta si pertenece a un mes cerrado y no
+  // tiene NINGÚN registro real (raíz ni descendientes; los descendientes
+  // van vía `realEfectivoEnPeriodoIdx` sobre la raíz).
+  const semanasVisibles = useMemo(() => {
+    if (mostrarVaciasCerradas || mesesCerrados.size === 0) return semanasActivas;
+    return semanasActivas.filter((mk) => {
+      const mes = mesKeyFromDate(parseLocalDateKey(mk));
+      if (!mesesCerrados.has(mes)) return true;
+      const real = realEfectivoEnPeriodoIdx(idx, raiz.id, "semana", mk);
+      return real > 0;
+    });
+  }, [semanasActivas, mostrarVaciasCerradas, mesesCerrados, idx, raiz.id]);
+
+  const ocultas = semanasActivas.length - semanasVisibles.length;
+
   return (
     <details open className="rounded-xl border border-border bg-background">
       <summary className="cursor-pointer list-none px-4 py-3 marker:content-none [&::-webkit-details-marker]:hidden">
@@ -62,12 +91,37 @@ export function BloqueSemanal({ raiz, ramas, regsIndex, idx, config, year, unida
       </summary>
 
       <div className="space-y-2 border-t border-border/60 p-4">
-        {semanasActivas.length === 0 ? (
+        {ocultas > 0 && (
+          <div className="flex flex-wrap items-center justify-between gap-2 rounded border border-dashed border-border bg-surface/40 px-3 py-2 text-[11px] text-muted">
+            <span>
+              {ocultas} {ocultas === 1 ? "semana vacía oculta" : "semanas vacías ocultas"} de meses cerrados.
+            </span>
+            <button
+              type="button"
+              onClick={() => setMostrarVaciasCerradas(true)}
+              className="rounded border border-border bg-background px-2 py-1 text-[11px] font-medium text-foreground hover:bg-surface"
+            >
+              Mostrarlas igualmente
+            </button>
+          </div>
+        )}
+        {ocultas === 0 && mostrarVaciasCerradas && mesesCerrados.size > 0 && (
+          <div className="flex flex-wrap items-center justify-end gap-2 text-[11px] text-muted">
+            <button
+              type="button"
+              onClick={() => setMostrarVaciasCerradas(false)}
+              className="rounded border border-border bg-background px-2 py-1 font-medium text-foreground hover:bg-surface"
+            >
+              Ocultar semanas vacías de meses cerrados
+            </button>
+          </div>
+        )}
+        {semanasVisibles.length === 0 ? (
           <p className="rounded border border-dashed border-border px-3 py-3 text-sm text-muted">
             No hay semanas activas configuradas. Revisa «Semanas de descanso» en la cabecera.
           </p>
         ) : (
-          semanasActivas.map((mondayKey) => (
+          semanasVisibles.map((mondayKey) => (
             <FilaSemana
               key={mondayKey}
               raiz={raiz}

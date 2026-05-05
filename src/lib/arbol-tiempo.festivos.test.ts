@@ -67,3 +67,27 @@ describe("defaults: Semana Santa", () => {
     expect(defaultSemanasNoActivas(2027)).toContain("2027-03-22");
   });
 });
+
+describe("regresión: config 2025 sin descansos vs con defaults", () => {
+  it("una config con semanasNoActivas:[] hace que agosto facture como un mes normal", () => {
+    const sinDefaults = { anio: 2025, semanasNoActivas: [], comunidadAutonoma: "MD" };
+    expect(diasLaborablesEnMes("2025-08", 2025, sinDefaults)).toBeGreaterThan(15);
+  });
+
+  it("aplicando los defaults (como hace la migración v23) agosto baja a 0 días laborables", () => {
+    // Misma lógica que la migración v23: unión defensiva.
+    const conDefaults = {
+      anio: 2025,
+      semanasNoActivas: defaultSemanasNoActivas(2025),
+      comunidadAutonoma: "MD",
+    };
+    expect(diasLaborablesEnMes("2025-08", 2025, conDefaults)).toBe(0);
+    // Las 2 semanas de Navidad y la de Pascua también pierden días laborables.
+    const dicSinDefaults = diasLaborablesEnMes("2025-12", 2025, {
+      anio: 2025,
+      semanasNoActivas: [],
+      comunidadAutonoma: "MD",
+    });
+    expect(diasLaborablesEnMes("2025-12", 2025, conDefaults)).toBeLessThan(dicSinDefaults);
+  });
+});
