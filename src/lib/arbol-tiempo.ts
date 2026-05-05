@@ -673,10 +673,16 @@ export function mesKeysEnTrimestre(qKey: string): string[] {
   return [0, 1, 2].map((i) => `${y}-${String(start + i).padStart(2, "0")}`);
 }
 
-/** ¿El lunes `mondayKey` pertenece al mes `YYYY-MM`? */
+/** ¿El lunes `mondayKey` pertenece al mes `YYYY-MM`?
+ *
+ *  Comparación textual para evitar `parseLocalDateKey` por llamada: en los
+ *  bloques densos del Árbol esta función puede llamarse decenas de miles
+ *  de veces (52 semanas × hojas × meses) durante un único render. La
+ *  forma `YYYY-MM-DD` siempre comparte los 7 primeros caracteres con
+ *  `YYYY-MM`, así que el slice basta.
+ */
 export function mondayEnMes(mondayKey: string, mesKey: string): boolean {
-  const d = parseLocalDateKey(mondayKey);
-  return mesKeyFromDate(d) === mesKey;
+  return mondayKey.length >= 7 && mondayKey.slice(0, 7) === mesKey;
 }
 
 /** ¿El mes está en el trimestre? */

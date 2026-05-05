@@ -7,7 +7,7 @@
  * utilidad de "línea de métrica". El resto de lógica visual la pone cada
  * bloque en su archivo propio para que puedas leerlos de un vistazo.
  */
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { useAppDispatch } from "@/lib/context";
 import { generateId } from "@/lib/store";
 import type { RegistroNodo } from "@/lib/types";
@@ -333,18 +333,6 @@ export function usePersistedOpen(storageKey: string, defaultOpen = false): {
     [storageKey],
   );
   return { open, onToggle };
-}
-
-/** Devuelve un Map con callback memoizado para lookup por clave. */
-export function useRegistroExistente(
-  index: RegistrosIndex,
-): (nodoId: string, periodoTipo: RegistroNodo["periodoTipo"], periodoKey: string) => RegistroNodo | undefined {
-  return useMemo(
-    () =>
-      (nodoId, periodoTipo, periodoKey) =>
-        index.get(claveRegistro(nodoId, periodoTipo, periodoKey)),
-    [index],
-  );
 }
 
 export function MetricLine({
