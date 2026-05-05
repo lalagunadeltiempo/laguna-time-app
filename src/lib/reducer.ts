@@ -174,6 +174,15 @@ export type Action =
   | { type: "REASSIGN_REGISTROS_NODO"; fromNodoId: string; toNodoId: string }
   | { type: "SET_ARBOL_CONFIG_ANIO"; config: PlanArbolConfigAnio }
   | { type: "TOGGLE_MES_CERRADO"; anio: number; mesKey: string }
+  /** Toggle de un lunes ISO en `semanasNoActivasTs`. LWW por mondayKey:
+   *  cada operación actualiza el ts. Marcar = setear ts en cierres y borrar
+   *  el tombstone; desmarcar = setear ts en aperturas (tombstone) y borrar
+   *  cierre. Imprescindible para que un push antiguo de la nube no resucite
+   *  un descanso recién quitado. */
+  | { type: "TOGGLE_SEMANA_NO_ACTIVA"; anio: number; mondayKey: string }
+  /** Edita el piso mensual (€) de un mesKey concreto. `valor === 0` o
+   *  `valor === undefined` borra la entrada (semánticamente "sin piso"). */
+  | { type: "SET_PISO_MENSUAL"; anio: number; mesKey: string; valor: number | undefined }
   | { type: "REPLACE_ARBOL_STATE"; arbol: PlanArbolState }
   | {
       type: "UPSERT_REFLEXION_TRIMESTRE";
@@ -1895,9 +1904,9 @@ export function reducer(state: AppState, action: Action): AppState {
     }
 
     case "SET_ARBOL_CONFIG_ANIO": {
-      // Preservar campos que el editor no toca (cierres por mes, CCAA si
-      // no se incluye explícitamente). Sin esto, abrir el editor de
-      // semanas de descanso borraría todos los cierres del año.
+      // Preservar campos que el editor no toca (cierres por mes, CCAA, ts
+      // de semanas no activas, pisos mensuales). Sin esto, cualquier
+      // payload parcial borraría datos clave del año.
       const arbol = state.arbol ?? EMPTY_ARBOL;
       const existing = arbol.configs.find((c) => c.anio === action.config.anio);
       const merged: PlanArbolConfigAnio = {
@@ -1905,6 +1914,10 @@ export function reducer(state: AppState, action: Action): AppState {
         comunidadAutonoma: action.config.comunidadAutonoma ?? existing?.comunidadAutonoma,
         mesesCerradosTs: action.config.mesesCerradosTs ?? existing?.mesesCerradosTs,
         mesesCerrados: action.config.mesesCerrados ?? existing?.mesesCerrados,
+        mesesAbiertosTs: action.config.mesesAbiertosTs ?? existing?.mesesAbiertosTs,
+        semanasNoActivasTs: action.config.semanasNoActivasTs ?? existing?.semanasNoActivasTs,
+        semanasActivasTs: action.config.semanasActivasTs ?? existing?.semanasActivasTs,
+        pisoMensual: action.config.pisoMensual ?? existing?.pisoMensual,
       };
       const others = arbol.configs.filter((c) => c.anio !== action.config.anio);
       return {
@@ -1912,6 +1925,82 @@ export function reducer(state: AppState, action: Action): AppState {
         arbol: {
           ...arbol,
           configs: [...others, merged].sort((a, b) => a.anio - b.anio),
+        },
+      };
+    }
+
+    case "TOGGLE_SEMANA_NO_ACTIVA": {
+      // Marca/desmarca un lunes ISO como descanso usando LWW por mondayKey.
+      // Misma estructura que TOGGLE_MES_CERRADO: si el mondayKey ya tenía
+      // un cierre (estaba en descanso), se borra y se anota tombstone de
+      // apertura con ts ahora; si no, se marca como cierre con ts ahora.
+      const arbol = state.arbol ?? EMPTY_ARBOL;
+      const existing = arbol.configs.find((c) => c.anio === action.anio);
+      const baseConfig: PlanArbolConfigAnio = existing
+        ? { ...existing }
+        : { anio: action.anio };
+      const tsAhora = new Date().toISOString();
+      const cerradosTs: Record<string, string> = { ...(baseConfig.semanasNoActivasTs ?? {}) };
+      // Compatibilidad pre-migración 25: si llega legacy con el lunes
+      // marcado pero sin ts, lo tratamos como ts epoch para que el
+      // toggle (más reciente) gane.
+      if (!cerradosTs[action.mondayKey] && (baseConfig.semanasNoActivas ?? []).includes(action.mondayKey)) {
+        cerradosTs[action.mondayKey] = "1970-01-01T00:00:00.000Z";
+      }
+      const aperturasTs: Record<string, string> = { ...(baseConfig.semanasActivasTs ?? {}) };
+      if (cerradosTs[action.mondayKey]) {
+        // Estaba marcado → desmarcar. Tombstone con ts > cierre.
+        delete cerradosTs[action.mondayKey];
+        aperturasTs[action.mondayKey] = tsAhora;
+      } else {
+        // No estaba marcado → marcar. Limpiamos cualquier apertura previa.
+        cerradosTs[action.mondayKey] = tsAhora;
+        delete aperturasTs[action.mondayKey];
+      }
+      // Limpiar el legacy del mondayKey tocado para no resucitarlo vía
+      // el fallback de lectura.
+      const legacyDepurado = (baseConfig.semanasNoActivas ?? []).filter((m) => m !== action.mondayKey);
+      const semanasNoActivasLegacy = legacyDepurado.length > 0 ? legacyDepurado : undefined;
+      const nextConfig: PlanArbolConfigAnio = {
+        ...baseConfig,
+        semanasNoActivasTs: Object.keys(cerradosTs).length > 0 ? cerradosTs : undefined,
+        semanasActivasTs: Object.keys(aperturasTs).length > 0 ? aperturasTs : undefined,
+        semanasNoActivas: semanasNoActivasLegacy,
+      };
+      const others = arbol.configs.filter((c) => c.anio !== action.anio);
+      return {
+        ...state,
+        arbol: {
+          ...arbol,
+          configs: [...others, nextConfig].sort((a, b) => a.anio - b.anio),
+        },
+      };
+    }
+
+    case "SET_PISO_MENSUAL": {
+      // Edita el piso mensual de un mesKey concreto. Eliminamos la entrada
+      // si valor es 0/undefined (sin piso = no entrada). Sin tombstones:
+      // la concurrencia en este campo es muy baja (la usuaria edita los
+      // pisos cuando configura el año, no a diario).
+      const arbol = state.arbol ?? EMPTY_ARBOL;
+      const existing = arbol.configs.find((c) => c.anio === action.anio);
+      const baseConfig: PlanArbolConfigAnio = existing ? { ...existing } : { anio: action.anio };
+      const pisos: Record<string, number> = { ...(baseConfig.pisoMensual ?? {}) };
+      if (action.valor === undefined || !Number.isFinite(action.valor) || action.valor <= 0) {
+        delete pisos[action.mesKey];
+      } else {
+        pisos[action.mesKey] = action.valor;
+      }
+      const nextConfig: PlanArbolConfigAnio = {
+        ...baseConfig,
+        pisoMensual: Object.keys(pisos).length > 0 ? pisos : undefined,
+      };
+      const others = arbol.configs.filter((c) => c.anio !== action.anio);
+      return {
+        ...state,
+        arbol: {
+          ...arbol,
+          configs: [...others, nextConfig].sort((a, b) => a.anio - b.anio),
         },
       };
     }

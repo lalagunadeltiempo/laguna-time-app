@@ -606,6 +606,7 @@ export function ensureConfigAnio(configs: PlanArbolConfigAnio[], anio: number): 
       anio,
       semanasNoActivas: defaultSemanasNoActivas(anio),
       comunidadAutonoma: DEFAULT_COMUNIDAD_AUTONOMA,
+      pisoMensual: { [`${anio}-08`]: 10000 },
     },
   ].sort((a, b) => a.anio - b.anio);
 }
@@ -624,8 +625,35 @@ export function mesesCerradosSet(config: PlanArbolConfigAnio | undefined): Set<s
   return new Set(config.mesesCerrados ?? []);
 }
 
+/**
+ * Set de mondayKey marcadas como descanso, resolviendo LWW con los
+ * tombstones de "esta semana ya no es descanso" (`semanasActivasTs`).
+ *
+ * Lectores que antes accedían a `config.semanasNoActivas` deben usar este
+ * helper: si no, una semana que la usuaria acaba de desmarcar puede
+ * resucitar en el siguiente render porque el array legacy todavía la
+ * lista. Ver migración v25 y `unionConfigs` para el LWW completo.
+ */
+export function semanasNoActivasSet(config: PlanArbolConfigAnio | undefined): Set<string> {
+  if (!config) return new Set();
+  const out = new Set<string>();
+  if (config.semanasNoActivasTs && Object.keys(config.semanasNoActivasTs).length > 0) {
+    for (const mk of Object.keys(config.semanasNoActivasTs)) out.add(mk);
+  } else {
+    for (const mk of config.semanasNoActivas ?? []) out.add(mk);
+  }
+  const aperturas = config.semanasActivasTs ?? {};
+  const cierres = config.semanasNoActivasTs ?? {};
+  for (const mk of Object.keys(aperturas)) {
+    const tApertura = aperturas[mk];
+    const tCierre = cierres[mk];
+    if (!tCierre || tApertura >= tCierre) out.delete(mk);
+  }
+  return out;
+}
+
 export function semanasActivasCount(anio: number, config: PlanArbolConfigAnio | undefined): number {
-  const noAct = new Set(config?.semanasNoActivas ?? []);
+  const noAct = semanasNoActivasSet(config);
   return mondaysInCalendarYear(anio).filter((m) => !noAct.has(m)).length;
 }
 
@@ -682,7 +710,7 @@ export function metaSemanalPropuesta(metaAnual: number, anio: number, config: Pl
 
 /** Cuántas semanas activas (lunes ISO no marcados como descanso) hay en un mes calendario YYYY-MM. */
 export function semanasActivasEnMes(mesKey: string, anio: number, config: PlanArbolConfigAnio | undefined): number {
-  const noAct = new Set(config?.semanasNoActivas ?? []);
+  const noAct = semanasNoActivasSet(config);
   let n = 0;
   for (const mk of mondaysInCalendarYear(anio)) {
     if (noAct.has(mk)) continue;
@@ -852,6 +880,40 @@ export function wouldCreateCycle(nodos: NodoArbol[], nodeId: string, newParentId
  */
 export type ModoImportSubarbol = "plan" | "real";
 
+/**
+ * Encuentra la raíz del año anterior que se va a usar como origen para
+ * "Traer estructura de {año-1}". Prioriza match por nombre normalizado;
+ * si no lo hay, devuelve la única (o la primera por orden y luego
+ * `creado` ascendente) raíz disponible. Si no hay ninguna raíz en
+ * `anioActual - 1`, devuelve `undefined`.
+ *
+ * Aquí relajamos la búsqueda original (estricta por nombre) porque la
+ * usuaria suele renombrar la raíz cada año ("FACTURACIÓN 2026" vs
+ * "Facturación") y antes los botones de importar desaparecían.
+ */
+export function findRaizOrigenAnioAnterior(
+  nodos: NodoArbol[],
+  anioActual: number,
+  raizDestinoId?: string,
+): NodoArbol | undefined {
+  const anioOrigen = anioActual - 1;
+  const candidatas = nodos.filter((n) => !n.parentId && n.anio === anioOrigen);
+  if (candidatas.length === 0) return undefined;
+  if (raizDestinoId !== undefined) {
+    const raizDestino = nodos.find((n) => n.id === raizDestinoId);
+    if (raizDestino) {
+      const objetivo = normalizarNombreNodo(raizDestino.nombre);
+      const match = candidatas.find((n) => normalizarNombreNodo(n.nombre) === objetivo);
+      if (match) return match;
+    }
+  }
+  const ordenadas = [...candidatas].sort((a, b) => {
+    if (a.orden !== b.orden) return a.orden - b.orden;
+    return (a.creado ?? "").localeCompare(b.creado ?? "");
+  });
+  return ordenadas[0];
+}
+
 export function clonarEstructuraDeAnioAnterior(opts: {
   nodos: NodoArbol[];
   anioDestino: number;
@@ -862,7 +924,14 @@ export function clonarEstructuraDeAnioAnterior(opts: {
   modo?: ModoImportSubarbol;
   /** Registros del árbol completos. Solo necesario cuando `modo === "real"`. */
   registros?: RegistroNodo[];
-}): { nuevosNodos: NodoArbol[]; copiados: number; modoEfectivo: ModoImportSubarbol } {
+}): {
+  nuevosNodos: NodoArbol[];
+  copiados: number;
+  modoEfectivo: ModoImportSubarbol;
+  /** Nombre de la raíz origen elegida; útil para que el caller pregunte
+   *  cuando difiere del destino antes de aplicar el clon. */
+  nombreOrigen?: string;
+} {
   const { nodos, anioDestino, raizDestinoId, generateId } = opts;
   const modoSolicitado: ModoImportSubarbol = opts.modo ?? "plan";
   const raizDestino = nodos.find((n) => n.id === raizDestinoId);
@@ -870,15 +939,9 @@ export function clonarEstructuraDeAnioAnterior(opts: {
     return { nuevosNodos: [], copiados: 0, modoEfectivo: modoSolicitado };
   }
 
-  const anioOrigen = anioDestino - 1;
-  const nombreObjetivo = normalizarNombreNodo(raizDestino.nombre);
-  const raizOrigen = nodos.find(
-    (n) =>
-      !n.parentId &&
-      n.anio === anioOrigen &&
-      normalizarNombreNodo(n.nombre) === nombreObjetivo,
-  );
+  const raizOrigen = findRaizOrigenAnioAnterior(nodos, anioDestino, raizDestinoId);
   if (!raizOrigen) return { nuevosNodos: [], copiados: 0, modoEfectivo: modoSolicitado };
+  const anioOrigen = raizOrigen.anio;
 
   // Mapa hijo→padre por id para todo el año origen, para recorrer el subárbol.
   const hijosPorParent = new Map<string, NodoArbol[]>();
@@ -976,7 +1039,12 @@ export function clonarEstructuraDeAnioAnterior(opts: {
     for (const h of hijos) queue.push(h);
   }
 
-  return { nuevosNodos, copiados: nuevosNodos.length, modoEfectivo };
+  return {
+    nuevosNodos,
+    copiados: nuevosNodos.length,
+    modoEfectivo,
+    nombreOrigen: raizOrigen.nombre,
+  };
 }
 
 export function metaParaVista(
@@ -1009,9 +1077,84 @@ export function metaParaVista(
 }
 
 /**
+ * Reparto del plan anual respetando los pisos mensuales declarados en
+ * config. Aislado en su propia función para mantener `metaParaPeriodo`
+ * legible. La invariante por construcción: la suma de planes mensuales
+ * cuadra con `metaValor` cuando la suma de pisos no lo excede; si lo
+ * excede, los pisos absorben todo el plan (clamp por mes) y los meses
+ * sin piso quedan en 0.
+ */
+function metaParaPeriodoAnual(
+  metaValor: number,
+  vista: VistaPeriodoArbol,
+  periodoKey: string,
+  anio: number,
+  config: PlanArbolConfigAnio | undefined,
+  totalDias: number,
+): number {
+  const pisos = config?.pisoMensual ?? {};
+  const sumPisos = Object.values(pisos).reduce((a, b) => a + (Number.isFinite(b) ? b : 0), 0);
+  const tienePisos = sumPisos > 0;
+  if (!tienePisos) {
+    if (vista === "semana") return (metaValor * diasLaborablesEnSemanaISO(periodoKey, anio, config)) / totalDias;
+    if (vista === "mes") return (metaValor * diasLaborablesEnMes(periodoKey, anio, config)) / totalDias;
+    if (vista === "trimestre")
+      return (metaValor * diasLaborablesEnTrimestre(periodoKey, anio, config)) / totalDias;
+    return metaValor;
+  }
+  const metaRestante = Math.max(0, metaValor - sumPisos);
+  let diasMesesPiso = 0;
+  for (const mk of Object.keys(pisos)) diasMesesPiso += diasLaborablesEnMes(mk, anio, config);
+  const diasRestantes = Math.max(1, totalDias - diasMesesPiso);
+  // Si los pisos exceden la meta anual, los recortamos prorrateados al
+  // entrar a cada mes para no devolver más de `metaValor` agregado.
+  const factorClamp = sumPisos > metaValor ? metaValor / sumPisos : 1;
+  const pisoEfectivoMes = (mk: string): number | undefined => {
+    const v = pisos[mk];
+    if (v === undefined || !Number.isFinite(v)) return undefined;
+    return v * factorClamp;
+  };
+
+  if (vista === "anio") return metaValor;
+
+  if (vista === "mes") {
+    const piso = pisoEfectivoMes(periodoKey);
+    if (piso !== undefined) return piso;
+    return (metaRestante * diasLaborablesEnMes(periodoKey, anio, config)) / diasRestantes;
+  }
+
+  if (vista === "trimestre") {
+    let sum = 0;
+    for (const mk of mesKeysEnTrimestre(periodoKey)) {
+      const piso = pisoEfectivoMes(mk);
+      if (piso !== undefined) sum += piso;
+      else sum += (metaRestante * diasLaborablesEnMes(mk, anio, config)) / diasRestantes;
+    }
+    return sum;
+  }
+
+  // vista === "semana"
+  const mkSemana = mesKeyFromDate(parseLocalDateKey(periodoKey));
+  const piso = pisoEfectivoMes(mkSemana);
+  if (piso !== undefined) {
+    const semActivas = semanasActivasEnMes(mkSemana, anio, config);
+    if (semActivas <= 0) return 0;
+    return piso / semActivas;
+  }
+  return (metaRestante * diasLaborablesEnSemanaISO(periodoKey, anio, config)) / diasRestantes;
+}
+
+/**
  * Cuota real para un periodo concreto teniendo en cuenta las semanas activas reales del año.
  * Cuando hay info suficiente (cadencia anual + config + periodoKey), reparte proporcional a las semanas activas
  * del periodo. Si no, vuelve al cálculo simple de `metaParaVista`.
+ *
+ * Piso mensual: si `config.pisoMensual` declara un mínimo (€) por mesKey,
+ * ese mes recibe exactamente el piso (caso típico: agosto 100% descanso
+ * con ingresos pasivos), y el resto de la meta anual se prorratea entre
+ * los meses sin piso por sus días laborables. Sólo se aplica a cadencia
+ * anual. La vista semanal reparte el piso del mes uniformemente entre
+ * sus semanas activas.
  */
 export function metaParaPeriodo(
   cadencia: import("./types").NodoCadencia,
@@ -1024,11 +1167,7 @@ export function metaParaPeriodo(
   if (metaValor === undefined) return undefined;
   const totalDias = diasLaborablesEnAnio(anio, config);
   if (cadencia === "anual" && totalDias > 0) {
-    if (vista === "semana") return (metaValor * diasLaborablesEnSemanaISO(periodoKey, anio, config)) / totalDias;
-    if (vista === "mes") return (metaValor * diasLaborablesEnMes(periodoKey, anio, config)) / totalDias;
-    if (vista === "trimestre")
-      return (metaValor * diasLaborablesEnTrimestre(periodoKey, anio, config)) / totalDias;
-    if (vista === "anio") return metaValor;
+    return metaParaPeriodoAnual(metaValor, vista, periodoKey, anio, config, totalDias);
   }
   if (cadencia === "semanal" && vista === "semana") return metaValor;
   if (cadencia === "semanal" && vista === "mes")
@@ -1157,6 +1296,12 @@ export function sumarRegistrosNodoAnioAnterior(
  * cierre, un mes con real=0 podría ser sólo "aún no apunté", lo cual no
  * debería penalizar el replan de los meses posteriores.
  *
+ * Pisos mensuales: un mes con `pisoMensual[mk]` declarado se considera
+ * compromiso fijo. Su replan = piso (no se replanifica) y su aporte al
+ * acumulado del mes siguiente es el piso (incluso si el mes está abierto
+ * y aún no se apuntó nada). Si el mes está cerrado, gana el real (que es
+ * el dato de la realidad).
+ *
  * Independiente de la fecha "hoy": funciona igual para años pasados,
  * actual o futuros.
  */
@@ -1169,43 +1314,70 @@ export function replanMensualSerie(opts: {
 }): Map<string, number> {
   const result = new Map<string, number>();
   const cerrados = opts.mesesCerrados ?? new Set<string>();
+  const pisos = opts.config?.pisoMensual ?? {};
+  const sumPisos = Object.values(pisos).reduce((a, b) => a + (Number.isFinite(b) ? b : 0), 0);
   const mesKeys: string[] = Array.from(
     { length: 12 },
     (_, i) => `${opts.anio}-${String(i + 1).padStart(2, "0")}`,
   );
   const diasMes = mesKeys.map((k) => diasLaborablesEnMes(k, opts.anio, opts.config));
-  const diasAnio = diasMes.reduce((a, b) => a + b, 0);
-  // Total de días laborables desde el mes i (inclusive) hasta diciembre.
-  const diasDesde: number[] = new Array(12).fill(0);
-  let acum = 0;
+  // Días laborables descontando los meses con piso, que no entran al
+  // reparto del residuo (su contribución la fija el piso).
+  let diasMesesPiso = 0;
+  for (const mk of Object.keys(pisos)) diasMesesPiso += diasLaborablesEnMes(mk, opts.anio, opts.config);
+  const metaRestanteAnual = Math.max(0, opts.metaAnual - sumPisos);
+  // Plan lineal del mes con pisos absorbidos: para meses con piso vale el piso;
+  // para meses sin piso, prorrateo de la meta restante por días laborables sin
+  // contar los meses con piso.
+  const planLinealMes = mesKeys.map((k, i) => {
+    if (pisos[k] !== undefined && Number.isFinite(pisos[k])) return pisos[k];
+    const denom = Math.max(1, diasMes.reduce((a, _, j) => a + (pisos[mesKeys[j]] !== undefined ? 0 : diasMes[j]), 0));
+    return (metaRestanteAnual * diasMes[i]) / denom;
+  });
+  // Días laborables RESTANTES (mes i .. dic) excluyendo meses con piso, para
+  // que el reparto del residuo en el replan del propio mes i no se diluya en
+  // el denominador con días que ya están comprometidos por piso.
+  const diasDesdeSinPiso: number[] = new Array(12).fill(0);
+  let acumSinPiso = 0;
   for (let i = 11; i >= 0; i--) {
-    acum += diasMes[i];
-    diasDesde[i] = acum;
+    if (pisos[mesKeys[i]] === undefined) acumSinPiso += diasMes[i];
+    diasDesdeSinPiso[i] = acumSinPiso;
   }
-  // Plan lineal del mes (servirá como estimación cuando un mes esté abierto).
-  const planLinealMes = diasMes.map((d) => (diasAnio > 0 ? (opts.metaAnual * d) / diasAnio : 0));
 
   let realAcumAntes = 0;
   for (let i = 0; i < 12; i++) {
     const k = mesKeys[i];
-    const falta = Math.max(0, opts.metaAnual - realAcumAntes);
-    const replanI = diasDesde[i] > 0 ? (falta * diasMes[i]) / diasDesde[i] : 0;
-    result.set(k, replanI);
+    if (pisos[k] !== undefined && Number.isFinite(pisos[k])) {
+      result.set(k, pisos[k]);
+    } else {
+      // Falta hasta la meta anual descontando lo ya acumulado y el resto de
+      // pisos que aún están por venir (compromisos fijos futuros).
+      const pisosFuturos = mesKeys
+        .slice(i + 1)
+        .reduce((a, mk) => a + (pisos[mk] !== undefined && Number.isFinite(pisos[mk]) ? pisos[mk] : 0), 0);
+      const falta = Math.max(0, opts.metaAnual - realAcumAntes - pisosFuturos);
+      const replanI = diasDesdeSinPiso[i] > 0 ? (falta * diasMes[i]) / diasDesdeSinPiso[i] : 0;
+      result.set(k, replanI);
+    }
     // Aportación al acumulado del siguiente mes:
-    //  - mes cerrado: real real (incluso 0).
-    //  - mes abierto: se asume plan lineal (no penalizar el futuro).
+    //  - mes cerrado: real (incluso 0).
+    //  - mes abierto sin piso: plan lineal (no penalizar el futuro).
+    //  - mes abierto con piso: piso (compromiso fijo).
     const aporte = cerrados.has(k)
       ? opts.realPorMes.get(k) ?? 0
       : planLinealMes[i];
     realAcumAntes += aporte;
   }
+  void diasMesesPiso;
   return result;
 }
 
 /**
  * Replan trimestre a trimestre: misma lógica que `replanMensualSerie` pero
  * agregando por trimestre. Requiere `realPorMes` (no por trimestre) porque
- * el cierre se decide al nivel del mes y necesita sumar mes a mes.
+ * el cierre se decide al nivel del mes y necesita sumar mes a mes. Los
+ * pisos mensuales se respetan: en el reparto del residuo se descuentan
+ * los meses con piso del numerador y del denominador, y luego se suman.
  */
 export function replanTrimestralSerie(opts: {
   metaAnual: number;
@@ -1216,32 +1388,69 @@ export function replanTrimestralSerie(opts: {
 }): Map<string, number> {
   const result = new Map<string, number>();
   const cerrados = opts.mesesCerrados ?? new Set<string>();
+  const pisos = opts.config?.pisoMensual ?? {};
+  const sumPisos = Object.values(pisos).reduce((a, b) => a + (Number.isFinite(b) ? b : 0), 0);
+  const metaRestanteAnual = Math.max(0, opts.metaAnual - sumPisos);
   const trimKeys = [1, 2, 3, 4].map((q) => `${opts.anio}-Q${q}`);
-
-  const diasPorQ = trimKeys.map((qKey) =>
-    mesKeysEnTrimestre(qKey).reduce(
-      (a, mk) => a + diasLaborablesEnMes(mk, opts.anio, opts.config),
-      0,
-    ),
+  // Mapas auxiliares por mes: días laborables y plan lineal (con pisos absorbidos).
+  const mesKeysAll: string[] = Array.from(
+    { length: 12 },
+    (_, i) => `${opts.anio}-${String(i + 1).padStart(2, "0")}`,
   );
-  const diasAnio = diasPorQ.reduce((a, b) => a + b, 0);
-  const diasDesdeQ: number[] = new Array(4).fill(0);
-  let acumQ = 0;
+  const diasMesAll = mesKeysAll.map((k) => diasLaborablesEnMes(k, opts.anio, opts.config));
+  const diasMesesNoPiso = diasMesAll.reduce(
+    (a, d, j) => a + (pisos[mesKeysAll[j]] !== undefined ? 0 : d),
+    0,
+  );
+  const denomNoPiso = Math.max(1, diasMesesNoPiso);
+  const planLinMes: Record<string, number> = {};
+  for (let i = 0; i < 12; i++) {
+    const mk = mesKeysAll[i];
+    if (pisos[mk] !== undefined && Number.isFinite(pisos[mk])) planLinMes[mk] = pisos[mk];
+    else planLinMes[mk] = (metaRestanteAnual * diasMesAll[i]) / denomNoPiso;
+  }
+
+  // Días laborables sin piso DESDE el trimestre q hasta Q4, para el
+  // denominador del replan de cada trimestre.
+  const diasDesdeQNoPiso: number[] = new Array(4).fill(0);
   for (let q = 3; q >= 0; q--) {
-    acumQ += diasPorQ[q];
-    diasDesdeQ[q] = acumQ;
+    const acum = mesKeysEnTrimestre(trimKeys[q]).reduce(
+      (a, mk, idx) => a + (pisos[mk] !== undefined ? 0 : diasMesAll[q * 3 + idx]),
+      0,
+    );
+    diasDesdeQNoPiso[q] = (q < 3 ? diasDesdeQNoPiso[q + 1] : 0) + acum;
   }
 
   let realAcumAntes = 0;
   for (let q = 0; q < 4; q++) {
     const qKey = trimKeys[q];
-    const falta = Math.max(0, opts.metaAnual - realAcumAntes);
-    const replanQ = diasDesdeQ[q] > 0 ? (falta * diasPorQ[q]) / diasDesdeQ[q] : 0;
-    result.set(qKey, replanQ);
-    for (const mk of mesKeysEnTrimestre(qKey)) {
-      const diasMk = diasLaborablesEnMes(mk, opts.anio, opts.config);
-      const planLinMes = diasAnio > 0 ? (opts.metaAnual * diasMk) / diasAnio : 0;
-      const aporte = cerrados.has(mk) ? opts.realPorMes.get(mk) ?? 0 : planLinMes;
+    const meses = mesKeysEnTrimestre(qKey);
+    // Pisos comprometidos en el propio trimestre y en los siguientes (para
+    // restarlos del "lo que falta repartir").
+    const pisosTrimActual = meses.reduce(
+      (a, mk) => a + (pisos[mk] !== undefined && Number.isFinite(pisos[mk]) ? pisos[mk] : 0),
+      0,
+    );
+    const pisosFuturos = trimKeys
+      .slice(q + 1)
+      .reduce(
+        (acc, qK) =>
+          acc +
+          mesKeysEnTrimestre(qK).reduce(
+            (a, mk) => a + (pisos[mk] !== undefined && Number.isFinite(pisos[mk]) ? pisos[mk] : 0),
+            0,
+          ),
+        0,
+      );
+    const diasNoPisoTrim = meses.reduce(
+      (a, mk, idx) => a + (pisos[mk] !== undefined ? 0 : diasMesAll[q * 3 + idx]),
+      0,
+    );
+    const falta = Math.max(0, opts.metaAnual - realAcumAntes - pisosTrimActual - pisosFuturos);
+    const repartoSinPiso = diasDesdeQNoPiso[q] > 0 ? (falta * diasNoPisoTrim) / diasDesdeQNoPiso[q] : 0;
+    result.set(qKey, pisosTrimActual + repartoSinPiso);
+    for (const mk of meses) {
+      const aporte = cerrados.has(mk) ? opts.realPorMes.get(mk) ?? 0 : planLinMes[mk];
       realAcumAntes += aporte;
     }
   }

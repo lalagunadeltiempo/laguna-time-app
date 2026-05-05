@@ -66,11 +66,35 @@ export function esFestivo(date: Date, comunidadAutonoma?: string): boolean {
  */
 const diasLaborablesSetCache = new Map<string, ReadonlySet<string>>();
 
+/**
+ * Lectura local del set efectivo de semanas no activas. Vive aquí en
+ * lugar de importarse de `arbol-tiempo.ts` para evitar un ciclo de
+ * dependencias (festivos-es es la base que arbol-tiempo importa).
+ * Resuelve LWW: tombstones de apertura más recientes ganan al cierre.
+ */
+function semanasNoActivasSetLocal(config: PlanArbolConfigAnio | undefined): Set<string> {
+  if (!config) return new Set();
+  const out = new Set<string>();
+  if (config.semanasNoActivasTs && Object.keys(config.semanasNoActivasTs).length > 0) {
+    for (const mk of Object.keys(config.semanasNoActivasTs)) out.add(mk);
+  } else {
+    for (const mk of config.semanasNoActivas ?? []) out.add(mk);
+  }
+  const aperturas = config.semanasActivasTs ?? {};
+  const cierres = config.semanasNoActivasTs ?? {};
+  for (const mk of Object.keys(aperturas)) {
+    const tApertura = aperturas[mk];
+    const tCierre = cierres[mk];
+    if (!tCierre || tApertura >= tCierre) out.delete(mk);
+  }
+  return out;
+}
+
 function claveAnioConfig(anio: number, config: PlanArbolConfigAnio | undefined): string {
   const ccaa = config?.comunidadAutonoma ?? "";
-  // No usamos Array.prototype.sort directamente porque podría mutar el array
-  // original del estado; hacemos una copia defensiva.
-  const semanas = (config?.semanasNoActivas ?? []).slice().sort().join(",");
+  // Usamos el set efectivo (no el array legacy) para que la caché se
+  // invalide cuando la usuaria toggle un descanso por LWW.
+  const semanas = [...semanasNoActivasSetLocal(config)].sort().join(",");
   return `${anio}|${ccaa}|${semanas}`;
 }
 
@@ -82,7 +106,7 @@ export function diasLaborablesSetDelAnio(
   const cached = diasLaborablesSetCache.get(key);
   if (cached) return cached;
   const set = new Set<string>();
-  const noAct = new Set(config?.semanasNoActivas ?? []);
+  const noAct = semanasNoActivasSetLocal(config);
   const ccaa = config?.comunidadAutonoma;
   const hd = getHolidaysEs(ccaa);
   // Recorremos el año entero una sola vez.

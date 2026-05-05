@@ -476,8 +476,28 @@ export interface RegistroNodo {
 
 export interface PlanArbolConfigAnio {
   anio: number;
-  /** Lunes ISO (YYYY-MM-DD) de semanas no activas (ej. vacaciones). */
-  semanasNoActivas: string[];
+  /**
+   * @deprecated Usar `semanasNoActivasTs`. Se mantiene como fallback de
+   *  lectura para datos anteriores a la migración 25. La migración la
+   *  promueve a `semanasNoActivasTs` con ts epoch para que cualquier
+   *  toggle posterior gane en LWW.
+   */
+  semanasNoActivas?: string[];
+  /**
+   * Lunes ISO (YYYY-MM-DD) de semanas no activas (ej. vacaciones), con
+   * timestamp de la última operación de marcado. Misma semántica LWW que
+   * `mesesCerradosTs`: gana el ts más reciente por mondayKey, así
+   * desmarcar un descanso desde un cliente sobrevive a un push antiguo
+   * de la nube que lo seguía marcando.
+   */
+  semanasNoActivasTs?: Record<string, string>;
+  /**
+   * Tombstones LWW de "esta semana ya NO está en descanso":
+   * `mondayKey` -> ts ISO del momento en que se desmarcó. Necesario para
+   * que la unión de strings antigua no resucite un descanso que la
+   * usuaria acaba de quitar.
+   */
+  semanasActivasTs?: Record<string, string>;
   /**
    * Código CCAA para festivos (date-holidays / ES), ej. MD, CT.
    * Omitido o vacío: solo se aplican festivos del conjunto nacional estándar del dataset.
@@ -515,6 +535,14 @@ export interface PlanArbolConfigAnio {
    * el de cierre, el mes queda abierto en el merge.
    */
   mesesAbiertosTs?: Record<string, string>;
+  /**
+   * Piso mensual de plan en € por mesKey (`YYYY-MM`). Caso de uso: meses
+   * sin días laborables (ej. agosto entero como descanso) que en realidad
+   * sí facturan ingresos pasivos. El piso se descuenta de la meta anual y
+   * el resto se prorratea entre los meses sin piso por días laborables.
+   * No se aplica a vista semanal (la semana no "sabe" del piso del mes).
+   */
+  pisoMensual?: Record<string, number>;
 }
 
 /** Reflexión guardada al cierre de un trimestre. */

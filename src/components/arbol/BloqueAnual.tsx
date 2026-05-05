@@ -17,6 +17,7 @@ import { useAppDispatch } from "@/lib/context";
 import { generateId } from "@/lib/store";
 import { type NodoArbol, type RegistroNodo } from "@/lib/types";
 import {
+  findRaizOrigenAnioAnterior,
   hijosSumaDirectos,
   hijosSumaDirectosIdx,
   metaEfectivaNodoIdx,
@@ -86,22 +87,30 @@ export function BloqueAnual({ raiz, ramas, nodos, registros, idx, year, unidad }
   const diffRamas = metaAnual > 0 ? planRamasSuma - metaAnual : 0;
   const cuadreRamasOk = metaAnual === 0 || Math.abs(diffRamas) < 0.01;
 
-  // Botón "Traer estructura de <año-1>": solo se ofrece si existe raíz equivalente
-  // (mismo nombre normalizado, sin parentId) en el año anterior.
+  // Botón "Traer estructura de <año-1>": ofrecemos el botón si hay
+  // CUALQUIER raíz en el año anterior. El matching exacto por nombre se
+  // intenta primero pero hay fallback a la única raíz disponible (la
+  // usuaria suele renombrar la raíz cada año y antes los botones no
+  // aparecían).
   const anioAnterior = year - 1;
-  const existeAnioAnterior = useMemo(() => {
-    const objetivo = normalizarNombreNodo(raiz.nombre);
-    return nodos.some(
-      (n) =>
-        !n.parentId &&
-        n.anio === anioAnterior &&
-        normalizarNombreNodo(n.nombre) === objetivo,
-    );
-  }, [nodos, raiz.nombre, anioAnterior]);
+  const raizOrigenAY = useMemo(
+    () => findRaizOrigenAnioAnterior(nodos, year, raiz.id),
+    [nodos, year, raiz.id],
+  );
+  const existeAnioAnterior = raizOrigenAY !== undefined;
+  const nombreOrigenDifiere =
+    raizOrigenAY !== undefined &&
+    normalizarNombreNodo(raizOrigenAY.nombre) !== normalizarNombreNodo(raiz.nombre);
   const handleImportar = (modo: "plan" | "real") => {
     if (ramas.length > 0) {
       const ok = window.confirm(
         "Ya hay ramas este año. ¿Añadir también las del año anterior?",
+      );
+      if (!ok) return;
+    }
+    if (nombreOrigenDifiere && raizOrigenAY) {
+      const ok = window.confirm(
+        `La raíz de ${anioAnterior} se llama «${raizOrigenAY.nombre}» (distinto a la de este año). ¿Importamos su estructura igualmente?`,
       );
       if (!ok) return;
     }

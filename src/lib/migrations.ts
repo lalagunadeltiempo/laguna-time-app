@@ -7,7 +7,7 @@ import { buildPersonalSeedData } from "./seed-personal";
 import { buildEmpresaSeedProyectos } from "./seed-proyectos-empresa";
 import { mondayKey, mesKey, mesesDeTrimestre } from "./semana-utils";
 
-export const CURRENT_MIGRATION = 23;
+export const CURRENT_MIGRATION = 25;
 
 type Dispatch = (action: Action) => void;
 
@@ -67,8 +67,70 @@ export function runMigrations(state: AppState, dispatch: Dispatch): void {
     migrateArbolDescansosDefault(state, dispatch);
   }
 
+  if (version < 24) {
+    migrateArbolPisoMensualAgosto(state, dispatch);
+  }
+
+  if (version < 25) {
+    migrateArbolSemanasNoActivasTs(state, dispatch);
+  }
+
   if (version < CURRENT_MIGRATION) {
     dispatch({ type: "SET_MIGRATION_VERSION", version: CURRENT_MIGRATION });
+  }
+}
+
+/**
+ * Migración v25: `semanasNoActivas: string[]` → `semanasNoActivasTs:
+ * Record<mondayKey, ts>` con timestamp epoch. A partir de aquí cualquier
+ * toggle posterior gana en LWW por mondayKey y sobrevive a un push
+ * antiguo de la nube. El campo legacy se vacía; los lectores siguen
+ * aceptándolo como fallback para datos pre-migración entrantes.
+ */
+function migrateArbolSemanasNoActivasTs(state: AppState, dispatch: Dispatch): void {
+  const base = state.arbol ?? EMPTY_ARBOL;
+  const epoch = "1970-01-01T00:00:00.000Z";
+  let changed = false;
+  const configs = base.configs.map((c) => {
+    const legacy = c.semanasNoActivas ?? [];
+    const yaTs = c.semanasNoActivasTs ?? {};
+    if (legacy.length === 0) return c;
+    const ts: Record<string, string> = { ...yaTs };
+    for (const mk of legacy) {
+      if (!ts[mk]) ts[mk] = epoch;
+    }
+    changed = true;
+    return {
+      ...c,
+      semanasNoActivasTs: Object.keys(ts).length > 0 ? ts : undefined,
+      semanasNoActivas: undefined,
+    };
+  });
+  if (changed) {
+    dispatch({ type: "REPLACE_ARBOL_STATE", arbol: { ...base, configs } });
+  }
+}
+
+/**
+ * Migración v24: piso mensual por defecto de 10.000 € en agosto para
+ * cada config existente que aún no lo tenga. Caso de uso: la usuaria
+ * sigue facturando ingresos pasivos en agosto aunque no trabaje, y antes
+ * el plan de agosto era 0 € por no haber días laborables. Conserva
+ * cualquier piso ya configurado a mano.
+ */
+function migrateArbolPisoMensualAgosto(state: AppState, dispatch: Dispatch): void {
+  const base = state.arbol ?? EMPTY_ARBOL;
+  let changed = false;
+  const configs = base.configs.map((c) => {
+    const claveAgosto = `${c.anio}-08`;
+    const pisos = { ...(c.pisoMensual ?? {}) };
+    if (pisos[claveAgosto] !== undefined) return c;
+    pisos[claveAgosto] = 10000;
+    changed = true;
+    return { ...c, pisoMensual: pisos };
+  });
+  if (changed) {
+    dispatch({ type: "REPLACE_ARBOL_STATE", arbol: { ...base, configs } });
   }
 }
 

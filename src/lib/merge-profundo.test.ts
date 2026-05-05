@@ -486,6 +486,131 @@ describe("Cierre de meses: merge LWW de la config del año", () => {
   });
 });
 
+describe("Semanas no activas: merge LWW de la config del año", () => {
+  const mk = "2025-08-04";
+
+  it("desmarcar localmente sobrevive a un push antiguo de la nube que aún la marcaba", () => {
+    const cloud = baseState({
+      arbol: {
+        nodos: [],
+        registros: [],
+        configs: [
+          {
+            anio: 2025,
+            semanasNoActivasTs: { [mk]: "2026-05-01T10:00:00.000Z" },
+          },
+        ],
+        reflexiones: [],
+      },
+    });
+    // Local acaba de desmarcar el lunes: tombstone con ts más reciente.
+    const local = baseState({
+      arbol: {
+        nodos: [],
+        registros: [],
+        configs: [
+          {
+            anio: 2025,
+            semanasActivasTs: { [mk]: "2026-05-04T15:00:00.000Z" },
+          },
+        ],
+        reflexiones: [],
+      },
+    });
+    const merged = mergeStates(local, cloud);
+    const cfg = merged.arbol?.configs.find((c) => c.anio === 2025);
+    expect(cfg?.semanasNoActivasTs).toBeUndefined();
+    expect(cfg?.semanasActivasTs?.[mk]).toBe("2026-05-04T15:00:00.000Z");
+  });
+
+  it("marcar un lunes nuevo se conserva tras unir con un cliente sin esa marca", () => {
+    const a = baseState({
+      arbol: {
+        nodos: [],
+        registros: [],
+        configs: [
+          {
+            anio: 2025,
+            semanasNoActivasTs: { [mk]: "2026-05-04T15:00:00.000Z" },
+          },
+        ],
+        reflexiones: [],
+      },
+    });
+    const b = baseState({
+      arbol: {
+        nodos: [],
+        registros: [],
+        configs: [{ anio: 2025 }],
+        reflexiones: [],
+      },
+    });
+    const merged = mergeStates(a, b);
+    const cfg = merged.arbol?.configs.find((c) => c.anio === 2025);
+    expect(cfg?.semanasNoActivasTs?.[mk]).toBe("2026-05-04T15:00:00.000Z");
+  });
+
+  it("re-marcar después de un tombstone gana cuando el ts del cierre es más reciente", () => {
+    const a = baseState({
+      arbol: {
+        nodos: [],
+        registros: [],
+        configs: [
+          {
+            anio: 2025,
+            semanasActivasTs: { [mk]: "2026-05-04T10:00:00.000Z" },
+          },
+        ],
+        reflexiones: [],
+      },
+    });
+    const b = baseState({
+      arbol: {
+        nodos: [],
+        registros: [],
+        configs: [
+          {
+            anio: 2025,
+            semanasNoActivasTs: { [mk]: "2026-05-05T10:00:00.000Z" },
+          },
+        ],
+        reflexiones: [],
+      },
+    });
+    const merged = mergeStates(a, b);
+    const cfg = merged.arbol?.configs.find((c) => c.anio === 2025);
+    expect(cfg?.semanasNoActivasTs?.[mk]).toBe("2026-05-05T10:00:00.000Z");
+    expect(cfg?.semanasActivasTs).toBeUndefined();
+  });
+
+  it("compatibilidad: legacy `semanasNoActivas[]` cae al merge contra un tombstone moderno", () => {
+    const cloudLegacy = baseState({
+      arbol: {
+        nodos: [],
+        registros: [],
+        configs: [{ anio: 2025, semanasNoActivas: [mk] }],
+        reflexiones: [],
+      },
+    });
+    const local = baseState({
+      arbol: {
+        nodos: [],
+        registros: [],
+        configs: [
+          {
+            anio: 2025,
+            semanasActivasTs: { [mk]: "2026-05-04T15:00:00.000Z" },
+          },
+        ],
+        reflexiones: [],
+      },
+    });
+    const merged = mergeStates(local, cloudLegacy);
+    const cfg = merged.arbol?.configs.find((c) => c.anio === 2025);
+    expect(cfg?.semanasNoActivasTs).toBeUndefined();
+  });
+});
+
 describe("Mensajes de entregable: merge y tombstones", () => {
   const msg = (id: string, overrides: Partial<MensajeEntregable> = {}): MensajeEntregable => ({
     id,

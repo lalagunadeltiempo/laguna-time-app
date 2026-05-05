@@ -3,12 +3,13 @@
 import { useEffect, useRef } from "react";
 import {
   christmasVacationMondays,
-  defaultSemanasNoActivas,
   isoWeekLabelFromMondayKey,
   mondaysInCalendarYear,
   parseLocalDateKey,
+  semanasNoActivasSet,
   weekTouchesAugust,
 } from "@/lib/arbol-tiempo";
+import type { PlanArbolConfigAnio } from "@/lib/types";
 import { COMUNIDADES_AUTONOMAS_OPCIONES } from "@/lib/festivos-es";
 
 /**
@@ -30,19 +31,29 @@ import { COMUNIDADES_AUTONOMAS_OPCIONES } from "@/lib/festivos-es";
  */
 export function VacacionesEditor({
   anio,
-  semanasNoActivas,
-  comunidadAutonoma,
-  onSave,
+  config,
+  onToggleSemana,
+  onAddDefaults,
+  onChangeCcaa,
   onClose,
 }: {
   anio: number;
-  semanasNoActivas: string[];
-  /** Código CCAA (date-holidays) o vacío para solo festivos nacionales. */
-  comunidadAutonoma?: string;
-  onSave: (next: { semanasNoActivas: string[]; comunidadAutonoma?: string }) => void;
+  /** Config completa del año (no sólo el array). Se necesita para que el
+   *  set efectivo respete los tombstones LWW de "esta semana ya no es
+   *  descanso" al pintar los botones. */
+  config: PlanArbolConfigAnio | undefined;
+  /** Toggle individual: el padre dispatcha `TOGGLE_SEMANA_NO_ACTIVA` para
+   *  que el LWW se aplique con ts ahora y sobreviva al próximo merge. */
+  onToggleSemana: (mondayKey: string) => void;
+  /** Añade los descansos por defecto sin pisar los que la usuaria ya
+   *  tenga marcados. El padre dispatcha N toggles para conservar LWW. */
+  onAddDefaults: () => void;
+  /** Cambia la CCAA. */
+  onChangeCcaa: (code: string) => void;
   onClose: () => void;
 }) {
-  const set = new Set(semanasNoActivas);
+  const set = semanasNoActivasSet(config);
+  const comunidadAutonoma = config?.comunidadAutonoma;
   const mondays = mondaysInCalendarYear(anio);
   const closeRef = useRef<HTMLButtonElement | null>(null);
 
@@ -59,26 +70,6 @@ export function VacacionesEditor({
   useEffect(() => {
     closeRef.current?.focus();
   }, []);
-
-  function toggle(mk: string) {
-    const next = new Set(set);
-    if (next.has(mk)) next.delete(mk);
-    else next.add(mk);
-    onSave({ semanasNoActivas: [...next].sort(), comunidadAutonoma });
-  }
-
-  // Unión defensiva: añadimos los descansos por defecto sin tocar los
-  // que la usuaria haya elegido a mano. La semántica antigua (REEMPLAZAR
-  // todo por los defaults) era destructiva y poco esperable.
-  function addDefaults() {
-    const next = new Set(set);
-    for (const mk of defaultSemanasNoActivas(anio)) next.add(mk);
-    onSave({ semanasNoActivas: [...next].sort(), comunidadAutonoma });
-  }
-
-  function setCcaa(code: string) {
-    onSave({ semanasNoActivas: [...set].sort(), comunidadAutonoma: code === "" ? undefined : code });
-  }
 
   return (
     <div
@@ -123,7 +114,7 @@ export function VacacionesEditor({
             Festivos de tu comunidad autónoma
             <select
               value={comunidadAutonoma ?? ""}
-              onChange={(e) => setCcaa(e.target.value)}
+              onChange={(e) => onChangeCcaa(e.target.value)}
               className="max-w-full rounded-lg border border-border bg-background px-2 py-2 text-sm text-foreground"
             >
               {COMUNIDADES_AUTONOMAS_OPCIONES.map((o) => (
@@ -145,7 +136,7 @@ export function VacacionesEditor({
                 <button
                   key={mk}
                   type="button"
-                  onClick={() => toggle(mk)}
+                  onClick={() => onToggleSemana(mk)}
                   className={`rounded-md border px-2 py-1 text-[10px] font-medium transition-colors ${
                     on
                       ? "border-amber-500 bg-amber-500/15 text-amber-900 dark:text-amber-100"
@@ -162,7 +153,7 @@ export function VacacionesEditor({
         <div className="flex flex-wrap gap-2 border-t border-amber-400/20 px-4 py-3">
           <button
             type="button"
-            onClick={addDefaults}
+            onClick={onAddDefaults}
             title="Añade agosto, las dos semanas de Navidad y la de Semana Santa SIN borrar las que ya hayas marcado a mano."
             className="rounded-lg border border-border bg-background px-3 py-2 text-xs text-muted hover:bg-surface"
           >

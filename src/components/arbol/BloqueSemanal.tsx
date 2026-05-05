@@ -24,6 +24,7 @@ import {
   parseLocalDateKey,
   planAgregadoEnPeriodoIdx,
   realEfectivoEnPeriodoIdx,
+  semanasNoActivasSet,
   type ArbolIndices,
 } from "@/lib/arbol-tiempo";
 import {
@@ -49,7 +50,7 @@ interface BloqueSemanalProps {
 export function BloqueSemanal({ raiz, ramas, regsIndex, idx, config, year, unidad }: BloqueSemanalProps) {
   const semanasActivas = useMemo(() => {
     const mondays = mondaysInCalendarYear(year);
-    const noActivas = new Set(config?.semanasNoActivas ?? []);
+    const noActivas = semanasNoActivasSet(config);
     return mondays.filter((m) => !noActivas.has(m));
   }, [year, config]);
 

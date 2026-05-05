@@ -30,6 +30,7 @@ import { memo, useCallback, useMemo } from "react";
 import { useAppDispatch } from "@/lib/context";
 import type { NodoArbol, PlanArbolConfigAnio } from "@/lib/types";
 import {
+  diasLaborablesEnMes,
   estadoPeriodo,
   hijosSumaDirectosIdx,
   mesesCerradosSet,
@@ -184,13 +185,33 @@ const TarjetaMes = memo(function TarjetaMes({
   const estado = estadoPeriodo("mes", periodoKey, year);
   const deltaPlan = plan !== undefined ? real - plan : undefined;
   const deltaReplan = replan !== undefined ? real - replan : undefined;
-  const pct = plan && plan > 0 ? Math.min(100, Math.round((real / plan) * 100)) : 0;
+  // La barra mide contra el replan vivo (lo que el año exige a esta
+  // altura), no contra el compromiso original; alineamos la sensación
+  // visual con la decisión operativa. Fallback a plan si no hay replan.
+  const referenciaBarra = replan !== undefined ? replan : plan;
+  const pct = referenciaBarra && referenciaBarra > 0
+    ? Math.min(100, Math.round((real / referenciaBarra) * 100))
+    : 0;
   const showProgress = estado === "pasado" || estado === "actual" || cerrado;
   // Mostrar Δ vs replan sólo si el replan se diferencia del plan en algo
   // visible (>= 1 unidad). Si replan ≈ plan, Δ vs replan repetiría Δ vs
   // plan y aporta ruido.
   const replanDistintoDePlan =
     plan !== undefined && replan !== undefined && Math.abs(replan - plan) >= 1;
+  const mostrarDeltas = real > 0 || estado !== "futuro";
+
+  const diasMesActual = useMemo(
+    () => diasLaborablesEnMes(periodoKey, year, config),
+    [periodoKey, year, config],
+  );
+  const pisoActual = config?.pisoMensual?.[periodoKey];
+  const mostrarPiso = diasMesActual === 0 || (pisoActual !== undefined && pisoActual > 0);
+  const onChangePiso = useCallback(
+    (v: number | undefined) => {
+      dispatch({ type: "SET_PISO_MENSUAL", anio: year, mesKey: periodoKey, valor: v });
+    },
+    [dispatch, year, periodoKey],
+  );
 
   const ramasConReal = useMemo(
     () => ramas.filter((r) => r.relacionConPadre === "suma"),
@@ -240,31 +261,34 @@ const TarjetaMes = memo(function TarjetaMes({
       </div>
 
       <div className="mt-3 space-y-1 border-t border-border/50 pt-2">
-        <MetricLine label="Plan" value={plan !== undefined ? `${fmtNum(plan)} ${unidad}` : "—"} accent="muted" />
-        {replan !== undefined && plan !== undefined && Math.abs(replan - plan) >= 1 && (
-          <MetricLine
-            label={cerrado ? "Replan que tocaba" : "Replan sugerido"}
-            value={`${fmtNum(replan)} ${unidad}`}
-            accent="muted"
-          />
-        )}
+        {/* Orden pensado para que el ojo vaya al Real (lo que pasó) y luego
+            a las decisiones operativas: replan vivo y su delta. Plan y Δ
+            vs plan quedan como contexto histórico al final. */}
         <MetricLine
           label="Real"
           value={`${fmtNum(real)} ${unidad}`}
           accent={deltaPlan !== undefined ? (deltaPlan >= 0 ? "good" : "bad") : undefined}
         />
-        {cerrado && deltaPlan !== undefined && (
+        {replanDistintoDePlan && (
           <MetricLine
-            label="Δ vs plan"
-            value={`${fmtNum(deltaPlan, { signed: true })} ${unidad}`}
-            accent={deltaPlan >= 0 ? "good" : "bad"}
+            label={cerrado ? "Replan que tocaba" : "Replan sugerido"}
+            value={`${fmtNum(replan as number)} ${unidad}`}
+            accent="muted"
           />
         )}
-        {cerrado && deltaReplan !== undefined && replanDistintoDePlan && (
+        {replanDistintoDePlan && deltaReplan !== undefined && mostrarDeltas && (
           <MetricLine
             label="Δ vs replan"
             value={`${fmtNum(deltaReplan, { signed: true })} ${unidad}`}
             accent={deltaReplan >= 0 ? "good" : "bad"}
+          />
+        )}
+        <MetricLine label="Plan" value={plan !== undefined ? `${fmtNum(plan)} ${unidad}` : "—"} accent="muted" />
+        {plan !== undefined && deltaPlan !== undefined && mostrarDeltas && (
+          <MetricLine
+            label="Δ vs plan"
+            value={`${fmtNum(deltaPlan, { signed: true })} ${unidad}`}
+            accent={deltaPlan >= 0 ? "good" : "bad"}
           />
         )}
       </div>
@@ -275,6 +299,24 @@ const TarjetaMes = memo(function TarjetaMes({
             className={`h-full rounded-full transition-all ${pct >= 100 ? "bg-emerald-500" : "bg-accent"}`}
             style={{ width: `${pct}%` }}
           />
+        </div>
+      )}
+
+      {mostrarPiso && (
+        <div className="mt-3 flex flex-wrap items-end gap-2 rounded border border-amber-400/30 bg-amber-500/5 px-2 py-2">
+          <label className="flex flex-1 flex-col gap-1 text-[10px] text-muted">
+            <span title="Mínimo del mes — útil para meses sin actividad que sí ingresan (ej. agosto)">
+              Mínimo del mes ({unidad || "€"})
+            </span>
+            <NumberInput
+              value={pisoActual}
+              onCommit={onChangePiso}
+              ariaLabel={`Mínimo del mes ${label}`}
+              unidad={unidad}
+              compact
+              title="Mínimo del mes — útil para meses sin actividad que sí ingresan (ej. agosto)"
+            />
+          </label>
         </div>
       )}
 

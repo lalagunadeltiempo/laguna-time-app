@@ -46,6 +46,19 @@ function readMesesCerradosTs(c: PlanArbolConfigAnio): Record<string, string> {
   return ts;
 }
 
+/**
+ * Análogo a `readMesesCerradosTs` para semanas no activas: promueve
+ * `semanasNoActivas: string[]` (legacy pre-migración 25) a ts epoch, así
+ * un toggle posterior siempre gana en LWW.
+ */
+function readSemanasNoActivasTs(c: PlanArbolConfigAnio): Record<string, string> {
+  const ts: Record<string, string> = { ...(c.semanasNoActivasTs ?? {}) };
+  for (const mk of c.semanasNoActivas ?? []) {
+    if (!ts[mk]) ts[mk] = "1970-01-01T00:00:00.000Z";
+  }
+  return ts;
+}
+
 function unionConfigs(a: PlanArbolConfigAnio[], b: PlanArbolConfigAnio[]): PlanArbolConfigAnio[] {
   const map = new Map<number, PlanArbolConfigAnio>();
   for (const c of [...a, ...b]) {
@@ -98,12 +111,72 @@ function unionConfigs(a: PlanArbolConfigAnio[], b: PlanArbolConfigAnio[]): PlanA
         }
       }
 
+      // Semanas no activas: LWW por mondayKey, mismo patrón que cierres
+      // de mes. Sin esto, desmarcar un descanso en local resucitaba al
+      // primer pull porque la unión de strings no expresa eliminaciones.
+      const semCerradosPrev = readSemanasNoActivasTs(prev);
+      const semCerradosCur = readSemanasNoActivasTs(c);
+      const semAperturasPrev = prev.semanasActivasTs ?? {};
+      const semAperturasCur = c.semanasActivasTs ?? {};
+
+      const semanasNoActivasTs: Record<string, string> = {};
+      const semanasActivasTs: Record<string, string> = {};
+      const todosSem = new Set<string>([
+        ...Object.keys(semCerradosPrev),
+        ...Object.keys(semCerradosCur),
+        ...Object.keys(semAperturasPrev),
+        ...Object.keys(semAperturasCur),
+      ]);
+      for (const mk of todosSem) {
+        const cierreTs = (() => {
+          const t1 = semCerradosPrev[mk];
+          const t2 = semCerradosCur[mk];
+          if (t1 && t2) return t1 >= t2 ? t1 : t2;
+          return t1 ?? t2;
+        })();
+        const aperturaTs = (() => {
+          const t1 = semAperturasPrev[mk];
+          const t2 = semAperturasCur[mk];
+          if (t1 && t2) return t1 >= t2 ? t1 : t2;
+          return t1 ?? t2;
+        })();
+        if (cierreTs && aperturaTs) {
+          if (aperturaTs >= cierreTs) semanasActivasTs[mk] = aperturaTs;
+          else semanasNoActivasTs[mk] = cierreTs;
+        } else if (cierreTs) {
+          semanasNoActivasTs[mk] = cierreTs;
+        } else if (aperturaTs) {
+          semanasActivasTs[mk] = aperturaTs;
+        }
+      }
+
+      // Piso mensual: LWW por mesKey sin tombstones. Tratamos
+      // 0/undefined/no-presente como "sin piso" (semánticamente equivalente).
+      // Si un cliente A pone 5_000 y otro B pone 8_000 sin ts, gana B (cur)
+      // por simplicidad — la concurrencia en este campo es muy baja porque
+      // se configura una vez al año.
+      const pisoPrev = prev.pisoMensual ?? {};
+      const pisoCur = c.pisoMensual ?? {};
+      const pisoMensual: Record<string, number> = {};
+      for (const mk of new Set([...Object.keys(pisoPrev), ...Object.keys(pisoCur)])) {
+        const vCur = pisoCur[mk];
+        const vPrev = pisoPrev[mk];
+        const valor = vCur !== undefined && Number.isFinite(vCur) && vCur > 0
+          ? vCur
+          : vPrev !== undefined && Number.isFinite(vPrev) && vPrev > 0
+            ? vPrev
+            : undefined;
+        if (valor !== undefined) pisoMensual[mk] = valor;
+      }
+
       map.set(c.anio, {
         anio: c.anio,
-        semanasNoActivas: [...new Set([...prev.semanasNoActivas, ...c.semanasNoActivas])].sort(),
         comunidadAutonoma: c.comunidadAutonoma ?? prev.comunidadAutonoma,
         ...(Object.keys(mesesCerradosTs).length > 0 ? { mesesCerradosTs } : {}),
         ...(Object.keys(mesesAbiertosTs).length > 0 ? { mesesAbiertosTs } : {}),
+        ...(Object.keys(semanasNoActivasTs).length > 0 ? { semanasNoActivasTs } : {}),
+        ...(Object.keys(semanasActivasTs).length > 0 ? { semanasActivasTs } : {}),
+        ...(Object.keys(pisoMensual).length > 0 ? { pisoMensual } : {}),
       });
     }
   }
@@ -582,13 +655,23 @@ function configsFingerprint(s: AppState): string {
       .sort()
       .join(",");
   };
+  const fmtNum = (rec: Record<string, number> | undefined): string => {
+    if (!rec) return "";
+    return Object.entries(rec)
+      .map(([k, v]) => `${k}=${v}`)
+      .sort()
+      .join(",");
+  };
   return cfgs
     .map((c) => {
       const sem = (c.semanasNoActivas ?? []).slice().sort().join(",");
       const legacy = (c.mesesCerrados ?? []).slice().sort().join(",");
       const cer = fmtTs(c.mesesCerradosTs);
       const abi = fmtTs(c.mesesAbiertosTs);
-      return `${c.anio}|${c.comunidadAutonoma ?? ""}|S:${sem}|C:${cer}|L:${legacy}|A:${abi}`;
+      const semCer = fmtTs(c.semanasNoActivasTs);
+      const semAbi = fmtTs(c.semanasActivasTs);
+      const pisos = fmtNum(c.pisoMensual);
+      return `${c.anio}|${c.comunidadAutonoma ?? ""}|S:${sem}|C:${cer}|L:${legacy}|A:${abi}|SC:${semCer}|SA:${semAbi}|P:${pisos}`;
     })
     .sort()
     .join("|");

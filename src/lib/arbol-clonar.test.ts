@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildArbolIndices,
   clonarEstructuraDeAnioAnterior,
+  findRaizOrigenAnioAnterior,
   hijosSumaDirectosIdx,
   ordenarPorPctDesc,
 } from "./arbol-tiempo";
@@ -280,6 +281,60 @@ describe("clonarEstructuraDeAnioAnterior modo='real'", () => {
     // 80 / 80 = 100% de la raíz destino.
     expect(aulas.metaValor).toBeCloseTo(100_000, 2);
     expect(programas.metaValor).toBeCloseTo(0, 2);
+  });
+});
+
+describe("findRaizOrigenAnioAnterior y fallback al clonar por nombre distinto", () => {
+  it("si hay raíz origen con NOMBRE DISTINTO, la usa igualmente como fuente", () => {
+    // 2025 = "Ventas", 2026 = "Cifra". Antes los botones "Traer estructura"
+    // no aparecían porque la búsqueda exigía nombre normalizado idéntico.
+    const r25 = mkRoot(2025, "r25", 100_000);
+    const r25Renombrado: NodoArbol = { ...r25, nombre: "Ventas" };
+    const ramaA = mkChild({ id: "a25", parentId: "r25", anio: 2025, nombre: "Aulas", orden: 0, metaValor: 70_000 });
+    const ramaB = mkChild({ id: "b25", parentId: "r25", anio: 2025, nombre: "Programas", orden: 1, metaValor: 30_000 });
+    const r26 = mkRoot(2026, "r26", 200_000);
+    const r26Renombrado: NodoArbol = { ...r26, nombre: "Cifra" };
+
+    const raizFound = findRaizOrigenAnioAnterior(
+      [r25Renombrado, ramaA, ramaB, r26Renombrado],
+      2026,
+      "r26",
+    );
+    expect(raizFound?.id).toBe("r25");
+    expect(raizFound?.nombre).toBe("Ventas");
+
+    const res = clonarEstructuraDeAnioAnterior({
+      nodos: [r25Renombrado, ramaA, ramaB, r26Renombrado],
+      anioDestino: 2026,
+      raizDestinoId: "r26",
+      generateId: makeIdGen(),
+    });
+    expect(res.copiados).toBe(2);
+    expect(res.nombreOrigen).toBe("Ventas");
+    const aulas = res.nuevosNodos.find((n) => n.nombre === "Aulas")!;
+    expect(aulas.metaValor).toBeCloseTo(140_000, 5); // 70% de 200k
+  });
+
+  it("si hay varias raíces en el año anterior, prefiere match por nombre", () => {
+    const r25Otra = mkRoot(2025, "r25b", 50_000);
+    const r25OtraRenombrada: NodoArbol = { ...r25Otra, nombre: "Personal", orden: 1 };
+    const r25Match = mkRoot(2025, "r25", 100_000);
+    const r25MatchOk: NodoArbol = { ...r25Match, orden: 0 };
+    const r26 = mkRoot(2026, "r26", 200_000);
+    const raiz = findRaizOrigenAnioAnterior([r25OtraRenombrada, r25MatchOk, r26], 2026, "r26");
+    expect(raiz?.id).toBe("r25"); // match por nombre "Facturación"
+  });
+
+  it("sin ninguna raíz en año origen sigue devolviendo undefined / copiados=0", () => {
+    const r27 = mkRoot(2027, "r27", 900_000);
+    expect(findRaizOrigenAnioAnterior([r27], 2027, "r27")).toBeUndefined();
+    const res = clonarEstructuraDeAnioAnterior({
+      nodos: [r27],
+      anioDestino: 2027,
+      raizDestinoId: "r27",
+      generateId: makeIdGen(),
+    });
+    expect(res.copiados).toBe(0);
   });
 });
 

@@ -111,12 +111,15 @@ export function PantallaArbolObjetivos() {
 
   useEffect(() => {
     if (!arbol.configs.some((c) => c.anio === year)) {
+      // El piso de 10.000 € en agosto refleja los ingresos pasivos típicos
+      // del mes que la usuaria sigue facturando aunque no trabaje.
       dispatch({
         type: "SET_ARBOL_CONFIG_ANIO",
         config: {
           anio: year,
           semanasNoActivas: defaultSemanasNoActivas(year),
           comunidadAutonoma: DEFAULT_COMUNIDAD_AUTONOMA,
+          pisoMensual: { [`${year}-08`]: 10000 },
         },
       });
     }
@@ -199,16 +202,30 @@ export function PantallaArbolObjetivos() {
       {vacOpen && (
         <VacacionesEditor
           anio={year}
-          semanasNoActivas={config?.semanasNoActivas ?? defaultSemanasNoActivas(year)}
-          comunidadAutonoma={config?.comunidadAutonoma}
-          onSave={(payload) => {
+          config={config}
+          onToggleSemana={(mondayKey) => {
+            dispatch({ type: "TOGGLE_SEMANA_NO_ACTIVA", anio: year, mondayKey });
+          }}
+          onAddDefaults={() => {
+            // Cada add genera ts ahora (vía el reducer) para ganar al
+            // tombstone antiguo si el lunes se había desmarcado en otro
+            // cliente. Toggle individual sólo si el lunes NO está ya en
+            // descanso (toggle sería desmarcar).
+            const yaSet = new Set(
+              config?.semanasNoActivasTs && Object.keys(config.semanasNoActivasTs).length > 0
+                ? Object.keys(config.semanasNoActivasTs)
+                : config?.semanasNoActivas ?? [],
+            );
+            for (const mk of defaultSemanasNoActivas(year)) {
+              if (!yaSet.has(mk)) {
+                dispatch({ type: "TOGGLE_SEMANA_NO_ACTIVA", anio: year, mondayKey: mk });
+              }
+            }
+          }}
+          onChangeCcaa={(code) => {
             dispatch({
               type: "SET_ARBOL_CONFIG_ANIO",
-              config: {
-                anio: year,
-                semanasNoActivas: payload.semanasNoActivas,
-                comunidadAutonoma: payload.comunidadAutonoma,
-              },
+              config: { anio: year, comunidadAutonoma: code === "" ? undefined : code },
             });
           }}
           onClose={() => setVacOpen(false)}
