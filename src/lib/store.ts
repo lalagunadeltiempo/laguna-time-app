@@ -427,6 +427,17 @@ export function saveStateCloud(userId: string, state: AppState, onMerged?: (merg
         console.error("[saveStateCloud] Supabase error:", error.message);
       } else {
         persistCloudSnapshot(stateToSave);
+        // Backup versionado en cloud (fire-and-forget). El módulo se importa
+        // de forma diferida para no acoplar el path crítico de save con la
+        // tabla de history (que puede no existir en entornos sin la
+        // migración aplicada). Cualquier fallo se traga en `appendHistoryEntry`.
+        try {
+          import("./cloud-history")
+            .then((m) => m.appendHistoryEntry(stateToSave).catch(() => undefined))
+            .catch(() => undefined);
+        } catch {
+          // noop
+        }
       }
     } catch (err) {
       console.error("[saveStateCloud] network error:", err);
