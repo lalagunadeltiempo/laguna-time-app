@@ -4,6 +4,7 @@ import { AppState, EMPTY_ARBOL, EQUIPO_DEFAULT, PLAN_CONFIG_DEFAULT } from "./ty
 import { buildSeedSOPs } from "./seed-sops";
 import { getSupabase } from "./supabase";
 import { mergeStates } from "./merge";
+import { detectarPerdidaInjustificada } from "./store-safeguard";
 
 const OLD_STORAGE_KEY = "laguna-del-tiempo";
 const STORAGE_KEY = "laguna-time-app";
@@ -370,6 +371,51 @@ export function saveStateCloud(userId: string, state: AppState, onMerged?: (merg
         // Mantén _pendingSave como null pero deja la siguiente acción reintentar.
         return;
       }
+    }
+
+    // Salvaguarda anti-pisada: si el upsert que vamos a hacer perdería
+    // de forma masiva nodos del árbol, metas o relaciones MAPA→Árbol
+    // sin un tombstone que lo justifique, ABORTAMOS y persistimos los
+    // dos estados en localStorage para análisis posterior. La usuaria
+    // recibirá una alerta no descartable a través del evento
+    // `laguna:save-aborted`.
+    const snapshotParaCheck = _lastCloudSnapshot;
+    const verificacion = detectarPerdidaInjustificada(snapshotParaCheck, stateToSave);
+    if (verificacion.aborta) {
+      console.error(
+        "[saveStateCloud] ABORTADO: detectada pérdida masiva no justificada",
+        verificacion.motivo,
+        verificacion.diagnostico,
+      );
+      try {
+        if (typeof window !== "undefined") {
+          const key = `laguna-time-app-aborted-save-${Date.now()}`;
+          localStorage.setItem(
+            key,
+            JSON.stringify({
+              motivo: verificacion.motivo,
+              diagnostico: verificacion.diagnostico,
+              snapshot: snapshotParaCheck,
+              stateToSave,
+              ts: new Date().toISOString(),
+            }),
+          );
+          window.dispatchEvent(
+            new CustomEvent("laguna:save-aborted", {
+              detail: {
+                motivo: verificacion.motivo,
+                diagnostico: verificacion.diagnostico,
+                storageKey: key,
+              },
+            }),
+          );
+        }
+      } catch (err) {
+        console.error("[saveStateCloud] no se pudo persistir aborted-save en localStorage:", err);
+      }
+      // Importante: NO reintentar automáticamente. Mantenemos _pendingSave en null
+      // (ya lo está al inicio de este timer) para que la usuaria decida.
+      return;
     }
 
     try {

@@ -225,6 +225,7 @@ function AppShell({ userId, displayName }: { userId: string; displayName: string
       <PresenceProvider>
       <StaleStepHandler />
       <NotificacionesMensajesHandler />
+      <SaveAbortedAlertHandler />
       <div className="flex h-dvh overflow-hidden bg-background text-foreground">
         {/* ── Sidebar (desktop md+) ── */}
         <aside
@@ -562,6 +563,88 @@ function HoyBadge() {
 function NotificacionesMensajesHandler() {
   useNotificacionesMensajesDirigidos();
   return null;
+}
+
+/**
+ * Alerta no descartable que aparece si la salvaguarda anti-pisada
+ * (`saveStateCloud` en `src/lib/store.ts`) bloquea un upsert que
+ * habría perdido datos sin tombstone. La alerta sólo se cierra cuando
+ * la usuaria pulsa el botón de descarga de backup.
+ */
+interface SaveAbortedDetail {
+  motivo?: string;
+  diagnostico?: Record<string, number | undefined>;
+  storageKey?: string;
+}
+
+function SaveAbortedAlertHandler() {
+  const [alerta, setAlerta] = useState<SaveAbortedDetail | null>(null);
+
+  useEffect(() => {
+    function onAborted(ev: Event) {
+      const detail = (ev as CustomEvent<SaveAbortedDetail>).detail ?? {};
+      setAlerta(detail);
+    }
+    window.addEventListener("laguna:save-aborted", onAborted as EventListener);
+    return () => window.removeEventListener("laguna:save-aborted", onAborted as EventListener);
+  }, []);
+
+  if (!alerta) return null;
+
+  const diag = alerta.diagnostico ?? {};
+
+  return (
+    <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/60 px-4 backdrop-blur-sm">
+      <div
+        role="alertdialog"
+        aria-modal="true"
+        aria-labelledby="save-aborted-title"
+        className="w-full max-w-lg rounded-2xl border-2 border-red-500 bg-background p-6 shadow-2xl"
+      >
+        <div className="mb-4 flex items-start gap-3">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-red-100 dark:bg-red-900/30">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#dc2626" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
+              <line x1="12" y1="9" x2="12" y2="13" />
+              <line x1="12" y1="17" x2="12.01" y2="17" />
+            </svg>
+          </div>
+          <div className="min-w-0 flex-1">
+            <h2 id="save-aborted-title" className="text-lg font-bold text-foreground">
+              Guardado bloqueado para proteger tus datos
+            </h2>
+            <p className="mt-1 text-sm text-muted">
+              Se ha bloqueado un guardado que iba a perder datos. Pulsa <span className="font-semibold text-foreground">Backup</span> para guardar tu estado actual y avisa a Cursor con el archivo <code className="rounded bg-surface px-1 py-0.5 text-[11px] text-foreground">{alerta.storageKey ?? "laguna-time-app-aborted-save-*"}</code> que está en localStorage.
+            </p>
+          </div>
+        </div>
+
+        {alerta.motivo && (
+          <div className="mb-3 rounded-lg border border-red-200 bg-red-50 p-3 text-xs text-red-900 dark:border-red-900/50 dark:bg-red-950/30 dark:text-red-200">
+            <span className="font-semibold">Motivo:</span> {alerta.motivo}
+          </div>
+        )}
+
+        {Object.keys(diag).length > 0 && (
+          <div className="mb-4 grid grid-cols-2 gap-2 rounded-lg border border-border bg-surface/50 p-3 text-[11px] text-muted">
+            <div><span className="font-semibold text-foreground">Nodos antes:</span> {String(diag.nodosAntes ?? "—")}</div>
+            <div><span className="font-semibold text-foreground">Nodos después:</span> {String(diag.nodosDespues ?? "—")}</div>
+            <div><span className="font-semibold text-foreground">Con meta antes:</span> {String(diag.nodosConMetaAntes ?? "—")}</div>
+            <div><span className="font-semibold text-foreground">Con meta después:</span> {String(diag.nodosConMetaDespues ?? "—")}</div>
+            <div><span className="font-semibold text-foreground">Relaciones antes:</span> {String(diag.relacionesEntregableHojaAntes ?? "—")}</div>
+            <div><span className="font-semibold text-foreground">Relaciones después:</span> {String(diag.relacionesEntregableHojaDespues ?? "—")}</div>
+          </div>
+        )}
+
+        <div className="flex flex-col gap-2">
+          <BackupButton variant="sidebar" className="!justify-center !py-3 !text-sm" />
+          <p className="text-center text-[11px] text-muted">
+            Esta ventana no se cierra hasta que reinicies la aplicación tras descargar el backup.
+          </p>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 function StaleStepHandler() {
