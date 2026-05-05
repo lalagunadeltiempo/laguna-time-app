@@ -9,6 +9,7 @@ import {
   DEFAULT_COMUNIDAD_AUTONOMA,
   defaultSemanasNoActivas,
   ensureConfigAnio,
+  semanasNoActivasSet,
 } from "@/lib/arbol-tiempo";
 import { EMPTY_ARBOL, type NodoArbol } from "@/lib/types";
 import { VacacionesEditor } from "@/components/arbol/VacacionesEditor";
@@ -211,11 +212,7 @@ export function PantallaArbolObjetivos() {
             // tombstone antiguo si el lunes se había desmarcado en otro
             // cliente. Toggle individual sólo si el lunes NO está ya en
             // descanso (toggle sería desmarcar).
-            const yaSet = new Set(
-              config?.semanasNoActivasTs && Object.keys(config.semanasNoActivasTs).length > 0
-                ? Object.keys(config.semanasNoActivasTs)
-                : config?.semanasNoActivas ?? [],
-            );
+            const yaSet = semanasNoActivasSet(config);
             for (const mk of defaultSemanasNoActivas(year)) {
               if (!yaSet.has(mk)) {
                 dispatch({ type: "TOGGLE_SEMANA_NO_ACTIVA", anio: year, mondayKey: mk });

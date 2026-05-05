@@ -28,7 +28,13 @@ import { PLAN_CONFIG_DEFAULT, EMPTY_ARBOL } from "./types";
 import { minutosEfectivos } from "./duration";
 import { toDateKey } from "./date-utils";
 import { mesKey, mesesDeTrimestre, mondayKey, trimestreDeMes } from "./semana-utils";
-import { clonarEstructuraDeAnioAnterior, collectSubtreeIds, wouldCreateCycle } from "./arbol-tiempo";
+import {
+  clonarEstructuraDeAnioAnterior,
+  collectSubtreeIds,
+  reescalarSubarbolProporcional,
+  wouldCreateCycle,
+} from "./arbol-tiempo";
+import { legacySesionId } from "./sesion-id";
 import { generateId } from "./store";
 
 export type Action =
@@ -161,6 +167,19 @@ export type Action =
       changes: Partial<Omit<NodoArbol, "id" | "creado">>;
     }
   | { type: "DELETE_NODO_ARBOL"; id: string }
+  /** Cambia el `metaValor` del nodo y reescala proporcionalmente a sus
+   *  descendientes "suma" para que sigan cuadrando con el nuevo total.
+   *  Pensado para edición en el bloque ANUAL: cuando la usuaria toca la
+   *  meta€ (o el % equivalente) de la raíz/rama tras "Traer estructura
+   *  del año anterior", las hojas se recalculan manteniendo proporciones
+   *  sin que tenga que entrar a editarlas a mano. Las hojas individuales
+   *  siguen usando `UPDATE_NODO_ARBOL` para no disparar cascadas
+   *  inesperadas al ajustar una hoja sola. */
+  | {
+      type: "UPDATE_META_NODO_RESCALAR_HIJOS";
+      id: string;
+      metaValor: number | undefined;
+    }
   | { type: "LINK_ENTREGABLE_HOJA"; entregableId: string; hojaId: string }
   | { type: "UNLINK_ENTREGABLE_HOJA"; entregableId: string; hojaId: string }
   | { type: "SET_HOJAS_DE_ENTREGABLE"; entregableId: string; hojaIds: string[]; anio: number }
@@ -678,7 +697,7 @@ export function reducer(state: AppState, action: Action): AppState {
             ocultoHasta: null,
             sesiones: [
               ...sesiones,
-              { inicioTs: ts, finTs: null, pausas: [], autor, heartbeatTs: ts },
+              { id: generateId(), inicioTs: ts, finTs: null, pausas: [], autor, heartbeatTs: ts },
             ],
           };
         }),
@@ -838,7 +857,7 @@ export function reducer(state: AppState, action: Action): AppState {
         entregables: state.entregables.map((e) => {
           if (e.id !== id) return e;
           const sesiones = Array.isArray(e.sesiones) ? [...e.sesiones] : [];
-          sesiones.push({ inicioTs, finTs, pausas: [], autor });
+          sesiones.push({ id: generateId(), inicioTs, finTs, pausas: [], autor });
           // Ordenamos por inicioTs ascendente para mantener coherencia histórica.
           sesiones.sort((a, b) => a.inicioTs.localeCompare(b.inicioTs));
           return { ...e, sesiones };
@@ -858,7 +877,8 @@ export function reducer(state: AppState, action: Action): AppState {
           const sesiones = Array.isArray(e.sesiones) ? [...e.sesiones] : [];
           if (sesionIdx < 0 || sesionIdx >= sesiones.length) return e;
           const ses = sesiones[sesionIdx];
-          sesiones[sesionIdx] = { ...ses, inicioTs, finTs };
+          const stableId = ses.id ?? legacySesionId(e.id, ses);
+          sesiones[sesionIdx] = { ...ses, id: stableId, inicioTs, finTs };
           // Mantener orden cronológico.
           sesiones.sort((a, b) => a.inicioTs.localeCompare(b.inicioTs));
           return { ...e, sesiones };
@@ -1827,6 +1847,30 @@ export function reducer(state: AppState, action: Action): AppState {
           nodos: arbol.nodos.map((n) => (n.id === action.id ? { ...n, ...action.changes } : n)),
         },
       };
+    }
+
+    case "UPDATE_META_NODO_RESCALAR_HIJOS": {
+      const arbol = state.arbol ?? EMPTY_ARBOL;
+      const nodo = arbol.nodos.find((n) => n.id === action.id);
+      if (!nodo) return state;
+      // Si se borra la meta (undefined) o no es finita, no hay base para
+      // reescalar: actualizamos sólo el nodo y dejamos a los hijos como
+      // estén (seguirá saliendo el avisito de "te pasas/te faltan" si
+      // procede; eso es deseable, no podemos inventar proporciones).
+      const cambios =
+        action.metaValor !== undefined && Number.isFinite(action.metaValor)
+          ? reescalarSubarbolProporcional({
+              nodos: arbol.nodos,
+              rootId: action.id,
+              nuevaMetaRoot: action.metaValor,
+            })
+          : new Map<string, number>();
+      const nodos = arbol.nodos.map((n) => {
+        if (n.id === action.id) return { ...n, metaValor: action.metaValor };
+        if (cambios.has(n.id)) return { ...n, metaValor: cambios.get(n.id) };
+        return n;
+      });
+      return { ...state, arbol: { ...arbol, nodos } };
     }
 
     case "DELETE_NODO_ARBOL": {

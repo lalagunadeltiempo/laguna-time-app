@@ -16,8 +16,7 @@ import { EditableText } from "./shared/EditableText";
 import { ChipMiembro, ResponsableSelect } from "./plan/InlineEditors";
 import { useFocoEntregable, usePresenciaEntregable } from "@/lib/presence";
 import { RegistrarSesionIconButton, EditarSesionPopover } from "./shared/RegistrarSesionPopover";
-import { LazyDetails } from "./arbol/arbol-comunes";
-import { hijosSumaDirectos, parseLocalDateKey } from "@/lib/arbol-tiempo";
+import { EntregableHojasArbolPicker } from "./arbol/EntregableHojasArbolPicker";
 
 interface Props {
   entregable: Entregable;
@@ -178,8 +177,6 @@ export function EntregableActivoCard({ entregable, mode = "trabajo" }: Props) {
 
   const [expanded, setExpanded] = useState(isDetalle);
   const [showCloseOptions, setShowCloseOptions] = useState(false);
-  const [arbolHojasOpen, setArbolHojasOpen] = useState(false);
-  const [arbolHojasDraft, setArbolHojasDraft] = useState<string[]>([]);
   const [showEsperaPicker, setShowEsperaPicker] = useState(false);
   const [esperaExternoDraft, setEsperaExternoDraft] = useState("");
   // Edición inline de la duración (minutos) de un paso. Solo aplica a pasos
@@ -293,73 +290,6 @@ export function EntregableActivoCard({ entregable, mode = "trabajo" }: Props) {
   const progreso = pasosTotales > 0
     ? Math.round((pasosHechos / pasosTotales) * 100)
     : Math.min(100, (entregable.diasHechos / Math.max(1, entregable.diasEstimados)) * 100);
-
-  const anioArbolEntregable = useMemo(() => {
-    const primeraSemana = entregable.semanasActivas?.[0];
-    if (primeraSemana) {
-      const fecha = parseLocalDateKey(primeraSemana);
-      if (Number.isFinite(fecha.getTime())) return fecha.getFullYear();
-    }
-    return new Date().getFullYear();
-  }, [entregable.semanasActivas]);
-
-  const nodosAnioArbol = useMemo(
-    () => (state.arbol?.nodos ?? []).filter((n) => n.anio === anioArbolEntregable),
-    [state.arbol?.nodos, anioArbolEntregable],
-  );
-  const rootsArbol = useMemo(
-    () => nodosAnioArbol.filter((n) => !n.parentId).sort((a, b) => a.orden - b.orden),
-    [nodosAnioArbol],
-  );
-  const raizArbol = useMemo(
-    () => rootsArbol.find((r) => r.cadencia === "anual" && r.metaValor !== undefined) ?? rootsArbol[0],
-    [rootsArbol],
-  );
-  const ramasConHojas = useMemo(() => {
-    if (!raizArbol) return [];
-    return hijosSumaDirectos(nodosAnioArbol, raizArbol.id, anioArbolEntregable)
-      .map((rama) => ({
-        rama,
-        hojas: hijosSumaDirectos(nodosAnioArbol, rama.id, anioArbolEntregable),
-      }))
-      .filter((entry) => entry.hojas.length > 0);
-  }, [raizArbol, nodosAnioArbol, anioArbolEntregable]);
-  const hojasDisponibles = useMemo(
-    () => ramasConHojas.flatMap((entry) => entry.hojas),
-    [ramasConHojas],
-  );
-  const hojaIdsSeleccionActual = useMemo(
-    () =>
-      hojasDisponibles
-        .filter((hoja) => hoja.entregableIds?.includes(entregable.id))
-        .map((hoja) => hoja.id)
-        .sort(),
-    [hojasDisponibles, entregable.id],
-  );
-
-  useEffect(() => {
-    if (!arbolHojasOpen) return;
-    setArbolHojasDraft(hojaIdsSeleccionActual);
-  }, [arbolHojasOpen, hojaIdsSeleccionActual, anioArbolEntregable]);
-
-  const arbolHojasDraftSorted = useMemo(
-    () => [...new Set(arbolHojasDraft)].sort(),
-    [arbolHojasDraft],
-  );
-  const arbolHojasDirty = useMemo(() => {
-    if (arbolHojasDraftSorted.length !== hojaIdsSeleccionActual.length) return true;
-    return arbolHojasDraftSorted.some((id, idx) => id !== hojaIdsSeleccionActual[idx]);
-  }, [arbolHojasDraftSorted, hojaIdsSeleccionActual]);
-
-  const guardarHojasArbol = useCallback(() => {
-    if (!arbolHojasDirty) return;
-    dispatch({
-      type: "SET_HOJAS_DE_ENTREGABLE",
-      entregableId: entregable.id,
-      hojaIds: arbolHojasDraftSorted,
-      anio: anioArbolEntregable,
-    });
-  }, [arbolHojasDirty, dispatch, entregable.id, arbolHojasDraftSorted, anioArbolEntregable]);
 
   function handleCerrarSesionHoy() {
     // Cierra la sesión activa y oculta el entregable de HOY operativo el resto
@@ -687,70 +617,7 @@ export function EntregableActivoCard({ entregable, mode = "trabajo" }: Props) {
             </span>
           </div>
 
-          <LazyDetails
-            className="rounded-lg border border-border/60 bg-surface/20"
-            open={arbolHojasOpen}
-            onToggle={(nextOpen) => {
-              if (!nextOpen && arbolHojasOpen) guardarHojasArbol();
-              setArbolHojasOpen(nextOpen);
-            }}
-            summary={(
-              <summary className="flex cursor-pointer list-none items-center gap-1.5 px-2.5 py-2 text-[10px] font-semibold uppercase tracking-wider text-zinc-400 marker:content-none [&::-webkit-details-marker]:hidden">
-                <span aria-hidden className="text-[10px] transition-transform">{arbolHojasOpen ? "▼" : "▶"}</span>
-                Hojas del árbol asociadas
-              </summary>
-            )}
-          >
-            <div className="space-y-2 border-t border-border/60 px-2.5 py-2">
-              {!raizArbol ? (
-                <p className="text-[11px] text-muted">
-                  Crea primero la raíz del Árbol del año {anioArbolEntregable}
-                </p>
-              ) : ramasConHojas.length === 0 ? (
-                <p className="text-[11px] text-muted">
-                  No hay hojas disponibles en el árbol del año {anioArbolEntregable}.
-                </p>
-              ) : (
-                <>
-                  {ramasConHojas.map(({ rama, hojas }) => (
-                    <div key={rama.id} className="space-y-1">
-                      <p className="text-[11px] font-medium text-zinc-600 dark:text-zinc-300">{rama.nombre}</p>
-                      <div className="space-y-0.5 pl-2">
-                        {hojas.map((hoja) => {
-                          const checked = arbolHojasDraft.includes(hoja.id);
-                          return (
-                            <label key={hoja.id} className="flex items-center gap-1.5 text-[11px] text-zinc-600 dark:text-zinc-300">
-                              <input
-                                type="checkbox"
-                                checked={checked}
-                                onChange={(e) => {
-                                  setArbolHojasDraft((prev) => {
-                                    if (e.target.checked) return [...new Set([...prev, hoja.id])];
-                                    return prev.filter((id) => id !== hoja.id);
-                                  });
-                                }}
-                              />
-                              <span>{hoja.nombre}</span>
-                            </label>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  ))}
-                  <div className="flex justify-end">
-                    <button
-                      type="button"
-                      onClick={guardarHojasArbol}
-                      disabled={!arbolHojasDirty}
-                      className="rounded border border-border px-2 py-1 text-[11px] text-zinc-700 hover:bg-surface disabled:cursor-not-allowed disabled:opacity-50 dark:text-zinc-200"
-                    >
-                      Guardar
-                    </button>
-                  </div>
-                </>
-              )}
-            </div>
-          </LazyDetails>
+          <EntregableHojasArbolPicker entregable={entregable} layout="card" />
 
           {/* 1. Implicados */}
           <div className="space-y-1.5">

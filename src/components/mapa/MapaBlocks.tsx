@@ -11,6 +11,7 @@ import ProgramacionPicker from "../shared/ProgramacionPicker";
 import HierarchyPicker from "../shared/HierarchyPicker";
 import MoveInlinePanel from "../shared/MoveInlinePanel";
 import { RegistrarSesionIconButton } from "../shared/RegistrarSesionPopover";
+import { EntregableHojasArbolPicker } from "../arbol/EntregableHojasArbolPicker";
 import { ProyectoTimeline } from "../plan/ProyectoTimeline";
 import { computeProyectoRitmo, ritmoColor, ritmoLabel, ritmoLabelCorto, ritmoExplicacion, inferDateRange, type DateRange } from "@/lib/proyecto-stats";
 import { rangoProyectoMapa } from "@/lib/fechas-efectivas";
@@ -1520,6 +1521,11 @@ function EntregableBlock({ entregable, index, total }: { entregable: Entregable;
                 responsable: isEmpresa ? currentUser : undefined,
               }})
             } />
+          )}
+          {!isMentor && (
+            <div className="mt-2 mb-2">
+              <EntregableHojasArbolPicker entregable={entregable} layout="inline" />
+            </div>
           )}
         </div>
       )}

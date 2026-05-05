@@ -1047,6 +1047,76 @@ export function clonarEstructuraDeAnioAnterior(opts: {
   };
 }
 
+/**
+ * Reescala recursivamente las metas de los descendientes "suma" del nodo
+ * `rootId` para que sigan sumando `nuevaMetaRoot`, manteniendo las
+ * proporciones relativas actuales en cada nivel.
+ *
+ * Pensado para el bloque ANUAL: cuando la usuaria cambia la meta€ (o el
+ * % equivalente) de una rama tras "Traer estructura del año anterior",
+ * sus hojas tienen que recalcularse sin que tenga que entrar a editarlas
+ * una a una; idem cuando cambia el objetivo anual de la raíz vs sus
+ * ramas. Si los descendientes a su vez tienen sub-hojas que suman, el
+ * factor se aplica en cascada para no descuadrar ningún nivel.
+ *
+ * Reglas de seguridad:
+ * - Sólo se consideran hijos cuyo `relacionConPadre === "suma"` (las
+ *   ramas "no suman, sólo informa" se respetan tal cual).
+ * - Sólo se reescalan los hijos con `metaValor` definido y finito; los
+ *   que están sin meta no se inventan (la usuaria los completará).
+ * - Si la suma actual de los hijos con meta es <= 0, no hay proporción
+ *   conocida: no devolvemos cambios para esa subrama (caso típico:
+ *   rama recién creada sin hojas con valor todavía).
+ * - Si `nuevaMetaRoot === 0`, todos los descendientes con meta pasan a
+ *   0; este caso es deseable (la usuaria quiso "vaciar" esa rama).
+ * - Se redondea a dos decimales para mantener coherencia con el resto
+ *   de cálculos del bloque (ver `clonarEstructuraDeAnioAnterior`).
+ *
+ * Devuelve un `Map<idNodo, nuevaMeta>` con sólo los descendientes a
+ * actualizar (NO incluye al propio `rootId`; ése lo gestiona el caller).
+ */
+export function reescalarSubarbolProporcional(opts: {
+  nodos: NodoArbol[];
+  rootId: string;
+  nuevaMetaRoot: number;
+}): Map<string, number> {
+  const { nodos, rootId, nuevaMetaRoot } = opts;
+  const out = new Map<string, number>();
+  const root = nodos.find((n) => n.id === rootId);
+  if (!root) return out;
+  if (!Number.isFinite(nuevaMetaRoot)) return out;
+
+  const hijosPorParent = new Map<string, NodoArbol[]>();
+  for (const n of nodos) {
+    if (n.anio !== root.anio) continue;
+    if (!n.parentId) continue;
+    if (n.relacionConPadre !== "suma") continue;
+    const list = hijosPorParent.get(n.parentId);
+    if (list) list.push(n);
+    else hijosPorParent.set(n.parentId, [n]);
+  }
+
+  const recurse = (parentId: string, metaPadreNueva: number) => {
+    const hijos = hijosPorParent.get(parentId) ?? [];
+    if (hijos.length === 0) return;
+    const conMeta = hijos.filter(
+      (h) => h.metaValor !== undefined && Number.isFinite(h.metaValor),
+    );
+    const sumaActual = conMeta.reduce((acc, h) => acc + (h.metaValor as number), 0);
+    if (sumaActual <= 0) return;
+    const factor = metaPadreNueva / sumaActual;
+    for (const h of conMeta) {
+      const nuevo = (h.metaValor as number) * factor;
+      const redondeado = Math.round(nuevo * 100) / 100;
+      out.set(h.id, redondeado);
+      recurse(h.id, redondeado);
+    }
+  };
+
+  recurse(rootId, nuevaMetaRoot);
+  return out;
+}
+
 export function metaParaVista(
   cadencia: import("./types").NodoCadencia,
   metaValor: number | undefined,

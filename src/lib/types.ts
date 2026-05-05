@@ -212,6 +212,8 @@ export interface Entregable {
 
 /** Sesión de trabajo sobre un entregable: cronómetro + pausas. */
 export interface SesionEntregable {
+  /** Identidad estable de la sesión para merge/edición entre clientes. */
+  id?: string;
   inicioTs: string;          // ISO
   finTs: string | null;      // null mientras la sesión está en curso
   pausas?: PausaEntry[];     // pausas dentro de la sesión

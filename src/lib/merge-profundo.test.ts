@@ -227,10 +227,10 @@ describe("Merge profundo de entregables", () => {
     expect(horas["Beltrán"]).toBe("2026-05-05T10:30:00.000Z");
   });
 
-  it("preferMore une semanasActivas aunque los clientes tengan listas distintas", () => {
+  it("preferMore respeta desmarcar semanas: no reintroduce la del loser", () => {
     const a = baseState({
       entregables: [
-        mkEntregable({ id: "e-1", diasHechos: 2, semanasActivas: ["2026-05-04"] }),
+        mkEntregable({ id: "e-1", diasHechos: 2, semanasActivas: [] }),
       ],
     });
     const b = baseState({
@@ -239,10 +239,19 @@ describe("Merge profundo de entregables", () => {
       ],
     });
     const merged = mergeStates(a, b);
-    expect(merged.entregables[0].semanasActivas?.sort()).toEqual([
-      "2026-05-04",
-      "2026-05-11",
-    ]);
+    expect(merged.entregables[0].semanasActivas).toEqual([]);
+  });
+
+  it("preferMore respeta limpiar `semana` legacy a null", () => {
+    const a = baseState({
+      entregables: [mkEntregable({ id: "e-1", diasHechos: 2, semana: null, semanasActivas: [] })],
+    });
+    const b = baseState({
+      entregables: [mkEntregable({ id: "e-1", diasHechos: 1, semana: "2026-05-11", semanasActivas: ["2026-05-11"] })],
+    });
+    const merged = mergeStates(a, b);
+    expect(merged.entregables[0].semana).toBeNull();
+    expect(merged.entregables[0].semanasActivas).toEqual([]);
   });
 
   it("statesDiffer detecta que cambió la planificación por usuario (misma cardinalidad)", () => {
@@ -265,23 +274,32 @@ describe("Merge profundo de entregables", () => {
     expect(statesDiffer(a, b)).toBe(true);
   });
 
-  it("preferMore une sesiones por inicioTs sin duplicar", () => {
-    const ses = (inicioTs: string) => ({ inicioTs, finTs: null });
+  it("preferMore no duplica sesión editada de hora al mergear con copia legacy", () => {
+    const sesId = "ses-legacy-123";
     const a = baseState({
       entregables: [
-        mkEntregable({ id: "e-1", diasHechos: 1, sesiones: [ses("2026-05-01T10:00:00.000Z")] }),
+        mkEntregable({
+          id: "e-1",
+          diasHechos: 1,
+          sesiones: [{ id: sesId, inicioTs: "2026-05-01T15:00:00.000Z", finTs: null }],
+        }),
       ],
     });
     const b = baseState({
       entregables: [
-        mkEntregable({ id: "e-1", diasHechos: 1, sesiones: [ses("2026-05-01T15:00:00.000Z")] }),
+        mkEntregable({
+          id: "e-1",
+          diasHechos: 1,
+          sesiones: [{ inicioTs: "2026-05-01T10:00:00.000Z", finTs: null, autor: "Gabi" }],
+        }),
       ],
     });
+    // Forzamos mismo id lógico que el reducer asigna al editar una sesión legacy.
+    b.entregables[0].sesiones![0].id = sesId;
     const merged = mergeStates(a, b);
-    expect((merged.entregables[0].sesiones ?? []).map((s) => s.inicioTs).sort()).toEqual([
-      "2026-05-01T10:00:00.000Z",
-      "2026-05-01T15:00:00.000Z",
-    ]);
+    const sesiones = merged.entregables[0].sesiones ?? [];
+    expect(sesiones).toHaveLength(1);
+    expect(sesiones[0].inicioTs).toBe("2026-05-01T15:00:00.000Z");
   });
 
   it("preferPaso une notas del paso aunque gane el otro por inicioTs", () => {

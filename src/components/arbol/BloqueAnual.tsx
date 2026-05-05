@@ -26,7 +26,7 @@ import {
   realEfectivoEnPeriodoIdx,
   type ArbolIndices,
 } from "@/lib/arbol-tiempo";
-import { NumberInput, PercentInput, fmtNum } from "./arbol-comunes";
+import { NumberInput, PercentInput, fmtNum, usePersistedOpen } from "./arbol-comunes";
 
 /**
  * Barra fina (real / meta). Verde si llega al 100%, accent en cualquier
@@ -69,6 +69,16 @@ interface BloqueAnualProps {
 export function BloqueAnual({ raiz, ramas, nodos, registros, idx, year, unidad }: BloqueAnualProps) {
   const dispatch = useAppDispatch();
   const [ramaHojaFormId, setRamaHojaFormId] = useState<string | null>(null);
+  // Toggle: si está activo (defecto), editar la meta€ o % de la raíz/rama
+  // dispara reescalado proporcional automático de los hijos. Persistimos
+  // la preferencia por raíz en localStorage para que la usuaria no tenga
+  // que reactivarlo cada año. Si lo desactiva, los inputs vuelven al
+  // comportamiento clásico (sólo cambian el nodo) y los botones
+  // "Reescalar..." quedan como vía manual.
+  const { open: reescaladoAuto, onToggle: setReescaladoAuto } = usePersistedOpen(
+    `arbol.reescaladoAuto.${raiz.id}`,
+    true,
+  );
 
   const metaAnual = raiz.metaValor ?? 0;
   const planRamasSuma = useMemo(
@@ -200,12 +210,21 @@ export function BloqueAnual({ raiz, ramas, nodos, registros, idx, year, unidad }
               Objetivo anual ({unidad || "número"})
               <NumberInput
                 value={raiz.metaValor}
-                onCommit={(v) =>
-                  dispatch({ type: "UPDATE_NODO_ARBOL", id: raiz.id, changes: { metaValor: v } })
-                }
+                onCommit={(v) => {
+                  if (reescaladoAuto) {
+                    dispatch({ type: "UPDATE_META_NODO_RESCALAR_HIJOS", id: raiz.id, metaValor: v });
+                  } else {
+                    dispatch({ type: "UPDATE_NODO_ARBOL", id: raiz.id, changes: { metaValor: v } });
+                  }
+                }}
                 ariaLabel={`Objetivo anual de ${raiz.nombre} ${year}`}
                 unidad={unidad}
               />
+              {reescaladoAuto && ramas.length > 0 && (
+                <span className="text-[10px] text-accent">
+                  Al cambiar, ramas y hojas se reescalan proporcionalmente.
+                </span>
+              )}
             </label>
           </div>
           <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
@@ -214,6 +233,18 @@ export function BloqueAnual({ raiz, ramas, nodos, registros, idx, year, unidad }
               apuntas en las otras secciones.
             </p>
             <div className="flex flex-wrap items-center gap-2">
+              <label
+                className="inline-flex cursor-pointer items-center gap-1 rounded border border-border px-2 py-1 text-[11px] text-muted hover:bg-surface"
+                title="Si está activo, editar la meta de la raíz o de una rama recalcula sus hijas manteniendo proporciones. Las hojas individuales nunca se reescalan al editarse."
+              >
+                <input
+                  type="checkbox"
+                  checked={reescaladoAuto}
+                  onChange={(e) => setReescaladoAuto(e.target.checked)}
+                  className="accent-accent"
+                />
+                Reescalar al cambiar metas
+              </label>
               {existeAnioAnterior && (
                 <>
                   <button
@@ -233,6 +264,22 @@ export function BloqueAnual({ raiz, ramas, nodos, registros, idx, year, unidad }
                     Traer estructura de {anioAnterior} (reales)
                   </button>
                 </>
+              )}
+              {ramas.length > 0 && metaAnual > 0 && (
+                <button
+                  type="button"
+                  onClick={() =>
+                    dispatch({
+                      type: "UPDATE_META_NODO_RESCALAR_HIJOS",
+                      id: raiz.id,
+                      metaValor: metaAnual,
+                    })
+                  }
+                  title={`Reparte ${fmtNum(metaAnual)} ${unidad} entre las ramas manteniendo sus proporciones actuales. Útil cuando has tocado metas a mano y quieres recuadrar.`}
+                  className="rounded border border-border px-2 py-1 text-[11px] font-medium text-foreground hover:bg-surface"
+                >
+                  Reescalar ramas al objetivo
+                </button>
               )}
               <button
                 type="button"
@@ -268,6 +315,7 @@ export function BloqueAnual({ raiz, ramas, nodos, registros, idx, year, unidad }
                 year={year}
                 unidad={unidad}
                 metaAnual={metaAnual}
+                reescaladoAuto={reescaladoAuto}
                 formAbiertoId={ramaHojaFormId}
                 onToggleForm={(id) => setRamaHojaFormId((cur) => (cur === id ? null : id))}
               />
@@ -304,6 +352,7 @@ function FilaRamaEditable({
   year,
   unidad,
   metaAnual,
+  reescaladoAuto,
   formAbiertoId,
   onToggleForm,
 }: {
@@ -315,6 +364,7 @@ function FilaRamaEditable({
   year: number;
   unidad: string;
   metaAnual: number;
+  reescaladoAuto: boolean;
   formAbiertoId: string | null;
   onToggleForm: (id: string) => void;
 }) {
@@ -432,10 +482,21 @@ function FilaRamaEditable({
             {tieneHojas ? `Meta planeada (${unidad || "número"})` : `Meta anual (${unidad || "número"})`}
             <NumberInput
               value={rama.metaValor}
-              onCommit={(v) => dispatch({ type: "UPDATE_NODO_ARBOL", id: rama.id, changes: { metaValor: v } })}
+              onCommit={(v) => {
+                if (reescaladoAuto && tieneHojas) {
+                  dispatch({ type: "UPDATE_META_NODO_RESCALAR_HIJOS", id: rama.id, metaValor: v });
+                } else {
+                  dispatch({ type: "UPDATE_NODO_ARBOL", id: rama.id, changes: { metaValor: v } });
+                }
+              }}
               ariaLabel={tieneHojas ? `Meta planeada de ${rama.nombre}` : `Meta anual de ${rama.nombre}`}
               unidad={unidad}
             />
+            {reescaladoAuto && tieneHojas && (
+              <span className="text-[10px] text-accent">
+                Hojas reescaladas proporcionalmente.
+              </span>
+            )}
           </label>
           <label className="flex flex-col gap-1 text-[11px] text-muted">
             % del total anual
@@ -445,12 +506,16 @@ function FilaRamaEditable({
               title={metaAnual <= 0 ? "Pon primero el objetivo anual de la raíz" : undefined}
               onCommit={(p) => {
                 if (metaAnual <= 0 || p === undefined) return;
-                const nuevo = (metaAnual * p) / 100;
-                dispatch({
-                  type: "UPDATE_NODO_ARBOL",
-                  id: rama.id,
-                  changes: { metaValor: Math.round(nuevo * 100) / 100 },
-                });
+                const nuevo = Math.round(((metaAnual * p) / 100) * 100) / 100;
+                if (reescaladoAuto && tieneHojas) {
+                  dispatch({ type: "UPDATE_META_NODO_RESCALAR_HIJOS", id: rama.id, metaValor: nuevo });
+                } else {
+                  dispatch({
+                    type: "UPDATE_NODO_ARBOL",
+                    id: rama.id,
+                    changes: { metaValor: nuevo },
+                  });
+                }
               }}
               ariaLabel={`Porcentaje del total anual de ${rama.nombre}`}
             />
@@ -507,6 +572,22 @@ function FilaRamaEditable({
               className="rounded-lg border border-border px-2 py-1 text-[11px] font-medium text-foreground hover:bg-surface disabled:cursor-not-allowed disabled:opacity-50"
             >
               Aplicar proporción del año pasado
+            </button>
+          )}
+          {tieneHojas && metaPlaneada !== undefined && metaPlaneada > 0 && (
+            <button
+              type="button"
+              onClick={() =>
+                dispatch({
+                  type: "UPDATE_META_NODO_RESCALAR_HIJOS",
+                  id: rama.id,
+                  metaValor: metaPlaneada,
+                })
+              }
+              title={`Reparte ${fmtNum(metaPlaneada)} ${unidad} entre las hojas manteniendo las proporciones que ya tienen. Útil tras tocar metas a mano.`}
+              className="rounded-lg border border-border px-2 py-1 text-[11px] font-medium text-foreground hover:bg-surface"
+            >
+              Reescalar hojas a la meta
             </button>
           )}
           <button

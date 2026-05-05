@@ -14,6 +14,7 @@ import { ChipMiembro } from "./InlineEditors";
 import { EntregableActivoCard } from "../EntregableActivo";
 import { useMensajesNoLeidos } from "../shared/HiloEntregable";
 import { usePresenciaEntregable } from "@/lib/presence";
+import { legacySesionId } from "@/lib/sesion-id";
 
 function addDays(d: Date, n: number) { const r = new Date(d); r.setDate(r.getDate() + n); return r; }
 
@@ -281,9 +282,10 @@ export function PlanHoy({ selectedDate }: Props) {
         const startMin = minsFromMidnight(s.inicioTs);
         const endMin = s.finTs ? minsFromMidnight(s.finTs) : startMin;
         const dur = endMin - startMin;
+        const sesId = s.id ?? legacySesionId(ent.id, s);
 
         result.push({
-          id: `ses-${ent.id}-${idx}`,
+          id: `ses-${sesId}`,
           type: isDone ? "done" : "active",
           area: proj?.area ?? "operativa",
           title: ent.nombre,

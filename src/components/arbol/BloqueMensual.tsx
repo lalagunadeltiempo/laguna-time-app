@@ -270,7 +270,17 @@ const TarjetaMes = memo(function TarjetaMes({
         <MetricLine
           label="Real"
           value={`${fmtNum(real)} ${unidad}`}
-          accent={deltaPlan !== undefined ? (deltaPlan >= 0 ? "good" : "bad") : undefined}
+          accent={
+            deltaReplan !== undefined
+              ? deltaReplan >= 0
+                ? "good"
+                : "bad"
+              : deltaPlan !== undefined
+                ? deltaPlan >= 0
+                  ? "good"
+                  : "bad"
+                : undefined
+          }
         />
         {replanDistintoDePlan && (
           <MetricLine

@@ -1,5 +1,6 @@
-import type { AppState, MensajeEntregable, Nota, PlanArbolConfigAnio } from "./types";
+import type { AppState, MensajeEntregable, Nota, PlanArbolConfigAnio, SesionEntregable } from "./types";
 import { EMPTY_ARBOL } from "./types";
+import { legacySesionId } from "./sesion-id";
 
 function stripNotasTombstones<T extends { notas?: Nota[] }>(item: T, delNotas: Set<string>): T {
   const arr = item.notas;
@@ -236,44 +237,57 @@ export function mergeStates(a: AppState, b: AppState): AppState {
    * cliente añade días y otro cierra pasos (sube `diasHechos`), al mergear no
    * se pierda la preparación semanal del primero.
    */
-  const unirDiasPorUsuario = (
-    a: Record<string, string[]> | undefined,
-    b: Record<string, string[]> | undefined,
-  ): Record<string, string[]> | undefined => {
-    const ma = a ?? {};
-    const mb = b ?? {};
-    const users = new Set<string>([...Object.keys(ma), ...Object.keys(mb)]);
+  const elegirPorUsuarioRespetandoWinner = <T,>(
+    winner: Record<string, T> | undefined,
+    loser: Record<string, T> | undefined,
+  ): Record<string, T> | undefined => {
+    const w = winner ?? {};
+    const l = loser ?? {};
+    const users = new Set<string>([...Object.keys(w), ...Object.keys(l)]);
     if (users.size === 0) return undefined;
-    const out: Record<string, string[]> = {};
+    const out: Record<string, T> = {};
     for (const u of users) {
-      const set = new Set<string>([...(ma[u] ?? []), ...(mb[u] ?? [])]);
-      out[u] = Array.from(set).sort();
+      if (Object.prototype.hasOwnProperty.call(w, u)) out[u] = w[u];
+      else out[u] = l[u];
+    }
+    return out;
+  };
+
+  const unirDiasPorUsuario = (
+    winner: Record<string, string[]> | undefined,
+    loser: Record<string, string[]> | undefined,
+  ): Record<string, string[]> | undefined => {
+    const selected = elegirPorUsuarioRespetandoWinner(winner, loser);
+    if (!selected) return undefined;
+    const out: Record<string, string[]> = {};
+    for (const [u, dias] of Object.entries(selected)) {
+      out[u] = Array.from(new Set(dias ?? [])).sort();
     }
     return out;
   };
 
   const unirPlanInicioPorUsuario = (
-    a: Record<string, string | null> | undefined,
-    b: Record<string, string | null> | undefined,
+    winner: Record<string, string | null> | undefined,
+    loser: Record<string, string | null> | undefined,
   ): Record<string, string | null> | undefined => {
-    const ma = a ?? {};
-    const mb = b ?? {};
-    const users = new Set<string>([...Object.keys(ma), ...Object.keys(mb)]);
-    if (users.size === 0) return undefined;
-    const out: Record<string, string | null> = {};
-    for (const u of users) {
-      const va = ma[u] ?? null;
-      const vb = mb[u] ?? null;
-      if (va && vb) {
-        // Ambos tienen hora fijada: nos quedamos con la más reciente (última vez
-        // que el miembro eligió empezar). Es LWW por valor ISO, no por cuándo se
-        // guardó, pero es la mejor heurística sin metadatos de edición.
-        out[u] = va >= vb ? va : vb;
-      } else {
-        out[u] = va ?? vb ?? null;
-      }
+    return elegirPorUsuarioRespetandoWinner(winner, loser);
+  };
+
+  const mergeSesiones = (
+    entregableId: string,
+    winnerSesiones: SesionEntregable[] | undefined,
+    loserSesiones: SesionEntregable[] | undefined,
+  ): SesionEntregable[] => {
+    const out = new Map<string, SesionEntregable>();
+    const canonicalId = (s: SesionEntregable): string => s.id ?? legacySesionId(entregableId, s);
+    for (const s of winnerSesiones ?? []) {
+      out.set(canonicalId(s), { ...s, id: canonicalId(s) });
     }
-    return out;
+    for (const s of loserSesiones ?? []) {
+      const id = canonicalId(s);
+      if (!out.has(id)) out.set(id, { ...s, id });
+    }
+    return Array.from(out.values()).sort((a, b) => a.inicioTs.localeCompare(b.inicioTs));
   };
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -290,7 +304,12 @@ export function mergeStates(a: AppState, b: AppState): AppState {
           : reviewL
         : reviewW ?? reviewL ?? undefined;
     const notas = unirNotas(x.notas, y.notas);
-    const sesiones = unirPorClave(x.sesiones, y.sesiones, (s) => (s as { inicioTs?: string }).inicioTs ?? "");
+    const winnerEsX = winner === x;
+    const sesiones = mergeSesiones(
+      winner.id,
+      winnerEsX ? x.sesiones : y.sesiones,
+      winnerEsX ? y.sesiones : x.sesiones,
+    );
     const implicados = unirPorClave(x.implicados, y.implicados, (i) => (i as { nombre?: string }).nombre ?? "");
     // contexto escalar (notas:string): antes guardábamos el MÁS LARGO y
     // descartábamos el otro, lo que podía hacer desaparecer texto escrito
@@ -327,17 +346,20 @@ export function mergeStates(a: AppState, b: AppState): AppState {
     // top-level puede traer `diasHechos` mayor sin traer los días que el
     // otro cliente preparó (preparación semanal vs. trabajo diario son
     // acciones desacopladas).
-    const diasPlanificadosByUser = unirDiasPorUsuario(x.diasPlanificadosByUser, y.diasPlanificadosByUser);
-    const planInicioTsByUser = unirPlanInicioPorUsuario(x.planInicioTsByUser, y.planInicioTsByUser);
-    const semanasActivas = Array.from(
-      new Set<string>([...(x.semanasActivas ?? []), ...(y.semanasActivas ?? [])]),
-    ).sort();
-    const semana = winner.semana ?? loser.semana ?? null;
+    const diasPlanificadosByUser = unirDiasPorUsuario(winner.diasPlanificadosByUser, loser.diasPlanificadosByUser);
+    const planInicioTsByUser = unirPlanInicioPorUsuario(winner.planInicioTsByUser, loser.planInicioTsByUser);
+    const semanasActivasRaw = Array.isArray(winner.semanasActivas)
+      ? winner.semanasActivas
+      : Array.isArray(loser.semanasActivas)
+        ? loser.semanasActivas
+        : [];
+    const semanasActivas = Array.from(new Set<string>(semanasActivasRaw)).sort();
+    const semana = winner.semana !== undefined ? winner.semana : (loser.semana ?? null);
 
     return {
       ...winner,
       semana,
-      ...(semanasActivas.length ? { semanasActivas } : {}),
+      semanasActivas,
       ...(diasPlanificadosByUser ? { diasPlanificadosByUser } : {}),
       ...(planInicioTsByUser ? { planInicioTsByUser } : {}),
       ...(notas.length || winner.notas ? { notas } : {}),

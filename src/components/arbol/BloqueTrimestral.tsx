@@ -149,6 +149,7 @@ const TarjetaTrimestre = memo(function TarjetaTrimestre({
   const estado = estadoPeriodo("trimestre", periodoKey, year);
 
   const deltaPlan = plan !== undefined ? real - plan : undefined;
+  const deltaReplan = replan !== undefined ? real - replan : undefined;
   const pct = plan && plan > 0 ? Math.min(100, Math.round((real / plan) * 100)) : 0;
   const showProgress = estado === "pasado" || estado === "actual";
 
@@ -183,7 +184,17 @@ const TarjetaTrimestre = memo(function TarjetaTrimestre({
         <MetricLine
           label="Real"
           value={`${fmtNum(real)} ${unidad}`}
-          accent={deltaPlan !== undefined ? (deltaPlan >= 0 ? "good" : "bad") : undefined}
+          accent={
+            deltaReplan !== undefined
+              ? deltaReplan >= 0
+                ? "good"
+                : "bad"
+              : deltaPlan !== undefined
+                ? deltaPlan >= 0
+                  ? "good"
+                  : "bad"
+                : undefined
+          }
         />
         {deltaPlan !== undefined && estado === "pasado" && (
           <MetricLine
