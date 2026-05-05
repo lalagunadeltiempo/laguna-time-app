@@ -1762,6 +1762,15 @@ export function distribucionTrimestralEfectiva(
     }
   }
   const definidosSum = TRIMESTRES.reduce((a, q) => a + asignado[q], 0);
+  // Si la distribución trimestral está toda a 0 (todos los trimestres
+  // explícitamente a 0 sin faltantes), descartamos `metaPorTrimestre`
+  // y volvemos al cálculo derivado de `metaValor`. Sin esto, un
+  // `metaPorTrimestre = {Q1:0,Q2:0,Q3:0,Q4:0}` que pueda quedar como
+  // residuo de operaciones (reescalados, importaciones legacy, edición
+  // parcial) anula por completo el plan aunque `metaValor` sea > 0.
+  if (faltantes.length === 0 && definidosSum <= 0) {
+    return null;
+  }
   const residuo = (nodo.metaValor ?? 0) - definidosSum;
   if (faltantes.length > 0 && residuo > 0) {
     const pesos = faltantes.map((q) => {
