@@ -546,6 +546,21 @@ export interface PlanArbolConfigAnio {
    * No se aplica a vista semanal (la semana no "sabe" del piso del mes).
    */
   pisoMensual?: Record<string, number>;
+  /**
+   * Cómo se distribuye el plan anual entre los meses del año.
+   *  - "diasLaborables" (default cuando ausente): reparto proporcional a
+   *    los días laborables del mes, respetando `pisoMensual` y los
+   *    descansos. Es el comportamiento histórico.
+   *  - "patronAnioAnterior": el reparto sigue las proporciones del REAL
+   *    del mismo nodo (o del equivalente por nombre/path) en el año
+   *    anterior. Si no hay datos AY suficientes para un nodo concreto,
+   *    cae al método por días laborables como fallback. Útil para
+   *    "programar 2026 con la estacionalidad real de 2025".
+   *
+   * Nota: el reparto semanal dentro de un mes sigue siendo siempre por
+   * días laborables (la granularidad AY es mensual, no semanal).
+   */
+  distribucionMensual?: "diasLaborables" | "patronAnioAnterior";
 }
 
 /** Reflexión guardada al cierre de un trimestre. */

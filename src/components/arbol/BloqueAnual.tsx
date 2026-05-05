@@ -15,7 +15,7 @@
 import { useMemo, useState, type FormEvent } from "react";
 import { useAppDispatch, useAppState } from "@/lib/context";
 import { generateId } from "@/lib/store";
-import { type NodoArbol, type RegistroNodo } from "@/lib/types";
+import { type NodoArbol, type PlanArbolConfigAnio, type RegistroNodo } from "@/lib/types";
 import {
   findRaizOrigenAnioAnterior,
   hijosSumaDirectos,
@@ -62,11 +62,21 @@ interface BloqueAnualProps {
   nodos: NodoArbol[];
   registros: RegistroNodo[];
   idx: ArbolIndices;
+  config: PlanArbolConfigAnio | undefined;
   year: number;
   unidad: string;
 }
 
-export function BloqueAnual({ raiz, ramas, nodos, registros, idx, year, unidad }: BloqueAnualProps) {
+export function BloqueAnual({
+  raiz,
+  ramas,
+  nodos,
+  registros,
+  idx,
+  config,
+  year,
+  unidad,
+}: BloqueAnualProps) {
   const dispatch = useAppDispatch();
   const [ramaHojaFormId, setRamaHojaFormId] = useState<string | null>(null);
   // Toggle: si está activo (defecto), editar la meta€ o % de la raíz/rama
@@ -111,7 +121,7 @@ export function BloqueAnual({ raiz, ramas, nodos, registros, idx, year, unidad }
   const nombreOrigenDifiere =
     raizOrigenAY !== undefined &&
     normalizarNombreNodo(raizOrigenAY.nombre) !== normalizarNombreNodo(raiz.nombre);
-  const handleImportar = (modo: "plan" | "real") => {
+  const handleImportar = (modo: "plan" | "real" | "estructura") => {
     if (ramas.length > 0) {
       const ok = window.confirm(
         "Ya hay ramas este año. ¿Añadir también las del año anterior?",
@@ -125,6 +135,18 @@ export function BloqueAnual({ raiz, ramas, nodos, registros, idx, year, unidad }
       if (!ok) return;
     }
     dispatch({ type: "IMPORT_SUBARBOL_ANIO_ANTERIOR", raizId: raiz.id, modo });
+  };
+
+  // Modo de distribución mensual del plan: días laborables (default
+  // histórico) o patrón del año anterior (proporciones por nodo del real
+  // de año-1, con fallback a días laborables si faltan datos).
+  const distribucionMensualActual: "diasLaborables" | "patronAnioAnterior" =
+    config?.distribucionMensual === "patronAnioAnterior" ? "patronAnioAnterior" : "diasLaborables";
+  const handleCambiarDistribucion = (
+    modo: "diasLaborables" | "patronAnioAnterior",
+  ) => {
+    if (modo === distribucionMensualActual) return;
+    dispatch({ type: "SET_DISTRIBUCION_MENSUAL", anio: year, modo });
   };
 
   return (
@@ -245,8 +267,33 @@ export function BloqueAnual({ raiz, ramas, nodos, registros, idx, year, unidad }
                 />
                 Reescalar al cambiar metas
               </label>
+              <label
+                className="inline-flex items-center gap-1 rounded border border-border px-2 py-1 text-[11px] text-muted"
+                title={`Cómo se reparte el plan anual entre los meses. "Días laborables" prorratea por días disponibles del calendario. "Patrón ${anioAnterior}" sigue las proporciones reales del mismo nodo en ${anioAnterior}; si no hay datos AY, cae a días laborables.`}
+              >
+                Reparto mensual:
+                <select
+                  value={distribucionMensualActual}
+                  onChange={(e) =>
+                    handleCambiarDistribucion(e.target.value as typeof distribucionMensualActual)
+                  }
+                  className="rounded border border-border bg-background px-1 py-0.5 text-[11px] text-foreground"
+                  aria-label="Modo de reparto mensual del plan anual"
+                >
+                  <option value="diasLaborables">días laborables</option>
+                  <option value="patronAnioAnterior">patrón {anioAnterior}</option>
+                </select>
+              </label>
               {existeAnioAnterior && (
                 <>
+                  <button
+                    type="button"
+                    onClick={() => handleImportar("estructura")}
+                    title={`Copia ramas y hojas de ${anioAnterior} sin importes ni porcentajes. Tú defines primero el objetivo de la raíz y luego planificas el reparto manualmente.`}
+                    className="rounded border border-accent/40 bg-accent/5 px-2 py-1 text-[11px] font-medium text-accent hover:bg-accent/10"
+                  >
+                    Traer estructura de {anioAnterior} (solo nombres)
+                  </button>
                   <button
                     type="button"
                     onClick={() => handleImportar("plan")}

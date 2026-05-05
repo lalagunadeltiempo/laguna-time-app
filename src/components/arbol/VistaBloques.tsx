@@ -96,6 +96,7 @@ export function VistaBloques({ raiz, year }: VistaBloquesProps) {
         nodos={arbol.nodos}
         registros={arbol.registros}
         idx={idx}
+        config={config}
         year={year}
         unidad={unidad}
       />

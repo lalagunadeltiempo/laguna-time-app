@@ -284,6 +284,88 @@ describe("clonarEstructuraDeAnioAnterior modo='real'", () => {
   });
 });
 
+describe("clonarEstructuraDeAnioAnterior modo='estructura'", () => {
+  it("clona ramas y hojas con sus nombres pero sin metaValor ni metaPct", () => {
+    // 2025: estructura completa con metas planificadas.
+    const r25 = mkRoot(2025, "r25", 100_000);
+    const ramaA25 = mkChild({ id: "a25", parentId: "r25", anio: 2025, nombre: "Aulas", orden: 0, metaValor: 70_000 });
+    const ha1 = mkChild({ id: "ha1_25", parentId: "a25", anio: 2025, nombre: "A1", orden: 0, metaValor: 50_000 });
+    const ha2 = mkChild({ id: "ha2_25", parentId: "a25", anio: 2025, nombre: "A2", orden: 1, metaValor: 20_000 });
+    const ramaB25 = mkChild({ id: "b25", parentId: "r25", anio: 2025, nombre: "Programas", orden: 1, metaValor: 30_000 });
+    const r26 = mkRoot(2026, "r26", 200_000);
+    const nodos = [r25, ramaA25, ha1, ha2, ramaB25, r26];
+
+    const res = clonarEstructuraDeAnioAnterior({
+      nodos,
+      anioDestino: 2026,
+      raizDestinoId: "r26",
+      generateId: makeIdGen(),
+      modo: "estructura",
+    });
+
+    expect(res.modoEfectivo).toBe("estructura");
+    // Mismas 4 entidades clonadas (las 2 ramas + 2 hojas), todas sin meta.
+    expect(res.copiados).toBe(4);
+    for (const n of res.nuevosNodos) {
+      expect(n.metaValor).toBeUndefined();
+      expect(n.metaPorTrimestre).toBeUndefined();
+      expect(n.anio).toBe(2026);
+    }
+    const aulas = res.nuevosNodos.find((n) => n.nombre === "Aulas")!;
+    const programas = res.nuevosNodos.find((n) => n.nombre === "Programas")!;
+    const a1 = res.nuevosNodos.find((n) => n.nombre === "A1")!;
+    const a2 = res.nuevosNodos.find((n) => n.nombre === "A2")!;
+    expect(aulas).toBeDefined();
+    expect(programas).toBeDefined();
+    expect(a1.parentId).toBe(aulas.id);
+    expect(a2.parentId).toBe(aulas.id);
+    expect(aulas.parentId).toBe("r26");
+    expect(programas.parentId).toBe("r26");
+  });
+
+  it("la raíz destino NO se modifica al clonar en modo 'estructura'", () => {
+    const r25 = mkRoot(2025, "r25", 80_000);
+    const ramaA25 = mkChild({ id: "a25", parentId: "r25", anio: 2025, nombre: "Aulas", orden: 0, metaValor: 70_000 });
+    const r26 = mkRoot(2026, "r26", 250_000);
+    const nodos = [r25, ramaA25, r26];
+
+    const res = clonarEstructuraDeAnioAnterior({
+      nodos,
+      anioDestino: 2026,
+      raizDestinoId: "r26",
+      generateId: makeIdGen(),
+      modo: "estructura",
+    });
+
+    // El resultado no incluye la raíz destino y los nuevos nodos están todos
+    // bajo "r26" (la raíz preserva todos sus campos en el array de origen).
+    const r26Postclon = nodos.find((n) => n.id === "r26")!;
+    expect(r26Postclon.metaValor).toBe(250_000);
+    for (const n of res.nuevosNodos) {
+      expect(n.id).not.toBe("r26");
+    }
+  });
+
+  it("respeta 'estructura' aunque la raíz destino no tenga metaValor", () => {
+    // En modo 'plan' / 'real' sin meta destino las copias quedan sin €,
+    // pero ya pasa eso. Aquí confirmamos que 'estructura' funciona igual
+    // sin importar la meta destino (la usuaria aún no la ha definido).
+    const r25 = mkRoot(2025, "r25", 80_000);
+    const ramaA25 = mkChild({ id: "a25", parentId: "r25", anio: 2025, nombre: "Aulas", orden: 0, metaValor: 70_000 });
+    const r26 = mkRoot(2026, "r26", undefined);
+    const res = clonarEstructuraDeAnioAnterior({
+      nodos: [r25, ramaA25, r26],
+      anioDestino: 2026,
+      raizDestinoId: "r26",
+      generateId: makeIdGen(),
+      modo: "estructura",
+    });
+    expect(res.copiados).toBe(1);
+    expect(res.nuevosNodos[0].nombre).toBe("Aulas");
+    expect(res.nuevosNodos[0].metaValor).toBeUndefined();
+  });
+});
+
 describe("findRaizOrigenAnioAnterior y fallback al clonar por nombre distinto", () => {
   it("si hay raíz origen con NOMBRE DISTINTO, la usa igualmente como fuente", () => {
     // 2025 = "Ventas", 2026 = "Cifra". Antes los botones "Traer estructura"

@@ -21,6 +21,7 @@ import {
   mesesCerradosSet,
   metaParaNodoEnPeriodo,
   planAgregadoEnPeriodoIdx,
+  proporcionesMensualesAYParaNodo,
   realEfectivoEnPeriodoIdx,
   replanTrimestralSerie,
   type ArbolIndices,
@@ -55,6 +56,10 @@ export function BloqueTrimestral({ raiz, ramas, idx, config, year, unidad }: Blo
     return m;
   }, [idx, raiz.id, year]);
   const mesesCerrados = useMemo(() => mesesCerradosSet(config), [config]);
+  const proporcionesAYRaiz = useMemo(
+    () => proporcionesMensualesAYParaNodo(idx, raiz.id),
+    [idx, raiz.id],
+  );
   // Replan por trimestre: cada Q ajusta lo que queda asumiendo "cumple plan"
   // los meses anteriores que aún no estén cerrados. Funciona igual para
   // años pasados, actual y futuros.
@@ -66,8 +71,9 @@ export function BloqueTrimestral({ raiz, ramas, idx, config, year, unidad }: Blo
         mesesCerrados,
         anio: year,
         config,
+        proporcionesAY: proporcionesAYRaiz,
       }),
-    [raiz.metaValor, realPorMes, mesesCerrados, year, config],
+    [raiz.metaValor, realPorMes, mesesCerrados, year, config, proporcionesAYRaiz],
   );
 
   return (
@@ -139,8 +145,8 @@ const TarjetaTrimestre = memo(function TarjetaTrimestre({
   qCerrado: boolean;
 }) {
   const plan = useMemo(
-    () => metaParaNodoEnPeriodo(raiz, "trimestre", periodoKey, year, config),
-    [raiz, periodoKey, year, config],
+    () => metaParaNodoEnPeriodo(raiz, "trimestre", periodoKey, year, config, idx),
+    [raiz, periodoKey, year, config, idx],
   );
   const real = useMemo(
     () => realEfectivoEnPeriodoIdx(idx, raiz.id, "trimestre", periodoKey),

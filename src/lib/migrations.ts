@@ -6,8 +6,9 @@ import { buildSeedSOPs } from "./seed-sops";
 import { buildPersonalSeedData } from "./seed-personal";
 import { buildEmpresaSeedProyectos } from "./seed-proyectos-empresa";
 import { mondayKey, mesKey, mesesDeTrimestre } from "./semana-utils";
+import { planearDedupSesionesEnEstado } from "./sesion-dedup";
 
-export const CURRENT_MIGRATION = 25;
+export const CURRENT_MIGRATION = 27;
 
 type Dispatch = (action: Action) => void;
 
@@ -75,9 +76,57 @@ export function runMigrations(state: AppState, dispatch: Dispatch): void {
     migrateArbolSemanasNoActivasTs(state, dispatch);
   }
 
+  if (version < 26) {
+    migrateArbolDistribucionMensual(state, dispatch);
+  }
+
+  if (version < 27) {
+    migrateDedupSesionesEntregable(state, dispatch);
+  }
+
   if (version < CURRENT_MIGRATION) {
     dispatch({ type: "SET_MIGRATION_VERSION", version: CURRENT_MIGRATION });
   }
+}
+
+/**
+ * Migración v27: limpia retroactivamente sesiones duplicadas que la
+ * usuaria acumuló antes de tener `id` estable en `SesionEntregable`.
+ *
+ * Cómo se generaron: cuando ella editaba la hora de inicio de una
+ * sesión, en local cambiaba el `inicioTs`, pero la copia de la nube
+ * seguía con el viejo. El merge antiguo identificaba sesiones por
+ * `inicioTs`, así que las trataba como dos sesiones distintas y las
+ * dejaba ambas en local. Tras varias ediciones, en el cloud quedan
+ * varias copias huérfanas del mismo trabajo.
+ *
+ * El fix de `legacySesionId` impide nuevos casos pero no limpia los
+ * existentes: cada copia tiene un `inicioTs` distinto y por tanto un
+ * id determinista distinto. Esta migración aplica `dedupSesionesEntregable`
+ * sobre cada lista. Al guardar el estado limpio en local, el siguiente
+ * push a la nube reemplaza la lista huérfana por la sana, y así los
+ * duplicados desaparecen también del backend.
+ */
+function migrateDedupSesionesEntregable(state: AppState, dispatch: Dispatch): void {
+  const { cambios } = planearDedupSesionesEnEstado(state);
+  for (const c of cambios) {
+    dispatch({ type: "REPLACE_ENTREGABLE_SESIONES", id: c.id, sesiones: c.sesiones });
+  }
+}
+
+/**
+ * Migración v26: introduce el campo opcional `distribucionMensual` en
+ * `PlanArbolConfigAnio`. No establecemos ningún valor a la fuerza: las
+ * configs existentes lo dejan ausente y los lectores lo interpretan como
+ * "diasLaborables" (comportamiento histórico). Esta migración existe sólo
+ * para subir el `_migrationVersion` y para documentar el contrato del
+ * nuevo campo; sin esto la versión persistida nunca avanzaría aunque la
+ * UI ya esté permitiendo cambiarlo.
+ */
+function migrateArbolDistribucionMensual(_state: AppState, _dispatch: Dispatch): void {
+  // No-op intencional: el default de "ausente == diasLaborables" hace
+  // innecesario reescribir las configs. La función queda como hueco
+  // explícito para la versión y para futuros backfills si los hubiera.
 }
 
 /**

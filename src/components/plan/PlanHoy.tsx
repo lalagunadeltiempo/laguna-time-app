@@ -13,6 +13,7 @@ import { ResponsableToggle, type ResponsableFilter } from "./PlanMes";
 import { ChipMiembro } from "./InlineEditors";
 import { EntregableActivoCard } from "../EntregableActivo";
 import { useMensajesNoLeidos } from "../shared/HiloEntregable";
+import { HoraTextInput } from "../shared/HoraTextInput";
 import { usePresenciaEntregable } from "@/lib/presence";
 import { legacySesionId } from "@/lib/sesion-id";
 
@@ -89,14 +90,11 @@ function hhmmFromIso(iso: string | null | undefined): string | null {
 }
 
 /**
- * Input de hora para planificar. Problema de Chrome con `<input type="time">`:
- * dispara onChange en cuanto parsea una hora válida parcial (p. ej. al escribir
- * "15:0" ya lo acepta como "15:00"). Eso provocaba que un entregable saltase
- * a "Por hora" a medias de escribir.
- *
- * Solución: `draft` local que solo se commitea al salir del input (blur) o al
- * pulsar Enter. Si el usuario lo vacía, lo commitea inmediatamente (sirve como
- * atajo para quitar la hora).
+ * Input de hora planificada. Antes era un `<input type="time">` con un `draft`
+ * local; ahora delega en `HoraTextInput`, que es un input de texto sin selector
+ * nativo y que aplica la regla "espera a 4 dígitos / HH:MM válido antes de
+ * commitear" (ni siquiera al pasar por estados parcialmente válidos como
+ * "15:0").
  */
 function HoraInput({
   value,
@@ -107,48 +105,14 @@ function HoraInput({
   onCommit: (hhmm: string | null) => void;
   hex: string;
 }) {
-  const [draft, setDraft] = useState<string>(value ?? "");
-  const [focused, setFocused] = useState(false);
-  // Si cambia el valor externo (otro usuario, cancelación, etc.) y no estamos
-  // editando, reflejamos el valor nuevo.
-  useEffect(() => {
-    if (!focused) setDraft(value ?? "");
-  }, [value, focused]);
-  const commitIfChanged = () => {
-    const next = draft || null;
-    if (next === (value ?? null)) return;
-    onCommit(next);
-  };
   return (
-    <input
-      type="time"
-      value={draft}
-      onChange={(e) => {
-        const v = e.target.value;
-        setDraft(v);
-        // Si el usuario borra la hora, aplicamos ya (atajo útil).
-        if (!v) onCommit(null);
-      }}
-      onFocus={() => setFocused(true)}
-      onBlur={() => {
-        setFocused(false);
-        commitIfChanged();
-      }}
-      onKeyDown={(e) => {
-        if (e.key === "Enter") {
-          e.preventDefault();
-          commitIfChanged();
-          (e.target as HTMLInputElement).blur();
-        }
-        if (e.key === "Escape") {
-          setDraft(value ?? "");
-          (e.target as HTMLInputElement).blur();
-        }
-      }}
+    <HoraTextInput
+      value={value}
+      onCommit={onCommit}
+      ariaLabel="Hora planificada"
+      title={value ? "Editar hora (Enter o clic fuera para guardar; Esc para cancelar; vacía para quitarla)" : "Asignar hora planificada"}
       className="shrink-0 rounded-md bg-background px-1.5 py-0.5 text-[11px] font-bold tabular-nums outline-none focus:ring-1 focus:ring-accent"
-      style={{ color: draft ? hex : undefined, borderColor: hex + "40", borderWidth: 1 }}
-      title={draft ? "Editar hora (Enter o clic fuera para guardar; Esc para cancelar; vacía para quitarla)" : "Asignar hora planificada"}
-      aria-label="Hora planificada"
+      style={{ color: value ? hex : undefined, borderColor: hex + "40", borderWidth: 1, width: "4.5rem" }}
     />
   );
 }
@@ -874,10 +838,10 @@ function SesionTimeInline({
   durationLabel?: string;
 }) {
   const dispatch = useAppDispatch();
-  const inicioVal = hhmmFromIso(inicioTs) ?? "";
-  const finVal = hhmmFromIso(finTs) ?? "";
+  const inicioVal = hhmmFromIso(inicioTs);
+  const finVal = hhmmFromIso(finTs);
 
-  function commit(nextInicio: string, nextFin: string) {
+  function commit(nextInicio: string | null, nextFin: string | null) {
     if (!nextInicio) return;
     const inicioIso = isoFromDateAndHhmm(dateKey, nextInicio);
     const finIso = nextFin ? isoFromDateAndHhmm(dateKey, nextFin) : null;
@@ -899,26 +863,23 @@ function SesionTimeInline({
       onClick={stop}
       onKeyDown={stop}
     >
-      <input
-        type="time"
+      <HoraTextInput
         value={inicioVal}
-        onChange={(e) => commit(e.target.value, finVal)}
-        onClick={stop}
-        aria-label="Hora de inicio"
+        onCommit={(v) => commit(v, finVal)}
+        ariaLabel="Hora de inicio"
         title="Cambiar hora de inicio"
-        className="rounded-md border bg-background px-1.5 py-0.5 text-[11px] font-semibold tabular-nums outline-none focus:ring-1 focus:ring-accent"
+        allowEmpty={false}
+        className="w-[4.5rem] rounded-md border bg-background px-1.5 py-0.5 text-[11px] font-semibold tabular-nums outline-none focus:ring-1 focus:ring-accent"
         style={{ color, borderColor: color + "55" }}
       />
       <span aria-hidden>–</span>
-      <input
-        type="time"
+      <HoraTextInput
         value={finVal}
-        onChange={(e) => commit(inicioVal, e.target.value)}
-        onClick={stop}
-        aria-label="Hora de fin"
+        onCommit={(v) => commit(inicioVal, v)}
+        ariaLabel="Hora de fin"
         title={finTs ? "Cambiar hora de fin (déjalo vacío para reabrir)" : "Poner hora de fin para cerrar la sesión"}
         placeholder="—"
-        className="rounded-md border bg-background px-1.5 py-0.5 text-[11px] font-semibold tabular-nums outline-none focus:ring-1 focus:ring-accent"
+        className="w-[4.5rem] rounded-md border bg-background px-1.5 py-0.5 text-[11px] font-semibold tabular-nums outline-none focus:ring-1 focus:ring-accent"
         style={{ color: finVal ? color : undefined, borderColor: color + "55" }}
       />
       {durationLabel && <span className="text-muted/60">· {durationLabel}</span>}

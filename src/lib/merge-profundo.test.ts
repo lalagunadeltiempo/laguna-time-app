@@ -302,6 +302,43 @@ describe("Merge profundo de entregables", () => {
     expect(sesiones[0].inicioTs).toBe("2026-05-01T15:00:00.000Z");
   });
 
+  it("colapsa la copia rota 'Preparación de Taller' (cloud 02:40-13:42 vs local 13:40-14:24)", () => {
+    // Reproduce el bug: la nube guarda la sesión con la hora antigua
+    // (02:40 → 13:42, ≈11h, claramente rota) y el cliente local tiene
+    // la sesión real (13:40 → 14:24). Como cada copia tiene un
+    // `inicioTs` distinto y nunca se les asignó id, sus
+    // `legacySesionId` son distintos y el merge antiguo las dejaba
+    // ambas. El dedup heurístico debe quedarse sólo con la real.
+    const cloud = baseState({
+      entregables: [
+        mkEntregable({
+          id: "e-1",
+          diasHechos: 0,
+          sesiones: [
+            { inicioTs: "2026-05-04T02:40:00.000Z", finTs: "2026-05-04T13:42:00.000Z", autor: "Gabi" },
+          ],
+        }),
+      ],
+    });
+    const local = baseState({
+      entregables: [
+        mkEntregable({
+          id: "e-1",
+          diasHechos: 1,
+          sesiones: [
+            { inicioTs: "2026-05-04T13:40:00.000Z", finTs: "2026-05-04T14:24:00.000Z", autor: "Gabi" },
+          ],
+        }),
+      ],
+    });
+    const merged = mergeStates(local, cloud);
+    const sesiones = merged.entregables[0].sesiones ?? [];
+    expect(sesiones).toHaveLength(1);
+    expect(sesiones[0].inicioTs).toBe("2026-05-04T13:40:00.000Z");
+    expect(sesiones[0].finTs).toBe("2026-05-04T14:24:00.000Z");
+    expect(sesiones[0].id).toBeTruthy();
+  });
+
   it("preferPaso une notas del paso aunque gane el otro por inicioTs", () => {
     const a = baseState({
       pasos: [

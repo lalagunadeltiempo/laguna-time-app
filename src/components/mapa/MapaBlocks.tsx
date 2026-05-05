@@ -6,11 +6,11 @@ import { generateId } from "@/lib/store";
 import { useUsuario, useIsMentor } from "@/lib/usuario";
 import { NotasSection } from "../shared/NotasSection";
 import { EditableText } from "../shared/EditableText";
+import { HoraTextInput } from "../shared/HoraTextInput";
 import { ReviewBadge } from "../shared/ReviewBadge";
 import ProgramacionPicker from "../shared/ProgramacionPicker";
 import HierarchyPicker from "../shared/HierarchyPicker";
 import MoveInlinePanel from "../shared/MoveInlinePanel";
-import { RegistrarSesionIconButton } from "../shared/RegistrarSesionPopover";
 import { EntregableHojasArbolPicker } from "../arbol/EntregableHojasArbolPicker";
 import { ProyectoTimeline } from "../plan/ProyectoTimeline";
 import { computeProyectoRitmo, ritmoColor, ritmoLabel, ritmoLabelCorto, ritmoExplicacion, inferDateRange, type DateRange } from "@/lib/proyecto-stats";
@@ -1372,6 +1372,7 @@ function EntregableBlock({ entregable, index, total }: { entregable: Entregable;
   if (hideFiltered && !inFilter) return null;
 
   const tipoTag = entregable.tipo !== "raw" ? entregable.tipo.toUpperCase() : null;
+  const isSop = entregable.tipo === "sop";
   const isDone = entregable.estado === "hecho";
   const dotColor = isDone ? "bg-green-500" : entregable.estado === "en_proceso" ? "bg-amber-500" : entregable.estado === "planificado" ? "bg-blue-400" : "bg-border";
   const parentRes = state.resultados.find((r) => r.id === entregable.resultadoId);
@@ -1402,11 +1403,15 @@ function EntregableBlock({ entregable, index, total }: { entregable: Entregable;
           : <EditableText value={entregable.nombre} onChange={(v) => dispatch({ type: "RENAME_ENTREGABLE", id: entregable.id, nombre: v })} className={`text-sm ${isDone ? "text-muted line-through" : "text-foreground"}`} />
         }
         <ReviewBadge review={entregable.review} nivel="entregable" targetId={entregable.id} />
-        {tipoTag && <span className="rounded-md px-2 py-0.5 text-[11px] font-bold" style={{ backgroundColor: entAreaHex + "15", color: entAreaHex }}>{tipoTag}</span>}
+        {tipoTag && !isSop && <span className="rounded-md px-2 py-0.5 text-[11px] font-bold" style={{ backgroundColor: entAreaHex + "15", color: entAreaHex }}>{tipoTag}</span>}
         {isDone && <span className="rounded-md bg-green-100 px-2 py-0.5 text-[11px] font-semibold text-green-700 dark:bg-green-500/10 dark:text-green-400">Hecho</span>}
         {isEmpresa && <ResponsableBadge nombre={entregable.responsable} editable={!isMentor} miembros={state.miembros} onChange={(v) => dispatch({ type: "UPDATE_ENTREGABLE", id: entregable.id, changes: { responsable: v || undefined } })} showUnassigned />}
         <SemanaIsoChips entregable={entregable} resultado={parentRes} />
-        <FechaCompromisoChip entregable={entregable} />
+        {!isMentor && (
+          <span onClick={(e) => e.stopPropagation()}>
+            <EntregableHojasArbolPicker entregable={entregable} mode="popover" />
+          </span>
+        )}
         {!isMentor && (
           <DaysInput value={entregable.diasEstimados} onChange={(v) => dispatch({ type: "UPDATE_ENTREGABLE", id: entregable.id, changes: { diasEstimados: v } })} />
         )}
@@ -1416,52 +1421,9 @@ function EntregableBlock({ entregable, index, total }: { entregable: Entregable;
           ? <CommentIcon count={notasCount} onClick={() => toggleOrSheet(showNotas, setShowNotas, openSheet, { title: entregable.nombre, nivel: "entregable", targetId: entregable.id })} />
           : <NotasIcon count={notasCount} onClick={() => toggleOrSheet(showNotas, setShowNotas, openSheet, { title: entregable.nombre, nivel: "entregable", targetId: entregable.id })} />}
         {!isMentor && (
-          <RegistrarSesionIconButton
-            entregableId={entregable.id}
-            title="Ya lo hice · registrar sesión"
-            className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted opacity-60 transition-all hover:bg-accent-soft hover:text-accent hover:opacity-100"
-          >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <circle cx="12" cy="12" r="9" />
-              <polyline points="12 7 12 12 15 14" />
-              <path d="M19 4v4M17 6h4" />
-            </svg>
-          </RegistrarSesionIconButton>
-        )}
-        {!isMentor && (
           <button onClick={(e) => { e.stopPropagation(); setShowMove((v) => !v); }}
             className="flex h-6 items-center gap-0.5 rounded px-1.5 text-[10px] text-muted transition-colors hover:bg-surface hover:text-foreground" title="Mover a otro resultado">
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M5 12h14M12 5l7 7-7 7" /></svg>
-          </button>
-        )}
-        {!isMentor && entregable.plantillaId && (
-          <button onClick={(e) => {
-              e.stopPropagation();
-              dispatch({ type: "SYNC_ENTREGABLE_TO_PLANTILLA", entregableId: entregable.id });
-              setSynced(true);
-              clearTimeout(syncedTimer.current);
-              syncedTimer.current = setTimeout(() => setSynced(false), 2500);
-            }}
-            className={`flex h-6 items-center gap-0.5 rounded px-1.5 text-[10px] transition-colors ${synced ? "bg-green-100 text-green-700" : "text-blue-600 hover:bg-blue-50 hover:text-blue-800"}`}
-            title="Actualizar la plantilla del SOP con los pasos de este entregable">
-            {synced ? (
-              <>
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12" /></svg>
-                <span>Sincronizado</span>
-              </>
-            ) : (
-              <>
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><polyline points="23 4 23 10 17 10" /><polyline points="1 20 1 14 7 14" /><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" /></svg>
-                <span>Sync SOP</span>
-              </>
-            )}
-          </button>
-        )}
-        {!isMentor && !entregable.plantillaId && allPasos.length >= 1 && (
-          <button onClick={(e) => { e.stopPropagation(); dispatch({ type: "CONVERT_ENTREGABLE_TO_SOP", entregableId: entregable.id }); }}
-            className="flex h-6 items-center gap-0.5 rounded px-1.5 text-[10px] text-indigo-600 transition-colors hover:bg-indigo-50 hover:text-indigo-800" title="Convertir en SOP">
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><polyline points="14 2 14 8 20 8" /></svg>
-            <span>→ SOP</span>
           </button>
         )}
         {!isMentor && <MoveArrows canUp={index > 0} canDown={index < total - 1}
@@ -1503,6 +1465,55 @@ function EntregableBlock({ entregable, index, total }: { entregable: Entregable;
 
       {open && (
         <div className="pb-2 pl-4 sm:pl-10 md:pl-16">
+          {(!isMentor || isSop || entregable.fechaCompromiso) && (
+            <div className="mb-3 flex flex-wrap items-center gap-2 rounded-lg border border-border/50 bg-surface/30 px-2.5 py-2">
+              <span className="text-[10px] font-semibold uppercase tracking-wider text-zinc-400">Plantilla y compromiso</span>
+              {isSop && (
+                <span
+                  className="rounded-md px-2 py-0.5 text-[11px] font-bold"
+                  style={{ backgroundColor: entAreaHex + "15", color: entAreaHex }}
+                >
+                  SOP
+                </span>
+              )}
+              {!isMentor && entregable.plantillaId && (
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    dispatch({ type: "SYNC_ENTREGABLE_TO_PLANTILLA", entregableId: entregable.id });
+                    setSynced(true);
+                    clearTimeout(syncedTimer.current);
+                    syncedTimer.current = setTimeout(() => setSynced(false), 2500);
+                  }}
+                  className={`flex h-6 items-center gap-0.5 rounded px-1.5 text-[10px] transition-colors ${synced ? "bg-green-100 text-green-700" : "text-blue-600 hover:bg-blue-50 hover:text-blue-800"}`}
+                  title="Actualizar la plantilla del SOP con los pasos de este entregable"
+                >
+                  {synced ? (
+                    <>
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12" /></svg>
+                      <span>Sincronizado</span>
+                    </>
+                  ) : (
+                    <>
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><polyline points="23 4 23 10 17 10" /><polyline points="1 20 1 14 7 14" /><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" /></svg>
+                      <span>Sync SOP</span>
+                    </>
+                  )}
+                </button>
+              )}
+              {!isMentor && !entregable.plantillaId && allPasos.length >= 1 && (
+                <button
+                  onClick={(e) => { e.stopPropagation(); dispatch({ type: "CONVERT_ENTREGABLE_TO_SOP", entregableId: entregable.id }); }}
+                  className="flex h-6 items-center gap-0.5 rounded px-1.5 text-[10px] text-indigo-600 transition-colors hover:bg-indigo-50 hover:text-indigo-800"
+                  title="Convertir en SOP"
+                >
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><polyline points="14 2 14 8 20 8" /></svg>
+                  <span>→ SOP</span>
+                </button>
+              )}
+              <FechaCompromisoChip entregable={entregable} />
+            </div>
+          )}
           {allPasos.map((paso, i) => <PasoLine key={paso.id} paso={paso} index={i} total={allPasos.length} isEmpresa={isEmpresa} />)}
           {!isMentor && (
             <AddButton label="Paso" onAdd={(nombre) =>
@@ -1521,11 +1532,6 @@ function EntregableBlock({ entregable, index, total }: { entregable: Entregable;
                 responsable: isEmpresa ? currentUser : undefined,
               }})
             } />
-          )}
-          {!isMentor && (
-            <div className="mt-2 mb-2">
-              <EntregableHojasArbolPicker entregable={entregable} layout="inline" />
-            </div>
           )}
         </div>
       )}
@@ -1660,8 +1666,14 @@ function PasoLine({ paso, index, total, isEmpresa }: { paso: Paso; index: number
         <div className="ml-2 mb-2 flex flex-wrap items-center gap-2 rounded-lg border border-green-200 dark:border-green-900 bg-green-50/50 dark:bg-green-900/10 px-3 py-2 sm:ml-4 md:ml-8">
           <input type="date" value={doneDate} onChange={(e) => setDoneDate(e.target.value)}
             className="rounded border border-border bg-background px-2 py-1 text-xs" />
-          <input type="time" value={doneTime} onChange={(e) => setDoneTime(e.target.value)}
-            className="rounded border border-border bg-background px-2 py-1 text-xs" />
+          <HoraTextInput
+            value={doneTime}
+            onCommit={(v) => { if (v) setDoneTime(v); }}
+            ariaLabel="Hora del registro"
+            title="Hora a la que se hizo el paso"
+            allowEmpty={false}
+            className="w-[4.5rem] rounded border border-border bg-background px-2 py-1 text-xs"
+          />
           <button onClick={() => {
             const inicioTs = paso.inicioTs ?? `${doneDate}T${doneTime}:00.000Z`;
             const finTs = `${doneDate}T${doneTime}:00.000Z`;

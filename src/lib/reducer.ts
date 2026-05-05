@@ -189,7 +189,7 @@ export type Action =
    *  `modo` decide si los % se derivan del plan (defecto) o del real del año
    *  anterior. Si se pide "real" pero el año anterior no tiene real, se hace
    *  silenciosamente como "plan" (la usuaria no se queda sin estructura). */
-  | { type: "IMPORT_SUBARBOL_ANIO_ANTERIOR"; raizId: string; modo?: "plan" | "real" }
+  | { type: "IMPORT_SUBARBOL_ANIO_ANTERIOR"; raizId: string; modo?: "plan" | "real" | "estructura" }
   | { type: "UPSERT_REGISTRO_NODO"; payload: RegistroNodo }
   | { type: "DELETE_REGISTRO_NODO"; id: string }
   /** Mueve todos los registros de fromNodoId a toNodoId (mismo periodoTipo/periodoKey; sin fusionar duplicados). */
@@ -205,7 +205,24 @@ export type Action =
   /** Edita el piso mensual (€) de un mesKey concreto. `valor === 0` o
    *  `valor === undefined` borra la entrada (semánticamente "sin piso"). */
   | { type: "SET_PISO_MENSUAL"; anio: number; mesKey: string; valor: number | undefined }
+  /** Cambia la modalidad del reparto mensual del plan dentro del año.
+   *  - "diasLaborables": comportamiento histórico (default cuando ausente).
+   *  - "patronAnioAnterior": el reparto sigue las proporciones del REAL
+   *    del año anterior por nodo, con fallback a días laborables si no
+   *    hay datos AY suficientes. */
+  | {
+      type: "SET_DISTRIBUCION_MENSUAL";
+      anio: number;
+      modo: "diasLaborables" | "patronAnioAnterior";
+    }
   | { type: "REPLACE_ARBOL_STATE"; arbol: PlanArbolState }
+  /** Reemplaza por completo el array de sesiones de un entregable. Se usa
+   *  desde la migración de dedup (v27): el reducer no quería exponer
+   *  `sesiones` en `UPDATE_ENTREGABLE` para que código de UI no pisara
+   *  silenciosamente el historial. La migración sí necesita pisarlo
+   *  porque la lista nueva es estrictamente "la misma menos las copias
+   *  rotas". */
+  | { type: "REPLACE_ENTREGABLE_SESIONES"; id: string; sesiones: SesionEntregable[] }
   | {
       type: "UPSERT_REFLEXION_TRIMESTRE";
       anio: number;
@@ -1833,6 +1850,17 @@ export function reducer(state: AppState, action: Action): AppState {
     case "REPLACE_ARBOL_STATE":
       return { ...state, arbol: action.arbol };
 
+    case "REPLACE_ENTREGABLE_SESIONES": {
+      let cambiado = false;
+      const entregables = state.entregables.map((e) => {
+        if (e.id !== action.id) return e;
+        cambiado = true;
+        return { ...e, sesiones: action.sesiones };
+      });
+      if (!cambiado) return state;
+      return { ...state, entregables };
+    }
+
     case "ADD_NODO_ARBOL": {
       const arbol = state.arbol ?? EMPTY_ARBOL;
       return { ...state, arbol: { ...arbol, nodos: [...arbol.nodos, action.payload] } };
@@ -1990,6 +2018,30 @@ export function reducer(state: AppState, action: Action): AppState {
       };
     }
 
+    case "SET_DISTRIBUCION_MENSUAL": {
+      // Cambia el modo de reparto del plan mensual del año, preservando
+      // todos los demás campos de la config (mesesCerradosTs, pisos,
+      // semanasNoActivasTs…). El default histórico es "diasLaborables";
+      // cuando la usuaria selecciona ese modo borramos el campo para
+      // dejar la config implícita en futuros lectores antiguos.
+      const arbol = state.arbol ?? EMPTY_ARBOL;
+      const existing = arbol.configs.find((c) => c.anio === action.anio);
+      const baseConfig: PlanArbolConfigAnio = existing ? { ...existing } : { anio: action.anio };
+      const nextConfig: PlanArbolConfigAnio = {
+        ...baseConfig,
+        distribucionMensual:
+          action.modo === "diasLaborables" ? undefined : action.modo,
+      };
+      const others = arbol.configs.filter((c) => c.anio !== action.anio);
+      return {
+        ...state,
+        arbol: {
+          ...arbol,
+          configs: [...others, nextConfig].sort((a, b) => a.anio - b.anio),
+        },
+      };
+    }
+
     case "UPSERT_REGISTRO_NODO": {
       const arbol = state.arbol ?? EMPTY_ARBOL;
       const now = new Date().toISOString();
@@ -2042,6 +2094,7 @@ export function reducer(state: AppState, action: Action): AppState {
         semanasNoActivasTs: action.config.semanasNoActivasTs ?? existing?.semanasNoActivasTs,
         semanasActivasTs: action.config.semanasActivasTs ?? existing?.semanasActivasTs,
         pisoMensual: action.config.pisoMensual ?? existing?.pisoMensual,
+        distribucionMensual: action.config.distribucionMensual ?? existing?.distribucionMensual,
       };
       const others = arbol.configs.filter((c) => c.anio !== action.config.anio);
       return {

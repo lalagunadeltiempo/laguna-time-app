@@ -39,6 +39,8 @@ import {
   metaParaNodoEnPeriodo,
   parseLocalDateKey,
   planAgregadoEnPeriodoIdx,
+  proporcionesMensualesAYParaNodo,
+  realAnioPasadoEnMesIdx,
   realEfectivoEnPeriodoIdx,
   replanMensualSerie,
   type ArbolIndices,
@@ -69,6 +71,28 @@ const MESES_ES = [
   "Diciembre",
 ];
 
+const MESES_ES_CORTO = [
+  "ene",
+  "feb",
+  "mar",
+  "abr",
+  "may",
+  "jun",
+  "jul",
+  "ago",
+  "sep",
+  "oct",
+  "nov",
+  "dic",
+];
+
+/** Etiqueta corta "AY ene 2025" para la línea de referencia AY. */
+function etiquetaAY(periodoKey: string, anio: number): string {
+  const m = parseInt(periodoKey.split("-")[1] ?? "0", 10);
+  const corto = MESES_ES_CORTO[m - 1] ?? "";
+  return `AY ${corto} ${anio - 1}`;
+}
+
 interface BloqueMensualProps {
   raiz: NodoArbol;
   ramas: NodoArbol[];
@@ -91,6 +115,12 @@ export function BloqueMensual({ raiz, ramas, regsIndex, idx, config, year, unida
   }, [idx, raiz.id, year]);
   // Set de meses cerrados, derivado de la config del año (LWW por mes).
   const mesesCerrados = useMemo(() => mesesCerradosSet(config), [config]);
+  // Proporciones AY de la raíz por mes (sólo se usan en replanMensualSerie
+  // si la config pide "patronAnioAnterior" y los datos AY existen).
+  const proporcionesAYRaiz = useMemo(
+    () => proporcionesMensualesAYParaNodo(idx, raiz.id),
+    [idx, raiz.id],
+  );
   // Replan por mes: cada mes considera "cumple plan" los meses anteriores
   // abiertos y el real real de los cerrados. Funciona igual para años
   // pasados (simulación), actual o futuros.
@@ -102,8 +132,9 @@ export function BloqueMensual({ raiz, ramas, regsIndex, idx, config, year, unida
         mesesCerrados,
         anio: year,
         config,
+        proporcionesAY: proporcionesAYRaiz,
       }),
-    [raiz.metaValor, realPorMes, mesesCerrados, year, config],
+    [raiz.metaValor, realPorMes, mesesCerrados, year, config, proporcionesAYRaiz],
   );
 
   return (
@@ -178,11 +209,15 @@ const TarjetaMes = memo(function TarjetaMes({
 }) {
   const dispatch = useAppDispatch();
   const plan = useMemo(
-    () => metaParaNodoEnPeriodo(raiz, "mes", periodoKey, year, config),
-    [raiz, periodoKey, year, config],
+    () => metaParaNodoEnPeriodo(raiz, "mes", periodoKey, year, config, idx),
+    [raiz, periodoKey, year, config, idx],
   );
   const real = useMemo(
     () => realEfectivoEnPeriodoIdx(idx, raiz.id, "mes", periodoKey),
+    [idx, raiz.id, periodoKey],
+  );
+  const realAY = useMemo(
+    () => realAnioPasadoEnMesIdx(idx, raiz.id, periodoKey),
     [idx, raiz.id, periodoKey],
   );
   const estado = estadoPeriodo("mes", periodoKey, year);
@@ -304,6 +339,13 @@ const TarjetaMes = memo(function TarjetaMes({
             accent={deltaPlan >= 0 ? "good" : "bad"}
           />
         )}
+        {realAY !== undefined && realAY > 0 && (
+          <MetricLine
+            label={etiquetaAY(periodoKey, year)}
+            value={`${fmtNum(realAY)} ${unidad}`}
+            accent="muted"
+          />
+        )}
       </div>
 
       {showProgress && (
@@ -419,6 +461,10 @@ function FilaRamaMensual({
     () => realEfectivoEnPeriodoIdx(idx, rama.id, "mes", periodoKey),
     [idx, rama.id, periodoKey],
   );
+  const realAY = useMemo(
+    () => realAnioPasadoEnMesIdx(idx, rama.id, periodoKey),
+    [idx, rama.id, periodoKey],
+  );
   const existingRama = regsIndex.get(claveRegistro(rama.id, "mes", periodoKey));
 
   // Persistir abierto/cerrado por (año, rama, mes) en localStorage para que
@@ -447,6 +493,12 @@ function FilaRamaMensual({
               <span>
                 Real: <strong className="text-foreground">{fmtNum(real)} {unidad}</strong>
               </span>
+              {realAY !== undefined && realAY > 0 && (
+                <span>
+                  {etiquetaAY(periodoKey, year)}:{" "}
+                  <strong className="text-foreground">{fmtNum(realAY)} {unidad}</strong>
+                </span>
+              )}
             </span>
           </span>
         </summary>
@@ -502,6 +554,7 @@ function FilaHojaMensual({
   const state = useAppState();
   const plan = planAgregadoEnPeriodoIdx(idx, hoja, "mes", periodoKey, config);
   const real = realEfectivoEnPeriodoIdx(idx, hoja.id, "mes", periodoKey);
+  const realAY = realAnioPasadoEnMesIdx(idx, hoja.id, periodoKey);
   const existing = regsIndex.get(claveRegistro(hoja.id, "mes", periodoKey));
   const pistaEntregables = useMemo(() => {
     const ids = hoja.entregableIds ?? [];
@@ -539,6 +592,12 @@ function FilaHojaMensual({
           <span>
             Real: <strong className="text-foreground">{fmtNum(real)} {unidad}</strong>
           </span>
+          {realAY !== undefined && realAY > 0 && (
+            <span>
+              {etiquetaAY(periodoKey, year)}:{" "}
+              <strong className="text-foreground">{fmtNum(realAY)} {unidad}</strong>
+            </span>
+          )}
         </span>
       </div>
       <FilaApunteDirecto

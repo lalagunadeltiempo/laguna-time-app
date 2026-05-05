@@ -1,6 +1,7 @@
 import type { AppState, MensajeEntregable, Nota, PlanArbolConfigAnio, SesionEntregable } from "./types";
 import { EMPTY_ARBOL } from "./types";
 import { legacySesionId } from "./sesion-id";
+import { dedupSesionesEntregable } from "./sesion-dedup";
 
 function stripNotasTombstones<T extends { notas?: Nota[] }>(item: T, delNotas: Set<string>): T {
   const arr = item.notas;
@@ -170,6 +171,12 @@ function unionConfigs(a: PlanArbolConfigAnio[], b: PlanArbolConfigAnio[]): PlanA
         if (valor !== undefined) pisoMensual[mk] = valor;
       }
 
+      // Distribución mensual: sin tombstones. La concurrencia es muy baja
+      // (la usuaria la cambia al planificar el año) y "ausente" significa
+      // "diasLaborables" (default histórico), por lo que conservar el
+      // valor non-undefined del más reciente (cur) es suficiente.
+      const distribucionMensual = c.distribucionMensual ?? prev.distribucionMensual;
+
       map.set(c.anio, {
         anio: c.anio,
         comunidadAutonoma: c.comunidadAutonoma ?? prev.comunidadAutonoma,
@@ -178,6 +185,7 @@ function unionConfigs(a: PlanArbolConfigAnio[], b: PlanArbolConfigAnio[]): PlanA
         ...(Object.keys(semanasNoActivasTs).length > 0 ? { semanasNoActivasTs } : {}),
         ...(Object.keys(semanasActivasTs).length > 0 ? { semanasActivasTs } : {}),
         ...(Object.keys(pisoMensual).length > 0 ? { pisoMensual } : {}),
+        ...(distribucionMensual !== undefined ? { distribucionMensual } : {}),
       });
     }
   }
@@ -287,7 +295,13 @@ export function mergeStates(a: AppState, b: AppState): AppState {
       const id = canonicalId(s);
       if (!out.has(id)) out.set(id, { ...s, id });
     }
-    return Array.from(out.values()).sort((a, b) => a.inicioTs.localeCompare(b.inicioTs));
+    const unidas = Array.from(out.values()).sort((a, b) => a.inicioTs.localeCompare(b.inicioTs));
+    // Tras unir por id canónico, pasamos un dedup heurístico para
+    // colapsar copias huérfanas legacy: sesiones cuyo `inicioTs` cambió
+    // tras una edición pre-fix y por tanto generan ids distintos en
+    // local y en la nube. Sin esto el bug de "Preparación de Taller"
+    // sigue apareciendo aunque ya nadie genere nuevos duplicados.
+    return dedupSesionesEntregable(entregableId, unidas).sesiones;
   };
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any

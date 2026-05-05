@@ -86,15 +86,16 @@ export function planAgregadoEnPeriodo(
   periodoKey: string,
   anio: number,
   config: PlanArbolConfigAnio | undefined,
+  idx?: ArbolIndices,
 ): number | undefined {
   const hijos = hijosSumaDirectos(nodos, nodo.id, anio);
   if (hijos.length === 0) {
-    return metaParaNodoEnPeriodo(nodo, vista, periodoKey, anio, config);
+    return metaParaNodoEnPeriodo(nodo, vista, periodoKey, anio, config, idx);
   }
   let sum = 0;
   let any = false;
   for (const h of hijos) {
-    const p = planAgregadoEnPeriodo(h, nodos, vista, periodoKey, anio, config);
+    const p = planAgregadoEnPeriodo(h, nodos, vista, periodoKey, anio, config, idx);
     if (p !== undefined && Number.isFinite(p)) {
       sum += p;
       any = true;
@@ -331,7 +332,7 @@ export function planAgregadoEnPeriodoIdx(
 ): number | undefined {
   const hijos = hijosSumaDirectosIdx(idx, nodo.id);
   if (hijos.length === 0) {
-    return metaParaNodoEnPeriodo(nodo, vista, periodoKey, idx.year, config);
+    return metaParaNodoEnPeriodo(nodo, vista, periodoKey, idx.year, config, idx);
   }
   let sum = 0;
   let any = false;
@@ -467,6 +468,69 @@ function realAnioPasadoViaEquivalente(
     vista === "semana" ? "semana" : vista === "mes" ? "mes" : vista === "trimestre" ? "trimestre" : "anio";
   const keyPrev = desplazarPeriodoUnAnio(periodoTipo, periodoKey);
   return realRecursivoEnAnio(idx, equivId, vista, keyPrev, nodo.anio - 1);
+}
+
+/**
+ * Real del año anterior agregado en un mes concreto del año destino.
+ *
+ * Versión simplificada de `realAnioPasadoAgregadoIdx` para vista "mes":
+ * dado un `mesKey` del año actual del índice (`YYYY-MM`), devuelve cuánto
+ * facturó el nodo (o su equivalente por path en el año anterior) en el
+ * MISMO mes del año pasado. Devuelve `undefined` cuando no hay ninguna
+ * fuente con datos para ese par (nodo, mes AY).
+ *
+ * Lo aislamos en su propio helper porque la UI de Mensual tiene que
+ * mostrar este número como referencia ("AY abr 2025: 38.420 €"), y
+ * llamar a `realAnioPasadoAgregadoIdx(... "mes", periodoKey)` ya hace lo
+ * correcto. Se expone como API explícita para que los call-sites no
+ * tengan que recordar el contrato y para reusarlo desde
+ * `proporcionesMensualesAYParaNodo`.
+ */
+export function realAnioPasadoEnMesIdx(
+  idx: ArbolIndices,
+  nodoId: string,
+  mesKey: string,
+): number | undefined {
+  return realAnioPasadoAgregadoIdx(idx, nodoId, "mes", mesKey);
+}
+
+/**
+ * Proporciones mensuales del REAL del año anterior para un nodo del año
+ * destino. Devuelve un `Record<mesKey_destino, propMes>` donde `mesKey`
+ * es del año destino (`YYYY-MM`) y `propMes ∈ [0, 1]`.
+ *
+ * Casos:
+ *  - Si no hay ningún match (nodo sin equivalente AY ni registros AY
+ *    por path), devuelve `{}`.
+ *  - Si la suma del real AY es <= 0, devuelve `{}` (señal de "fallback
+ *    al método por días laborables").
+ *  - En otro caso, divide el real AY de cada mes por la suma anual AY
+ *    del nodo. Las claves son meses del año destino (mismo mes del año
+ *    pasado): `YYYY-01`..`YYYY-12`.
+ *
+ * El helper queda puro y trabaja sobre `ArbolIndices` para evitar
+ * recomputar paths/registros desde cero en la UI o en los tests.
+ */
+export function proporcionesMensualesAYParaNodo(
+  idx: ArbolIndices,
+  nodoId: string,
+): Record<string, number> {
+  const out: Record<string, number> = {};
+  const realPorMes = new Map<string, number>();
+  let total = 0;
+  for (let m = 1; m <= 12; m++) {
+    const mk = `${idx.year}-${String(m).padStart(2, "0")}`;
+    const v = realAnioPasadoEnMesIdx(idx, nodoId, mk);
+    if (v !== undefined && Number.isFinite(v) && v > 0) {
+      realPorMes.set(mk, v);
+      total += v;
+    }
+  }
+  if (total <= 0) return {};
+  for (const [mk, v] of realPorMes) {
+    out[mk] = v / total;
+  }
+  return out;
 }
 
 /** Real acumulado del año hasta hoy (lista ya filtrada por nodo). */
@@ -877,8 +941,27 @@ export function wouldCreateCycle(nodos: NodoArbol[], nodeId: string, newParentId
  *   dos decimales para mantener coherencia con la edición vía %.
  * - Si el origen no tiene meta o la raíz origen no tiene total, el destino queda con
  *   `metaValor` undefined y la usuaria lo afina luego en el bloque Anual.
+ *
+ * Modo "estructura":
+ *  - La raíz destino NO se toca (ni su `metaValor`).
+ *  - Las ramas/hojas se copian con sus nombres pero SIEMPRE con `metaValor`
+ *    undefined. Útil cuando la usuaria quiere reusar la forma del árbol del
+ *    año pasado y planificar manualmente desde cero el reparto.
  */
-export type ModoImportSubarbol = "plan" | "real";
+/**
+ * Modo de importación al "Traer estructura del año anterior":
+ *  - "plan": copia ramas/hojas usando el `metaValor` planificado del año
+ *    anterior como proporción y recalcula los € contra la meta de la raíz
+ *    destino (default histórico).
+ *  - "real": ídem pero las proporciones se derivan del REAL del año
+ *    anterior (lo que de verdad pasó). Si no hay reales, cae a "plan".
+ *  - "estructura": copia sólo la forma del árbol (ramas y hojas con sus
+ *    nombres). NO toca la raíz destino y deja todas las copias con
+ *    `metaValor` undefined (y sin `metaPorTrimestre`). Pensado para
+ *    "empezar a planificar 2026 desde cero apoyándome en la estructura
+ *    de 2025".
+ */
+export type ModoImportSubarbol = "plan" | "real" | "estructura";
 
 /**
  * Encuentra la raíz del año anterior que se va a usar como origen para
@@ -982,8 +1065,14 @@ export function clonarEstructuraDeAnioAnterior(opts: {
   // Si pidieron "real" pero la raíz origen no tiene real (o faltan registros),
   // caemos al modo "plan" en silencio: es la opción más útil para la usuaria
   // (estructura intacta) y el caller puede leer `modoEfectivo` para avisar.
+  // El modo "estructura" se respeta tal cual: no depende de plan ni real
+  // del origen, sólo copia nombres y forma.
   const modoEfectivo: ModoImportSubarbol =
-    modoSolicitado === "real" && realPorOrigenId !== undefined ? "real" : "plan";
+    modoSolicitado === "estructura"
+      ? "estructura"
+      : modoSolicitado === "real" && realPorOrigenId !== undefined
+        ? "real"
+        : "plan";
 
   const idMap = new Map<string, string>();
   idMap.set(raizOrigen.id, raizDestinoId);
@@ -999,7 +1088,11 @@ export function clonarEstructuraDeAnioAnterior(opts: {
     idMap.set(origen.id, newId);
 
     let metaPct: number | undefined;
-    if (modoEfectivo === "real" && realPorOrigenId) {
+    // Modo "estructura": ni siquiera intentamos derivar % — el copión
+    // queda con metaValor undefined (la usuaria afina luego en ANUAL).
+    if (modoEfectivo === "estructura") {
+      // metaPct intencionalmente undefined.
+    } else if (modoEfectivo === "real" && realPorOrigenId) {
       const realNodo = realPorOrigenId.get(origen.id);
       if (realNodo !== undefined && Number.isFinite(realNodo) && realRaizOrigen > 0) {
         metaPct = (realNodo / realRaizOrigen) * 100;
@@ -1381,6 +1474,14 @@ export function replanMensualSerie(opts: {
   mesesCerrados?: ReadonlySet<string>;
   anio: number;
   config: PlanArbolConfigAnio | undefined;
+  /**
+   * Proporciones por mesKey (`YYYY-MM`) usadas como peso para el reparto
+   * cuando `config.distribucionMensual === "patronAnioAnterior"`. No
+   * tienen que sumar exactamente 1: la lógica las normaliza dentro del
+   * subconjunto de meses sin piso. Si está vacío o ausente, se usa el
+   * peso por días laborables (comportamiento histórico).
+   */
+  proporcionesAY?: Readonly<Record<string, number>>;
 }): Map<string, number> {
   const result = new Map<string, number>();
   const cerrados = opts.mesesCerrados ?? new Set<string>();
@@ -1391,27 +1492,43 @@ export function replanMensualSerie(opts: {
     (_, i) => `${opts.anio}-${String(i + 1).padStart(2, "0")}`,
   );
   const diasMes = mesKeys.map((k) => diasLaborablesEnMes(k, opts.anio, opts.config));
-  // Días laborables descontando los meses con piso, que no entran al
-  // reparto del residuo (su contribución la fija el piso).
-  let diasMesesPiso = 0;
-  for (const mk of Object.keys(pisos)) diasMesesPiso += diasLaborablesEnMes(mk, opts.anio, opts.config);
+  // Pesos por mes para el reparto del residuo. Cuando el modo es
+  // "patronAnioAnterior" y hay proporciones AY no vacías, los pesos son
+  // las propias proporciones AY; en otro caso, días laborables.
+  const usaPatronAY =
+    opts.config?.distribucionMensual === "patronAnioAnterior" &&
+    opts.proporcionesAY !== undefined &&
+    Object.keys(opts.proporcionesAY).length > 0;
+  const pesoMes = mesKeys.map((k, i) => {
+    if (usaPatronAY) {
+      const p = opts.proporcionesAY?.[k];
+      return Number.isFinite(p) && (p as number) > 0 ? (p as number) : 0;
+    }
+    return diasMes[i];
+  });
+  // Pesos descontando los meses con piso, que no entran al reparto del
+  // residuo (su contribución la fija el piso).
   const metaRestanteAnual = Math.max(0, opts.metaAnual - sumPisos);
-  // Plan lineal del mes con pisos absorbidos: para meses con piso vale el piso;
-  // para meses sin piso, prorrateo de la meta restante por días laborables sin
-  // contar los meses con piso.
+  const denomTotalNoPiso = Math.max(
+    1e-9,
+    pesoMes.reduce((a, _, j) => a + (pisos[mesKeys[j]] !== undefined ? 0 : pesoMes[j]), 0),
+  );
+  // Plan lineal del mes con pisos absorbidos: para meses con piso vale el
+  // piso; para meses sin piso, prorrateo de la meta restante por peso
+  // (días laborables o proporción AY) sin contar los meses con piso.
   const planLinealMes = mesKeys.map((k, i) => {
     if (pisos[k] !== undefined && Number.isFinite(pisos[k])) return pisos[k];
-    const denom = Math.max(1, diasMes.reduce((a, _, j) => a + (pisos[mesKeys[j]] !== undefined ? 0 : diasMes[j]), 0));
-    return (metaRestanteAnual * diasMes[i]) / denom;
+    if (denomTotalNoPiso <= 0) return 0;
+    return (metaRestanteAnual * pesoMes[i]) / denomTotalNoPiso;
   });
-  // Días laborables RESTANTES (mes i .. dic) excluyendo meses con piso, para
-  // que el reparto del residuo en el replan del propio mes i no se diluya en
-  // el denominador con días que ya están comprometidos por piso.
-  const diasDesdeSinPiso: number[] = new Array(12).fill(0);
+  // Pesos RESTANTES (mes i .. dic) excluyendo meses con piso, para que
+  // el reparto del residuo en el replan del propio mes i no se diluya en
+  // el denominador con meses que ya están comprometidos por piso.
+  const pesoDesdeSinPiso: number[] = new Array(12).fill(0);
   let acumSinPiso = 0;
   for (let i = 11; i >= 0; i--) {
-    if (pisos[mesKeys[i]] === undefined) acumSinPiso += diasMes[i];
-    diasDesdeSinPiso[i] = acumSinPiso;
+    if (pisos[mesKeys[i]] === undefined) acumSinPiso += pesoMes[i];
+    pesoDesdeSinPiso[i] = acumSinPiso;
   }
 
   let realAcumAntes = 0;
@@ -1426,7 +1543,7 @@ export function replanMensualSerie(opts: {
         .slice(i + 1)
         .reduce((a, mk) => a + (pisos[mk] !== undefined && Number.isFinite(pisos[mk]) ? pisos[mk] : 0), 0);
       const falta = Math.max(0, opts.metaAnual - realAcumAntes - pisosFuturos);
-      const replanI = diasDesdeSinPiso[i] > 0 ? (falta * diasMes[i]) / diasDesdeSinPiso[i] : 0;
+      const replanI = pesoDesdeSinPiso[i] > 0 ? (falta * pesoMes[i]) / pesoDesdeSinPiso[i] : 0;
       result.set(k, replanI);
     }
     // Aportación al acumulado del siguiente mes:
@@ -1438,7 +1555,6 @@ export function replanMensualSerie(opts: {
       : planLinealMes[i];
     realAcumAntes += aporte;
   }
-  void diasMesesPiso;
   return result;
 }
 
@@ -1455,6 +1571,9 @@ export function replanTrimestralSerie(opts: {
   mesesCerrados?: ReadonlySet<string>;
   anio: number;
   config: PlanArbolConfigAnio | undefined;
+  /** Mismo contrato que en `replanMensualSerie`: peso por mesKey cuando
+   *  el modo es "patronAnioAnterior". Se agrega trimestralmente. */
+  proporcionesAY?: Readonly<Record<string, number>>;
 }): Map<string, number> {
   const result = new Map<string, number>();
   const cerrados = opts.mesesCerrados ?? new Set<string>();
@@ -1462,33 +1581,44 @@ export function replanTrimestralSerie(opts: {
   const sumPisos = Object.values(pisos).reduce((a, b) => a + (Number.isFinite(b) ? b : 0), 0);
   const metaRestanteAnual = Math.max(0, opts.metaAnual - sumPisos);
   const trimKeys = [1, 2, 3, 4].map((q) => `${opts.anio}-Q${q}`);
-  // Mapas auxiliares por mes: días laborables y plan lineal (con pisos absorbidos).
+  // Mapas auxiliares por mes: peso (días laborables o AY) y plan lineal (con pisos absorbidos).
   const mesKeysAll: string[] = Array.from(
     { length: 12 },
     (_, i) => `${opts.anio}-${String(i + 1).padStart(2, "0")}`,
   );
   const diasMesAll = mesKeysAll.map((k) => diasLaborablesEnMes(k, opts.anio, opts.config));
-  const diasMesesNoPiso = diasMesAll.reduce(
+  const usaPatronAY =
+    opts.config?.distribucionMensual === "patronAnioAnterior" &&
+    opts.proporcionesAY !== undefined &&
+    Object.keys(opts.proporcionesAY).length > 0;
+  const pesoMesAll = mesKeysAll.map((k, i) => {
+    if (usaPatronAY) {
+      const p = opts.proporcionesAY?.[k];
+      return Number.isFinite(p) && (p as number) > 0 ? (p as number) : 0;
+    }
+    return diasMesAll[i];
+  });
+  const pesoMesesNoPiso = pesoMesAll.reduce(
     (a, d, j) => a + (pisos[mesKeysAll[j]] !== undefined ? 0 : d),
     0,
   );
-  const denomNoPiso = Math.max(1, diasMesesNoPiso);
+  const denomNoPiso = Math.max(1e-9, pesoMesesNoPiso);
   const planLinMes: Record<string, number> = {};
   for (let i = 0; i < 12; i++) {
     const mk = mesKeysAll[i];
     if (pisos[mk] !== undefined && Number.isFinite(pisos[mk])) planLinMes[mk] = pisos[mk];
-    else planLinMes[mk] = (metaRestanteAnual * diasMesAll[i]) / denomNoPiso;
+    else planLinMes[mk] = (metaRestanteAnual * pesoMesAll[i]) / denomNoPiso;
   }
 
-  // Días laborables sin piso DESDE el trimestre q hasta Q4, para el
-  // denominador del replan de cada trimestre.
-  const diasDesdeQNoPiso: number[] = new Array(4).fill(0);
+  // Pesos sin piso DESDE el trimestre q hasta Q4, para el denominador del
+  // replan de cada trimestre.
+  const pesoDesdeQNoPiso: number[] = new Array(4).fill(0);
   for (let q = 3; q >= 0; q--) {
     const acum = mesKeysEnTrimestre(trimKeys[q]).reduce(
-      (a, mk, idx) => a + (pisos[mk] !== undefined ? 0 : diasMesAll[q * 3 + idx]),
+      (a, mk, idx) => a + (pisos[mk] !== undefined ? 0 : pesoMesAll[q * 3 + idx]),
       0,
     );
-    diasDesdeQNoPiso[q] = (q < 3 ? diasDesdeQNoPiso[q + 1] : 0) + acum;
+    pesoDesdeQNoPiso[q] = (q < 3 ? pesoDesdeQNoPiso[q + 1] : 0) + acum;
   }
 
   let realAcumAntes = 0;
@@ -1512,12 +1642,12 @@ export function replanTrimestralSerie(opts: {
           ),
         0,
       );
-    const diasNoPisoTrim = meses.reduce(
-      (a, mk, idx) => a + (pisos[mk] !== undefined ? 0 : diasMesAll[q * 3 + idx]),
+    const pesoNoPisoTrim = meses.reduce(
+      (a, mk, idx) => a + (pisos[mk] !== undefined ? 0 : pesoMesAll[q * 3 + idx]),
       0,
     );
     const falta = Math.max(0, opts.metaAnual - realAcumAntes - pisosTrimActual - pisosFuturos);
-    const repartoSinPiso = diasDesdeQNoPiso[q] > 0 ? (falta * diasNoPisoTrim) / diasDesdeQNoPiso[q] : 0;
+    const repartoSinPiso = pesoDesdeQNoPiso[q] > 0 ? (falta * pesoNoPisoTrim) / pesoDesdeQNoPiso[q] : 0;
     result.set(qKey, pisosTrimActual + repartoSinPiso);
     for (const mk of meses) {
       const aporte = cerrados.has(mk) ? opts.realPorMes.get(mk) ?? 0 : planLinMes[mk];
@@ -1648,7 +1778,23 @@ export function distribucionTrimestralEfectiva(
 
 /**
  * Plan del periodo para un nodo, teniendo en cuenta `metaPorTrimestre` si está definido.
- * Fallback: cálculo clásico por `cadencia` + `metaValor` + calendario laborable.
+ *
+ * Cascada de resolución:
+ *  1. Si el nodo tiene `metaPorTrimestre`, manda esa distribución
+ *     (no se ve afectada por `distribucionMensual`: el plan trimestral
+ *     fijado a mano siempre gana).
+ *  2. Si `config.distribucionMensual === "patronAnioAnterior"` y se
+ *     proporciona `idx` y el nodo tiene cadencia anual con datos AY
+ *     suficientes, el reparto mensual sigue las proporciones del real
+ *     del MISMO nodo (o equivalente por path) en el año anterior. La
+ *     suma de meses ≡ meta anual; el trimestre es la suma de sus 3
+ *     meses; la semana se prorratea por días laborables dentro del mes.
+ *  3. En cualquier otro caso, fallback al cálculo clásico por días
+ *     laborables (`metaParaPeriodo`).
+ *
+ * `idx` es opcional: las llamadas que no lo pasan (p. ej. test legacy o
+ * `planAgregadoEnPeriodo` sin índice) se quedan en el comportamiento
+ * histórico aunque la config pida "patronAnioAnterior".
  */
 export function metaParaNodoEnPeriodo(
   nodo: NodoArbol,
@@ -1656,6 +1802,7 @@ export function metaParaNodoEnPeriodo(
   periodoKey: string,
   anio: number,
   config: PlanArbolConfigAnio | undefined,
+  idx?: ArbolIndices,
 ): number | undefined {
   const distTrim = distribucionTrimestralEfectiva(nodo, anio, config);
   if (distTrim) {
@@ -1686,6 +1833,38 @@ export function metaParaNodoEnPeriodo(
     }
   }
   const metaAnual = metaAnualEfectivaDeNodo(nodo);
+  if (
+    metaAnual !== undefined &&
+    Number.isFinite(metaAnual) &&
+    nodo.cadencia === "anual" &&
+    config?.distribucionMensual === "patronAnioAnterior" &&
+    idx
+  ) {
+    const proporciones = proporcionesMensualesAYParaNodo(idx, nodo.id);
+    if (Object.keys(proporciones).length > 0) {
+      if (vista === "anio") return metaAnual;
+      if (vista === "mes") return metaAnual * (proporciones[periodoKey] ?? 0);
+      if (vista === "trimestre") {
+        let sum = 0;
+        for (const mk of mesKeysEnTrimestre(periodoKey)) {
+          sum += metaAnual * (proporciones[mk] ?? 0);
+        }
+        return sum;
+      }
+      if (vista === "semana") {
+        // Dentro del mes seguimos repartiendo por días laborables: la
+        // granularidad del patrón AY es mensual, no semanal.
+        const mk = mesKeyFromDate(parseLocalDateKey(periodoKey));
+        const propMes = proporciones[mk] ?? 0;
+        const metaMes = metaAnual * propMes;
+        const diasMesTotal = diasLaborablesEnMes(mk, anio, config);
+        if (diasMesTotal <= 0) return 0;
+        const diasSem = diasLaborablesEnSemanaISO(periodoKey, anio, config);
+        return (metaMes * diasSem) / diasMesTotal;
+      }
+    }
+    // Si proporciones está vacío, caemos al cálculo clásico abajo.
+  }
   return metaParaPeriodo(nodo.cadencia, metaAnual, vista, periodoKey, anio, config);
 }
 
