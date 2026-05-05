@@ -227,6 +227,7 @@ function AppShell({ userId, displayName }: { userId: string; displayName: string
       <StaleStepHandler />
       <NotificacionesMensajesHandler />
       <SaveAbortedAlertHandler />
+      <RemoteNewerChip />
       <div className="flex h-dvh overflow-hidden bg-background text-foreground">
         {/* ── Sidebar (desktop md+) ── */}
         <aside
@@ -570,6 +571,63 @@ function HoyBadge() {
 function NotificacionesMensajesHandler() {
   useNotificacionesMensajesDirigidos();
   return null;
+}
+
+/**
+ * Chip discreto del Bloque 5 multi-sesión: aparece en la esquina
+ * superior derecha cuando otra sesión del mismo workspace acaba de
+ * publicar un cambio en cloud (Realtime emite
+ * `laguna:remote-newer-detected`). Click → dispara
+ * `laguna:request-pull-and-merge` (que `AppProvider` escucha y
+ * traduce a `pullAndMerge(0)`) y oculta el chip.
+ *
+ * UX defensiva: la usuaria sabe que hay otra sesión activa antes de
+ * meterse en faena. El pull es inmediato, no bloqueante, y respeta la
+ * heurística de "no pisar mientras edito" (ver `context.tsx`).
+ */
+function RemoteNewerChip() {
+  const [visible, setVisible] = useState(false);
+  const [updatedAt, setUpdatedAt] = useState<string | null>(null);
+
+  useEffect(() => {
+    function onRemote(ev: Event) {
+      const detail = (ev as CustomEvent<{ updatedAt?: string }>).detail ?? {};
+      setUpdatedAt(detail.updatedAt ?? null);
+      setVisible(true);
+    }
+    window.addEventListener("laguna:remote-newer-detected", onRemote as EventListener);
+    return () => {
+      window.removeEventListener("laguna:remote-newer-detected", onRemote as EventListener);
+    };
+  }, []);
+
+  if (!visible) return null;
+
+  function handleClick() {
+    try {
+      window.dispatchEvent(new CustomEvent("laguna:request-pull-and-merge"));
+    } catch {
+      // noop
+    }
+    setVisible(false);
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={handleClick}
+      title={updatedAt ? `Actualizado ${updatedAt}` : "Cambios remotos disponibles"}
+      aria-label="Cambios remotos disponibles, pulsa para sincronizar"
+      className="fixed right-4 top-3 z-50 flex items-center gap-1.5 rounded-full border border-accent/40 bg-accent/10 px-3 py-1.5 text-[12px] font-medium text-accent shadow-md backdrop-blur transition-colors hover:bg-accent/20"
+    >
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+        <polyline points="23 4 23 10 17 10" />
+        <polyline points="1 20 1 14 7 14" />
+        <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
+      </svg>
+      <span>Cambios remotos disponibles</span>
+    </button>
+  );
 }
 
 /**

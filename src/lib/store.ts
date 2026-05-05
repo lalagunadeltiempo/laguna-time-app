@@ -286,6 +286,14 @@ export async function loadStateCloud(userId: string): Promise<CloudLoadResult> {
 let _saveTimer: ReturnType<typeof setTimeout> | null = null;
 let _pendingSave: { userId: string; state: AppState; onMerged?: (merged: AppState) => void } | null = null;
 let _lastCloudSnapshot: AppState | null = null;
+/**
+ * ISO timestamp del último upsert exitoso hecho POR ESTE cliente. Se usa
+ * en `subscribeToUserDataChanges` para distinguir un cambio en cloud que
+ * vino de otra sesión (chip "↻ Cambios remotos disponibles" del Bloque 5)
+ * del eco de nuestra propia escritura. Sin este filtro el chip se
+ * mostraría a cada save, lo que sería ruido constante.
+ */
+let _lastSelfUpdatedAt: string | null = null;
 
 function hydrateCloudSnapshotFromLocal(): AppState | null {
   if (_lastCloudSnapshot) return _lastCloudSnapshot;
@@ -435,14 +443,16 @@ export function saveStateCloud(userId: string, state: AppState, onMerged?: (merg
       return;
     }
 
+    const upsertTs = new Date().toISOString();
     try {
       const { error } = await supabase.from("user_data").upsert(
-        { user_id: WORKSPACE_ID, state: stateToSave, updated_at: new Date().toISOString() },
+        { user_id: WORKSPACE_ID, state: stateToSave, updated_at: upsertTs },
         { onConflict: "user_id" },
       );
       if (error) {
         console.error("[saveStateCloud] Supabase error:", error.message);
       } else {
+        _lastSelfUpdatedAt = upsertTs;
         persistCloudSnapshot(stateToSave);
         // Backup versionado en cloud (fire-and-forget). El módulo se importa
         // de forma diferida para no acoplar el path crítico de save con la
@@ -588,9 +598,13 @@ export function flushPendingCloudSave(): void {
  * (falta env, falta feature en la tabla, etc.), devuelve un unsubscribe no-op y el polling
  * sigue cubriendo la sincronización como fallback.
  *
- * Detalle de filtrado: solo procesamos el evento si el `updated_at` del payload es más
- * reciente que el del último guardado propio. Así evitamos un bucle push → pull → merge
- * tras cada escritura de este cliente.
+ * Detalle de filtrado: cada UPDATE invoca `onRemoteChange`. Adicionalmente, si el
+ * `updated_at` del payload es estrictamente posterior al último upsert hecho por
+ * ESTE cliente (`_lastSelfUpdatedAt`), emitimos un `CustomEvent`
+ * `laguna:remote-newer-detected` en `window` con `{ updatedAt, lastSelfUpdatedAt }`
+ * para que la UI pueda mostrar el chip "↻ Cambios remotos disponibles" (Bloque 5
+ * multi-sesión). Si el cambio venía de nosotros mismos (mismo ts), no emitimos:
+ * sería ruido constante a cada save.
  */
 export function subscribeToUserDataChanges(
   onRemoteChange: (payload: { updatedAt: string; state?: AppState }) => void,
@@ -612,6 +626,20 @@ export function subscribeToUserDataChanges(
           const row = (payload as { new?: { state?: AppState; updated_at?: string } })?.new;
           if (!row) return;
           const updatedAt = row.updated_at ?? new Date().toISOString();
+          // Detectar si el cambio vino de otra sesión (el chip se basa en esto).
+          const last = _lastSelfUpdatedAt;
+          const fromAnotherSession = !last || updatedAt > last;
+          if (fromAnotherSession && typeof window !== "undefined") {
+            try {
+              window.dispatchEvent(
+                new CustomEvent("laguna:remote-newer-detected", {
+                  detail: { updatedAt, lastSelfUpdatedAt: last },
+                }),
+              );
+            } catch {
+              // noop
+            }
+          }
           onRemoteChange({ updatedAt, state: row.state });
         },
       )

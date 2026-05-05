@@ -275,6 +275,24 @@ export function AppProvider({ userId, displayName, children }: ProviderProps) {
 
   useEffect(() => {
     let lastSync = 0;
+    // Bloque 5 multi-sesión: si la usuaria está editando un input/textarea
+    // cuando llega un merge remoto, NO sobreescribimos su edición —
+    // aplazamos hasta que el foco salga. Heurística simple pero
+    // efectiva: cualquier elemento focusable de tipo INPUT/TEXTAREA o
+    // contenteditable cuenta como "edición en curso". Si pasa el merge
+    // mientras la usuaria está editando, su trabajo no se pierde
+    // porque mergeStates es idempotente y el siguiente pull (cuando
+    // suelte el campo) traerá la unión correcta.
+    let pendingMerge: import("./types").AppState | null = null;
+    function isEditingInput(): boolean {
+      if (typeof document === "undefined") return false;
+      const el = document.activeElement as HTMLElement | null;
+      if (!el) return false;
+      const tag = el.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return true;
+      if (el.isContentEditable) return true;
+      return false;
+    }
 
     async function pullAndMerge(minGapMs: number): Promise<void> {
       if (!initDone.current) return;
@@ -287,8 +305,28 @@ export function AppProvider({ userId, displayName, children }: ProviderProps) {
       //         en el estado local (especialmente en pulls fríos tras volver a la pestaña).
       let merged = mergeStates(stateRef.current, result.data);
       merged = mergeCloudReviews(merged, result.data);
-      if (statesDiffer(stateRef.current, merged)) {
-        dispatch({ type: "INIT", state: merged });
+      if (!statesDiffer(stateRef.current, merged)) return;
+      if (isEditingInput()) {
+        // Aplazamos: guardamos el merged pendiente y reintentamos en
+        // cuanto haya un blur global. Sin esto, mientras la usuaria
+        // teclea una meta, un pull simultáneo le borraba lo escrito.
+        pendingMerge = merged;
+        return;
+      }
+      dispatch({ type: "INIT", state: merged });
+    }
+
+    function applyPendingMergeIfAny() {
+      if (!pendingMerge) return;
+      if (isEditingInput()) return;
+      const next = pendingMerge;
+      pendingMerge = null;
+      // Re-derivamos el merged por si han pasado segundos y stateRef
+      // ha cambiado mientras tanto (idempotente: mergeStates de un
+      // merged contra el state actual no pierde información).
+      const fresh = mergeStates(stateRef.current, next);
+      if (statesDiffer(stateRef.current, fresh)) {
+        dispatch({ type: "INIT", state: fresh });
       }
     }
 
@@ -304,15 +342,28 @@ export function AppProvider({ userId, displayName, children }: ProviderProps) {
       }
       void pullAndMerge(3000);
     }
+    function handleRequestPull() {
+      void pullAndMerge(0);
+    }
 
     window.addEventListener("beforeunload", handleBeforeUnload);
     document.addEventListener("visibilitychange", handleVisibilityChange);
+    // Bloque 5: el chip "↻ Cambios remotos disponibles" emite este
+    // evento al hacer click. Cualquier otro consumidor (tests E2E,
+    // botones futuros) puede usarlo igual.
+    window.addEventListener("laguna:request-pull-and-merge", handleRequestPull);
+    // Cuando la usuaria suelta un input, intentamos aplicar el merge
+    // que estaba pendiente por edición en curso.
+    document.addEventListener("focusout", applyPendingMergeIfAny);
 
     // Sync periódico como fallback por si la websocket Realtime cae. Realtime
     // empuja cambios en caliente (<1s), pero el polling evita quedarse huérfano
     // si se pierde la conexión.
     const intervalId = setInterval(() => {
       if (document.visibilityState !== "visible") return;
+      // Aprovechamos el polling para flush del pending merge si la
+      // usuaria ha dejado de editar entre tanto.
+      applyPendingMergeIfAny();
       void pullAndMerge(10000);
     }, 15000);
 
@@ -331,6 +382,8 @@ export function AppProvider({ userId, displayName, children }: ProviderProps) {
     return () => {
       window.removeEventListener("beforeunload", handleBeforeUnload);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
+      window.removeEventListener("laguna:request-pull-and-merge", handleRequestPull);
+      document.removeEventListener("focusout", applyPendingMergeIfAny);
       clearInterval(intervalId);
       try {
         unsubRealtime();
