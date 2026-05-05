@@ -163,8 +163,11 @@ export type Action =
   | { type: "DELETE_NODO_ARBOL"; id: string }
   | { type: "MOVE_NODO_ARBOL"; id: string; parentId?: string | null; orden?: number }
   /** Trae la estructura (ramas + hojas, con sus %) de la raíz equivalente del año
-   *  anterior bajo `raizId`. Si no existe año anterior con la misma raíz, no-op. */
-  | { type: "IMPORT_SUBARBOL_ANIO_ANTERIOR"; raizId: string }
+   *  anterior bajo `raizId`. Si no existe año anterior con la misma raíz, no-op.
+   *  `modo` decide si los % se derivan del plan (defecto) o del real del año
+   *  anterior. Si se pide "real" pero el año anterior no tiene real, se hace
+   *  silenciosamente como "plan" (la usuaria no se queda sin estructura). */
+  | { type: "IMPORT_SUBARBOL_ANIO_ANTERIOR"; raizId: string; modo?: "plan" | "real" }
   | { type: "UPSERT_REGISTRO_NODO"; payload: RegistroNodo }
   | { type: "DELETE_REGISTRO_NODO"; id: string }
   /** Mueve todos los registros de fromNodoId a toNodoId (mismo periodoTipo/periodoKey; sin fusionar duplicados). */
@@ -1844,6 +1847,8 @@ export function reducer(state: AppState, action: Action): AppState {
         anioDestino: raiz.anio,
         raizDestinoId: raiz.id,
         generateId,
+        modo: action.modo,
+        registros: action.modo === "real" ? arbol.registros : undefined,
       });
       if (copiados === 0) return state;
       return {

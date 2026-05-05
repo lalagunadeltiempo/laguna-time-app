@@ -380,7 +380,7 @@ function FilaRamaMensual({
       onToggle={onToggle}
       summary={
         <summary className="cursor-pointer list-none px-2 py-1.5 marker:content-none [&::-webkit-details-marker]:hidden">
-          <div className="flex flex-wrap items-baseline justify-between gap-2">
+          <span className="flex flex-wrap items-baseline justify-between gap-2">
             <span className="text-[12px] font-medium text-foreground">
               <span aria-hidden className="mr-1 text-[9px] text-muted">{open ? "▼" : "▶"}</span>
               {rama.nombre}
@@ -393,7 +393,7 @@ function FilaRamaMensual({
                 Real: <strong className="text-foreground">{fmtNum(real)} {unidad}</strong>
               </span>
             </span>
-          </div>
+          </span>
         </summary>
       }
     >

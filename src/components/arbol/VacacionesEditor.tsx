@@ -19,6 +19,14 @@ import { COMUNIDADES_AUTONOMAS_OPCIONES } from "@/lib/festivos-es";
  * parecía no abrirse. Ahora se monta sobre todo (`fixed inset-0`,
  * backdrop semitransparente) para que cualquier interacción con el
  * botón "Semanas de descanso" sea visible inmediatamente.
+ *
+ * No bloqueamos el scroll del `body`: el contenedor del modal ya es
+ * `fixed inset-0 overflow-y-auto`, así que absorbe el scroll por sí
+ * mismo. Bloquear el body con `style.overflow = "hidden"` y restaurar el
+ * valor previo es frágil: si el modal se vuelve a montar antes de que el
+ * cleanup haya corrido (HMR, doble apertura, re-render del padre), el
+ * "valor previo" guardado puede ser ya `"hidden"`, y el cleanup deja la
+ * página atascada para siempre.
  */
 export function VacacionesEditor({
   anio,
@@ -52,15 +60,6 @@ export function VacacionesEditor({
     closeRef.current?.focus();
   }, []);
 
-  // Bloquear scroll del body mientras el modal está abierto.
-  useEffect(() => {
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    return () => {
-      document.body.style.overflow = prev;
-    };
-  }, []);
-
   function toggle(mk: string) {
     const next = new Set(set);
     if (next.has(mk)) next.delete(mk);
@@ -68,8 +67,13 @@ export function VacacionesEditor({
     onSave({ semanasNoActivas: [...next].sort(), comunidadAutonoma });
   }
 
-  function restoreDefaults() {
-    onSave({ semanasNoActivas: defaultSemanasNoActivas(anio), comunidadAutonoma });
+  // Unión defensiva: añadimos los descansos por defecto sin tocar los
+  // que la usuaria haya elegido a mano. La semántica antigua (REEMPLAZAR
+  // todo por los defaults) era destructiva y poco esperable.
+  function addDefaults() {
+    const next = new Set(set);
+    for (const mk of defaultSemanasNoActivas(anio)) next.add(mk);
+    onSave({ semanasNoActivas: [...next].sort(), comunidadAutonoma });
   }
 
   function setCcaa(code: string) {
@@ -78,7 +82,7 @@ export function VacacionesEditor({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 px-3 py-6 sm:items-center sm:py-10"
+      className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto overscroll-contain bg-black/40 px-3 py-6 sm:items-center sm:py-10"
       role="dialog"
       aria-modal="true"
       aria-labelledby="vac-modal-title"
@@ -107,10 +111,12 @@ export function VacacionesEditor({
           </button>
         </div>
         <p className="border-b border-amber-400/20 px-4 py-3 text-xs text-muted">
-          Toca los <strong>lunes</strong> de las semanas de descanso: ahí no te pediremos número. Por defecto:{" "}
-          <strong>agosto</strong>, <strong>dos semanas de Navidad</strong> y{" "}
-          <strong>una de Semana Santa</strong> ({christmasVacationMondays(anio).map(isoWeekLabelFromMondayKey).join(", ")}
-          ). El plan del año también usa <strong>festivos laborales</strong> (España + comunidad si eliges abajo).
+          Marca el <strong>lunes</strong> de cada semana en la que <em>no</em> vas a trabajar (vacaciones, formaciones,
+          descansos…). Esas semanas se quedan fuera del plan: no te pediremos cifras y no contarán como días laborables.
+          De serie marcamos <strong>agosto</strong>, las <strong>dos semanas de Navidad</strong> (
+          {christmasVacationMondays(anio).map(isoWeekLabelFromMondayKey).join(", ")}) y la{" "}
+          <strong>de Semana Santa</strong>; tócalas para deshacer cualquiera. El plan del año también descuenta los{" "}
+          <strong>festivos laborales</strong> (España + comunidad si la eliges abajo).
         </p>
         <div className="border-b border-amber-400/20 px-4 py-3">
           <label className="flex flex-col gap-1 text-[11px] text-muted">
@@ -156,10 +162,11 @@ export function VacacionesEditor({
         <div className="flex flex-wrap gap-2 border-t border-amber-400/20 px-4 py-3">
           <button
             type="button"
-            onClick={restoreDefaults}
+            onClick={addDefaults}
+            title="Añade agosto, las dos semanas de Navidad y la de Semana Santa SIN borrar las que ya hayas marcado a mano."
             className="rounded-lg border border-border bg-background px-3 py-2 text-xs text-muted hover:bg-surface"
           >
-            Volver a los descansos por defecto
+            Añadir los descansos por defecto
           </button>
           <button
             type="button"

@@ -31,22 +31,27 @@ import { NumberInput, PercentInput, fmtNum } from "./arbol-comunes";
  * Barra fina (real / meta). Verde si llega al 100%, accent en cualquier
  * otro caso. Mismo patrón visual que en BloqueMensual para que el cerebro
  * entienda "esto mide lo que llevo".
+ *
+ * Se renderiza con <span> + display:block porque vive dentro de <summary>,
+ * cuyo modelo de contenido sólo admite phrasing content. Un <div> aquí
+ * provoca HTML inválido y, en algunos navegadores, hace que clicks sobre
+ * el summary no abran/cierren el details (se queda "atascado").
  */
 function BarraReal({ real, meta }: { real: number; meta: number | undefined }) {
   if (!meta || meta <= 0) return null;
   const pct = Math.max(0, Math.min(100, (real / meta) * 100));
   return (
-    <div className="mt-2 flex items-center gap-2" aria-hidden>
-      <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-surface">
-        <div
-          className={`h-full rounded-full transition-all ${pct >= 100 ? "bg-emerald-500" : "bg-accent"}`}
+    <span className="mt-2 flex items-center gap-2" aria-hidden>
+      <span className="block h-1.5 flex-1 overflow-hidden rounded-full bg-surface">
+        <span
+          className={`block h-full rounded-full transition-all ${pct >= 100 ? "bg-emerald-500" : "bg-accent"}`}
           style={{ width: `${pct}%` }}
         />
-      </div>
+      </span>
       <span className="shrink-0 text-[10px] tabular-nums text-muted">
         {pct.toFixed(0)}%
       </span>
-    </div>
+    </span>
   );
 }
 
@@ -93,25 +98,25 @@ export function BloqueAnual({ raiz, ramas, nodos, registros, idx, year, unidad }
         normalizarNombreNodo(n.nombre) === objetivo,
     );
   }, [nodos, raiz.nombre, anioAnterior]);
-  const handleImportar = () => {
+  const handleImportar = (modo: "plan" | "real") => {
     if (ramas.length > 0) {
       const ok = window.confirm(
         "Ya hay ramas este año. ¿Añadir también las del año anterior?",
       );
       if (!ok) return;
     }
-    dispatch({ type: "IMPORT_SUBARBOL_ANIO_ANTERIOR", raizId: raiz.id });
+    dispatch({ type: "IMPORT_SUBARBOL_ANIO_ANTERIOR", raizId: raiz.id, modo });
   };
 
   return (
     <details open className="rounded-xl border border-border bg-background">
       <summary className="cursor-pointer list-none px-4 py-3 marker:content-none [&::-webkit-details-marker]:hidden">
-        <div className="flex flex-wrap items-baseline justify-between gap-2">
-          <h2 className="text-base font-semibold text-foreground">
+        <span className="flex flex-wrap items-baseline justify-between gap-2">
+          <span className="text-base font-semibold text-foreground">
             <span aria-hidden className="mr-2 inline-block text-[10px] text-muted transition-transform">▼</span>
             ANUAL · {raiz.nombre}
-          </h2>
-          <div className="flex flex-wrap items-baseline gap-3 text-[11px] text-muted">
+          </span>
+          <span className="flex flex-wrap items-baseline gap-3 text-[11px] text-muted">
             <span>
               Objetivo:{" "}
               <strong className="tabular-nums text-foreground">
@@ -143,8 +148,8 @@ export function BloqueAnual({ raiz, ramas, nodos, registros, idx, year, unidad }
                 </span>
               )}
             </span>
-          </div>
-        </div>
+          </span>
+        </span>
         <BarraReal real={realRaiz} meta={metaAnual} />
       </summary>
 
@@ -201,14 +206,24 @@ export function BloqueAnual({ raiz, ramas, nodos, registros, idx, year, unidad }
             </p>
             <div className="flex flex-wrap items-center gap-2">
               {existeAnioAnterior && (
-                <button
-                  type="button"
-                  onClick={handleImportar}
-                  title={`Copia ramas y hojas de ${anioAnterior} con sus porcentajes; los € se recalculan contra tu objetivo de ${year}.`}
-                  className="rounded border border-accent/40 bg-accent/5 px-2 py-1 text-[11px] font-medium text-accent hover:bg-accent/10"
-                >
-                  Traer estructura de {anioAnterior}
-                </button>
+                <>
+                  <button
+                    type="button"
+                    onClick={() => handleImportar("plan")}
+                    title={`Copia ramas y hojas de ${anioAnterior} con los porcentajes que PLANIFICASTE; los € se recalculan contra tu objetivo de ${year}.`}
+                    className="rounded border border-accent/40 bg-accent/5 px-2 py-1 text-[11px] font-medium text-accent hover:bg-accent/10"
+                  >
+                    Traer estructura de {anioAnterior} (plan)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleImportar("real")}
+                    title={`Copia ramas y hojas de ${anioAnterior} usando los porcentajes REALES (lo que de verdad pasó); los € se recalculan contra tu objetivo de ${year}. Si ${anioAnterior} no tiene reales, se usa el plan.`}
+                    className="rounded border border-accent/40 bg-accent/5 px-2 py-1 text-[11px] font-medium text-accent hover:bg-accent/10"
+                  >
+                    Traer estructura de {anioAnterior} (reales)
+                  </button>
+                </>
               )}
               <button
                 type="button"
@@ -333,14 +348,14 @@ function FilaRamaEditable({
   return (
     <details className="rounded border border-border bg-surface/40" open={tieneHojas || formAbiertoId === rama.id}>
       <summary className="cursor-pointer list-none px-3 py-2 marker:content-none [&::-webkit-details-marker]:hidden">
-        <div className="flex flex-wrap items-baseline justify-between gap-2">
-          <div className="flex items-baseline gap-2">
+        <span className="flex flex-wrap items-baseline justify-between gap-2">
+          <span className="flex items-baseline gap-2">
             <span aria-hidden className="text-[10px] text-muted">▶</span>
             <span className="text-sm font-medium text-foreground">{rama.nombre}</span>
             {!cuentaParaTotal && (
               <span className="rounded bg-surface px-1 py-0.5 text-[9px] text-muted">no suma</span>
             )}
-          </div>
+          </span>
           <span className="text-[11px] text-muted">
             {tieneHojas ? (
               <>
@@ -384,7 +399,7 @@ function FilaRamaEditable({
               </>
             )}
           </span>
-        </div>
+        </span>
         <BarraReal real={realRama} meta={metaEffRama} />
       </summary>
 

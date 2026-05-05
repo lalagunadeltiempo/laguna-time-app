@@ -177,11 +177,11 @@ const FilaSemana = memo(function FilaSemana({
       defaultOpen={estado === "actual"}
       summary={
         <summary className="cursor-pointer list-none px-3 py-2 marker:content-none [&::-webkit-details-marker]:hidden">
-          <div className="flex flex-wrap items-baseline justify-between gap-2">
-            <div className="min-w-0">
-              <p className="text-sm font-medium text-foreground">{label}</p>
-              <p className="text-[10px] text-muted">{rango}</p>
-            </div>
+          <span className="flex flex-wrap items-baseline justify-between gap-2">
+            <span className="block min-w-0">
+              <span className="block text-sm font-medium text-foreground">{label}</span>
+              <span className="block text-[10px] text-muted">{rango}</span>
+            </span>
             <span className="flex flex-wrap items-baseline gap-x-3 text-[11px] tabular-nums text-muted">
               <span
                 className={`rounded px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide ${
@@ -211,7 +211,7 @@ const FilaSemana = memo(function FilaSemana({
                 </strong>
               </span>
             </span>
-          </div>
+          </span>
         </summary>
       }
     >

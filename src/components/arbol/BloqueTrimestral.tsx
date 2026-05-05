@@ -270,7 +270,7 @@ function FilaRamaTrimestral({
   return (
     <details className="rounded border border-border/40">
       <summary className="cursor-pointer list-none px-2 py-1.5 marker:content-none [&::-webkit-details-marker]:hidden">
-        <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <span className="flex flex-wrap items-baseline justify-between gap-2">
           <span className="text-[12px] font-medium text-foreground">{rama.nombre}</span>
           <span className="flex flex-wrap gap-x-3 text-[10px] tabular-nums text-muted">
             <span>
@@ -284,7 +284,7 @@ function FilaRamaTrimestral({
               </strong>
             </span>
           </span>
-        </div>
+        </span>
       </summary>
       {hojas.length > 0 && (
         <div className="space-y-1 border-t border-border/40 px-2 py-1.5">

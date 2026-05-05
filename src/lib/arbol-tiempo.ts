@@ -387,6 +387,22 @@ export function realEfectivoEnPeriodoIdx(
 }
 
 /**
+ * Real anual de un nodo en el año al que pertenece (suma recursiva por
+ * hijos suma con fallback a registros directos, igual que
+ * `realEfectivoEnPeriodoIdx` pero permitiendo nodos de cualquier año del
+ * índice). Útil para clonar estructura usando proporciones reales del
+ * año anterior.
+ */
+export function realDeNodoEnSuPropioAnio(
+  idx: ArbolIndices,
+  nodoId: string,
+): number {
+  const nodo = idx.nodosByIdAll.get(nodoId);
+  if (!nodo) return 0;
+  return realRecursivoEnAnio(idx, nodoId, "anio", String(nodo.anio), nodo.anio);
+}
+
+/**
  * Calcula el "año pasado" del nodo.
  * Cascada de resolución (prioridad descendente):
  *   1. Suma recursiva por hijos suma (con periodoKey desplazada 1 año).
@@ -834,16 +850,24 @@ export function wouldCreateCycle(nodos: NodoArbol[], nodeId: string, newParentId
  * - Si el origen no tiene meta o la raíz origen no tiene total, el destino queda con
  *   `metaValor` undefined y la usuaria lo afina luego en el bloque Anual.
  */
+export type ModoImportSubarbol = "plan" | "real";
+
 export function clonarEstructuraDeAnioAnterior(opts: {
   nodos: NodoArbol[];
   anioDestino: number;
   raizDestinoId: string;
   generateId: () => string;
-}): { nuevosNodos: NodoArbol[]; copiados: number } {
+  /** "plan" (defecto): usa metaValor del año anterior como proporción.
+   *  "real": usa el real agregado del año anterior. */
+  modo?: ModoImportSubarbol;
+  /** Registros del árbol completos. Solo necesario cuando `modo === "real"`. */
+  registros?: RegistroNodo[];
+}): { nuevosNodos: NodoArbol[]; copiados: number; modoEfectivo: ModoImportSubarbol } {
   const { nodos, anioDestino, raizDestinoId, generateId } = opts;
+  const modoSolicitado: ModoImportSubarbol = opts.modo ?? "plan";
   const raizDestino = nodos.find((n) => n.id === raizDestinoId);
   if (!raizDestino || raizDestino.anio !== anioDestino) {
-    return { nuevosNodos: [], copiados: 0 };
+    return { nuevosNodos: [], copiados: 0, modoEfectivo: modoSolicitado };
   }
 
   const anioOrigen = anioDestino - 1;
@@ -854,7 +878,7 @@ export function clonarEstructuraDeAnioAnterior(opts: {
       n.anio === anioOrigen &&
       normalizarNombreNodo(n.nombre) === nombreObjetivo,
   );
-  if (!raizOrigen) return { nuevosNodos: [], copiados: 0 };
+  if (!raizOrigen) return { nuevosNodos: [], copiados: 0, modoEfectivo: modoSolicitado };
 
   // Mapa hijo→padre por id para todo el año origen, para recorrer el subárbol.
   const hijosPorParent = new Map<string, NodoArbol[]>();
@@ -868,10 +892,35 @@ export function clonarEstructuraDeAnioAnterior(opts: {
 
   const metaRaizOrigen = raizOrigen.metaValor;
   const metaRaizDestino = raizDestino.metaValor;
-  const puedeDerivarPct =
+  const puedeDerivarPctPorPlan =
     metaRaizOrigen !== undefined && Number.isFinite(metaRaizOrigen) && metaRaizOrigen > 0;
   const puedePropagar =
     metaRaizDestino !== undefined && Number.isFinite(metaRaizDestino);
+
+  // Real total de la raíz origen para proporciones por real. Solo se usa
+  // cuando el modo solicitado es "real" y se han pasado los registros.
+  let realPorOrigenId: Map<string, number> | undefined;
+  let realRaizOrigen = 0;
+  if (modoSolicitado === "real" && opts.registros) {
+    const idx = buildArbolIndices(opts.registros, nodos, anioDestino);
+    realRaizOrigen = realDeNodoEnSuPropioAnio(idx, raizOrigen.id);
+    if (realRaizOrigen > 0) {
+      realPorOrigenId = new Map();
+      // BFS sobre origen para precomputar reales de cada nodo.
+      const stack: NodoArbol[] = [...(hijosPorParent.get(raizOrigen.id) ?? [])];
+      while (stack.length > 0) {
+        const cur = stack.shift()!;
+        realPorOrigenId.set(cur.id, realDeNodoEnSuPropioAnio(idx, cur.id));
+        const hijos = hijosPorParent.get(cur.id) ?? [];
+        for (const h of hijos) stack.push(h);
+      }
+    }
+  }
+  // Si pidieron "real" pero la raíz origen no tiene real (o faltan registros),
+  // caemos al modo "plan" en silencio: es la opción más útil para la usuaria
+  // (estructura intacta) y el caller puede leer `modoEfectivo` para avisar.
+  const modoEfectivo: ModoImportSubarbol =
+    modoSolicitado === "real" && realPorOrigenId !== undefined ? "real" : "plan";
 
   const idMap = new Map<string, string>();
   idMap.set(raizOrigen.id, raizDestinoId);
@@ -887,8 +936,13 @@ export function clonarEstructuraDeAnioAnterior(opts: {
     idMap.set(origen.id, newId);
 
     let metaPct: number | undefined;
-    if (
-      puedeDerivarPct &&
+    if (modoEfectivo === "real" && realPorOrigenId) {
+      const realNodo = realPorOrigenId.get(origen.id);
+      if (realNodo !== undefined && Number.isFinite(realNodo) && realRaizOrigen > 0) {
+        metaPct = (realNodo / realRaizOrigen) * 100;
+      }
+    } else if (
+      puedeDerivarPctPorPlan &&
       origen.metaValor !== undefined &&
       Number.isFinite(origen.metaValor)
     ) {
@@ -922,7 +976,7 @@ export function clonarEstructuraDeAnioAnterior(opts: {
     for (const h of hijos) queue.push(h);
   }
 
-  return { nuevosNodos, copiados: nuevosNodos.length };
+  return { nuevosNodos, copiados: nuevosNodos.length, modoEfectivo };
 }
 
 export function metaParaVista(

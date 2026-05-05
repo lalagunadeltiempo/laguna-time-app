@@ -5,7 +5,7 @@ import {
   hijosSumaDirectosIdx,
   ordenarPorPctDesc,
 } from "./arbol-tiempo";
-import type { NodoArbol } from "./types";
+import type { NodoArbol, RegistroNodo } from "./types";
 
 const ts = "2026-01-01T00:00:00.000Z";
 
@@ -166,6 +166,120 @@ describe("clonarEstructuraDeAnioAnterior", () => {
     expect(nuevosNodos).toHaveLength(1);
     expect(nuevosNodos[0].metaValor).toBeUndefined();
     expect(nuevosNodos[0].nombre).toBe("Aulas");
+  });
+});
+
+describe("clonarEstructuraDeAnioAnterior modo='real'", () => {
+  function mkReg(p: Omit<RegistroNodo, "creado" | "actualizado">): RegistroNodo {
+    return { ...p, creado: ts, actualizado: ts };
+  }
+
+  it("usa proporciones REALES del año anterior, no las planificadas", () => {
+    // 2025: plan A=70%/B=30%, pero realidad A=60%/B=40%.
+    const r25 = mkRoot(2025, "r25", 100_000);
+    const ramaA25 = mkChild({ id: "a25", parentId: "r25", anio: 2025, nombre: "Aulas", orden: 0, metaValor: 70_000 });
+    const ramaB25 = mkChild({ id: "b25", parentId: "r25", anio: 2025, nombre: "Programas", orden: 1, metaValor: 30_000 });
+    const r26 = mkRoot(2026, "r26", 100_000);
+    const registros: RegistroNodo[] = [
+      mkReg({ id: "rA", nodoId: "a25", periodoTipo: "anio", periodoKey: "2025", valor: 60_000 }),
+      mkReg({ id: "rB", nodoId: "b25", periodoTipo: "anio", periodoKey: "2025", valor: 40_000 }),
+    ];
+
+    const res = clonarEstructuraDeAnioAnterior({
+      nodos: [r25, ramaA25, ramaB25, r26],
+      anioDestino: 2026,
+      raizDestinoId: "r26",
+      generateId: makeIdGen(),
+      modo: "real",
+      registros,
+    });
+
+    expect(res.modoEfectivo).toBe("real");
+    const aulas = res.nuevosNodos.find((n) => n.nombre === "Aulas")!;
+    const programas = res.nuevosNodos.find((n) => n.nombre === "Programas")!;
+    expect(aulas.metaValor).toBeCloseTo(60_000, 2);
+    expect(programas.metaValor).toBeCloseTo(40_000, 2);
+  });
+
+  it("ramas y hojas cuadran: la rama tiene la suma de sus hojas (reales)", () => {
+    const r25 = mkRoot(2025, "r25", 100_000);
+    const ramaA25 = mkChild({ id: "a25", parentId: "r25", anio: 2025, nombre: "Aulas", orden: 0, metaValor: 70_000 });
+    const h1 = mkChild({ id: "h1", parentId: "a25", anio: 2025, nombre: "Aula 1", orden: 0, metaValor: 50_000 });
+    const h2 = mkChild({ id: "h2", parentId: "a25", anio: 2025, nombre: "Aula 2", orden: 1, metaValor: 20_000 });
+    const ramaB25 = mkChild({ id: "b25", parentId: "r25", anio: 2025, nombre: "Programas", orden: 1, metaValor: 30_000 });
+    const r26 = mkRoot(2026, "r26", 100_000);
+    const registros: RegistroNodo[] = [
+      // Total real Aulas = 60 (h1=45 + h2=15); Programas = 40.
+      mkReg({ id: "h1r", nodoId: "h1", periodoTipo: "anio", periodoKey: "2025", valor: 45_000 }),
+      mkReg({ id: "h2r", nodoId: "h2", periodoTipo: "anio", periodoKey: "2025", valor: 15_000 }),
+      mkReg({ id: "rB", nodoId: "b25", periodoTipo: "anio", periodoKey: "2025", valor: 40_000 }),
+    ];
+    const res = clonarEstructuraDeAnioAnterior({
+      nodos: [r25, ramaA25, h1, h2, ramaB25, r26],
+      anioDestino: 2026,
+      raizDestinoId: "r26",
+      generateId: makeIdGen(),
+      modo: "real",
+      registros,
+    });
+
+    const aulas = res.nuevosNodos.find((n) => n.nombre === "Aulas")!;
+    const aula1 = res.nuevosNodos.find((n) => n.nombre === "Aula 1")!;
+    const aula2 = res.nuevosNodos.find((n) => n.nombre === "Aula 2")!;
+    const programas = res.nuevosNodos.find((n) => n.nombre === "Programas")!;
+    expect(aulas.metaValor).toBeCloseTo(60_000, 2);
+    expect(aula1.metaValor).toBeCloseTo(45_000, 2);
+    expect(aula2.metaValor).toBeCloseTo(15_000, 2);
+    expect(programas.metaValor).toBeCloseTo(40_000, 2);
+    // Hojas suman exactamente la rama padre (cuadre).
+    expect(aula1.metaValor! + aula2.metaValor!).toBeCloseTo(aulas.metaValor!, 2);
+  });
+
+  it("si el año anterior no tiene reales, cae a modo 'plan' silenciosamente", () => {
+    const r25 = mkRoot(2025, "r25", 100_000);
+    const ramaA25 = mkChild({ id: "a25", parentId: "r25", anio: 2025, nombre: "Aulas", orden: 0, metaValor: 70_000 });
+    const ramaB25 = mkChild({ id: "b25", parentId: "r25", anio: 2025, nombre: "Programas", orden: 1, metaValor: 30_000 });
+    const r26 = mkRoot(2026, "r26", 100_000);
+    const res = clonarEstructuraDeAnioAnterior({
+      nodos: [r25, ramaA25, ramaB25, r26],
+      anioDestino: 2026,
+      raizDestinoId: "r26",
+      generateId: makeIdGen(),
+      modo: "real",
+      registros: [], // sin reales 2025
+    });
+    expect(res.modoEfectivo).toBe("plan");
+    const aulas = res.nuevosNodos.find((n) => n.nombre === "Aulas")!;
+    expect(aulas.metaValor).toBeCloseTo(70_000, 2); // proporción del plan
+  });
+
+  it("una rama sin real (con plan>0) recibe metaValor=0; la otra absorbe el 100%", () => {
+    // Caso límite: si una rama no tuvo nada en 2025 pero la otra sí,
+    // por consistencia matemática la sin-real queda en 0 y la usuaria
+    // ajusta a mano. Es preferible ser explícito a mezclar % de plan y
+    // % de real (rompería la coherencia rama=Σhojas).
+    const r25 = mkRoot(2025, "r25", 100_000);
+    const ramaA25 = mkChild({ id: "a25", parentId: "r25", anio: 2025, nombre: "Aulas", orden: 0, metaValor: 50_000 });
+    const ramaB25 = mkChild({ id: "b25", parentId: "r25", anio: 2025, nombre: "Programas", orden: 1, metaValor: 50_000 });
+    const r26 = mkRoot(2026, "r26", 100_000);
+    const registros: RegistroNodo[] = [
+      mkReg({ id: "rA", nodoId: "a25", periodoTipo: "anio", periodoKey: "2025", valor: 80_000 }),
+      // Programas 2025 sin apuntes reales.
+    ];
+    const res = clonarEstructuraDeAnioAnterior({
+      nodos: [r25, ramaA25, ramaB25, r26],
+      anioDestino: 2026,
+      raizDestinoId: "r26",
+      generateId: makeIdGen(),
+      modo: "real",
+      registros,
+    });
+    expect(res.modoEfectivo).toBe("real");
+    const aulas = res.nuevosNodos.find((n) => n.nombre === "Aulas")!;
+    const programas = res.nuevosNodos.find((n) => n.nombre === "Programas")!;
+    // 80 / 80 = 100% de la raíz destino.
+    expect(aulas.metaValor).toBeCloseTo(100_000, 2);
+    expect(programas.metaValor).toBeCloseTo(0, 2);
   });
 });
 
