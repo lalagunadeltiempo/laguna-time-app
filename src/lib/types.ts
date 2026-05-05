@@ -456,6 +456,7 @@ export interface NodoArbol {
   entregableIds?: string[];
   contadorModo: "manual" | "derivado";
   creado: string;
+  actualizado?: string;
 }
 
 export interface RegistroNodo {

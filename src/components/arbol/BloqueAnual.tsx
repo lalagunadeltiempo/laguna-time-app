@@ -13,7 +13,7 @@
  * El "real" NO se introduce aquí; se hace en Mensual o Semanal.
  */
 import { useMemo, useState, type FormEvent } from "react";
-import { useAppDispatch } from "@/lib/context";
+import { useAppDispatch, useAppState } from "@/lib/context";
 import { generateId } from "@/lib/store";
 import { type NodoArbol, type RegistroNodo } from "@/lib/types";
 import {
@@ -566,7 +566,9 @@ function FilaHojaEditable({
   year: number;
   unidad: string;
 }) {
+  const state = useAppState();
   const dispatch = useAppDispatch();
+  const [nuevoEntregableId, setNuevoEntregableId] = useState("");
   const metaPlaneadaRama = rama.metaValor;
   const planeadaOk = metaPlaneadaRama !== undefined && metaPlaneadaRama > 0;
   const pctRama =
@@ -577,6 +579,25 @@ function FilaHojaEditable({
   const realHoja = useMemo(
     () => realEfectivoEnPeriodoIdx(idx, hoja.id, "anio", String(year)),
     [idx, hoja.id, year],
+  );
+  const entregablesConectados = useMemo(
+    () =>
+      (hoja.entregableIds ?? [])
+        .map((id) => state.entregables.find((e) => e.id === id))
+        .filter((ent): ent is (typeof state.entregables)[number] => Boolean(ent)),
+    [hoja.entregableIds, state.entregables],
+  );
+  const tieneFacturacionPositiva = useMemo(() => {
+    const registros = idx.regsPorNodo.get(hoja.id) ?? [];
+    return registros.some((r) => {
+      if (r.valor <= 0) return false;
+      if (r.periodoTipo === "anio") return r.periodoKey === String(year);
+      return r.periodoKey.startsWith(`${year}-`);
+    });
+  }, [idx.regsPorNodo, hoja.id, year]);
+  const entregablesDisponibles = useMemo(
+    () => [...state.entregables].sort((a, b) => a.nombre.localeCompare(b.nombre, "es")),
+    [state.entregables],
   );
 
   return (
@@ -656,6 +677,60 @@ function FilaHojaEditable({
             Eliminar hoja
           </button>
         </div>
+      </div>
+      <div className="mt-2 space-y-1.5">
+        <div className="text-[11px] text-muted">Entregables:</div>
+        <div className="overflow-x-auto">
+          <div className="flex min-w-max items-center gap-1.5">
+            {entregablesConectados.length === 0 && (
+              <span className="text-[11px] italic text-muted">sin entregables conectados</span>
+            )}
+            {entregablesConectados.map((ent) => (
+              <span
+                key={ent.id}
+                className="inline-flex items-center gap-1 rounded-full border border-accent/30 bg-accent/10 px-2 py-0.5 text-[10px] text-foreground"
+              >
+                {ent.nombre}
+                <button
+                  type="button"
+                  onClick={() => {
+                    dispatch({ type: "UNLINK_ENTREGABLE_HOJA", entregableId: ent.id, hojaId: hoja.id });
+                  }}
+                  className="text-muted hover:text-red-600"
+                  aria-label={`Desconectar ${ent.nombre}`}
+                  title="Desconectar entregable"
+                >
+                  ✕
+                </button>
+              </span>
+            ))}
+          </div>
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="text-[11px] text-muted">+ entregable</span>
+          <select
+            value={nuevoEntregableId}
+            onChange={(e) => {
+              const id = e.target.value;
+              if (!id) return;
+              dispatch({ type: "LINK_ENTREGABLE_HOJA", entregableId: id, hojaId: hoja.id });
+              setNuevoEntregableId("");
+            }}
+            className="rounded border border-border bg-background px-2 py-1 text-[11px] text-foreground"
+          >
+            <option value="">Selecciona…</option>
+            {entregablesDisponibles.map((ent) => (
+              <option key={ent.id} value={ent.id}>
+                {ent.nombre}
+              </option>
+            ))}
+          </select>
+        </div>
+        {tieneFacturacionPositiva && (hoja.entregableIds?.length ?? 0) === 0 && (
+          <p className="text-[11px] text-muted">
+            Hoja con facturación pero sin entregables conectados — Fase 2 inferirá actividad.
+          </p>
+        )}
       </div>
     </div>
   );

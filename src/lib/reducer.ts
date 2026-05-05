@@ -161,6 +161,9 @@ export type Action =
       changes: Partial<Omit<NodoArbol, "id" | "creado">>;
     }
   | { type: "DELETE_NODO_ARBOL"; id: string }
+  | { type: "LINK_ENTREGABLE_HOJA"; entregableId: string; hojaId: string }
+  | { type: "UNLINK_ENTREGABLE_HOJA"; entregableId: string; hojaId: string }
+  | { type: "SET_HOJAS_DE_ENTREGABLE"; entregableId: string; hojaIds: string[]; anio: number }
   | { type: "MOVE_NODO_ARBOL"; id: string; parentId?: string | null; orden?: number }
   /** Trae la estructura (ramas + hojas, con sus %) de la raíz equivalente del año
    *  anterior bajo `raizId`. Si no existe año anterior con la misma raíz, no-op.
@@ -394,6 +397,19 @@ function propagarSemanaArriba(state: AppState, entregableId: string, monday: str
   }
 
   return { ...state, resultados: nuevosResultados, proyectos: nuevosProyectos };
+}
+
+function addEntregableId(lista: string[] | undefined, entregableId: string): string[] | undefined {
+  const base = Array.isArray(lista) ? lista : [];
+  if (base.includes(entregableId)) return lista;
+  return [...base, entregableId];
+}
+
+function removeEntregableId(lista: string[] | undefined, entregableId: string): string[] | undefined {
+  const base = Array.isArray(lista) ? lista : [];
+  if (!base.includes(entregableId)) return lista;
+  const next = base.filter((id) => id !== entregableId);
+  return next.length > 0 ? next : undefined;
 }
 
 export function reducer(state: AppState, action: Action): AppState {
@@ -1827,6 +1843,70 @@ export function reducer(state: AppState, action: Action): AppState {
         },
         deleted: addTombstones(state.deleted, { arbolNodos: idsArr, arbolRegistros: registrosBorrados }),
       };
+    }
+
+    case "LINK_ENTREGABLE_HOJA": {
+      const arbol = state.arbol ?? EMPTY_ARBOL;
+      const now = new Date().toISOString();
+      let changed = false;
+      const nodos = arbol.nodos.map((n) => {
+        if (n.id !== action.hojaId) return n;
+        const nextEntregableIds = addEntregableId(n.entregableIds, action.entregableId);
+        if (nextEntregableIds === n.entregableIds) return n;
+        changed = true;
+        return { ...n, entregableIds: nextEntregableIds, actualizado: now };
+      });
+      if (!changed) return state;
+      return { ...state, arbol: { ...arbol, nodos } };
+    }
+
+    case "UNLINK_ENTREGABLE_HOJA": {
+      const arbol = state.arbol ?? EMPTY_ARBOL;
+      const now = new Date().toISOString();
+      let changed = false;
+      const nodos = arbol.nodos.map((n) => {
+        if (n.id !== action.hojaId) return n;
+        const nextEntregableIds = removeEntregableId(n.entregableIds, action.entregableId);
+        if (nextEntregableIds === n.entregableIds) return n;
+        changed = true;
+        return { ...n, entregableIds: nextEntregableIds, actualizado: now };
+      });
+      if (!changed) return state;
+      return { ...state, arbol: { ...arbol, nodos } };
+    }
+
+    case "SET_HOJAS_DE_ENTREGABLE": {
+      const arbol = state.arbol ?? EMPTY_ARBOL;
+      const nodosYear = arbol.nodos.filter((n) => n.anio === action.anio);
+      if (nodosYear.length === 0) return state;
+      const roots = new Set(nodosYear.filter((n) => !n.parentId).map((n) => n.id));
+      const ramas = new Set(
+        nodosYear
+          .filter((n) => n.parentId && roots.has(n.parentId))
+          .map((n) => n.id),
+      );
+      const hojaIdsYear = new Set(
+        nodosYear
+          .filter((n) => n.parentId && ramas.has(n.parentId))
+          .map((n) => n.id),
+      );
+      if (hojaIdsYear.size === 0) return state;
+      const seleccion = new Set(action.hojaIds);
+      const now = new Date().toISOString();
+      let changed = false;
+      const nodos = arbol.nodos.map((n) => {
+        if (!hojaIdsYear.has(n.id)) return n;
+        const tiene = (n.entregableIds ?? []).includes(action.entregableId);
+        const debeTener = seleccion.has(n.id);
+        if (tiene === debeTener) return n;
+        const nextEntregableIds = debeTener
+          ? addEntregableId(n.entregableIds, action.entregableId)
+          : removeEntregableId(n.entregableIds, action.entregableId);
+        changed = true;
+        return { ...n, entregableIds: nextEntregableIds, actualizado: now };
+      });
+      if (!changed) return state;
+      return { ...state, arbol: { ...arbol, nodos } };
     }
 
     case "MOVE_NODO_ARBOL": {

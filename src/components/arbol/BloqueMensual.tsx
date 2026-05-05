@@ -27,14 +27,17 @@
  *  - React.memo: cada tarjeta ignora re-renders si su mes no cambia.
  */
 import { memo, useCallback, useMemo } from "react";
-import { useAppDispatch } from "@/lib/context";
+import { useAppDispatch, useAppState } from "@/lib/context";
 import type { NodoArbol, PlanArbolConfigAnio } from "@/lib/types";
 import {
+  diasLaborablesEnSemanaISO,
   diasLaborablesEnMes,
   estadoPeriodo,
   hijosSumaDirectosIdx,
+  mesKeyFromDate,
   mesesCerradosSet,
   metaParaNodoEnPeriodo,
+  parseLocalDateKey,
   planAgregadoEnPeriodoIdx,
   realEfectivoEnPeriodoIdx,
   replanMensualSerie,
@@ -486,10 +489,34 @@ function FilaHojaMensual({
   unidad: string;
   periodoKey: string;
 }) {
-  void year;
+  const state = useAppState();
   const plan = planAgregadoEnPeriodoIdx(idx, hoja, "mes", periodoKey, config);
   const real = realEfectivoEnPeriodoIdx(idx, hoja.id, "mes", periodoKey);
   const existing = regsIndex.get(claveRegistro(hoja.id, "mes", periodoKey));
+  const pistaEntregables = useMemo(() => {
+    const ids = hoja.entregableIds ?? [];
+    if (ids.length === 0) return null;
+    const entregablesById = new Map(state.entregables.map((ent) => [ent.id, ent] as const));
+    let diasPlanificados = 0;
+    let haySinDiasPlanificados = false;
+    for (const entregableId of ids) {
+      const entregable = entregablesById.get(entregableId);
+      const semanasActivas = entregable?.semanasActivas ?? [];
+      if (semanasActivas.length === 0) {
+        haySinDiasPlanificados = true;
+        continue;
+      }
+      for (const mondayKey of semanasActivas) {
+        if (mesKeyFromDate(parseLocalDateKey(mondayKey)) !== periodoKey) continue;
+        diasPlanificados += diasLaborablesEnSemanaISO(mondayKey, year, config);
+      }
+    }
+    return {
+      cantidadEntregables: ids.length,
+      diasPlanificados,
+      haySinDiasPlanificados,
+    };
+  }, [hoja.id, hoja.entregableIds, periodoKey, state.entregables, year, config]);
 
   return (
     <div className="rounded border border-border/40 bg-surface/50 px-2 py-1.5">
@@ -511,6 +538,22 @@ function FilaHojaMensual({
         unidad={unidad}
         ariaLabel={`Real ${periodoKey} de ${hoja.nombre}`}
       />
+      {pistaEntregables && (
+        <p className="mt-1 text-[10px] text-muted">
+          {pistaEntregables.cantidadEntregables}{" "}
+          {pistaEntregables.cantidadEntregables === 1 ? "entregable" : "entregables"} ·{" "}
+          <span
+            title={
+              pistaEntregables.haySinDiasPlanificados
+                ? "sin días planificados; Fase 2 inferirá actividad"
+                : undefined
+            }
+          >
+            {fmtNum(pistaEntregables.diasPlanificados)}
+            {pistaEntregables.haySinDiasPlanificados ? "*" : ""} días planificados
+          </span>
+        </p>
+      )}
     </div>
   );
 }
