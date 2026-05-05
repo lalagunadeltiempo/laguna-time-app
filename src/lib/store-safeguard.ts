@@ -145,6 +145,25 @@ export function detectarPerdidaInjustificada(
 }
 
 /**
+ * Pre-check del Bloque 4 multi-sesión (§6 audit): el chequeo primario
+ * de "estado vacío" en `saveStateCloud` no incluía el árbol. Si el
+ * árbol queda vacío pero el resto del state está poblado, el upload
+ * pasaba el filtro y dependía solo de la salvaguarda profunda. Aquí
+ * formalizamos: si vamos a guardar un árbol vacío y la última copia
+ * conocida del cloud tenía nodos, bloqueamos sin más preguntas.
+ *
+ * Devuelve `true` cuando hay que abortar.
+ */
+export function vaciariaArbolDeCloud(
+  snapshot: AppState | null | undefined,
+  stateToSave: AppState,
+): boolean {
+  const snap = snapshot?.arbol?.nodos?.length ?? 0;
+  const next = stateToSave.arbol?.nodos?.length ?? 0;
+  return next === 0 && snap > 0;
+}
+
+/**
  * Versión "invertida" para detectar si entre dos estados ha habido un
  * cambio significativo que justifique materializar una entrada en el
  * historial cloud (ver Bloque 4: `appendHistoryEntry`).

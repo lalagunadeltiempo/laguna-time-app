@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { detectarPerdidaInjustificada, detectarCambioSignificativo } from "./store-safeguard";
+import {
+  detectarPerdidaInjustificada,
+  detectarCambioSignificativo,
+  vaciariaArbolDeCloud,
+} from "./store-safeguard";
 import type { AppState, NodoArbol, PlanArbolState } from "./types";
 import { EMPTY_ARBOL, EQUIPO_DEFAULT, PLAN_CONFIG_DEFAULT } from "./types";
 
@@ -167,6 +171,55 @@ describe("detectarPerdidaInjustificada", () => {
     const snap = makeState(makeArbol(base));
     const next = makeState(makeArbol(base));
     expect(detectarPerdidaInjustificada(snap, next).aborta).toBe(false);
+  });
+});
+
+describe("vaciariaArbolDeCloud (Bloque 4)", () => {
+  it("bloquea cuando el state a guardar tiene árbol vacío y el snapshot tenía nodos", () => {
+    const snap = makeState(makeArbol([makeNodo("a"), makeNodo("b")]));
+    const next = makeState(makeArbol([]));
+    expect(vaciariaArbolDeCloud(snap, next)).toBe(true);
+  });
+
+  it("permite cuando ambos están vacíos (bootstrap)", () => {
+    const snap = makeState(makeArbol([]));
+    const next = makeState(makeArbol([]));
+    expect(vaciariaArbolDeCloud(snap, next)).toBe(false);
+  });
+
+  it("permite cuando el snapshot es null (primer guardado)", () => {
+    const next = makeState(makeArbol([]));
+    expect(vaciariaArbolDeCloud(null, next)).toBe(false);
+  });
+
+  it("permite cuando el state tiene nodos (no es vaciado)", () => {
+    const snap = makeState(makeArbol([makeNodo("a")]));
+    const next = makeState(makeArbol([makeNodo("a"), makeNodo("b")]));
+    expect(vaciariaArbolDeCloud(snap, next)).toBe(false);
+  });
+});
+
+describe("detectarPerdidaInjustificada · escenarios de flush keepalive (Bloque 4)", () => {
+  // El flush en `beforeunload` aplica el mismo `detectarPerdidaInjustificada`
+  // que el save normal, comparando contra el último `_lastCloudSnapshot`
+  // disponible (no puede re-leer cloud). Estos tests documentan que el
+  // mismo helper sigue siendo correcto en ese contexto.
+  it("flush con árbol vaciado: se detecta como pérdida (mismo trato que save)", () => {
+    const base = Array.from({ length: 12 }, (_, i) =>
+      makeNodo(`n${i}`, { metaValor: 100 }),
+    );
+    const snap = makeState(makeArbol(base));
+    const next = makeState(makeArbol([])); // beforeunload mandaría esto
+    const r = detectarPerdidaInjustificada(snap, next);
+    expect(r.aborta).toBe(true);
+  });
+
+  it("flush sin pérdida: no bloquea aunque el árbol sea idéntico", () => {
+    const base = [makeNodo("a", { metaValor: 100 })];
+    const snap = makeState(makeArbol(base));
+    const next = makeState(makeArbol(base));
+    const r = detectarPerdidaInjustificada(snap, next);
+    expect(r.aborta).toBe(false);
   });
 });
 

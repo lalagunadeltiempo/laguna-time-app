@@ -4,7 +4,7 @@ import { AppState, EMPTY_ARBOL, EQUIPO_DEFAULT, PLAN_CONFIG_DEFAULT } from "./ty
 import { buildSeedSOPs } from "./seed-sops";
 import { getSupabase } from "./supabase";
 import { mergeStates } from "./merge";
-import { detectarPerdidaInjustificada } from "./store-safeguard";
+import { detectarPerdidaInjustificada, vaciariaArbolDeCloud } from "./store-safeguard";
 
 const OLD_STORAGE_KEY = "laguna-del-tiempo";
 const STORAGE_KEY = "laguna-time-app";
@@ -321,6 +321,23 @@ export function saveStateCloud(userId: string, state: AppState, onMerged?: (merg
     return;
   }
 
+  // Bloque 4 multi-sesión: el check primario de "estado vacío" del audit
+  // (§6) cubría sólo proyectos/entregables/pasos. Si el árbol queda
+  // vacío pero el resto sigue poblado, el path normal pasaba el filtro
+  // y la salvaguarda profunda (`detectarPerdidaInjustificada`) sólo
+  // bloqueaba si había snapshot. Aquí cerramos el hueco: mientras
+  // tengamos snapshot con árbol no vacío, abortamos antes de tocar
+  // cloud. La próxima sesión hará el merge correctamente.
+  const snapForArbolCheck = hydrateCloudSnapshotFromLocal();
+  if (vaciariaArbolDeCloud(snapForArbolCheck, state)) {
+    console.warn(
+      "[saveStateCloud] blocked: refusing to wipe arbol over cloud (snapshot tenía",
+      snapForArbolCheck?.arbol?.nodos?.length ?? 0,
+      "nodos)",
+    );
+    return;
+  }
+
   _pendingSave = { userId: WORKSPACE_ID, state, onMerged };
 
   if (_saveTimer) clearTimeout(_saveTimer);
@@ -498,6 +515,45 @@ export function flushPendingCloudSave(): void {
   if (_lastCloudSnapshot) {
     merged = mergeStates(merged, _lastCloudSnapshot);
     merged = mergeCloudReviews(merged, _lastCloudSnapshot);
+  }
+
+  // Bloque 4 multi-sesión (§7 audit): aplicar la salvaguarda anti-pisada
+  // también en el flush keepalive de `beforeunload`/`visibilitychange`.
+  // No podemos re-leer cloud (`keepalive: true` no permite esperar a
+  // un GET), así que el chequeo va contra el último snapshot conocido.
+  // Si la salvaguarda dispara, persistimos los dos estados para
+  // diagnóstico y NO subimos: la próxima sesión hará el merge.
+  const snapshotParaCheck = _lastCloudSnapshot;
+  const verificacion = detectarPerdidaInjustificada(snapshotParaCheck, merged);
+  if (verificacion.aborta) {
+    console.error(
+      "[flushPendingCloudSave] ABORTADO: detectada pérdida masiva no justificada en flush",
+      verificacion.motivo,
+      verificacion.diagnostico,
+    );
+    try {
+      if (typeof window !== "undefined") {
+        const key = `laguna-time-app-aborted-flush-${Date.now()}`;
+        localStorage.setItem(
+          key,
+          JSON.stringify({
+            motivo: verificacion.motivo,
+            diagnostico: verificacion.diagnostico,
+            snapshot: snapshotParaCheck,
+            stateToSave: merged,
+            ts: new Date().toISOString(),
+          }),
+        );
+        // No emitimos `laguna:save-aborted` desde aquí porque el flush
+        // ocurre en `beforeunload`/`visibilitychange` y la pestaña
+        // probablemente esté a punto de desaparecer; el evento no se
+        // mostraría. La próxima carga verá el `aborted-flush-*` en
+        // localStorage si se quiere recuperar.
+      }
+    } catch (err) {
+      console.error("[flushPendingCloudSave] no se pudo persistir aborted-flush:", err);
+    }
+    return;
   }
 
   const payload = JSON.stringify({
