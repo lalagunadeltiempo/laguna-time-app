@@ -122,6 +122,16 @@ describe("reducer · sello `actualizado` en nodos del árbol", () => {
     expect(out.actualizado!.localeCompare(TS_ANTES)).toBeGreaterThan(0);
   });
 
+  it("TOGGLE_PIN_PORCENTAJE invierte `metaPctFijo` y bumps `actualizado`", () => {
+    const nodo = makeNodo("pin-1", { metaPctFijo: false });
+    const state = baseState({ arbol: { ...EMPTY_ARBOL, nodos: [nodo] } });
+    const next = reducer(state, { type: "TOGGLE_PIN_PORCENTAJE", id: "pin-1" });
+    const out = next.arbol.nodos[0];
+    expect(out.metaPctFijo).toBe(true);
+    expect(out.actualizado).toBe(TS_AHORA);
+    expect(out.actualizado!.localeCompare(TS_ANTES)).toBeGreaterThan(0);
+  });
+
   it("UPDATE_META_NODO_RESCALAR_HIJOS: root + hijos reescalados con `actualizado` nuevo", () => {
     const root = makeNodo("root", { metaValor: 1000 });
     const hijo1 = makeNodo("h1", { parentId: "root", metaValor: 600 });

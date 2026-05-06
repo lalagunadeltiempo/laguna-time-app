@@ -1210,6 +1210,172 @@ export function reescalarSubarbolProporcional(opts: {
   return out;
 }
 
+/**
+ * Reajusta los porcentajes de hermanos NO pinados (`metaPctFijo !== true`)
+ * para que, junto con el nodo cambiado (`cambioId`) y los pinados, vuelvan a
+ * cuadrar al 100% del padre.
+ *
+ * Reglas de negocio:
+ * - Sólo toca hijos directos `relacionConPadre === "suma"` del `parentId`.
+ * - Nunca toca pinados.
+ * - Reparte en pasos de 0.5% para mantener una UX estable y predecible.
+ * - Devuelve sólo los hermanos no pinados que realmente cambian, como
+ *   `Map<idNodo, nuevoMetaValor>` (meta en € u otra unidad del padre).
+ *
+ * Ejemplo 1 (alta de rama): si había 4 hermanas al 25% y entra una nueva al
+ * 10%, `pctDisponible` para las 4 antiguas pasa a 90% y el algoritmo baja
+ * 2.5% a cada una (22.5%).
+ *
+ * Ejemplo 2 (pin): si hay {50% pinado, 25%, 25%} y entra otra al 10%,
+ * `pctDisponible` para no-pinadas es 40%. El 50% pinado no se toca y sólo se
+ * recortan las otras dos.
+ */
+export function reajustarHermanosPorPin(opts: {
+  nodos: NodoArbol[];
+  parentId: string;
+  cambioId: string;
+  nuevoPctCambio: number;
+  metaPadre: number;
+}): Map<string, number> {
+  const { nodos, parentId, cambioId, nuevoPctCambio, metaPadre } = opts;
+  const out = new Map<string, number>();
+  if (!Number.isFinite(metaPadre) || metaPadre <= 0) return out;
+
+  const hermanos = nodos.filter(
+    (n) =>
+      n.parentId === parentId &&
+      n.relacionConPadre === "suma" &&
+      n.id !== cambioId,
+  );
+  if (hermanos.length === 0) return out;
+
+  type Entry = { nodo: NodoArbol; pct: number };
+  const entries: Entry[] = hermanos.map((n) => {
+    const base = n.metaValor ?? 0;
+    const pct = Number.isFinite(base) ? (base / metaPadre) * 100 : 0;
+    return { nodo: n, pct: Number.isFinite(pct) ? pct : 0 };
+  });
+  const pinados = entries.filter((e) => e.nodo.metaPctFijo === true);
+  const noPinados = entries.filter((e) => e.nodo.metaPctFijo !== true);
+  const sumaPinados = pinados.reduce((acc, e) => acc + e.pct, 0);
+  const pctDisponible = 100 - nuevoPctCambio - sumaPinados;
+
+  if (noPinados.length === 0) {
+    console.warn(
+      `[reajustarHermanosPorPin] No hay hermanos no pinados para reajustar (parentId=${parentId}, cambioId=${cambioId}).`,
+    );
+    return out;
+  }
+
+  const sumNoPinadosActual = noPinados.reduce((acc, e) => acc + e.pct, 0);
+  if (
+    nuevoPctCambio === 0 &&
+    Math.abs(sumNoPinadosActual) < 1e-9 &&
+    Math.abs(sumaPinados) < 1e-9
+  ) {
+    return out;
+  }
+
+  if (pctDisponible < 0) {
+    console.warn(
+      `[reajustarHermanosPorPin] El cambio pisa porcentajes pinados; se ponen a 0 las ramas no pinadas (parentId=${parentId}, cambioId=${cambioId}, pctDisponible=${pctDisponible.toFixed(2)}).`,
+    );
+    for (const e of noPinados) e.pct = 0;
+  } else {
+    let delta = pctDisponible - sumNoPinadosActual;
+    if (Math.abs(delta) < 1e-9) return out;
+
+    const pickMayor = () =>
+      [...noPinados].sort(
+        (a, b) => b.pct - a.pct || a.nodo.orden - b.nodo.orden,
+      );
+    const pickMenor = () =>
+      [...noPinados].sort(
+        (a, b) => a.pct - b.pct || a.nodo.orden - b.nodo.orden,
+      );
+
+    let guard = 0;
+    while (Math.abs(delta) >= 0.5 - 1e-9 && guard < 10000) {
+      guard += 1;
+      if (delta < 0) {
+        const objetivo = pickMayor().find((e) => e.pct > 0);
+        if (!objetivo) break;
+        const paso = Math.min(0.5, objetivo.pct);
+        objetivo.pct -= paso;
+        delta += paso;
+      } else {
+        const objetivo = pickMenor()[0];
+        if (!objetivo) break;
+        objetivo.pct += 0.5;
+        delta -= 0.5;
+      }
+    }
+
+    if (Math.abs(delta) > 1e-9) {
+      if (delta < 0) {
+        const objetivo = pickMayor().find((e) => e.pct > 0);
+        if (objetivo) {
+          const recorte = Math.min(Math.abs(delta), objetivo.pct);
+          objetivo.pct -= recorte;
+          delta += recorte;
+        }
+      } else {
+        const objetivo = pickMenor()[0];
+        if (objetivo) {
+          objetivo.pct += delta;
+          delta = 0;
+        }
+      }
+    }
+
+    // Snap duro a múltiplos de 0.5 para robustez frente a flotantes.
+    const snapHalf = (v: number) => Math.round(v * 2) / 2;
+    for (const e of noPinados) {
+      e.pct = Math.max(0, snapHalf(e.pct));
+    }
+
+    // Reconciliación final para que cierre exacto contra `pctDisponible`.
+    let dif = pctDisponible - noPinados.reduce((acc, e) => acc + e.pct, 0);
+    guard = 0;
+    while (Math.abs(dif) >= 0.5 - 1e-9 && guard < 10000) {
+      guard += 1;
+      if (dif > 0) {
+        const objetivo = pickMenor()[0];
+        if (!objetivo) break;
+        objetivo.pct += 0.5;
+        dif -= 0.5;
+      } else {
+        const objetivo = pickMayor().find((e) => e.pct > 0);
+        if (!objetivo) break;
+        const paso = Math.min(0.5, objetivo.pct);
+        objetivo.pct -= paso;
+        dif += paso;
+      }
+    }
+    if (Math.abs(dif) > 1e-9) {
+      if (dif > 0) {
+        const objetivo = pickMenor()[0];
+        if (objetivo) objetivo.pct = Math.max(0, objetivo.pct + dif);
+      } else {
+        const objetivo = pickMayor().find((e) => e.pct > 0);
+        if (objetivo) objetivo.pct = Math.max(0, objetivo.pct + dif);
+      }
+    }
+    for (const e of noPinados) {
+      e.pct = Math.max(0, Math.round(e.pct * 2) / 2);
+    }
+  }
+
+  for (const e of noPinados) {
+    const nuevoMeta = Math.round((((e.pct * metaPadre) / 100) * 100)) / 100;
+    const actual = e.nodo.metaValor ?? 0;
+    if (Math.abs(actual - nuevoMeta) > 1e-9) {
+      out.set(e.nodo.id, nuevoMeta);
+    }
+  }
+  return out;
+}
+
 export function metaParaVista(
   cadencia: import("./types").NodoCadencia,
   metaValor: number | undefined,

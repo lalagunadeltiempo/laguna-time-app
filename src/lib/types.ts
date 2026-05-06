@@ -445,6 +445,8 @@ export interface NodoArbol {
   cadencia: NodoCadencia;
   relacionConPadre: NodoRelacion;
   metaValor?: number;
+  /** true = el % de este nodo es fijo y NO se reajusta automáticamente cuando cambian sus hermanos. La usuaria lo marca con un pin/candado en el bloque ANUAL. */
+  metaPctFijo?: boolean;
   metaUnidad?: string;
   /**
    * Meta por trimestre (opcional). Se edita a nivel de hoja (producto concreto) para capturar

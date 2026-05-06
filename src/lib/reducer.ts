@@ -166,6 +166,7 @@ export type Action =
       id: string;
       changes: Partial<Omit<NodoArbol, "id" | "creado">>;
     }
+  | { type: "TOGGLE_PIN_PORCENTAJE"; id: string }
   | { type: "DELETE_NODO_ARBOL"; id: string }
   /** Cambia el `metaValor` del nodo y reescala proporcionalmente a sus
    *  descendientes "suma" para que sigan cuadrando con el nuevo total.
@@ -1910,6 +1911,22 @@ export function reducer(state: AppState, action: Action): AppState {
           ...arbol,
           nodos: arbol.nodos.map((n) =>
             n.id === action.id ? { ...n, ...action.changes, actualizado: now } : n,
+          ),
+        },
+      };
+    }
+
+    case "TOGGLE_PIN_PORCENTAJE": {
+      const arbol = state.arbol ?? EMPTY_ARBOL;
+      const now = new Date().toISOString();
+      return {
+        ...state,
+        arbol: {
+          ...arbol,
+          nodos: arbol.nodos.map((n) =>
+            n.id === action.id
+              ? { ...n, metaPctFijo: !n.metaPctFijo, actualizado: now }
+              : n,
           ),
         },
       };
