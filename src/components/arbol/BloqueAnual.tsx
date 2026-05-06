@@ -12,21 +12,34 @@
  *
  * El "real" NO se introduce aquí; se hace en Mensual o Semanal.
  */
-import { useMemo, useState, type FormEvent } from "react";
+import { useMemo, useState, type FormEvent, type MouseEvent } from "react";
 import { useAppDispatch, useAppState } from "@/lib/context";
 import { generateId } from "@/lib/store";
-import { type NodoArbol, type PlanArbolConfigAnio, type RegistroNodo } from "@/lib/types";
 import {
+  type Entregable,
+  type NodoArbol,
+  type PlanArbolConfigAnio,
+  type RegistroNodo,
+} from "@/lib/types";
+import {
+  collectSubtreeIds,
   findRaizOrigenAnioAnterior,
   hijosSumaDirectos,
   hijosSumaDirectosIdx,
   metaEfectivaNodoIdx,
   normalizarNombreNodo,
+  reajustarHermanosPorPin,
   realAnioPasadoAgregadoIdx,
   realEfectivoEnPeriodoIdx,
   type ArbolIndices,
 } from "@/lib/arbol-tiempo";
-import { NumberInput, PercentInput, fmtNum, usePersistedOpen } from "./arbol-comunes";
+import {
+  LazyDetails,
+  NumberInput,
+  PercentInput,
+  fmtNum,
+  usePersistedOpen,
+} from "./arbol-comunes";
 
 /**
  * Barra fina (real / meta). Verde si llega al 100%, accent en cualquier
@@ -78,7 +91,8 @@ export function BloqueAnual({
   unidad,
 }: BloqueAnualProps) {
   const dispatch = useAppDispatch();
-  const [ramaHojaFormId, setRamaHojaFormId] = useState<string | null>(null);
+  const [opcionesOpen, setOpcionesOpen] = useState(false);
+  const [avisoReajuste, setAvisoReajuste] = useState<string | null>(null);
   // Toggle: si está activo (defecto), editar la meta€ o % de la raíz/rama
   // dispara reescalado proporcional automático de los hijos. Persistimos
   // la preferencia por raíz en localStorage para que la usuaria no tenga
@@ -149,6 +163,42 @@ export function BloqueAnual({
     dispatch({ type: "SET_DISTRIBUCION_MENSUAL", anio: year, modo });
   };
 
+  const dispararReajuste = (opts: {
+    nodosBase: NodoArbol[];
+    parentId: string;
+    cambioId: string;
+    nuevoPctCambio: number;
+    metaPadre: number;
+  }) => {
+    const map = reajustarHermanosPorPin({
+      nodos: opts.nodosBase,
+      parentId: opts.parentId,
+      cambioId: opts.cambioId,
+      nuevoPctCambio: opts.nuevoPctCambio,
+      metaPadre: opts.metaPadre,
+    });
+    for (const [id, metaValor] of map.entries()) {
+      dispatch({ type: "UPDATE_NODO_ARBOL", id, changes: { metaValor } });
+    }
+
+    if (map.size === 0) {
+      const hermanos = opts.nodosBase.filter(
+        (n) =>
+          n.parentId === opts.parentId &&
+          n.relacionConPadre === "suma" &&
+          n.id !== opts.cambioId,
+      );
+      const pctHermanos = hermanos.reduce((acc, h) => {
+        const pct = opts.metaPadre > 0 ? ((h.metaValor ?? 0) / opts.metaPadre) * 100 : 0;
+        return acc + (Number.isFinite(pct) ? pct : 0);
+      }, 0);
+      const total = opts.nuevoPctCambio + pctHermanos;
+      if (Math.abs(total - 100) > 0.01) {
+        setAvisoReajuste("No se pudo cuadrar al 100 %, quita algún pin para reajustar.");
+      }
+    }
+  };
+
   return (
     <details open className="rounded-xl border border-border bg-background">
       <summary className="cursor-pointer list-none px-4 py-3 marker:content-none [&::-webkit-details-marker]:hidden">
@@ -195,154 +245,157 @@ export function BloqueAnual({
       </summary>
 
       <div className="space-y-3 border-t border-border/60 p-4">
-        {/* Raíz editable: nombre, unidad y meta anual */}
-        <div className="rounded border border-accent/30 bg-accent/5 p-3">
-          <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
-            <label className="flex flex-col gap-1 text-[11px] text-muted">
-              Nombre
-              <input
-                defaultValue={raiz.nombre}
-                onBlur={(e) => {
-                  const v = e.target.value.trim();
-                  if (v && v !== raiz.nombre) {
-                    dispatch({ type: "UPDATE_NODO_ARBOL", id: raiz.id, changes: { nombre: v } });
-                  }
-                }}
-                className="rounded border border-border bg-background px-2 py-1.5 text-sm"
-              />
-            </label>
-            <label className="flex flex-col gap-1 text-[11px] text-muted">
-              Unidad (ej. €)
-              <input
-                defaultValue={raiz.metaUnidad ?? ""}
-                onBlur={(e) => {
-                  const v = e.target.value.trim();
-                  if (v !== (raiz.metaUnidad ?? "")) {
-                    dispatch({
-                      type: "UPDATE_NODO_ARBOL",
-                      id: raiz.id,
-                      changes: { metaUnidad: v || undefined },
-                    });
-                  }
-                }}
-                className="rounded border border-border bg-background px-2 py-1.5 text-sm"
-              />
-            </label>
-            <label className="flex flex-col gap-1 text-[11px] text-muted">
-              Objetivo anual ({unidad || "número"})
-              <NumberInput
-                value={raiz.metaValor}
-                onCommit={(v) => {
-                  if (reescaladoAuto) {
-                    dispatch({ type: "UPDATE_META_NODO_RESCALAR_HIJOS", id: raiz.id, metaValor: v });
-                  } else {
-                    dispatch({ type: "UPDATE_NODO_ARBOL", id: raiz.id, changes: { metaValor: v } });
-                  }
-                }}
-                ariaLabel={`Objetivo anual de ${raiz.nombre} ${year}`}
-                unidad={unidad}
-              />
-              {reescaladoAuto && ramas.length > 0 && (
-                <span className="text-[10px] text-accent">
-                  Al cambiar, ramas y hojas se reescalan proporcionalmente.
-                </span>
-              )}
-            </label>
+        <div className="flex flex-wrap items-center gap-2 rounded border border-border/80 bg-surface/40 px-2 py-2">
+          <InlineEditableText
+            value={raiz.nombre}
+            onCommit={(value) => dispatch({ type: "UPDATE_NODO_ARBOL", id: raiz.id, changes: { nombre: value } })}
+            className="min-w-[10rem] text-sm font-semibold text-foreground"
+          />
+          <input
+            defaultValue={raiz.metaUnidad ?? ""}
+            onBlur={(e) => {
+              const v = e.target.value.trim();
+              if (v !== (raiz.metaUnidad ?? "")) {
+                dispatch({
+                  type: "UPDATE_NODO_ARBOL",
+                  id: raiz.id,
+                  changes: { metaUnidad: v || undefined },
+                });
+              }
+            }}
+            aria-label={`Unidad de ${raiz.nombre}`}
+            className="w-16 rounded border border-border bg-background px-2 py-1 text-[12px]"
+          />
+          <div className="w-40">
+            <NumberInput
+              value={raiz.metaValor}
+              onCommit={(v) => {
+                if (reescaladoAuto) {
+                  dispatch({ type: "UPDATE_META_NODO_RESCALAR_HIJOS", id: raiz.id, metaValor: v });
+                } else {
+                  dispatch({ type: "UPDATE_NODO_ARBOL", id: raiz.id, changes: { metaValor: v } });
+                }
+              }}
+              ariaLabel={`Objetivo anual de ${raiz.nombre} ${year}`}
+              unidad={unidad}
+              compact
+            />
           </div>
-          <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
-            <p className="text-[10px] text-muted">
-              Cambia el objetivo anual cuando quieras: el plan de trimestres, meses y semanas se recalcula solo. Lo real lo
-              apuntas en las otras secciones.
-            </p>
-            <div className="flex flex-wrap items-center gap-2">
-              <label
-                className="inline-flex cursor-pointer items-center gap-1 rounded border border-border px-2 py-1 text-[11px] text-muted hover:bg-surface"
-                title="Si está activo, editar la meta de la raíz o de una rama recalcula sus hijas manteniendo proporciones. Las hojas individuales nunca se reescalan al editarse."
-              >
-                <input
-                  type="checkbox"
-                  checked={reescaladoAuto}
-                  onChange={(e) => setReescaladoAuto(e.target.checked)}
-                  className="accent-accent"
-                />
-                Reescalar al cambiar metas
-              </label>
-              <label
-                className="inline-flex items-center gap-1 rounded border border-border px-2 py-1 text-[11px] text-muted"
-                title={`Cómo se reparte el plan anual entre los meses. "Días laborables" prorratea por días disponibles del calendario. "Patrón ${anioAnterior}" sigue las proporciones reales del mismo nodo en ${anioAnterior}; si no hay datos AY, cae a días laborables.`}
-              >
-                Reparto mensual:
-                <select
-                  value={distribucionMensualActual}
-                  onChange={(e) =>
-                    handleCambiarDistribucion(e.target.value as typeof distribucionMensualActual)
-                  }
-                  className="rounded border border-border bg-background px-1 py-0.5 text-[11px] text-foreground"
-                  aria-label="Modo de reparto mensual del plan anual"
-                >
-                  <option value="diasLaborables">días laborables</option>
-                  <option value="patronAnioAnterior">patrón {anioAnterior}</option>
-                </select>
-              </label>
-              {existeAnioAnterior && (
-                <>
-                  <button
-                    type="button"
-                    onClick={() => handleImportar("estructura")}
-                    title={`Copia ramas y hojas de ${anioAnterior} sin importes ni porcentajes. Tú defines primero el objetivo de la raíz y luego planificas el reparto manualmente.`}
-                    className="rounded border border-accent/40 bg-accent/5 px-2 py-1 text-[11px] font-medium text-accent hover:bg-accent/10"
-                  >
-                    Traer estructura de {anioAnterior} (solo nombres)
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleImportar("plan")}
-                    title={`Copia ramas y hojas de ${anioAnterior} con los porcentajes que PLANIFICASTE; los € se recalculan contra tu objetivo de ${year}.`}
-                    className="rounded border border-accent/40 bg-accent/5 px-2 py-1 text-[11px] font-medium text-accent hover:bg-accent/10"
-                  >
-                    Traer estructura de {anioAnterior} (plan)
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleImportar("real")}
-                    title={`Copia ramas y hojas de ${anioAnterior} usando los porcentajes REALES (lo que de verdad pasó); los € se recalculan contra tu objetivo de ${year}. Si ${anioAnterior} no tiene reales, se usa el plan.`}
-                    className="rounded border border-accent/40 bg-accent/5 px-2 py-1 text-[11px] font-medium text-accent hover:bg-accent/10"
-                  >
-                    Traer estructura de {anioAnterior} (reales)
-                  </button>
-                </>
-              )}
-              {ramas.length > 0 && metaAnual > 0 && (
-                <button
-                  type="button"
-                  onClick={() =>
-                    dispatch({
-                      type: "UPDATE_META_NODO_RESCALAR_HIJOS",
-                      id: raiz.id,
-                      metaValor: metaAnual,
-                    })
-                  }
-                  title={`Reparte ${fmtNum(metaAnual)} ${unidad} entre las ramas manteniendo sus proporciones actuales. Útil cuando has tocado metas a mano y quieres recuadrar.`}
-                  className="rounded border border-border px-2 py-1 text-[11px] font-medium text-foreground hover:bg-surface"
-                >
-                  Reescalar ramas al objetivo
-                </button>
-              )}
-              <button
-                type="button"
-                onClick={() => {
-                  const ok = window.confirm(
-                    `¿Borrar todo el año ${year} (${raiz.nombre})? Se eliminarán la raíz, las ramas, las hojas y todos los apuntes. No se puede deshacer.`,
-                  );
-                  if (ok) dispatch({ type: "DELETE_NODO_ARBOL", id: raiz.id });
-                }}
-                className="rounded border border-red-400/60 px-2 py-1 text-[11px] font-medium text-red-700 hover:bg-red-500/10 dark:text-red-300"
-              >
-                Borrar año {year}
-              </button>
-            </div>
+          <div className="ml-auto flex items-center gap-2">
+            <button
+              type="button"
+              aria-expanded={opcionesOpen}
+              aria-controls={`anual-opciones-${raiz.id}`}
+              onClick={() => setOpcionesOpen((prev) => !prev)}
+              className="rounded border border-border px-2 py-1 text-[11px] text-muted hover:bg-surface"
+            >
+              ⚙ Opciones {opcionesOpen ? "▴" : "▾"}
+            </button>
           </div>
         </div>
+        <details
+          id={`anual-opciones-${raiz.id}`}
+          open={opcionesOpen}
+          onToggle={(e) => setOpcionesOpen((e.currentTarget as HTMLDetailsElement).open)}
+          className="rounded border border-accent/30 bg-accent/5"
+        >
+          <summary className="sr-only">Opciones</summary>
+          <div className="flex flex-wrap items-center gap-2 p-2">
+            <label
+              className="inline-flex cursor-pointer items-center gap-1 rounded border border-border px-2 py-1 text-[11px] text-muted hover:bg-surface"
+              title="Si está activo, editar la meta de la raíz o de una rama recalcula sus hijas manteniendo proporciones. Las hojas individuales nunca se reescalan al editarse."
+            >
+              <input
+                type="checkbox"
+                checked={reescaladoAuto}
+                onChange={(e) => setReescaladoAuto(e.target.checked)}
+                className="accent-accent"
+              />
+              Reescalar al cambiar metas
+            </label>
+            <label
+              className="inline-flex items-center gap-1 rounded border border-border px-2 py-1 text-[11px] text-muted"
+              title={`Cómo se reparte el plan anual entre los meses. "Días laborables" prorratea por días disponibles del calendario. "Patrón ${anioAnterior}" sigue las proporciones reales del mismo nodo en ${anioAnterior}; si no hay datos AY, cae a días laborables.`}
+            >
+              Reparto mensual:
+              <select
+                value={distribucionMensualActual}
+                onChange={(e) =>
+                  handleCambiarDistribucion(e.target.value as typeof distribucionMensualActual)
+                }
+                className="rounded border border-border bg-background px-1 py-0.5 text-[11px] text-foreground"
+                aria-label="Modo de reparto mensual del plan anual"
+              >
+                <option value="diasLaborables">días laborables</option>
+                <option value="patronAnioAnterior">patrón {anioAnterior}</option>
+              </select>
+            </label>
+            {existeAnioAnterior && (
+              <>
+                <button
+                  type="button"
+                  onClick={() => handleImportar("estructura")}
+                  className="rounded border border-accent/40 bg-accent/5 px-2 py-1 text-[11px] font-medium text-accent hover:bg-accent/10"
+                >
+                  Traer estructura {anioAnterior}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleImportar("plan")}
+                  className="rounded border border-accent/40 bg-accent/5 px-2 py-1 text-[11px] font-medium text-accent hover:bg-accent/10"
+                >
+                  Traer estructura {anioAnterior} (plan)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleImportar("real")}
+                  className="rounded border border-accent/40 bg-accent/5 px-2 py-1 text-[11px] font-medium text-accent hover:bg-accent/10"
+                >
+                  Traer estructura {anioAnterior} (reales)
+                </button>
+              </>
+            )}
+            {ramas.length > 0 && metaAnual > 0 && (
+              <button
+                type="button"
+                onClick={() =>
+                  dispatch({
+                    type: "UPDATE_META_NODO_RESCALAR_HIJOS",
+                    id: raiz.id,
+                    metaValor: metaAnual,
+                  })
+                }
+                className="rounded border border-border px-2 py-1 text-[11px] font-medium text-foreground hover:bg-surface"
+              >
+                Reescalar ramas al objetivo
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => {
+                const ok = window.confirm(
+                  `¿Borrar todo el año ${year} (${raiz.nombre})? Se eliminarán la raíz, las ramas, las hojas y todos los apuntes. No se puede deshacer.`,
+                );
+                if (ok) dispatch({ type: "DELETE_NODO_ARBOL", id: raiz.id });
+              }}
+              className="rounded border border-red-400/60 px-2 py-1 text-[11px] font-medium text-red-700 hover:bg-red-500/10 dark:text-red-300"
+            >
+              Borrar año {year}
+            </button>
+          </div>
+        </details>
+        {avisoReajuste && (
+          <div className="flex items-center gap-2 rounded border border-amber-500/50 bg-amber-500/10 px-2 py-1 text-[11px] text-amber-900 dark:text-amber-100">
+            <span>{avisoReajuste}</span>
+            <button
+              type="button"
+              onClick={() => setAvisoReajuste(null)}
+              className="ml-auto rounded border border-amber-700/40 px-1.5 py-0.5 text-[10px] hover:bg-amber-500/20"
+            >
+              cerrar
+            </button>
+          </div>
+        )}
 
         {/* Listado de ramas */}
         <div className="space-y-2">
@@ -363,8 +416,7 @@ export function BloqueAnual({
                 unidad={unidad}
                 metaAnual={metaAnual}
                 reescaladoAuto={reescaladoAuto}
-                formAbiertoId={ramaHojaFormId}
-                onToggleForm={(id) => setRamaHojaFormId((cur) => (cur === id ? null : id))}
+                onDispararReajuste={dispararReajuste}
               />
             ))
           )}
@@ -373,16 +425,32 @@ export function BloqueAnual({
         {/* Nueva rama */}
         <NuevaRamaInline
           raiz={raiz}
+          metaPadre={metaAnual}
           onAdd={(payload) =>
-            dispatch({
-              type: "ADD_NODO_ARBOL",
-              payload: {
+            {
+              const id = generateId();
+              const now = new Date().toISOString();
+              const nuevoMeta =
+                payload.pct !== undefined && metaAnual > 0
+                  ? Math.round(((metaAnual * payload.pct) / 100) * 100) / 100
+                  : payload.metaValor;
+              const nodoNuevo: NodoArbol = {
                 ...payload,
-                id: generateId(),
-                creado: new Date().toISOString(),
+                id,
+                creado: now,
                 orden: ramas.length,
-              },
-            })
+                metaValor: nuevoMeta,
+              };
+              dispatch({ type: "ADD_NODO_ARBOL", payload: nodoNuevo });
+              const pctCambio = metaAnual > 0 ? ((nuevoMeta ?? 0) / metaAnual) * 100 : 0;
+              dispararReajuste({
+                nodosBase: [...nodos, nodoNuevo],
+                parentId: raiz.id,
+                cambioId: nodoNuevo.id,
+                nuevoPctCambio: pctCambio,
+                metaPadre: metaAnual,
+              });
+            }
           }
         />
       </div>
@@ -400,8 +468,7 @@ function FilaRamaEditable({
   unidad,
   metaAnual,
   reescaladoAuto,
-  formAbiertoId,
-  onToggleForm,
+  onDispararReajuste,
 }: {
   rama: NodoArbol;
   raiz: NodoArbol;
@@ -412,15 +479,20 @@ function FilaRamaEditable({
   unidad: string;
   metaAnual: number;
   reescaladoAuto: boolean;
-  formAbiertoId: string | null;
-  onToggleForm: (id: string) => void;
+  onDispararReajuste: (opts: {
+    nodosBase: NodoArbol[];
+    parentId: string;
+    cambioId: string;
+    nuevoPctCambio: number;
+    metaPadre: number;
+  }) => void;
 }) {
   const dispatch = useAppDispatch();
+  const [formNuevaHojaOpen, setFormNuevaHojaOpen] = useState(false);
   const hojas = hijosSumaDirectosIdx(idx, rama.id);
   const tieneHojas = hojas.length > 0;
   const metaEffRama = metaEfectivaNodoIdx(idx, rama);
   const metaPlaneada = rama.metaValor;
-  const cuentaParaTotal = rama.relacionConPadre === "suma";
   const pctTotal =
     metaAnual > 0 && metaEffRama !== undefined ? (metaEffRama / metaAnual) * 100 : undefined;
   const planeadaOk = metaPlaneada !== undefined && metaPlaneada > 0;
@@ -452,121 +524,129 @@ function FilaRamaEditable({
   const ayYear = year - 1;
 
   return (
-    <details className="rounded border border-border bg-surface/40" open={tieneHojas || formAbiertoId === rama.id}>
-      <summary className="cursor-pointer list-none px-3 py-2 marker:content-none [&::-webkit-details-marker]:hidden">
-        <span className="flex flex-wrap items-baseline justify-between gap-2">
-          <span className="flex items-baseline gap-2">
+    <LazyDetails
+      defaultOpen={false}
+      className="rounded border border-border bg-surface/20"
+      summary={
+        <summary className="cursor-pointer list-none px-2 py-1.5 marker:content-none [&::-webkit-details-marker]:hidden">
+          <div className="flex flex-wrap items-center gap-2">
             <span aria-hidden className="text-[10px] text-muted">▶</span>
-            <span className="text-sm font-medium text-foreground">{rama.nombre}</span>
-            {!cuentaParaTotal && (
-              <span className="rounded bg-surface px-1 py-0.5 text-[9px] text-muted">no suma</span>
-            )}
-          </span>
-          <span className="text-[11px] text-muted">
-            {tieneHojas ? (
-              <>
-                Suma hojas:{" "}
-                <strong className="tabular-nums text-foreground">
-                  {fmtNum(sumaHojasEff)} {unidad}
-                </strong>
-                {planeadaOk && !cuadreHojasOk && (
-                  <span className="ml-2 rounded bg-amber-500/15 px-1.5 py-0.5 text-amber-900 dark:text-amber-100">
-                    {diffHojas > 0
-                      ? `te pasas ${fmtNum(Math.abs(diffHojas))}`
-                      : `te faltan ${fmtNum(Math.abs(diffHojas))}`}
-                  </span>
-                )}
-              </>
-            ) : metaPlaneada !== undefined ? (
-              <>
-                Meta:{" "}
-                <strong className="tabular-nums text-foreground">
-                  {fmtNum(metaPlaneada)} {unidad}
-                </strong>
-              </>
-            ) : (
-              <span className="italic">sin meta</span>
-            )}
-            {cuentaParaTotal && pctTotal !== undefined && (
-              <>
-                {" · "}
-                <strong className="tabular-nums text-foreground">
-                  {pctTotal.toFixed(1).replace(".", ",")} %
-                </strong>
-                <span className="text-muted"> del total</span>
-              </>
-            )}
-            {metaEffRama !== undefined && metaEffRama > 0 && (
-              <>
-                {" · Real:"}{" "}
-                <strong className="tabular-nums text-foreground">
-                  {fmtNum(realRama)} {unidad}
-                </strong>
-              </>
-            )}
-          </span>
-        </span>
-        <BarraReal real={realRama} meta={metaEffRama} />
-      </summary>
-
-      <div className="space-y-3 border-t border-border/50 px-3 py-3">
+            <InlineEditableText
+              value={rama.nombre}
+              className="min-w-[8rem] text-[13px] font-medium text-foreground"
+              onCommit={(v) => dispatch({ type: "UPDATE_NODO_ARBOL", id: rama.id, changes: { nombre: v } })}
+            />
+            <div className="w-32" onClick={stopSummaryToggle}>
+              <NumberInput
+                value={rama.metaValor}
+                compact
+                onCommit={(v) => {
+                  if (reescaladoAuto && tieneHojas) {
+                    dispatch({ type: "UPDATE_META_NODO_RESCALAR_HIJOS", id: rama.id, metaValor: v });
+                  } else {
+                    dispatch({ type: "UPDATE_NODO_ARBOL", id: rama.id, changes: { metaValor: v } });
+                  }
+                  const nuevoPct = metaAnual > 0 ? (((v ?? 0) / metaAnual) * 100) : 0;
+                  const nodosConCambio = nodos.map((n) =>
+                    n.id === rama.id ? { ...n, metaValor: v } : n,
+                  );
+                  onDispararReajuste({
+                    nodosBase: nodosConCambio,
+                    parentId: raiz.id,
+                    cambioId: rama.id,
+                    nuevoPctCambio: nuevoPct,
+                    metaPadre: metaAnual,
+                  });
+                }}
+                ariaLabel={`Meta anual de ${rama.nombre}`}
+                unidad={unidad}
+              />
+            </div>
+            <div className="w-24" onClick={stopSummaryToggle}>
+              <PercentInput
+                value={pctTotal}
+                disabled={metaAnual <= 0}
+                onCommit={(p) => {
+                  if (metaAnual <= 0 || p === undefined) return;
+                  const nuevo = Math.round(((metaAnual * p) / 100) * 100) / 100;
+                  if (reescaladoAuto && tieneHojas) {
+                    dispatch({ type: "UPDATE_META_NODO_RESCALAR_HIJOS", id: rama.id, metaValor: nuevo });
+                  } else {
+                    dispatch({ type: "UPDATE_NODO_ARBOL", id: rama.id, changes: { metaValor: nuevo } });
+                  }
+                  const nodosConCambio = nodos.map((n) =>
+                    n.id === rama.id ? { ...n, metaValor: nuevo } : n,
+                  );
+                  onDispararReajuste({
+                    nodosBase: nodosConCambio,
+                    parentId: raiz.id,
+                    cambioId: rama.id,
+                    nuevoPctCambio: p,
+                    metaPadre: metaAnual,
+                  });
+                }}
+                ariaLabel={`Porcentaje de ${rama.nombre}`}
+              />
+            </div>
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                dispatch({ type: "TOGGLE_PIN_PORCENTAJE", id: rama.id });
+              }}
+              onMouseDown={stopSummaryToggle}
+              title={
+                rama.metaPctFijo
+                  ? "Quitar fijación"
+                  : "Fijar este % (no se ajustará al cambiar otros)"
+              }
+              className={`rounded p-1 ${rama.metaPctFijo ? "text-accent" : "text-muted hover:text-foreground"}`}
+            >
+              <PinIcon filled={!!rama.metaPctFijo} />
+            </button>
+            <span className="ml-auto text-[11px] text-muted">
+              YTD: <strong className="tabular-nums text-foreground">{fmtNum(realRama)} {unidad}</strong>
+            </span>
+            <span className="text-[11px] text-muted">
+              hojas: <strong className="tabular-nums text-foreground">{fmtNum(sumaHojasEff)} {unidad}</strong>
+            </span>
+            <button
+              type="button"
+              onMouseDown={stopSummaryToggle}
+              onClick={(e) => {
+                e.stopPropagation();
+                const ok = window.confirm(`¿Eliminar la rama «${rama.nombre}» y sus hojas y apuntes?`);
+                if (!ok) return;
+                const idsDelete = collectSubtreeIds(nodos, rama.id);
+                const nodosFiltrados = nodos.filter((n) => !idsDelete.has(n.id));
+                onDispararReajuste({
+                  nodosBase: nodosFiltrados,
+                  parentId: raiz.id,
+                  cambioId: rama.id,
+                  nuevoPctCambio: 0,
+                  metaPadre: metaAnual,
+                });
+                dispatch({ type: "DELETE_NODO_ARBOL", id: rama.id });
+              }}
+              title="Eliminar rama"
+              className="rounded p-1 text-muted hover:text-red-600"
+            >
+              <DeleteIcon />
+            </button>
+          </div>
+          {!cuadreHojasOk && planeadaOk && (
+            <div className="mt-1 text-[10px] text-amber-700 dark:text-amber-200">
+              {diffHojas > 0
+                ? `Las hojas se pasan ${fmtNum(Math.abs(diffHojas))} ${unidad}`
+                : `A las hojas les faltan ${fmtNum(Math.abs(diffHojas))} ${unidad}`}
+            </div>
+          )}
+        </summary>
+      }
+    >
+      <div className="space-y-2 border-t border-border/50 px-2 py-2">
         {/* Inputs de la rama */}
         <div className="grid grid-cols-1 gap-2 sm:grid-cols-4">
-          <label className="flex flex-col gap-1 text-[11px] text-muted">
-            Nombre
-            <input
-              defaultValue={rama.nombre}
-              onBlur={(e) => {
-                const v = e.target.value.trim();
-                if (v && v !== rama.nombre) {
-                  dispatch({ type: "UPDATE_NODO_ARBOL", id: rama.id, changes: { nombre: v } });
-                }
-              }}
-              className="rounded border border-border bg-background px-2 py-1.5 text-sm"
-            />
-          </label>
-          <label className="flex flex-col gap-1 text-[11px] text-muted">
-            {tieneHojas ? `Meta planeada (${unidad || "número"})` : `Meta anual (${unidad || "número"})`}
-            <NumberInput
-              value={rama.metaValor}
-              onCommit={(v) => {
-                if (reescaladoAuto && tieneHojas) {
-                  dispatch({ type: "UPDATE_META_NODO_RESCALAR_HIJOS", id: rama.id, metaValor: v });
-                } else {
-                  dispatch({ type: "UPDATE_NODO_ARBOL", id: rama.id, changes: { metaValor: v } });
-                }
-              }}
-              ariaLabel={tieneHojas ? `Meta planeada de ${rama.nombre}` : `Meta anual de ${rama.nombre}`}
-              unidad={unidad}
-            />
-            {reescaladoAuto && tieneHojas && (
-              <span className="text-[10px] text-accent">
-                Hojas reescaladas proporcionalmente.
-              </span>
-            )}
-          </label>
-          <label className="flex flex-col gap-1 text-[11px] text-muted">
-            % del total anual
-            <PercentInput
-              value={pctTotal}
-              disabled={metaAnual <= 0}
-              title={metaAnual <= 0 ? "Pon primero el objetivo anual de la raíz" : undefined}
-              onCommit={(p) => {
-                if (metaAnual <= 0 || p === undefined) return;
-                const nuevo = Math.round(((metaAnual * p) / 100) * 100) / 100;
-                if (reescaladoAuto && tieneHojas) {
-                  dispatch({ type: "UPDATE_META_NODO_RESCALAR_HIJOS", id: rama.id, metaValor: nuevo });
-                } else {
-                  dispatch({
-                    type: "UPDATE_NODO_ARBOL",
-                    id: rama.id,
-                    changes: { metaValor: nuevo },
-                  });
-                }
-              }}
-              ariaLabel={`Porcentaje del total anual de ${rama.nombre}`}
-            />
-          </label>
           <label className="flex flex-col gap-1 text-[11px] text-muted">
             Cuenta para el total
             <select
@@ -590,10 +670,10 @@ function FilaRamaEditable({
         <div className="flex flex-wrap items-center gap-2">
           <button
             type="button"
-            onClick={() => onToggleForm(rama.id)}
+            onClick={() => setFormNuevaHojaOpen((v) => !v)}
             className="rounded-lg border border-accent/40 px-2 py-1 text-[11px] font-medium text-accent hover:bg-accent/10"
           >
-            + hoja
+            + Añadir hoja
           </button>
           {tieneHojas && (
             <button
@@ -637,27 +717,18 @@ function FilaRamaEditable({
               Reescalar hojas a la meta
             </button>
           )}
-          <button
-            type="button"
-            onClick={() => {
-              const ok = window.confirm(`¿Eliminar la rama «${rama.nombre}» y sus hojas y apuntes?`);
-              if (ok) dispatch({ type: "DELETE_NODO_ARBOL", id: rama.id });
-            }}
-            className="ml-auto rounded border border-red-400/50 px-2 py-1 text-[11px] text-red-700 hover:bg-red-500/10 dark:text-red-300"
-          >
-            Borrar rama
-          </button>
         </div>
 
         {/* Formulario nueva hoja */}
-        {formAbiertoId === rama.id && (
+        {formNuevaHojaOpen && (
           <FormNuevaHojaInline
             rama={rama}
             nodos={nodos}
             registros={registros}
             year={year}
             unidad={unidad}
-            onClose={() => onToggleForm(rama.id)}
+            onDispararReajuste={onDispararReajuste}
+            onClose={() => setFormNuevaHojaOpen(false)}
           />
         )}
 
@@ -672,12 +743,15 @@ function FilaRamaEditable({
                 idx={idx}
                 year={year}
                 unidad={unidad}
+                nodos={nodos}
+                metaRama={rama.metaValor ?? 0}
+                onDispararReajuste={onDispararReajuste}
               />
             ))}
           </div>
         )}
       </div>
-    </details>
+    </LazyDetails>
   );
 }
 
@@ -687,16 +761,28 @@ function FilaHojaEditable({
   idx,
   year,
   unidad,
+  nodos,
+  metaRama,
+  onDispararReajuste,
 }: {
   hoja: NodoArbol;
   rama: NodoArbol;
   idx: ArbolIndices;
   year: number;
   unidad: string;
+  nodos: NodoArbol[];
+  metaRama: number;
+  onDispararReajuste: (opts: {
+    nodosBase: NodoArbol[];
+    parentId: string;
+    cambioId: string;
+    nuevoPctCambio: number;
+    metaPadre: number;
+  }) => void;
 }) {
   const state = useAppState();
   const dispatch = useAppDispatch();
-  const [nuevoEntregableId, setNuevoEntregableId] = useState("");
+  const [showBody, setShowBody] = useState(false);
   const metaPlaneadaRama = rama.metaValor;
   const planeadaOk = metaPlaneadaRama !== undefined && metaPlaneadaRama > 0;
   const pctRama =
@@ -712,7 +798,7 @@ function FilaHojaEditable({
     () =>
       (hoja.entregableIds ?? [])
         .map((id) => state.entregables.find((e) => e.id === id))
-        .filter((ent): ent is (typeof state.entregables)[number] => Boolean(ent)),
+        .filter(Boolean) as Entregable[],
     [hoja.entregableIds, state.entregables],
   );
   const tieneFacturacionPositiva = useMemo(() => {
@@ -727,140 +813,194 @@ function FilaHojaEditable({
     () => [...state.entregables].sort((a, b) => a.nombre.localeCompare(b.nombre, "es")),
     [state.entregables],
   );
-
+  const [nuevoEntregableId, setNuevoEntregableId] = useState("");
   return (
-    <div className="rounded border border-border/50 bg-background/60 p-2">
-      <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
-        <span className="text-[12px] font-medium text-foreground">{hoja.nombre}</span>
-        <span className="text-[10px] text-muted">
-          {hoja.metaValor !== undefined && hoja.metaValor > 0 && (
-            <>
-              Real:{" "}
-              <strong className="tabular-nums text-foreground">
-                {fmtNum(realHoja)} {unidad}
-              </strong>
-              {" · "}
-            </>
-          )}
-          {ayHoja !== undefined && (
-            <>
-              AY {year - 1}:{" "}
-              <strong className="tabular-nums text-foreground">
-                {fmtNum(ayHoja)} {unidad}
-              </strong>
-            </>
-          )}
-        </span>
-      </div>
-      <BarraReal real={realHoja} meta={hoja.metaValor} />
-      <div className="grid grid-cols-1 gap-2 sm:grid-cols-4">
-        <label className="flex flex-col gap-1 text-[11px] text-muted">
-          Nombre
-          <input
-            defaultValue={hoja.nombre}
-            onBlur={(e) => {
-              const v = e.target.value.trim();
-              if (v && v !== hoja.nombre) {
-                dispatch({ type: "UPDATE_NODO_ARBOL", id: hoja.id, changes: { nombre: v } });
+    <LazyDetails
+      defaultOpen={false}
+      open={showBody}
+      onToggle={(open) => setShowBody(open)}
+      className="rounded border border-border/50 bg-background/60"
+      summary={
+        <summary className="cursor-pointer list-none px-2 py-1.5 marker:content-none [&::-webkit-details-marker]:hidden">
+          <div className="flex flex-wrap items-center gap-2">
+            <span aria-hidden className="text-[10px] text-muted">▶</span>
+            <InlineEditableText
+              value={hoja.nombre}
+              className="min-w-[7rem] text-[12px] font-medium text-foreground"
+              onCommit={(v) => dispatch({ type: "UPDATE_NODO_ARBOL", id: hoja.id, changes: { nombre: v } })}
+            />
+            <div className="w-32" onClick={stopSummaryToggle}>
+              <NumberInput
+                value={hoja.metaValor}
+                compact
+                onCommit={(v) => {
+                  dispatch({ type: "UPDATE_NODO_ARBOL", id: hoja.id, changes: { metaValor: v } });
+                  const pctCambio = metaRama > 0 ? (((v ?? 0) / metaRama) * 100) : 0;
+                  const nodosConCambio = nodos.map((n) =>
+                    n.id === hoja.id ? { ...n, metaValor: v } : n,
+                  );
+                  onDispararReajuste({
+                    nodosBase: nodosConCambio,
+                    parentId: rama.id,
+                    cambioId: hoja.id,
+                    nuevoPctCambio: pctCambio,
+                    metaPadre: metaRama,
+                  });
+                }}
+                ariaLabel={`Meta de ${hoja.nombre}`}
+                unidad={unidad}
+              />
+            </div>
+            <div className="w-24" onClick={stopSummaryToggle}>
+              <PercentInput
+                value={pctRama}
+                disabled={!planeadaOk}
+                title={!planeadaOk ? "Pon primero la meta planeada de la rama" : undefined}
+                onCommit={(p) => {
+                  if (!planeadaOk || p === undefined || metaPlaneadaRama === undefined) return;
+                  const nuevoMeta = Math.round(((metaPlaneadaRama * p) / 100) * 100) / 100;
+                  dispatch({
+                    type: "UPDATE_NODO_ARBOL",
+                    id: hoja.id,
+                    changes: { metaValor: nuevoMeta },
+                  });
+                  const nodosConCambio = nodos.map((n) =>
+                    n.id === hoja.id ? { ...n, metaValor: nuevoMeta } : n,
+                  );
+                  onDispararReajuste({
+                    nodosBase: nodosConCambio,
+                    parentId: rama.id,
+                    cambioId: hoja.id,
+                    nuevoPctCambio: p,
+                    metaPadre: metaPlaneadaRama,
+                  });
+                }}
+                ariaLabel={`Porcentaje de ${hoja.nombre}`}
+              />
+            </div>
+            <button
+              type="button"
+              onMouseDown={stopSummaryToggle}
+              onClick={(e) => {
+                e.stopPropagation();
+                dispatch({ type: "TOGGLE_PIN_PORCENTAJE", id: hoja.id });
+              }}
+              title={
+                hoja.metaPctFijo
+                  ? "Quitar fijación"
+                  : "Fijar este % (no se ajustará al cambiar otros)"
               }
-            }}
-            className="rounded border border-border bg-background px-2 py-1.5 text-sm"
-          />
-        </label>
-        <label className="flex flex-col gap-1 text-[11px] text-muted">
-          Meta anual ({unidad || "número"})
-          <NumberInput
-            value={hoja.metaValor}
-            onCommit={(v) => dispatch({ type: "UPDATE_NODO_ARBOL", id: hoja.id, changes: { metaValor: v } })}
-            ariaLabel={`Meta anual de ${hoja.nombre}`}
-            unidad={unidad}
-          />
-        </label>
-        <label className="flex flex-col gap-1 text-[11px] text-muted">
-          % de la rama
-          <PercentInput
-            value={pctRama}
-            disabled={!planeadaOk}
-            title={!planeadaOk ? "Pon primero la meta planeada de la rama" : undefined}
-            onCommit={(p) => {
-              if (!planeadaOk || p === undefined || metaPlaneadaRama === undefined) return;
-              dispatch({
-                type: "UPDATE_NODO_ARBOL",
-                id: hoja.id,
-                changes: { metaValor: (metaPlaneadaRama * p) / 100 },
-              });
-            }}
-            ariaLabel={`Porcentaje de ${hoja.nombre} sobre la meta de la rama`}
-          />
-        </label>
-        <div className="flex items-end justify-end">
-          <button
-            type="button"
-            onClick={() => {
-              const ok = window.confirm(`¿Eliminar la hoja «${hoja.nombre}» y sus apuntes?`);
-              if (ok) dispatch({ type: "DELETE_NODO_ARBOL", id: hoja.id });
-            }}
-            className="text-[11px] text-muted hover:text-red-600"
-          >
-            Eliminar hoja
-          </button>
-        </div>
-      </div>
-      <div className="mt-2 space-y-1.5">
-        <div className="text-[11px] text-muted">Entregables:</div>
-        <div className="overflow-x-auto">
-          <div className="flex min-w-max items-center gap-1.5">
-            {entregablesConectados.length === 0 && (
-              <span className="text-[11px] italic text-muted">sin entregables conectados</span>
-            )}
-            {entregablesConectados.map((ent) => (
-              <span
-                key={ent.id}
-                className="inline-flex items-center gap-1 rounded-full border border-accent/30 bg-accent/10 px-2 py-0.5 text-[10px] text-foreground"
-              >
-                {ent.nombre}
-                <button
-                  type="button"
-                  onClick={() => {
-                    dispatch({ type: "UNLINK_ENTREGABLE_HOJA", entregableId: ent.id, hojaId: hoja.id });
-                  }}
-                  className="text-muted hover:text-red-600"
-                  aria-label={`Desconectar ${ent.nombre}`}
-                  title="Desconectar entregable"
-                >
-                  ✕
-                </button>
+              className={`rounded p-1 ${hoja.metaPctFijo ? "text-accent" : "text-muted hover:text-foreground"}`}
+            >
+              <PinIcon filled={!!hoja.metaPctFijo} />
+            </button>
+            <span className="ml-auto text-[10px] text-muted">
+              YTD: <strong className="tabular-nums text-foreground">{fmtNum(realHoja)} {unidad}</strong>
+            </span>
+            {ayHoja !== undefined && (
+              <span className="text-[10px] text-muted">
+                AY {year - 1}: <strong className="tabular-nums text-foreground">{fmtNum(ayHoja)} {unidad}</strong>
               </span>
-            ))}
+            )}
+            <button
+              type="button"
+              onMouseDown={stopSummaryToggle}
+              onClick={(e) => {
+                e.stopPropagation();
+                const ok = window.confirm(`¿Eliminar la hoja «${hoja.nombre}» y sus apuntes?`);
+                if (!ok) return;
+                const nodosFiltrados = nodos.filter((n) => n.id !== hoja.id);
+                onDispararReajuste({
+                  nodosBase: nodosFiltrados,
+                  parentId: rama.id,
+                  cambioId: hoja.id,
+                  nuevoPctCambio: 0,
+                  metaPadre: metaRama,
+                });
+                dispatch({ type: "DELETE_NODO_ARBOL", id: hoja.id });
+              }}
+              title="Eliminar hoja"
+              className="rounded p-1 text-muted hover:text-red-600"
+            >
+              <DeleteIcon />
+            </button>
+          </div>
+        </summary>
+      }
+    >
+      <div className="space-y-2 border-t border-border/40 px-2 py-2">
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+          <label className="flex flex-col gap-1 text-[11px] text-muted">
+            Descripción
+            <textarea
+              defaultValue={hoja.descripcion ?? ""}
+              onBlur={(e) => {
+                const v = e.target.value.trim();
+                dispatch({
+                  type: "UPDATE_NODO_ARBOL",
+                  id: hoja.id,
+                  changes: { descripcion: v || undefined },
+                });
+              }}
+              rows={2}
+              className="rounded border border-border bg-background px-2 py-1.5 text-[12px]"
+              placeholder="Notas de esta hoja"
+            />
+          </label>
+          <div className="space-y-1.5">
+            <div className="text-[11px] text-muted">Entregables conectados</div>
+            <div className="flex min-h-8 flex-wrap items-center gap-1.5 rounded border border-border/60 bg-background px-2 py-1">
+              {entregablesConectados.length === 0 && (
+                <span className="text-[11px] italic text-muted">sin entregables conectados</span>
+              )}
+              {entregablesConectados.map((ent) => (
+                <span
+                  key={ent.id}
+                  className="inline-flex items-center gap-1 rounded-full border border-accent/30 bg-accent/10 px-2 py-0.5 text-[10px] text-foreground"
+                >
+                  {ent.nombre}
+                  <button
+                    type="button"
+                    onClick={() =>
+                      dispatch({ type: "UNLINK_ENTREGABLE_HOJA", entregableId: ent.id, hojaId: hoja.id })
+                    }
+                    className="text-muted hover:text-red-600"
+                    aria-label={`Desconectar ${ent.nombre}`}
+                  >
+                    ✕
+                  </button>
+                </span>
+              ))}
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-[11px] text-muted">+ entregable</span>
+              <select
+                value={nuevoEntregableId}
+                onChange={(e) => {
+                  const id = e.target.value;
+                  if (!id) return;
+                  dispatch({ type: "LINK_ENTREGABLE_HOJA", entregableId: id, hojaId: hoja.id });
+                  setNuevoEntregableId("");
+                }}
+                className="rounded border border-border bg-background px-2 py-1 text-[11px] text-foreground"
+              >
+                <option value="">Selecciona…</option>
+                {entregablesDisponibles.map((ent) => (
+                  <option key={ent.id} value={ent.id}>
+                    {ent.nombre}
+                  </option>
+                ))}
+              </select>
+            </div>
+            {tieneFacturacionPositiva && (hoja.entregableIds?.length ?? 0) === 0 && (
+              <p className="text-[11px] text-muted">
+                Hoja con facturación pero sin entregables conectados.
+              </p>
+            )}
           </div>
         </div>
-        <div className="flex items-center gap-2">
-          <span className="text-[11px] text-muted">+ entregable</span>
-          <select
-            value={nuevoEntregableId}
-            onChange={(e) => {
-              const id = e.target.value;
-              if (!id) return;
-              dispatch({ type: "LINK_ENTREGABLE_HOJA", entregableId: id, hojaId: hoja.id });
-              setNuevoEntregableId("");
-            }}
-            className="rounded border border-border bg-background px-2 py-1 text-[11px] text-foreground"
-          >
-            <option value="">Selecciona…</option>
-            {entregablesDisponibles.map((ent) => (
-              <option key={ent.id} value={ent.id}>
-                {ent.nombre}
-              </option>
-            ))}
-          </select>
-        </div>
-        {tieneFacturacionPositiva && (hoja.entregableIds?.length ?? 0) === 0 && (
-          <p className="text-[11px] text-muted">
-            Hoja con facturación pero sin entregables conectados — Fase 2 inferirá actividad.
-          </p>
-        )}
       </div>
-    </div>
+    </LazyDetails>
   );
 }
 
@@ -870,6 +1010,7 @@ function FormNuevaHojaInline({
   registros,
   year,
   unidad,
+  onDispararReajuste,
   onClose,
 }: {
   rama: NodoArbol;
@@ -877,6 +1018,13 @@ function FormNuevaHojaInline({
   registros: RegistroNodo[];
   year: number;
   unidad: string;
+  onDispararReajuste: (opts: {
+    nodosBase: NodoArbol[];
+    parentId: string;
+    cambioId: string;
+    nuevoPctCambio: number;
+    metaPadre: number;
+  }) => void;
   onClose: () => void;
 }) {
   const dispatch = useAppDispatch();
@@ -884,6 +1032,7 @@ function FormNuevaHojaInline({
   const tieneRegsPropios = regsEnRama.length > 0;
   const [nombre, setNombre] = useState(tieneRegsPropios ? "Sin asignar" : "");
   const [meta, setMeta] = useState("");
+  const [pct, setPct] = useState<number | undefined>(undefined);
 
   const submit = (e: FormEvent) => {
     e.preventDefault();
@@ -900,22 +1049,37 @@ function FormNuevaHojaInline({
     const siblings = hijosSumaDirectos(nodos, rama.id, year);
     const orden = siblings.length > 0 ? Math.max(...siblings.map((s) => s.orden), 0) + 1 : 0;
     const m = parseFloat(meta.replace(",", "."));
+    const metaPadre = rama.metaValor ?? 0;
+    const metaDesdePct =
+      pct !== undefined && metaPadre > 0
+        ? Math.round(((metaPadre * pct) / 100) * 100) / 100
+        : undefined;
+    const metaFinal = metaDesdePct ?? (Number.isFinite(m) ? m : undefined);
+    const nodoNuevo: NodoArbol = {
+      id: hojaId,
+      anio: year,
+      parentId: rama.id,
+      orden,
+      nombre: hojaNombre,
+      tipo: "resultado",
+      cadencia: "anual",
+      relacionConPadre: "suma",
+      metaValor: metaFinal,
+      metaUnidad: rama.metaUnidad,
+      contadorModo: "manual",
+      creado: new Date().toISOString(),
+    };
     dispatch({
       type: "ADD_NODO_ARBOL",
-      payload: {
-        id: hojaId,
-        anio: year,
-        parentId: rama.id,
-        orden,
-        nombre: hojaNombre,
-        tipo: "resultado",
-        cadencia: "anual",
-        relacionConPadre: "suma",
-        metaValor: Number.isFinite(m) ? m : undefined,
-        metaUnidad: rama.metaUnidad,
-        contadorModo: "manual",
-        creado: new Date().toISOString(),
-      },
+      payload: nodoNuevo,
+    });
+    const pctCambio = metaPadre > 0 ? ((metaFinal ?? 0) / metaPadre) * 100 : 0;
+    onDispararReajuste({
+      nodosBase: [...nodos, nodoNuevo],
+      parentId: rama.id,
+      cambioId: nodoNuevo.id,
+      nuevoPctCambio: pctCambio,
+      metaPadre,
     });
     if (tieneRegsPropios) {
       dispatch({ type: "REASSIGN_REGISTROS_NODO", fromNodoId: rama.id, toNodoId: hojaId });
@@ -947,6 +1111,15 @@ function FormNuevaHojaInline({
           disabled={tieneRegsPropios}
         />
       </label>
+      <label className="flex flex-col gap-1 text-[11px] text-muted">
+        % de la rama
+        <PercentInput
+          value={pct}
+          onCommit={setPct}
+          ariaLabel={`Porcentaje de nueva hoja en ${rama.nombre}`}
+          disabled={tieneRegsPropios || (rama.metaValor ?? 0) <= 0}
+        />
+      </label>
       <div className="flex gap-2 sm:col-span-3">
         <button
           type="submit"
@@ -968,14 +1141,17 @@ function FormNuevaHojaInline({
 
 function NuevaRamaInline({
   raiz,
+  metaPadre,
   onAdd,
 }: {
   raiz: NodoArbol;
-  onAdd: (n: Omit<NodoArbol, "id" | "creado">) => void;
+  metaPadre: number;
+  onAdd: (n: Omit<NodoArbol, "id" | "creado"> & { pct?: number }) => void;
 }) {
   const [abierto, setAbierto] = useState(false);
   const [nombre, setNombre] = useState("");
   const [meta, setMeta] = useState("");
+  const [pct, setPct] = useState<number | undefined>(undefined);
 
   if (!abierto) {
     return (
@@ -1006,9 +1182,11 @@ function NuevaRamaInline({
           metaValor: Number.isFinite(m) ? m : undefined,
           metaUnidad: raiz.metaUnidad,
           contadorModo: "manual",
+          pct,
         });
         setNombre("");
         setMeta("");
+        setPct(undefined);
         setAbierto(false);
       }}
     >
@@ -1032,6 +1210,15 @@ function NuevaRamaInline({
           className="rounded border border-border bg-background px-2 py-1.5 text-sm tabular-nums"
         />
       </label>
+      <label className="flex flex-col gap-1 text-[11px] text-muted">
+        % del total
+        <PercentInput
+          value={pct}
+          onCommit={setPct}
+          ariaLabel="Porcentaje de nueva rama"
+          disabled={metaPadre <= 0}
+        />
+      </label>
       <div className="flex gap-2 sm:col-span-3">
         <button
           type="submit"
@@ -1049,4 +1236,68 @@ function NuevaRamaInline({
       </div>
     </form>
   );
+}
+
+function InlineEditableText({
+  value,
+  onCommit,
+  className,
+}: {
+  value: string;
+  onCommit: (v: string) => void;
+  className?: string;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [text, setText] = useState(value);
+  return editing ? (
+    <input
+      value={text}
+      autoFocus
+      onChange={(e) => setText(e.target.value)}
+      onBlur={() => {
+        const next = text.trim();
+        if (next && next !== value) onCommit(next);
+        setEditing(false);
+      }}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") (e.currentTarget as HTMLInputElement).blur();
+        if (e.key === "Escape") {
+          setText(value);
+          setEditing(false);
+        }
+      }}
+      className={`rounded border border-border bg-background px-1 py-0.5 ${className ?? ""}`}
+    />
+  ) : (
+    <button
+      type="button"
+      title="Doble click para editar"
+      onDoubleClick={() => setEditing(true)}
+      onClick={(e) => e.stopPropagation()}
+      className={`text-left ${className ?? ""}`}
+    >
+      {value}
+    </button>
+  );
+}
+
+function PinIcon({ filled }: { filled: boolean }) {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill={filled ? "currentColor" : "none"} stroke="currentColor" strokeWidth="1.8" aria-hidden>
+      <rect x="5" y="10" width="14" height="10" rx="2" />
+      <path d="M8 10V7a4 4 0 1 1 8 0v3" />
+    </svg>
+  );
+}
+
+function DeleteIcon() {
+  return (
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
+      <path d="M18 6 6 18M6 6l12 12" />
+    </svg>
+  );
+}
+
+function stopSummaryToggle(e: MouseEvent<HTMLElement>) {
+  e.stopPropagation();
 }
