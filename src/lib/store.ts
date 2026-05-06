@@ -286,14 +286,6 @@ export async function loadStateCloud(userId: string): Promise<CloudLoadResult> {
 let _saveTimer: ReturnType<typeof setTimeout> | null = null;
 let _pendingSave: { userId: string; state: AppState; onMerged?: (merged: AppState) => void } | null = null;
 let _lastCloudSnapshot: AppState | null = null;
-/**
- * ISO timestamp del último upsert exitoso hecho POR ESTE cliente. Se usa
- * en `subscribeToUserDataChanges` para distinguir un cambio en cloud que
- * vino de otra sesión (chip "↻ Cambios remotos disponibles" del Bloque 5)
- * del eco de nuestra propia escritura. Sin este filtro el chip se
- * mostraría a cada save, lo que sería ruido constante.
- */
-let _lastSelfUpdatedAt: string | null = null;
 
 function hydrateCloudSnapshotFromLocal(): AppState | null {
   if (_lastCloudSnapshot) return _lastCloudSnapshot;
@@ -316,6 +308,32 @@ function persistCloudSnapshot(snapshot: AppState): void {
 
 export function markCloudLoadOk(): void {
   _cloudLoadedOk = true;
+}
+
+function persistAbortedSaveForDiagnostics(
+  motivo: string | undefined,
+  diagnostico: Record<string, number | undefined> | undefined,
+  snapshot: AppState | null,
+  stateToSave: AppState,
+): string | null {
+  if (typeof window === "undefined") return null;
+  const key = `laguna-time-app-aborted-save-${Date.now()}`;
+  localStorage.setItem(
+    key,
+    JSON.stringify({
+      motivo,
+      diagnostico,
+      snapshot,
+      stateToSave,
+      ts: new Date().toISOString(),
+    }),
+  );
+  window.dispatchEvent(
+    new CustomEvent("laguna:save-aborted", {
+      detail: { motivo, diagnostico, storageKey: key },
+    }),
+  );
+  return key;
 }
 
 export function saveStateCloud(userId: string, state: AppState, onMerged?: (merged: AppState) => void): void {
@@ -400,47 +418,71 @@ export function saveStateCloud(userId: string, state: AppState, onMerged?: (merg
 
     // Salvaguarda anti-pisada: si el upsert que vamos a hacer perdería
     // de forma masiva nodos del árbol, metas o relaciones MAPA→Árbol
-    // sin un tombstone que lo justifique, ABORTAMOS y persistimos los
-    // dos estados en localStorage para análisis posterior. La usuaria
-    // recibirá una alerta no descartable a través del evento
-    // `laguna:save-aborted`.
+    // sin un tombstone que lo justifique, persistimos diagnóstico y
+    // reintentamos UNA vez con pull-and-merge.
     const snapshotParaCheck = _lastCloudSnapshot;
     const verificacion = detectarPerdidaInjustificada(snapshotParaCheck, stateToSave);
     if (verificacion.aborta) {
-      console.error(
-        "[saveStateCloud] ABORTADO: detectada pérdida masiva no justificada",
-        verificacion.motivo,
-        verificacion.diagnostico,
-      );
+      console.warn("[saveStateCloud] pérdida potencial detectada, reintentando con pull-and-merge", verificacion.motivo);
       try {
-        if (typeof window !== "undefined") {
-          const key = `laguna-time-app-aborted-save-${Date.now()}`;
-          localStorage.setItem(
-            key,
-            JSON.stringify({
-              motivo: verificacion.motivo,
-              diagnostico: verificacion.diagnostico,
-              snapshot: snapshotParaCheck,
-              stateToSave,
-              ts: new Date().toISOString(),
-            }),
-          );
-          window.dispatchEvent(
-            new CustomEvent("laguna:save-aborted", {
-              detail: {
-                motivo: verificacion.motivo,
-                diagnostico: verificacion.diagnostico,
-                storageKey: key,
-              },
-            }),
-          );
-        }
+        persistAbortedSaveForDiagnostics(
+          verificacion.motivo,
+          verificacion.diagnostico as Record<string, number | undefined> | undefined,
+          snapshotParaCheck,
+          stateToSave,
+        );
       } catch (err) {
         console.error("[saveStateCloud] no se pudo persistir aborted-save en localStorage:", err);
       }
-      // Importante: NO reintentar automáticamente. Mantenemos _pendingSave en null
-      // (ya lo está al inicio de este timer) para que la usuaria decida.
-      return;
+      // Reintento automático: hacemos pull-and-merge una sola vez.
+      let retryState: AppState | null = null;
+      try {
+        const { data: cloudRow, error: getErr } = await supabase
+          .from("user_data")
+          .select("state")
+          .eq("user_id", WORKSPACE_ID)
+          .single();
+        if (!getErr && cloudRow?.state) {
+          const cloudState = migrateV1(cloudRow.state);
+          persistCloudSnapshot(cloudState);
+          retryState = mergeStates(stateToSave, cloudState);
+          retryState = mergeCloudReviews(retryState, cloudState);
+        } else if (getErr && getErr.code !== "PGRST116") {
+          console.warn("[saveStateCloud] pull-and-merge de reintento falló:", getErr.message);
+        }
+      } catch (err) {
+        console.warn("[saveStateCloud] pull-and-merge de reintento falló (network):", err);
+      }
+
+      if (!retryState) {
+        const fallback = hydrateCloudSnapshotFromLocal();
+        if (fallback) {
+          retryState = mergeStates(stateToSave, fallback);
+          retryState = mergeCloudReviews(retryState, fallback);
+        }
+      }
+
+      if (!retryState) {
+        return;
+      }
+
+      const verificacionReintento = detectarPerdidaInjustificada(_lastCloudSnapshot, retryState);
+      if (verificacionReintento.aborta) {
+        console.warn("[saveStateCloud] pérdida potencial persiste tras reintento; abortando save", verificacionReintento.motivo);
+        try {
+          persistAbortedSaveForDiagnostics(
+            verificacionReintento.motivo,
+            verificacionReintento.diagnostico as Record<string, number | undefined> | undefined,
+            _lastCloudSnapshot,
+            retryState,
+          );
+        } catch (err) {
+          console.error("[saveStateCloud] no se pudo persistir aborted-save (reintento):", err);
+        }
+        return;
+      }
+
+      stateToSave = retryState;
     }
 
     const upsertTs = new Date().toISOString();
@@ -452,7 +494,6 @@ export function saveStateCloud(userId: string, state: AppState, onMerged?: (merg
       if (error) {
         console.error("[saveStateCloud] Supabase error:", error.message);
       } else {
-        _lastSelfUpdatedAt = upsertTs;
         persistCloudSnapshot(stateToSave);
         // Backup versionado en cloud (fire-and-forget). El módulo se importa
         // de forma diferida para no acoplar el path crítico de save con la
@@ -598,13 +639,8 @@ export function flushPendingCloudSave(): void {
  * (falta env, falta feature en la tabla, etc.), devuelve un unsubscribe no-op y el polling
  * sigue cubriendo la sincronización como fallback.
  *
- * Detalle de filtrado: cada UPDATE invoca `onRemoteChange`. Adicionalmente, si el
- * `updated_at` del payload es estrictamente posterior al último upsert hecho por
- * ESTE cliente (`_lastSelfUpdatedAt`), emitimos un `CustomEvent`
- * `laguna:remote-newer-detected` en `window` con `{ updatedAt, lastSelfUpdatedAt }`
- * para que la UI pueda mostrar el chip "↻ Cambios remotos disponibles" (Bloque 5
- * multi-sesión). Si el cambio venía de nosotros mismos (mismo ts), no emitimos:
- * sería ruido constante a cada save.
+ * Detalle: cada UPDATE invoca `onRemoteChange` para que el caller
+ * decida si hace `pullAndMerge` inmediato o aplazado por foco.
  */
 export function subscribeToUserDataChanges(
   onRemoteChange: (payload: { updatedAt: string; state?: AppState }) => void,
@@ -626,20 +662,6 @@ export function subscribeToUserDataChanges(
           const row = (payload as { new?: { state?: AppState; updated_at?: string } })?.new;
           if (!row) return;
           const updatedAt = row.updated_at ?? new Date().toISOString();
-          // Detectar si el cambio vino de otra sesión (el chip se basa en esto).
-          const last = _lastSelfUpdatedAt;
-          const fromAnotherSession = !last || updatedAt > last;
-          if (fromAnotherSession && typeof window !== "undefined") {
-            try {
-              window.dispatchEvent(
-                new CustomEvent("laguna:remote-newer-detected", {
-                  detail: { updatedAt, lastSelfUpdatedAt: last },
-                }),
-              );
-            } catch {
-              // noop
-            }
-          }
           onRemoteChange({ updatedAt, state: row.state });
         },
       )

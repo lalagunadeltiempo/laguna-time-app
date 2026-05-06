@@ -22,7 +22,6 @@ import { Buscador } from "@/components/Buscador";
 import { PantallaAyuda } from "@/components/PantallaAyuda";
 import { PantallaArbolObjetivos } from "@/components/PantallaArbolObjetivos";
 import { BackupButton } from "@/components/BackupButton";
-import { HistorialMenu } from "@/components/HistorialMenu";
 
 type Vista = "hoy" | "plan" | "mapa" | "arbol-objetivos" | "urls" | "cuaderno" | "ayuda" | "resultado";
 
@@ -226,8 +225,7 @@ function AppShell({ userId, displayName }: { userId: string; displayName: string
       <PresenceProvider>
       <StaleStepHandler />
       <NotificacionesMensajesHandler />
-      <SaveAbortedAlertHandler />
-      <RemoteNewerChip />
+      <SyncInvisibleToast />
       <div className="flex h-dvh overflow-hidden bg-background text-foreground">
         {/* ── Sidebar (desktop md+) ── */}
         <aside
@@ -506,17 +504,15 @@ function UserFooter({ collapsed }: { collapsed: boolean }) {
 
   return (
     <div className="border-t border-border px-2 py-2">
-      {/* Backup + Historial siempre visibles: red de seguridad anti-pérdida de datos. */}
+      {/* Backup visible. Historial queda fuera de la UI por ahora. */}
       <div className={`mb-1 flex gap-1 ${collapsed ? "flex-col items-center" : "px-1"}`}>
         {collapsed ? (
           <>
             <BackupButton variant="icon" />
-            <HistorialMenu variant="icon" />
           </>
         ) : (
           <>
             <BackupButton variant="sidebar" className="flex-1" />
-            <HistorialMenu variant="sidebar" className="flex-1" />
           </>
         )}
       </div>
@@ -573,141 +569,32 @@ function NotificacionesMensajesHandler() {
   return null;
 }
 
-/**
- * Chip discreto del Bloque 5 multi-sesión: aparece en la esquina
- * superior derecha cuando otra sesión del mismo workspace acaba de
- * publicar un cambio en cloud (Realtime emite
- * `laguna:remote-newer-detected`). Click → dispara
- * `laguna:request-pull-and-merge` (que `AppProvider` escucha y
- * traduce a `pullAndMerge(0)`) y oculta el chip.
- *
- * UX defensiva: la usuaria sabe que hay otra sesión activa antes de
- * meterse en faena. El pull es inmediato, no bloqueante, y respeta la
- * heurística de "no pisar mientras edito" (ver `context.tsx`).
- */
-function RemoteNewerChip() {
+function SyncInvisibleToast() {
   const [visible, setVisible] = useState(false);
-  const [updatedAt, setUpdatedAt] = useState<string | null>(null);
 
   useEffect(() => {
-    function onRemote(ev: Event) {
-      const detail = (ev as CustomEvent<{ updatedAt?: string }>).detail ?? {};
-      setUpdatedAt(detail.updatedAt ?? null);
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    function onSynced() {
       setVisible(true);
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(() => setVisible(false), 1800);
     }
-    window.addEventListener("laguna:remote-newer-detected", onRemote as EventListener);
+    window.addEventListener("laguna:sync-invisible-applied", onSynced as EventListener);
     return () => {
-      window.removeEventListener("laguna:remote-newer-detected", onRemote as EventListener);
+      window.removeEventListener("laguna:sync-invisible-applied", onSynced as EventListener);
+      if (timer) clearTimeout(timer);
     };
   }, []);
 
   if (!visible) return null;
 
-  function handleClick() {
-    try {
-      window.dispatchEvent(new CustomEvent("laguna:request-pull-and-merge"));
-    } catch {
-      // noop
-    }
-    setVisible(false);
-  }
-
   return (
-    <button
-      type="button"
-      onClick={handleClick}
-      title={updatedAt ? `Actualizado ${updatedAt}` : "Cambios remotos disponibles"}
-      aria-label="Cambios remotos disponibles, pulsa para sincronizar"
-      className="fixed right-4 top-3 z-50 flex items-center gap-1.5 rounded-full border border-accent/40 bg-accent/10 px-3 py-1.5 text-[12px] font-medium text-accent shadow-md backdrop-blur transition-colors hover:bg-accent/20"
+    <div
+      role="status"
+      aria-live="polite"
+      className="fixed bottom-4 right-4 z-50 rounded-lg border border-border bg-background/90 px-3 py-2 text-sm text-foreground shadow-lg backdrop-blur transition-opacity duration-150"
     >
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-        <polyline points="23 4 23 10 17 10" />
-        <polyline points="1 20 1 14 7 14" />
-        <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
-      </svg>
-      <span>Cambios remotos disponibles</span>
-    </button>
-  );
-}
-
-/**
- * Alerta no descartable que aparece si la salvaguarda anti-pisada
- * (`saveStateCloud` en `src/lib/store.ts`) bloquea un upsert que
- * habría perdido datos sin tombstone. La alerta sólo se cierra cuando
- * la usuaria pulsa el botón de descarga de backup.
- */
-interface SaveAbortedDetail {
-  motivo?: string;
-  diagnostico?: Record<string, number | undefined>;
-  storageKey?: string;
-}
-
-function SaveAbortedAlertHandler() {
-  const [alerta, setAlerta] = useState<SaveAbortedDetail | null>(null);
-
-  useEffect(() => {
-    function onAborted(ev: Event) {
-      const detail = (ev as CustomEvent<SaveAbortedDetail>).detail ?? {};
-      setAlerta(detail);
-    }
-    window.addEventListener("laguna:save-aborted", onAborted as EventListener);
-    return () => window.removeEventListener("laguna:save-aborted", onAborted as EventListener);
-  }, []);
-
-  if (!alerta) return null;
-
-  const diag = alerta.diagnostico ?? {};
-
-  return (
-    <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/60 px-4 backdrop-blur-sm">
-      <div
-        role="alertdialog"
-        aria-modal="true"
-        aria-labelledby="save-aborted-title"
-        className="w-full max-w-lg rounded-2xl border-2 border-red-500 bg-background p-6 shadow-2xl"
-      >
-        <div className="mb-4 flex items-start gap-3">
-          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-red-100 dark:bg-red-900/30">
-            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#dc2626" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
-              <line x1="12" y1="9" x2="12" y2="13" />
-              <line x1="12" y1="17" x2="12.01" y2="17" />
-            </svg>
-          </div>
-          <div className="min-w-0 flex-1">
-            <h2 id="save-aborted-title" className="text-lg font-bold text-foreground">
-              Guardado bloqueado para proteger tus datos
-            </h2>
-            <p className="mt-1 text-sm text-muted">
-              Se ha bloqueado un guardado que iba a perder datos. Pulsa <span className="font-semibold text-foreground">Backup</span> para guardar tu estado actual y avisa a Cursor con el archivo <code className="rounded bg-surface px-1 py-0.5 text-[11px] text-foreground">{alerta.storageKey ?? "laguna-time-app-aborted-save-*"}</code> que está en localStorage.
-            </p>
-          </div>
-        </div>
-
-        {alerta.motivo && (
-          <div className="mb-3 rounded-lg border border-red-200 bg-red-50 p-3 text-xs text-red-900 dark:border-red-900/50 dark:bg-red-950/30 dark:text-red-200">
-            <span className="font-semibold">Motivo:</span> {alerta.motivo}
-          </div>
-        )}
-
-        {Object.keys(diag).length > 0 && (
-          <div className="mb-4 grid grid-cols-2 gap-2 rounded-lg border border-border bg-surface/50 p-3 text-[11px] text-muted">
-            <div><span className="font-semibold text-foreground">Nodos antes:</span> {String(diag.nodosAntes ?? "—")}</div>
-            <div><span className="font-semibold text-foreground">Nodos después:</span> {String(diag.nodosDespues ?? "—")}</div>
-            <div><span className="font-semibold text-foreground">Con meta antes:</span> {String(diag.nodosConMetaAntes ?? "—")}</div>
-            <div><span className="font-semibold text-foreground">Con meta después:</span> {String(diag.nodosConMetaDespues ?? "—")}</div>
-            <div><span className="font-semibold text-foreground">Relaciones antes:</span> {String(diag.relacionesEntregableHojaAntes ?? "—")}</div>
-            <div><span className="font-semibold text-foreground">Relaciones después:</span> {String(diag.relacionesEntregableHojaDespues ?? "—")}</div>
-          </div>
-        )}
-
-        <div className="flex flex-col gap-2">
-          <BackupButton variant="sidebar" className="!justify-center !py-3 !text-sm" />
-          <p className="text-center text-[11px] text-muted">
-            Esta ventana no se cierra hasta que reinicies la aplicación tras descargar el backup.
-          </p>
-        </div>
-      </div>
+      Sincronizado
     </div>
   );
 }
