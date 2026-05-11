@@ -2,6 +2,13 @@ export function toDateKey(d: Date): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
+/** Fecha calendario local (YYYY-MM-DD) de un instante ISO. No usar `slice(0,10)` sobre el string ISO: en UTC+1/+2 las primeras horas del día local caen en el día anterior en UTC. */
+export function localDateKeyFromIso(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  return toDateKey(d);
+}
+
 export function pad(n: number): string {
   return String(n).padStart(2, "0");
 }

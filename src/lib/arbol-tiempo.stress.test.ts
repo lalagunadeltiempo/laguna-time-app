@@ -30,7 +30,7 @@ const YEAR = 2026;
 // presión por otros tests llega a ~170 ms. Si el código regresa a una
 // variante O(N²) los tiempos crecerán órdenes de magnitud y este margen
 // no salvará el test (que es lo que queremos).
-const CI_MARGIN = 4;
+const CI_MARGIN = 5;
 const config: PlanArbolConfigAnio = {
   anio: YEAR,
   semanasNoActivas: defaultSemanasNoActivas(YEAR),

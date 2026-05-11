@@ -5,7 +5,7 @@ import { useAppState, useAppDispatch } from "@/lib/context";
 import { usePasosActivos, useDependenciasEntrantes, useEsperandoRespuesta, usePlannedBlocks, splitPlannedBlocks, useFocoProyectos, buildClosedPaso, type PlannedBlock } from "@/lib/hooks";
 import { generateId } from "@/lib/store";
 import { useUsuario, useIsMentor } from "@/lib/usuario";
-import { toDateKey } from "@/lib/date-utils";
+import { toDateKey, localDateKeyFromIso } from "@/lib/date-utils";
 import type { InboxItem, Paso, Entregable } from "@/lib/types";
 import { PasoActivoCard } from "./PasoActivo";
 import { EntregableActivoCard } from "./EntregableActivo";
