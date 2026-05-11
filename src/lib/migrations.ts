@@ -1,5 +1,6 @@
 import type { Action } from "./reducer";
 import type { AppState } from "./types";
+import { planearMigracionV28AutorSesiones } from "./migration-plan-v28-autor-sesiones";
 import { EMPTY_ARBOL } from "./types";
 import { DEFAULT_COMUNIDAD_AUTONOMA, defaultSemanasNoActivas } from "./arbol-tiempo";
 import { buildSeedSOPs } from "./seed-sops";
@@ -8,7 +9,7 @@ import { buildEmpresaSeedProyectos } from "./seed-proyectos-empresa";
 import { mondayKey, mesKey, mesesDeTrimestre } from "./semana-utils";
 import { planearDedupSesionesEnEstado } from "./sesion-dedup";
 
-export const CURRENT_MIGRATION = 27;
+export const CURRENT_MIGRATION = 28;
 
 type Dispatch = (action: Action) => void;
 
@@ -84,6 +85,10 @@ export function runMigrations(state: AppState, dispatch: Dispatch): void {
     migrateDedupSesionesEntregable(state, dispatch);
   }
 
+  if (version < 28) {
+    migrateSesionesAsignarAutor(state, dispatch);
+  }
+
   if (version < CURRENT_MIGRATION) {
     dispatch({ type: "SET_MIGRATION_VERSION", version: CURRENT_MIGRATION });
   }
@@ -110,6 +115,12 @@ export function runMigrations(state: AppState, dispatch: Dispatch): void {
 function migrateDedupSesionesEntregable(state: AppState, dispatch: Dispatch): void {
   const { cambios } = planearDedupSesionesEnEstado(state);
   for (const c of cambios) {
+    dispatch({ type: "REPLACE_ENTREGABLE_SESIONES", id: c.id, sesiones: c.sesiones });
+  }
+}
+
+function migrateSesionesAsignarAutor(state: AppState, dispatch: Dispatch): void {
+  for (const c of planearMigracionV28AutorSesiones(state.entregables)) {
     dispatch({ type: "REPLACE_ENTREGABLE_SESIONES", id: c.id, sesiones: c.sesiones });
   }
 }
