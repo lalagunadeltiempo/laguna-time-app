@@ -251,6 +251,7 @@ export function EditarSesionPopover({
   onClose,
 }: EditarSesionPopoverProps) {
   const dispatch = useAppDispatch();
+  const { nombre: currentUser } = useUsuario();
   const [inicio, setInicio] = useState(() => toLocalDateTimeStr(new Date(inicioTsActual)));
   const abiertaInicial = finTsActual === null;
   const [sigueEnCurso, setSigueEnCurso] = useState<boolean>(abiertaInicial);
@@ -286,6 +287,7 @@ export function EditarSesionPopover({
       sesionIdx,
       inicioTs,
       finTs,
+      editor: currentUser,
     });
     onClose();
   }

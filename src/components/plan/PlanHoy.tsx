@@ -16,6 +16,7 @@ import { useMensajesNoLeidos } from "../shared/HiloEntregable";
 import { HoraTextInput } from "../shared/HoraTextInput";
 import { usePresenciaEntregable } from "@/lib/presence";
 import { legacySesionId } from "@/lib/sesion-id";
+import { sesionMatchesDateKeyLocal, sesionMatchesTargetUser } from "./plan-hoy-sesion-filter";
 
 function addDays(d: Date, n: number) { const r = new Date(d); r.setDate(r.getDate() + n); return r; }
 
@@ -238,7 +239,8 @@ export function PlanHoy({ selectedDate }: Props) {
       const sesiones = Array.isArray(ent.sesiones) ? ent.sesiones : [];
       for (let idx = 0; idx < sesiones.length; idx++) {
         const s = sesiones[idx];
-        if (s.inicioTs.slice(0, 10) !== dateKey) continue;
+        if (!sesionMatchesDateKeyLocal(s, dateKey)) continue;
+        if (!sesionMatchesTargetUser(s, ent, targetUser)) continue;
         const isDone = s.finTs !== null;
         const res = resultados.find((r) => r.id === ent.resultadoId);
         const proj = res ? proyectos.find((pr) => pr.id === res.proyectoId) : undefined;
@@ -838,6 +840,7 @@ function SesionTimeInline({
   durationLabel?: string;
 }) {
   const dispatch = useAppDispatch();
+  const { nombre: currentUser } = useUsuario();
   const inicioVal = hhmmFromIso(inicioTs);
   const finVal = hhmmFromIso(finTs);
 
@@ -852,6 +855,7 @@ function SesionTimeInline({
       sesionIdx,
       inicioTs: inicioIso,
       finTs: finIso,
+      editor: currentUser,
     });
   }
 

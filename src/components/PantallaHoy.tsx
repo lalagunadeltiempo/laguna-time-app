@@ -66,7 +66,7 @@ export function PantallaHoy() {
       if (!Array.isArray(e.sesiones)) continue;
       for (const s of e.sesiones) {
         if (s.finTs !== null) continue;
-        const day = (s.inicioTs ?? "").slice(0, 10);
+        const day = localDateKeyFromIso(s.inicioTs ?? "");
         if (!day || day >= todayKey) continue;
         stale.push({ entregableId: e.id, inicioTs: s.inicioTs });
       }
@@ -89,8 +89,14 @@ export function PantallaHoy() {
   const entregablesEnCurso: Entregable[] = useMemo(() => {
     return state.entregables.filter((e) => {
       if (e.estado === "hecho" || e.estado === "cancelada") return false;
-      const tieneSesionAbierta = Array.isArray(e.sesiones) && e.sesiones.some((s) => s.finTs === null);
-      if (!tieneSesionAbierta) return false;
+      const sesiones = Array.isArray(e.sesiones) ? e.sesiones : [];
+      const sesionAbiertaDe = (u: string | null) =>
+        sesiones.some((s) => {
+          if (s.finTs !== null) return false;
+          if (u === null) return true;
+          return (s.autor ?? e.responsable) === u;
+        });
+      if (!sesionAbiertaDe(targetUser === null ? null : targetUser)) return false;
       if (targetUser === null) return true;
       if (e.responsable === targetUser) return true;
       return state.pasos.some((p) => p.entregableId === e.id && p.responsable === targetUser);
@@ -120,7 +126,9 @@ export function PantallaHoy() {
       if (!esDelTarget) continue;
       const sesiones = Array.isArray(ent.sesiones) ? ent.sesiones : [];
       const tieneSesionHoy = sesiones.some(
-        (s) => s.finTs !== null && (s.inicioTs ?? "").slice(0, 10) === todayKey,
+        (s) => s.finTs !== null
+          && localDateKeyFromIso(s.inicioTs ?? "") === todayKey
+          && (targetUser === null || (s.autor ?? ent.responsable) === targetUser),
       );
       if (tieneSesionHoy) ids.add(ent.id);
     }
@@ -617,7 +625,7 @@ function EndOfDayFlow({
   }
 
   function closeEntregableManana(e: Entregable) {
-    dispatch({ type: "END_ENTREGABLE_SESION", id: e.id });
+    dispatch({ type: "END_ENTREGABLE_SESION", id: e.id, autor: currentUser });
     dispatch({ type: "OCULTAR_ENTREGABLE_HASTA", id: e.id, hasta: todayKey });
   }
 
@@ -626,7 +634,7 @@ function EndOfDayFlow({
       dispatch({ type: "CLOSE_PASO", payload: buildClosedPaso(paso) });
     }
     for (const e of entregablesEnCurso) {
-      dispatch({ type: "END_ENTREGABLE_SESION", id: e.id });
+      dispatch({ type: "END_ENTREGABLE_SESION", id: e.id, autor: currentUser });
       dispatch({ type: "OCULTAR_ENTREGABLE_HASTA", id: e.id, hasta: todayKey });
     }
     onClose();

@@ -10,6 +10,7 @@ import { AmbitoToggle, ResponsableToggle, type AmbitoFilter, type ResponsableFil
 import { WeekBlockSheet, type WeekBlockInfo } from "./WeekBlockSheet";
 import { subtituloEntregable } from "@/lib/display";
 import { diasDe } from "@/lib/hooks";
+import { localDateKeyFromIso } from "@/lib/date-utils";
 import { WeekDayChips } from "./WeekDayChips";
 
 const DAYS = ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"];
@@ -192,7 +193,8 @@ export function PlanSemana({ selectedDate, onOpenInMapa }: Props) {
       if (Array.isArray(ent.sesiones)) {
         for (const s of ent.sesiones) {
           if (!s.finTs) continue;
-          const k = (s.inicioTs ?? "").slice(0, 10);
+          if (targetUser !== null && (s.autor ?? ent.responsable) !== targetUser) continue;
+          const k = localDateKeyFromIso(s.inicioTs ?? "");
           if (k) diasConSesionCerrada.add(k);
         }
       }
@@ -242,7 +244,8 @@ export function PlanSemana({ selectedDate, onOpenInMapa }: Props) {
       const diasUsados = diasUsadosPorEnt.get(ent.id) ?? new Set<string>();
       const diasConSesion = new Set<string>();
       for (const s of ent.sesiones) {
-        const k = (s.inicioTs ?? "").slice(0, 10);
+        if (targetUser !== null && (s.autor ?? ent.responsable) !== targetUser) continue;
+        const k = localDateKeyFromIso(s.inicioTs ?? "");
         if (k) diasConSesion.add(k);
       }
       for (const k of diasConSesion) {

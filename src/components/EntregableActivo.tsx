@@ -7,7 +7,7 @@ import { useUsuario } from "@/lib/usuario";
 import { generateId } from "@/lib/store";
 import type { Contexto, Implicado, UrlRef, Entregable, Paso, SesionEntregable, PausaEntry, Nota } from "@/lib/types";
 import { AREA_COLORS } from "@/lib/types";
-import { toDateKey } from "@/lib/date-utils";
+import { toDateKey, localDateKeyFromIso } from "@/lib/date-utils";
 import { Timer } from "./Timer";
 import { NotasSection } from "./shared/NotasSection";
 import { HiloEntregable } from "./shared/HiloEntregable";
@@ -140,31 +140,28 @@ export function EntregableActivoCard({ entregable, mode = "trabajo" }: Props) {
     () => Array.isArray(entregable.sesiones) ? entregable.sesiones : [],
     [entregable.sesiones],
   );
-  // Mi sesión abierta: prioriza la propia (autor === currentUser). Si no
-  // tengo pero sí hay una heredada sin autor (pre-migración), la adopto
-  // para que el flujo de "pausar/cerrar" siga funcionando en datos antiguos.
+  // Mi sesión abierta: `autor` explícito o, en legacy sin autor, la del responsable del entregable.
   const sesionAbierta = useMemo(() => {
-    const mia = sesiones.find((s) => s.finTs === null && s.autor === currentUser);
-    if (mia) return mia;
-    const huerfana = sesiones.find((s) => s.finTs === null && !s.autor);
-    return huerfana ?? null;
-  }, [sesiones, currentUser]);
+    return sesiones.find(
+      (s) => s.finTs === null && (s.autor ?? entregable.responsable) === currentUser,
+    ) ?? null;
+  }, [sesiones, currentUser, entregable.responsable]);
   const pausasSesion: PausaEntry[] = sesionAbierta?.pausas ?? [];
   // Sesiones abiertas de otros miembros (informativo en la cabecera).
-  const sesionesOtros = useMemo(
-    () =>
-      sesiones.filter(
-        (s) => s.finTs === null && s.autor && s.autor !== currentUser,
-      ),
-    [sesiones, currentUser],
-  );
+  const sesionesOtros = useMemo(() => {
+    return sesiones.filter((s) => {
+      if (s.finTs !== null) return false;
+      const due = s.autor ?? entregable.responsable;
+      return !!due && due !== currentUser;
+    });
+  }, [sesiones, currentUser, entregable.responsable]);
 
   // Heartbeat de la sesión propia mientras esté abierta. Se usa para
   // identificar sesiones huérfanas (cliente que cerró sin pulsar "Cerrar").
   // Cada 45s mandamos un tick. En producción el reducer lo persiste y el
   // merge elige el más reciente.
   useEffect(() => {
-    const mia = sesionAbierta && sesionAbierta.autor === currentUser;
+    const mia = sesionAbierta && (sesionAbierta.autor ?? entregable.responsable) === currentUser;
     if (!mia) return;
     const emit = () => {
       dispatch({ type: "SESION_HEARTBEAT", id: entregable.id, autor: currentUser });
@@ -172,7 +169,7 @@ export function EntregableActivoCard({ entregable, mode = "trabajo" }: Props) {
     emit();
     const id = setInterval(emit, 45000);
     return () => clearInterval(id);
-  }, [sesionAbierta, currentUser, entregable.id, dispatch]);
+  }, [sesionAbierta, currentUser, entregable.id, entregable.responsable, dispatch]);
   const isPaused = !!pausasSesion.length && !pausasSesion[pausasSesion.length - 1].resumeTs;
 
   const [expanded, setExpanded] = useState(isDetalle);
@@ -1013,7 +1010,7 @@ function SesionesEntregableHistory({ sesiones, borderColor, hideTitle, entregabl
   type SesionConIdx = { s: SesionEntregable; globalIdx: number };
   const byDay = new Map<string, SesionConIdx[]>();
   sesiones.forEach((s, globalIdx) => {
-    const k = s.inicioTs.slice(0, 10);
+    const k = localDateKeyFromIso(s.inicioTs);
     const arr = byDay.get(k) ?? [];
     arr.push({ s, globalIdx });
     byDay.set(k, arr);

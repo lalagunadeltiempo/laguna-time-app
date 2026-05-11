@@ -26,7 +26,7 @@ import type {
 } from "./types";
 import { PLAN_CONFIG_DEFAULT, EMPTY_ARBOL } from "./types";
 import { minutosEfectivos } from "./duration";
-import { toDateKey } from "./date-utils";
+import { localDateKeyFromIso, toDateKey } from "./date-utils";
 import { mesKey, mesesDeTrimestre, mondayKey, trimestreDeMes } from "./semana-utils";
 import {
   clonarEstructuraDeAnioAnterior,
@@ -74,7 +74,7 @@ export type Action =
   /** Edita los timestamps de una sesión concreta (por índice).
    *  - `inicioTs` se actualiza siempre.
    *  - `finTs` puede ser null → la sesión vuelve/sigue en curso. */
-  | { type: "UPDATE_SESION_ENTREGABLE_TIMES"; id: string; sesionIdx: number; inicioTs: string; finTs: string | null }
+  | { type: "UPDATE_SESION_ENTREGABLE_TIMES"; id: string; sesionIdx: number; inicioTs: string; finTs: string | null; editor?: string }
   /** Auto-cierra sesiones que quedaron abiertas en días anteriores a hoy.
    *  Cada sesión abierta cuyo `inicioTs` cae antes de `todayKey` se cierra
    *  con `finTs = ${diaInicio}T23:59:59` (en hora local). El entregable
@@ -913,7 +913,7 @@ export function reducer(state: AppState, action: Action): AppState {
     }
 
     case "UPDATE_SESION_ENTREGABLE_TIMES": {
-      const { id, sesionIdx, inicioTs, finTs } = action;
+      const { id, sesionIdx, inicioTs, finTs, editor } = action;
       if (!inicioTs) return state;
       // Si hay fin, debe ser posterior al inicio.
       if (finTs !== null && new Date(finTs).getTime() <= new Date(inicioTs).getTime()) return state;
@@ -924,6 +924,7 @@ export function reducer(state: AppState, action: Action): AppState {
           const sesiones = Array.isArray(e.sesiones) ? [...e.sesiones] : [];
           if (sesionIdx < 0 || sesionIdx >= sesiones.length) return e;
           const ses = sesiones[sesionIdx];
+          if (editor && ses.autor && ses.autor !== editor) return e;
           const stableId = ses.id ?? legacySesionId(e.id, ses);
           sesiones[sesionIdx] = { ...ses, id: stableId, inicioTs, finTs };
           // Mantener orden cronológico.
@@ -949,7 +950,7 @@ export function reducer(state: AppState, action: Action): AppState {
         let mutated = false;
         const next = sesiones.map((s) => {
           if (s.finTs !== null) return s;
-          const inicioDay = (s.inicioTs ?? "").slice(0, 10);
+          const inicioDay = localDateKeyFromIso(s.inicioTs ?? "");
           if (!inicioDay || inicioDay >= todayKey) return s;
           mutated = true;
           cambios++;

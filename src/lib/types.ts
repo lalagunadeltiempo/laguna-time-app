@@ -217,10 +217,10 @@ export interface SesionEntregable {
   inicioTs: string;          // ISO
   finTs: string | null;      // null mientras la sesión está en curso
   pausas?: PausaEntry[];     // pausas dentro de la sesión
-  /** Miembro del equipo que abrió esta sesión. Se añadió para que varias
-   *  personas puedan tener una sesión abierta a la vez en el mismo
-   *  entregable sin pisarse el cronómetro. Si falta, es una sesión antigua
-   *  creada antes de la migración (se trata como "sin dueño claro"). */
+  /** Miembro del equipo que abrió esta sesión. Varias personas pueden tener
+   *  sesiones abiertas a la vez en el mismo entregable. Si falta (`legacy`),
+   *  se trata como sesión atribuida al `responsable` del entregable para
+   *  filtros y cronómetro (migración v28 rellena `autor` cuando hay responsable). */
   autor?: string;
   /** Último heartbeat ISO que emite el cliente dueño de la sesión mientras
    *  la tiene abierta. Se usa para cerrar automáticamente sesiones huérfanas
