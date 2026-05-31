@@ -6,6 +6,7 @@ import { AREAS_PERSONAL, AREAS_EMPRESA, ambitoDeArea, AREA_COLORS, type Area, ty
 import { useUsuario } from "./usuario";
 import { getSOPsHoy, getSOPsDemanda, type SOPHoy } from "./sop-scheduler";
 import { toDateKey } from "./date-utils";
+import { rutinaApareceEnDia } from "./rutina-utils";
 import { subtituloEntregable } from "./display";
 import type { PlantillaProceso } from "./types";
 
@@ -525,6 +526,14 @@ export function usePlannedBlocks(dateKey: string, targetUser?: string | null): P
           if (ent.fechaInicio === dateKey) hoy = true;
           else if (ent.fechaInicio < dateKey) arrastrado = true;
         }
+      }
+
+      // Rutinas: aparecen solas cada día laborable del mes activo, sin
+      // rellenar `diasPlanificadosByUser`. No generan "arrastrado": cada día
+      // aplicable es un "hoy" fresco.
+      if (rutinaApareceEnDia(ent, dateKey)) {
+        hoy = true;
+        arrastrado = false;
       }
 
       // Señales procedentes de pasos (legacy next-* / pending-*).

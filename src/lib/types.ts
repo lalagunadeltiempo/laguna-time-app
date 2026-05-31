@@ -138,7 +138,19 @@ export interface Resultado {
   semanasExplicitas?: string[];
 }
 
-export type TipoEntregable = "raw" | "sop" | "a-sop";
+export type TipoEntregable = "raw" | "sop" | "a-sop" | "rutina";
+
+/** Snapshot ligero de lo archivado de una rutina al cerrar un mes.
+ *  Permite consultar el histórico sin que el contexto vivo crezca infinito. */
+export interface HistoricoRutinaMes {
+  /** Mes archivado en formato "YYYY-MM". */
+  mes: string;
+  /** ISO del momento en que se cerró el mes. */
+  cerradoTs: string;
+  notas: Nota[];
+  urls: UrlRef[];
+  pasos: { nombre: string }[];
+}
 
 export interface Entregable {
   id: string;
@@ -208,6 +220,15 @@ export interface Entregable {
    * El contexto común (`contexto.notas`, URLs, apps) sigue siendo el "Compartido".
    */
   pizarraByUser?: Record<string, string>;
+  /** Si `tipo === "rutina"`: mes ("YYYY-MM") para el que la rutina está abierta.
+   *  Mientras coincide con el mes de la fecha, la rutina aparece sola cada día
+   *  laborable en HOY sin rellenar `diasPlanificadosByUser`. */
+  mesActivoRutina?: string;
+  /** Días de la semana (1=lunes .. 7=domingo) en los que aparece la rutina.
+   *  Por defecto L-V (`[1,2,3,4,5]`). */
+  diasSemanaRutina?: number[];
+  /** Meses anteriores archivados de la rutina (notas, URLs y pasos en sólo lectura). */
+  historicoRutina?: HistoricoRutinaMes[];
 }
 
 /** Sesión de trabajo sobre un entregable: cronómetro + pausas. */

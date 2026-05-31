@@ -17,6 +17,7 @@ import { ChipMiembro, ResponsableSelect } from "./plan/InlineEditors";
 import { useFocoEntregable, usePresenciaEntregable } from "@/lib/presence";
 import { RegistrarSesionIconButton, EditarSesionPopover } from "./shared/RegistrarSesionPopover";
 import { EntregableHojasArbolPicker } from "./arbol/EntregableHojasArbolPicker";
+import { RutinaPanel } from "./shared/RutinaPanel";
 
 interface Props {
   entregable: Entregable;
@@ -603,6 +604,10 @@ export function EntregableActivoCard({ entregable, mode = "trabajo" }: Props) {
               className="text-sm font-medium text-zinc-800 dark:text-zinc-200"
             />
           </div>
+
+          {/* Rutina: subir a rutina / ciclo mensual + histórico */}
+          <RutinaPanel entregable={entregable} />
+
 
           {/* Progreso */}
           <div className="flex items-center gap-2">

@@ -25,7 +25,9 @@ import type {
   SesionEntregable,
   FranjaDia,
   RegistroProductividad,
+  HistoricoRutinaMes,
 } from "./types";
+import { DIAS_SEMANA_RUTINA_DEFAULT } from "./rutina-utils";
 import { PLAN_CONFIG_DEFAULT, EMPTY_ARBOL } from "./types";
 import { minutosEfectivos } from "./duration";
 import { localDateKeyFromIso, toDateKey } from "./date-utils";
@@ -58,7 +60,7 @@ export type Action =
   | { type: "UPDATE_PASO"; id: string; changes: Partial<Pick<Paso, "nombre" | "responsable">> }
   | { type: "DELETE_PASO"; id: string }
   | { type: "RENAME_ENTREGABLE"; id: string; nombre: string }
-  | { type: "UPDATE_ENTREGABLE"; id: string; changes: Partial<Pick<Entregable, "nombre" | "responsable" | "tipo" | "plantillaId" | "diasEstimados" | "estado" | "fechaLimite" | "fechaInicio" | "planNivel" | "semana" | "fechaCompromiso" | "semanasActivas" | "diasPlanificados" | "planInicioTs" | "diasPlanificadosByUser" | "planInicioTsByUser">> }
+  | { type: "UPDATE_ENTREGABLE"; id: string; changes: Partial<Pick<Entregable, "nombre" | "responsable" | "tipo" | "plantillaId" | "diasEstimados" | "estado" | "fechaLimite" | "fechaInicio" | "planNivel" | "semana" | "fechaCompromiso" | "semanasActivas" | "diasPlanificados" | "planInicioTs" | "diasPlanificadosByUser" | "planInicioTsByUser" | "mesActivoRutina" | "diasSemanaRutina">> }
   | { type: "OCULTAR_ENTREGABLE_HASTA"; id: string; hasta: string | null }
   // --- Sesiones del entregable (cronómetro al nivel de entregable) ---
   | { type: "START_ENTREGABLE"; id: string; ts?: string; autor?: string }
@@ -159,6 +161,18 @@ export type Action =
   | { type: "UPDATE_NOTA"; nivel: "paso" | "entregable" | "resultado" | "proyecto" | "plantilla"; targetId: string; notaId: string; changes: Partial<Pick<Nota, "texto" | "titulo">> }
   | { type: "REORDER_NOTA"; nivel: "paso" | "entregable" | "resultado" | "proyecto" | "plantilla"; targetId: string; notaId: string; direction: "up" | "down" }
   | { type: "CONVERT_ENTREGABLE_TO_SOP"; entregableId: string }
+  /** Marca un entregable como rutina: tipo "rutina", `mesActivoRutina` al mes
+   *  indicado (o el actual) y `diasSemanaRutina` por defecto L-V si no había. */
+  | { type: "CONVERT_ENTREGABLE_TO_RUTINA"; entregableId: string; mes?: string }
+  /** Ciclo mensual de una rutina: archiva {mes, notas, urls, pasos} actuales en
+   *  `historicoRutina` y conserva en el entregable sólo lo seleccionado para el
+   *  mes entrante. Actualiza `mesActivoRutina`. */
+  | {
+      type: "ROLAR_RUTINA_MES";
+      id: string;
+      nuevoMes: string;
+      mantener: { notas: string[]; urls: string[]; pasos: string[] };
+    }
   | { type: "SYNC_ENTREGABLE_TO_PLANTILLA"; entregableId: string }
   | { type: "LOG_ACTIVITY"; entry: ActivityEntry }
   | { type: "MATERIALIZE_SOP"; plantillaId: string; area: Area; responsable: string; currentUser: string; dateKey: string; ids: { resultado: string; entregable: string; paso: string; proyecto: string }; proyectoId?: string; resultadoId?: string; autoStart?: boolean; customName?: string }
@@ -1609,6 +1623,76 @@ export function reducer(state: AppState, action: Action): AppState {
         entregables: state.entregables.map((e) =>
           e.id === action.entregableId ? { ...e, tipo: "sop" as const, plantillaId } : e
         ),
+      };
+    }
+
+    // --- Rutinas: entregable de tipo "rutina" con ciclo mensual ---
+    case "CONVERT_ENTREGABLE_TO_RUTINA": {
+      const ent = state.entregables.find((e) => e.id === action.entregableId);
+      if (!ent) return state;
+      const mes = action.mes ?? mesKey(toDateKey(new Date())) ?? ent.mesActivoRutina;
+      return {
+        ...state,
+        entregables: state.entregables.map((e) =>
+          e.id === action.entregableId
+            ? {
+                ...e,
+                tipo: "rutina" as const,
+                mesActivoRutina: mes ?? undefined,
+                diasSemanaRutina:
+                  e.diasSemanaRutina && e.diasSemanaRutina.length > 0
+                    ? e.diasSemanaRutina
+                    : [...DIAS_SEMANA_RUTINA_DEFAULT],
+              }
+            : e,
+        ),
+      };
+    }
+
+    case "ROLAR_RUTINA_MES": {
+      const ent = state.entregables.find((e) => e.id === action.id);
+      if (!ent || ent.tipo !== "rutina") return state;
+      const now = new Date().toISOString();
+      const mesArchivado = ent.mesActivoRutina ?? mesKey(toDateKey(new Date())) ?? "";
+      const pasosEnt = state.pasos.filter((p) => p.entregableId === ent.id);
+      const notasActuales = ent.notas ?? [];
+      const urlsActuales = ent.contexto?.urls ?? [];
+
+      const snapshot: HistoricoRutinaMes = {
+        mes: mesArchivado,
+        cerradoTs: now,
+        notas: notasActuales,
+        urls: urlsActuales,
+        pasos: pasosEnt.map((p) => ({ nombre: p.nombre })),
+      };
+
+      const mantenerNotas = new Set(action.mantener.notas);
+      const mantenerUrls = new Set(action.mantener.urls);
+      const mantenerPasos = new Set(action.mantener.pasos);
+
+      const historico = (ent.historicoRutina ?? []).filter((h) => h.mes !== mesArchivado);
+      historico.push(snapshot);
+      historico.sort((a, b) => a.mes.localeCompare(b.mes));
+
+      const pasosEliminarSet = new Set(
+        pasosEnt.filter((p) => !mantenerPasos.has(p.id)).map((p) => p.id),
+      );
+
+      const nextEnt: Entregable = {
+        ...ent,
+        mesActivoRutina: action.nuevoMes,
+        notas: notasActuales.filter((n) => mantenerNotas.has(n.id)),
+        contexto: ent.contexto
+          ? { ...ent.contexto, urls: urlsActuales.filter((u) => mantenerUrls.has(u.url)) }
+          : ent.contexto,
+        historicoRutina: historico,
+      };
+
+      return {
+        ...state,
+        entregables: state.entregables.map((e) => (e.id === ent.id ? nextEnt : e)),
+        pasos: state.pasos.filter((p) => !pasosEliminarSet.has(p.id)),
+        pasosActivos: state.pasosActivos.filter((id) => !pasosEliminarSet.has(id)),
       };
     }
 

@@ -1,5 +1,6 @@
 import type {
   AppState,
+  HistoricoRutinaMes,
   MensajeEntregable,
   NodoArbol,
   Nota,
@@ -405,6 +406,21 @@ function unionConfigs(a: PlanArbolConfigAnio[], b: PlanArbolConfigAnio[]): PlanA
  * - pasos prefieren el que esté cerrado; a igualdad, el de inicioTs más reciente.
  * - tombstones se unen.
  */
+/** Une el histórico de rutina de dos copias del entregable: unión por `mes`,
+ *  conservando para cada mes la entrada con `cerradoTs` más reciente. */
+function unirHistoricoRutina(
+  a: HistoricoRutinaMes[] | undefined,
+  b: HistoricoRutinaMes[] | undefined,
+): HistoricoRutinaMes[] | undefined {
+  if (!a?.length && !b?.length) return undefined;
+  const map = new Map<string, HistoricoRutinaMes>();
+  for (const h of [...(a ?? []), ...(b ?? [])]) {
+    const prev = map.get(h.mes);
+    if (!prev || (h.cerradoTs ?? "") >= (prev.cerradoTs ?? "")) map.set(h.mes, h);
+  }
+  return Array.from(map.values()).sort((x, y) => x.mes.localeCompare(y.mes));
+}
+
 export function mergeStates(a: AppState, b: AppState): AppState {
   function unionById<T extends { id: string }>(arrA: T[], arrB: T[], prefer?: (x: T, y: T) => T): T[] {
     const map = new Map<string, T>();
@@ -576,10 +592,19 @@ export function mergeStates(a: AppState, b: AppState): AppState {
     const semanasActivas = Array.from(new Set<string>(semanasActivasRaw)).sort();
     const semana = winner.semana !== undefined ? winner.semana : (loser.semana ?? null);
 
+    // Campos de rutina: preferimos el valor definido (si el winner top-level no
+    // los trae pero el loser sí, no los perdemos). El histórico se une por mes.
+    const mesActivoRutina = winner.mesActivoRutina ?? loser.mesActivoRutina;
+    const diasSemanaRutina = winner.diasSemanaRutina ?? loser.diasSemanaRutina;
+    const historicoRutina = unirHistoricoRutina(winner.historicoRutina, loser.historicoRutina);
+
     return {
       ...winner,
       semana,
       semanasActivas,
+      ...(mesActivoRutina !== undefined ? { mesActivoRutina } : {}),
+      ...(diasSemanaRutina !== undefined ? { diasSemanaRutina } : {}),
+      ...(historicoRutina ? { historicoRutina } : {}),
       ...(diasPlanificadosByUser ? { diasPlanificadosByUser } : {}),
       ...(planInicioTsByUser ? { planInicioTsByUser } : {}),
       ...(notas.length || winner.notas ? { notas } : {}),
