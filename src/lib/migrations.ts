@@ -1,6 +1,7 @@
 import type { Action } from "./reducer";
 import type { AppState } from "./types";
 import { planearMigracionV28AutorSesiones } from "./migration-plan-v28-autor-sesiones";
+import { planearSeedFranjasV29 } from "./migration-plan-v29-franjas";
 import { EMPTY_ARBOL } from "./types";
 import { DEFAULT_COMUNIDAD_AUTONOMA, defaultSemanasNoActivas } from "./arbol-tiempo";
 import { buildSeedSOPs } from "./seed-sops";
@@ -9,7 +10,7 @@ import { buildEmpresaSeedProyectos } from "./seed-proyectos-empresa";
 import { mondayKey, mesKey, mesesDeTrimestre } from "./semana-utils";
 import { planearDedupSesionesEnEstado } from "./sesion-dedup";
 
-export const CURRENT_MIGRATION = 28;
+export const CURRENT_MIGRATION = 29;
 
 type Dispatch = (action: Action) => void;
 
@@ -89,6 +90,10 @@ export function runMigrations(state: AppState, dispatch: Dispatch): void {
     migrateSesionesAsignarAutor(state, dispatch);
   }
 
+  if (version < 29) {
+    migrateSeedFranjas(state, dispatch);
+  }
+
   if (version < CURRENT_MIGRATION) {
     dispatch({ type: "SET_MIGRATION_VERSION", version: CURRENT_MIGRATION });
   }
@@ -123,6 +128,16 @@ function migrateSesionesAsignarAutor(state: AppState, dispatch: Dispatch): void 
   for (const c of planearMigracionV28AutorSesiones(state.entregables)) {
     dispatch({ type: "REPLACE_ENTREGABLE_SESIONES", id: c.id, sesiones: c.sesiones });
   }
+}
+
+/**
+ * Migración v29: siembra las 8 franjas de time blocking por defecto si el
+ * estado todavía no tiene ninguna. Idempotente: si ya hay franjas, no toca
+ * nada (respeta las que la usuaria haya editado).
+ */
+function migrateSeedFranjas(state: AppState, dispatch: Dispatch): void {
+  const franjas = planearSeedFranjasV29(state.franjas);
+  if (franjas) dispatch({ type: "SET_FRANJAS", franjas });
 }
 
 /**

@@ -804,6 +804,12 @@ export function mergeStates(a: AppState, b: AppState): AppState {
       ),
     },
     pasosActivos: Array.from(new Set([...a.pasosActivos, ...b.pasosActivos])).filter((id) => !delPas.has(id)),
+    // Franjas de time blocking: unión por id. En conflicto de id gana la
+    // copia de `a` (en `saveStateCloud`, `a` = estado local: las ediciones
+    // locales de una franja prevalecen sobre la copia de la nube).
+    ...((a.franjas?.length || b.franjas?.length)
+      ? { franjas: unionById(a.franjas ?? [], b.franjas ?? []) }
+      : {}),
     deleted,
     _migrationVersion: Math.max(a._migrationVersion ?? 0, b._migrationVersion ?? 0),
   };

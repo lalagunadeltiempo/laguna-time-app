@@ -621,6 +621,18 @@ export interface DeletedTombstones {
   entregableHojaLinks?: Record<string, string>;
 }
 
+/** Franja fija de time blocking del día. Igual todos los días (editable).
+ *  Se pinta como banda de color de fondo en el grid 24h de Hoy y en las
+ *  columnas de día de Semana. `inicio`/`fin` en formato "HH:MM" (hora local). */
+export interface FranjaDia {
+  id: string;
+  nombre: string;
+  inicio: string;
+  fin: string;
+  color: string;
+  descripcion?: string;
+}
+
 export interface AppState {
   ambitoLabels: AmbitoLabels;
   proyectos: Proyecto[];
@@ -639,6 +651,8 @@ export interface AppState {
   arbol: PlanArbolState;
   deleted?: DeletedTombstones;
   planConfig?: PlanConfig;
+  /** Franjas de time blocking del día (bandas de color en Hoy y Semana). */
+  franjas?: FranjaDia[];
   mtp?: string;
   _migrationVersion?: number;
 }

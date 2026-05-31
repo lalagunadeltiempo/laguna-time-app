@@ -12,6 +12,7 @@ import { subtituloEntregable } from "@/lib/display";
 import { diasDe } from "@/lib/hooks";
 import { localDateKeyFromIso } from "@/lib/date-utils";
 import { WeekDayChips } from "./WeekDayChips";
+import { FranjasBar } from "@/components/shared/FranjasBar";
 
 const DAYS = ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"];
 
@@ -64,6 +65,7 @@ export function PlanSemana({ selectedDate, onOpenInMapa }: Props) {
   const [showDone, setShowDone] = useState(true);
   const [pickDay, setPickDay] = useState<string | null>(null);
   const [confirmSOP, setConfirmSOP] = useState<{ sop: ProjectedSOP; dateKey: string } | null>(null);
+  const franjas = useMemo(() => state.franjas ?? [], [state.franjas]);
   const [carryOverDismissed, setCarryOverDismissed] = useState<string | null>(null);
   useEffect(() => {
     try { setCarryOverDismissed(localStorage.getItem("laguna-carryover-dismissed")); }
@@ -927,6 +929,8 @@ export function PlanSemana({ selectedDate, onOpenInMapa }: Props) {
                 <div className={`h-1 rounded-full transition-all ${loadPercent > 80 ? "bg-red-500" : loadPercent > 50 ? "bg-amber-500" : "bg-green-500"}`}
                   style={{ width: `${loadPercent}%` }} />
               </div>
+
+              {franjas.length > 0 && <FranjasBar franjas={franjas} className="mb-2" />}
 
               <div className="flex flex-1 flex-col gap-1">
                 {areaOrder.map((area) => {

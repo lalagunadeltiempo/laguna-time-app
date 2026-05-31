@@ -17,6 +17,7 @@ import { HoraTextInput } from "../shared/HoraTextInput";
 import { usePresenciaEntregable } from "@/lib/presence";
 import { legacySesionId } from "@/lib/sesion-id";
 import { sesionMatchesDateKeyLocal, sesionMatchesTargetUser } from "./plan-hoy-sesion-filter";
+import { franjaParaHora, minutosDeHHMM } from "@/lib/franjas";
 
 function addDays(d: Date, n: number) { const r = new Date(d); r.setDate(r.getDate() + n); return r; }
 
@@ -144,6 +145,7 @@ export function PlanHoy({ selectedDate }: Props) {
   const scrollRef = useRef<HTMLDivElement>(null);
 
   const dateKey = useMemo(() => toDateKey(selectedDate), [selectedDate]);
+  const franjas = useMemo(() => state.franjas ?? [], [state.franjas]);
 
   // Orden manual de los entregables "Sin hora" para `editUsuario` + `dateKey`.
   // Se persiste en localStorage. La lista contiene `entregableId`s; lo que no
@@ -603,10 +605,19 @@ export function PlanHoy({ selectedDate }: Props) {
         </h3>
         {HOURS.map((hour) => {
           const hourBlocks = executedBlocks.filter((b) => b.hour === hour);
+          const franja = franjaParaHora(franjas, hour);
+          const esInicioFranja = !!franja && minutosDeHHMM(franja.inicio) === hour * 60;
           return (
-            <div key={hour} data-hour={hour} className="relative flex min-h-[44px] border-b border-border/50 last:border-b-0">
-              <div className="flex w-14 shrink-0 items-start justify-end pr-3 pt-1">
+            <div key={hour} data-hour={hour}
+              className="relative flex min-h-[44px] border-b border-l-[3px] border-border/50 last:border-b-0"
+              style={franja ? { borderLeftColor: franja.color, backgroundColor: franja.color + "0a" } : { borderLeftColor: "transparent" }}>
+              <div className="flex w-14 shrink-0 flex-col items-end justify-start pr-3 pt-1">
                 <span className="text-xs font-medium text-muted">{String(hour).padStart(2, "0")}:00</span>
+                {esInicioFranja && (
+                  <span className="mt-0.5 text-right text-[9px] font-semibold uppercase leading-tight tracking-wide" style={{ color: franja!.color }} title={franja!.descripcion}>
+                    {franja!.nombre}
+                  </span>
+                )}
               </div>
               <div className="flex-1 px-2 py-1">
                 {hourBlocks.map((block) => {

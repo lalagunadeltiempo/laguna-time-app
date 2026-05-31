@@ -1,6 +1,7 @@
 "use client";
 
 import { AppState, EMPTY_ARBOL, EQUIPO_DEFAULT, PLAN_CONFIG_DEFAULT } from "./types";
+import { FRANJAS_DEFAULT } from "./franjas";
 import { buildSeedSOPs } from "./seed-sops";
 import { getSupabase } from "./supabase";
 import { mergeStates } from "./merge";
@@ -40,6 +41,7 @@ export const INITIAL_STATE: AppState = {
   arbol: EMPTY_ARBOL,
   deleted: EMPTY_DELETED,
   planConfig: PLAN_CONFIG_DEFAULT,
+  franjas: FRANJAS_DEFAULT,
 };
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -147,6 +149,7 @@ function migrateV1(raw: any): AppState {
     arbol: raw.arbol ?? EMPTY_ARBOL,
     deleted: { ...EMPTY_DELETED, ...(raw.deleted ?? {}) },
     planConfig: raw.planConfig ?? PLAN_CONFIG_DEFAULT,
+    franjas: raw.franjas ?? FRANJAS_DEFAULT,
   } as AppState;
 }
 /* eslint-enable @typescript-eslint/no-explicit-any */

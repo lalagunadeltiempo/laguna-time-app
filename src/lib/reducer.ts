@@ -23,6 +23,7 @@ import type {
   DeletedTombstones,
   PlanConfig,
   SesionEntregable,
+  FranjaDia,
 } from "./types";
 import { PLAN_CONFIG_DEFAULT, EMPTY_ARBOL } from "./types";
 import { minutosEfectivos } from "./duration";
@@ -238,6 +239,8 @@ export type Action =
   | { type: "RESOLVER_MENSAJE"; id: string; usuario: string }
   | { type: "REABRIR_MENSAJE"; id: string }
   | { type: "SET_ENTREGABLE_PIZARRA_USUARIO"; id: string; usuario: string; texto: string }
+  /** Reemplaza por completo la lista de franjas de time blocking del día. */
+  | { type: "SET_FRANJAS"; franjas: FranjaDia[] }
   | { type: "SET_MTP"; mtp: string };
 
 function swapSiblings<T extends { id: string }>(
@@ -1529,6 +1532,9 @@ export function reducer(state: AppState, action: Action): AppState {
 
     case "SET_MIGRATION_VERSION":
       return { ...state, _migrationVersion: action.version };
+
+    case "SET_FRANJAS":
+      return { ...state, franjas: action.franjas };
 
     // --- Convertir entregable a SOP ---
     case "CONVERT_ENTREGABLE_TO_SOP": {
