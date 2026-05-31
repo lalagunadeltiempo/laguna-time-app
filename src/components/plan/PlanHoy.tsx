@@ -7,11 +7,10 @@ import { useUsuario, useIsMentor } from "@/lib/usuario";
 import { usePlannedBlocks, useFocoProyectos, type PlannedBlockOrigen } from "@/lib/hooks";
 import {
   AREA_COLORS, AREAS_PERSONAL, AREAS_EMPRESA,
-  type Area, type Entregable, type Ambito,
+  type Area, type Ambito,
 } from "@/lib/types";
 import { ResponsableToggle, type ResponsableFilter } from "./PlanMes";
 import { ChipMiembro } from "./InlineEditors";
-import { EntregableActivoCard } from "../EntregableActivo";
 import { useMensajesNoLeidos } from "../shared/HiloEntregable";
 import { HoraTextInput } from "../shared/HoraTextInput";
 import { usePresenciaEntregable } from "@/lib/presence";
@@ -19,6 +18,7 @@ import { legacySesionId } from "@/lib/sesion-id";
 import { sesionMatchesDateKeyLocal, sesionMatchesTargetUser } from "./plan-hoy-sesion-filter";
 import { franjaParaHora, minutosDeHHMM } from "@/lib/franjas";
 import { ProductividadFranjas } from "./ProductividadFranjas";
+import { EntregableDetalleDialog } from "../shared/EntregableDetalleDialog";
 
 function addDays(d: Date, n: number) { const r = new Date(d); r.setDate(r.getDate() + n); return r; }
 
@@ -778,47 +778,6 @@ export function PlanHoy({ selectedDate }: Props) {
           <EntregableDetalleDialog entregable={ent} onClose={() => setDetalleEntregableId(null)} />
         );
       })()}
-    </div>
-  );
-}
-
-/* ============================================================
-   ENTREGABLE DETALLE DIALOG — abre notas, URLs, pasos, historial
-   ============================================================ */
-
-function EntregableDetalleDialog({ entregable, onClose }: { entregable: Entregable; onClose: () => void }) {
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
-    document.addEventListener("keydown", handler);
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    return () => {
-      document.removeEventListener("keydown", handler);
-      document.body.style.overflow = prev;
-    };
-  }, [onClose]);
-
-  return (
-    <div
-      className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/30 px-4 py-8 backdrop-blur-sm"
-      role="dialog"
-      aria-modal="true"
-      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
-    >
-      <div className="w-full max-w-2xl" onClick={(e) => e.stopPropagation()}>
-        <div className="mb-2 flex items-center justify-end">
-          <button
-            onClick={onClose}
-            className="flex h-8 w-8 items-center justify-center rounded-lg bg-background text-muted shadow-md transition-colors hover:bg-surface hover:text-foreground"
-            aria-label="Cerrar"
-          >
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-              <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
-            </svg>
-          </button>
-        </div>
-        <EntregableActivoCard entregable={entregable} mode="detalle" />
-      </div>
     </div>
   );
 }

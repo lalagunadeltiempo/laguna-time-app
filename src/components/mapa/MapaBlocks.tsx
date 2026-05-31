@@ -11,6 +11,7 @@ import { ReviewBadge } from "../shared/ReviewBadge";
 import ProgramacionPicker from "../shared/ProgramacionPicker";
 import HierarchyPicker from "../shared/HierarchyPicker";
 import MoveInlinePanel from "../shared/MoveInlinePanel";
+import { EntregableDetalleDialog } from "../shared/EntregableDetalleDialog";
 import { EntregableHojasArbolPicker } from "../arbol/EntregableHojasArbolPicker";
 import { ProyectoTimeline } from "../plan/ProyectoTimeline";
 import { computeProyectoRitmo, ritmoColor, ritmoLabel, ritmoLabelCorto, ritmoExplicacion, inferDateRange, type DateRange } from "@/lib/proyecto-stats";
@@ -1338,6 +1339,7 @@ function EntregableBlock({ entregable, index, total }: { entregable: Entregable;
   const [open, setOpen] = useState(false);
   const [confirm, setConfirm] = useState(false);
   const [showMove, setShowMove] = useState(false);
+  const [showDetalle, setShowDetalle] = useState(false);
   const [synced, setSynced] = useState(false);
   const [showSyncPrompt, setShowSyncPrompt] = useState(false);
   const syncedTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
@@ -1420,6 +1422,10 @@ function EntregableBlock({ entregable, index, total }: { entregable: Entregable;
         {isMentor
           ? <CommentIcon count={notasCount} onClick={() => toggleOrSheet(showNotas, setShowNotas, openSheet, { title: entregable.nombre, nivel: "entregable", targetId: entregable.id })} />
           : <NotasIcon count={notasCount} onClick={() => toggleOrSheet(showNotas, setShowNotas, openSheet, { title: entregable.nombre, nivel: "entregable", targetId: entregable.id })} />}
+        <button onClick={(e) => { e.stopPropagation(); setShowDetalle(true); }}
+          className="flex h-6 items-center gap-0.5 rounded px-1.5 text-[10px] text-muted transition-colors hover:bg-surface hover:text-foreground" title="Abrir detalle (notas, URLs, pasos, implicados, sesiones)">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 3h7v7" /><path d="M10 14 21 3" /><path d="M21 14v5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5" /></svg>
+        </button>
         {!isMentor && (
           <button onClick={(e) => { e.stopPropagation(); setShowMove((v) => !v); }}
             className="flex h-6 items-center gap-0.5 rounded px-1.5 text-[10px] text-muted transition-colors hover:bg-surface hover:text-foreground" title="Mover a otro resultado">
@@ -1442,6 +1448,10 @@ function EntregableBlock({ entregable, index, total }: { entregable: Entregable;
       {confirm && <ConfirmDelete label={entregable.nombre}
         onConfirm={() => { dispatch({ type: "DELETE_ENTREGABLE", id: entregable.id }); setConfirm(false); }}
         onCancel={() => setConfirm(false)} />}
+
+      {showDetalle && (
+        <EntregableDetalleDialog entregable={entregable} onClose={() => setShowDetalle(false)} />
+      )}
 
       {showSyncPrompt && (
         <div className="mx-2 mb-3 ml-4 sm:mx-5 sm:ml-10 md:ml-16 flex items-center gap-3 rounded-xl border-2 border-blue-200 bg-blue-50 px-4 py-3 text-sm dark:border-blue-800/30 dark:bg-blue-500/10">
