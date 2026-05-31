@@ -633,6 +633,24 @@ export interface FranjaDia {
   descripcion?: string;
 }
 
+/** Puntuación 1..5 de una franja en un día concreto. La PRODUCTIVIDAD no se
+ *  almacena: se deriva como media de energía + foco + ánimo (solo es posible
+ *  cuando los tres están presentes). */
+export interface RegistroProductividad {
+  id: string;
+  /** Día evaluado en formato "YYYY-MM-DD" (hora local). */
+  fecha: string;
+  franjaId: string;
+  /** Puntuaciones 1..5. El valor 0 significa "sin puntuar" todavía. */
+  energia: number;
+  foco: number;
+  animo: number;
+  nota?: string;
+  autor: string;
+  /** ISO de la última edición. Lo usa el merge para LWW por id. */
+  actualizado?: string;
+}
+
 export interface AppState {
   ambitoLabels: AmbitoLabels;
   proyectos: Proyecto[];
@@ -653,6 +671,8 @@ export interface AppState {
   planConfig?: PlanConfig;
   /** Franjas de time blocking del día (bandas de color en Hoy y Semana). */
   franjas?: FranjaDia[];
+  /** Registros de productividad (energía/foco/ánimo) por franja y día. */
+  productividadFranjas?: RegistroProductividad[];
   mtp?: string;
   _migrationVersion?: number;
 }

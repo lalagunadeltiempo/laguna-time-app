@@ -810,6 +810,16 @@ export function mergeStates(a: AppState, b: AppState): AppState {
     ...((a.franjas?.length || b.franjas?.length)
       ? { franjas: unionById(a.franjas ?? [], b.franjas ?? []) }
       : {}),
+    // Registros de productividad: unión por id con LWW por `actualizado`.
+    ...((a.productividadFranjas?.length || b.productividadFranjas?.length)
+      ? {
+          productividadFranjas: unionById(
+            a.productividadFranjas ?? [],
+            b.productividadFranjas ?? [],
+            (x, y) => ((x.actualizado ?? "") >= (y.actualizado ?? "") ? x : y),
+          ),
+        }
+      : {}),
     deleted,
     _migrationVersion: Math.max(a._migrationVersion ?? 0, b._migrationVersion ?? 0),
   };

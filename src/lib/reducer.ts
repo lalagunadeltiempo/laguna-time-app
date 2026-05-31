@@ -24,6 +24,7 @@ import type {
   PlanConfig,
   SesionEntregable,
   FranjaDia,
+  RegistroProductividad,
 } from "./types";
 import { PLAN_CONFIG_DEFAULT, EMPTY_ARBOL } from "./types";
 import { minutosEfectivos } from "./duration";
@@ -241,6 +242,9 @@ export type Action =
   | { type: "SET_ENTREGABLE_PIZARRA_USUARIO"; id: string; usuario: string; texto: string }
   /** Reemplaza por completo la lista de franjas de time blocking del día. */
   | { type: "SET_FRANJAS"; franjas: FranjaDia[] }
+  /** Crea o actualiza (por id) un registro de productividad de una franja. */
+  | { type: "UPSERT_REGISTRO_PRODUCTIVIDAD"; payload: RegistroProductividad }
+  | { type: "DELETE_REGISTRO_PRODUCTIVIDAD"; id: string }
   | { type: "SET_MTP"; mtp: string };
 
 function swapSiblings<T extends { id: string }>(
@@ -1535,6 +1539,31 @@ export function reducer(state: AppState, action: Action): AppState {
 
     case "SET_FRANJAS":
       return { ...state, franjas: action.franjas };
+
+    case "UPSERT_REGISTRO_PRODUCTIVIDAD": {
+      const now = new Date().toISOString();
+      const clamp = (n: number) => Math.min(5, Math.max(0, Math.round(n)));
+      const payload: RegistroProductividad = {
+        ...action.payload,
+        energia: clamp(action.payload.energia),
+        foco: clamp(action.payload.foco),
+        animo: clamp(action.payload.animo),
+        actualizado: now,
+      };
+      const registros = state.productividadFranjas ?? [];
+      const existe = registros.some((r) => r.id === payload.id);
+      const next = existe
+        ? registros.map((r) => (r.id === payload.id ? { ...r, ...payload } : r))
+        : [...registros, payload];
+      return { ...state, productividadFranjas: next };
+    }
+
+    case "DELETE_REGISTRO_PRODUCTIVIDAD": {
+      const registros = state.productividadFranjas ?? [];
+      const next = registros.filter((r) => r.id !== action.id);
+      if (next.length === registros.length) return state;
+      return { ...state, productividadFranjas: next };
+    }
 
     // --- Convertir entregable a SOP ---
     case "CONVERT_ENTREGABLE_TO_SOP": {

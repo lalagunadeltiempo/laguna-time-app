@@ -42,6 +42,7 @@ export const INITIAL_STATE: AppState = {
   deleted: EMPTY_DELETED,
   planConfig: PLAN_CONFIG_DEFAULT,
   franjas: FRANJAS_DEFAULT,
+  productividadFranjas: [],
 };
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -150,6 +151,7 @@ function migrateV1(raw: any): AppState {
     deleted: { ...EMPTY_DELETED, ...(raw.deleted ?? {}) },
     planConfig: raw.planConfig ?? PLAN_CONFIG_DEFAULT,
     franjas: raw.franjas ?? FRANJAS_DEFAULT,
+    productividadFranjas: raw.productividadFranjas ?? [],
   } as AppState;
 }
 /* eslint-enable @typescript-eslint/no-explicit-any */

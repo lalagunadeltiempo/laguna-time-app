@@ -18,6 +18,7 @@ import { usePresenciaEntregable } from "@/lib/presence";
 import { legacySesionId } from "@/lib/sesion-id";
 import { sesionMatchesDateKeyLocal, sesionMatchesTargetUser } from "./plan-hoy-sesion-filter";
 import { franjaParaHora, minutosDeHHMM } from "@/lib/franjas";
+import { ProductividadFranjas } from "./ProductividadFranjas";
 
 function addDays(d: Date, n: number) { const r = new Date(d); r.setDate(r.getDate() + n); return r; }
 
@@ -689,6 +690,9 @@ export function PlanHoy({ selectedDate }: Props) {
           );
         })}
       </div>
+
+      {/* Productividad por franja (energía/foco/ánimo) + analítica */}
+      <ProductividadFranjas dateKey={dateKey} readOnly={isMentor} />
 
       {/* Drill-down dialog */}
       {showDrillDown && <DrillDownDialog dateKey={dateKey} onClose={() => setShowDrillDown(false)} />}
