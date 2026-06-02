@@ -287,4 +287,51 @@ describe("Reducer árbol-entregables", () => {
     // hoja-b ganó el vínculo → no debe haber tombstone para ella.
     expect(next.deleted?.entregableHojaLinks?.["hoja-b::ent-1"]).toBeUndefined();
   });
+
+  it("UPDATE_NODO_ARBOL fija y limpia prioridadEstrategica en una hoja", () => {
+    const raiz = makeNodo("raiz-2026", 2026, undefined, "Objetivo 2026");
+    const rama = makeNodo("rama-1", 2026, "raiz-2026", "Rama 1");
+    const hoja = makeNodo("hoja-1", 2026, "rama-1", "Acidez");
+    const state = baseState({ arbol: { ...EMPTY_ARBOL, nodos: [raiz, rama, hoja] } });
+
+    const conFlor = reducer(state, {
+      type: "UPDATE_NODO_ARBOL",
+      id: "hoja-1",
+      changes: { prioridadEstrategica: "flor" },
+    });
+    expect(conFlor.arbol.nodos.find((n) => n.id === "hoja-1")?.prioridadEstrategica).toBe("flor");
+
+    const conFruto = reducer(conFlor, {
+      type: "UPDATE_NODO_ARBOL",
+      id: "hoja-1",
+      changes: { prioridadEstrategica: "fruto" },
+    });
+    expect(conFruto.arbol.nodos.find((n) => n.id === "hoja-1")?.prioridadEstrategica).toBe("fruto");
+
+    const sinClasificar = reducer(conFruto, {
+      type: "UPDATE_NODO_ARBOL",
+      id: "hoja-1",
+      changes: { prioridadEstrategica: undefined },
+    });
+    expect(sinClasificar.arbol.nodos.find((n) => n.id === "hoja-1")?.prioridadEstrategica).toBeUndefined();
+  });
+
+  it("UPDATE_ENTREGABLE fija y quita esMantenimiento", () => {
+    const ent = makeEntregable("ent-1");
+    const state = baseState({ entregables: [ent] });
+
+    const marcado = reducer(state, {
+      type: "UPDATE_ENTREGABLE",
+      id: "ent-1",
+      changes: { esMantenimiento: true },
+    });
+    expect(marcado.entregables[0].esMantenimiento).toBe(true);
+
+    const desmarcado = reducer(marcado, {
+      type: "UPDATE_ENTREGABLE",
+      id: "ent-1",
+      changes: { esMantenimiento: false },
+    });
+    expect(desmarcado.entregables[0].esMantenimiento).toBe(false);
+  });
 });

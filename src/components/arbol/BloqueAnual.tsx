@@ -55,6 +55,7 @@ import {
   accentVsAY,
   fmtDeltaVsAnioAnterior,
   fmtNum,
+  etiquetaPrioridad,
   usePersistedOpen,
 } from "./arbol-comunes";
 
@@ -1372,6 +1373,14 @@ function FilaHojaEditable({
             >
               <PinIcon filled={!!hoja.metaPctFijo} />
             </button>
+            {(() => {
+              const badge = etiquetaPrioridad(hoja.prioridadEstrategica);
+              return badge ? (
+                <span className={badge.className} title="Prioridad estratégica">
+                  {badge.label}
+                </span>
+              ) : null;
+            })()}
             <span className="ml-auto text-[10px] text-muted">
               Acumulado {year}: <strong className="tabular-nums text-foreground">{fmtNum(realHoja)} {unidad}</strong>
             </span>
@@ -1424,6 +1433,28 @@ function FilaHojaEditable({
         />
         <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
           <label className="flex flex-col gap-1 text-[11px] text-muted">
+            Prioridad estratégica
+            <select
+              value={hoja.prioridadEstrategica ?? ""}
+              onChange={(e) => {
+                const v = e.target.value;
+                dispatch({
+                  type: "UPDATE_NODO_ARBOL",
+                  id: hoja.id,
+                  changes: {
+                    prioridadEstrategica:
+                      v === "fruto" ? "fruto" : v === "flor" ? "flor" : undefined,
+                  },
+                });
+              }}
+              className="rounded border border-border bg-background px-2 py-1.5 text-sm text-foreground"
+            >
+              <option value="">Sin clasificar</option>
+              <option value="fruto">Fruto — ya factura</option>
+              <option value="flor">Flor — quiero hacerla crecer</option>
+            </select>
+          </label>
+          <label className="flex flex-col gap-1 text-[11px] text-muted sm:col-span-2">
             Descripción
             <textarea
               defaultValue={hoja.descripcion ?? ""}

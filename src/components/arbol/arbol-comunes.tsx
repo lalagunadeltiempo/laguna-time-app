@@ -11,7 +11,7 @@ import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { useAppDispatch } from "@/lib/context";
 import { crecimientoVsAY, porcentajeDeTotal, type CrecimientoVsAY } from "@/lib/arbol-tiempo";
 import { generateId } from "@/lib/store";
-import type { RegistroNodo } from "@/lib/types";
+import type { PrioridadEstrategica, RegistroNodo } from "@/lib/types";
 
 export function isUnidadEuros(unidad?: string): boolean {
   if (!unidad) return false;
@@ -47,6 +47,27 @@ export function fmtNum(n: number | undefined | null, { signed = false } = {}): s
   if (n > 0) return `+${s}`;
   if (n < 0) return `−${s}`;
   return s;
+}
+
+/** Insignia de prioridad estratégica (hoja del árbol). Ausente = sin clasificar. */
+export function etiquetaPrioridad(
+  p: PrioridadEstrategica | undefined,
+): { label: string; className: string } | null {
+  if (p === "fruto") {
+    return {
+      label: "Fruto",
+      className:
+        "rounded px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide bg-emerald-600/15 text-emerald-800 dark:text-emerald-200",
+    };
+  }
+  if (p === "flor") {
+    return {
+      label: "Flor",
+      className:
+        "rounded px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide bg-amber-500/20 text-amber-900 dark:text-amber-100",
+    };
+  }
+  return null;
 }
 
 /** Sufijo « · X% »: peso de `valor` sobre el total anual de su propia serie. */

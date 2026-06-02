@@ -61,7 +61,7 @@ export type Action =
   | { type: "UPDATE_PASO"; id: string; changes: Partial<Pick<Paso, "nombre" | "responsable">> }
   | { type: "DELETE_PASO"; id: string }
   | { type: "RENAME_ENTREGABLE"; id: string; nombre: string }
-  | { type: "UPDATE_ENTREGABLE"; id: string; changes: Partial<Pick<Entregable, "nombre" | "responsable" | "tipo" | "plantillaId" | "diasEstimados" | "estado" | "fechaLimite" | "fechaInicio" | "planNivel" | "semana" | "fechaCompromiso" | "semanasActivas" | "diasPlanificados" | "planInicioTs" | "diasPlanificadosByUser" | "planInicioTsByUser" | "mesActivoRutina" | "diasSemanaRutina">> }
+  | { type: "UPDATE_ENTREGABLE"; id: string; changes: Partial<Pick<Entregable, "nombre" | "responsable" | "tipo" | "plantillaId" | "diasEstimados" | "estado" | "fechaLimite" | "fechaInicio" | "planNivel" | "semana" | "fechaCompromiso" | "semanasActivas" | "diasPlanificados" | "planInicioTs" | "diasPlanificadosByUser" | "planInicioTsByUser" | "mesActivoRutina" | "diasSemanaRutina" | "esMantenimiento">> }
   | { type: "OCULTAR_ENTREGABLE_HASTA"; id: string; hasta: string | null }
   // --- Sesiones del entregable (cronómetro al nivel de entregable) ---
   | { type: "START_ENTREGABLE"; id: string; ts?: string; autor?: string }

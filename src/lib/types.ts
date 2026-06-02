@@ -229,6 +229,12 @@ export interface Entregable {
   diasSemanaRutina?: number[];
   /** Meses anteriores archivados de la rutina (notas, URLs y pasos en sólo lectura). */
   historicoRutina?: HistoricoRutinaMes[];
+  /**
+   * Trabajo que consume tiempo pero no genera facturación directa en el árbol
+   * (p. ej. planificación transversal). Se marca en el Mapa; puede vincularse
+   * a varias hojas vía `entregableIds` en cada hoja.
+   */
+  esMantenimiento?: boolean;
 }
 
 /** Sesión de trabajo sobre un entregable: cronómetro + pausas. */
@@ -453,6 +459,9 @@ export type NodoRelacion = "suma" | "explica";
 
 export type TrimestreKey = "Q1" | "Q2" | "Q3" | "Q4";
 
+/** Rol estratégico de una hoja del árbol: fruto = factura estable; flor = apuesta de futuro. Ausente = sin clasificar. */
+export type PrioridadEstrategica = "fruto" | "flor";
+
 export interface NodoArbol {
   id: string;
   anio: number;
@@ -487,6 +496,11 @@ export interface NodoArbol {
   trimestresPlan?: TrimestreKey[];
   proyectoIds?: string[];
   entregableIds?: string[];
+  /**
+   * Fruto = línea que ya factura de forma estable; flor = apuesta de crecimiento.
+   * Ausente = sin clasificar (por defecto en hojas nuevas).
+   */
+  prioridadEstrategica?: PrioridadEstrategica;
   contadorModo: "manual" | "derivado";
   creado: string;
   /**

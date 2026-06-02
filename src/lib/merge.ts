@@ -106,6 +106,7 @@ export function preferNodoLWW(
   preferDefined("contadorModo");
   preferDefined("anio");
   preferDefined("trimestresPlan");
+  preferDefined("prioridadEstrategica");
   // `creado` no se toca: se mantiene el del primer arg (`x`), idéntico
   // al del segundo en condiciones normales (es el ts de creación del
   // nodo). En estados legacy con timestamps distintos preferimos no
@@ -598,11 +599,13 @@ export function mergeStates(a: AppState, b: AppState): AppState {
     const mesActivoRutina = winner.mesActivoRutina ?? loser.mesActivoRutina;
     const diasSemanaRutina = winner.diasSemanaRutina ?? loser.diasSemanaRutina;
     const historicoRutina = unirHistoricoRutina(winner.historicoRutina, loser.historicoRutina);
+    const esMantenimiento = !!(winner.esMantenimiento || loser.esMantenimiento);
 
     return {
       ...winner,
       semana,
       semanasActivas,
+      ...(esMantenimiento ? { esMantenimiento: true } : {}),
       ...(mesActivoRutina !== undefined ? { mesActivoRutina } : {}),
       ...(diasSemanaRutina !== undefined ? { diasSemanaRutina } : {}),
       ...(historicoRutina ? { historicoRutina } : {}),

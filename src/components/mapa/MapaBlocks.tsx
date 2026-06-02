@@ -1406,6 +1406,36 @@ function EntregableBlock({ entregable, index, total }: { entregable: Entregable;
         }
         <ReviewBadge review={entregable.review} nivel="entregable" targetId={entregable.id} />
         {tipoTag && !isSop && <span className="rounded-md px-2 py-0.5 text-[11px] font-bold" style={{ backgroundColor: entAreaHex + "15", color: entAreaHex }}>{tipoTag}</span>}
+        {!isMentor && (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              dispatch({
+                type: "UPDATE_ENTREGABLE",
+                id: entregable.id,
+                changes: { esMantenimiento: !entregable.esMantenimiento },
+              });
+            }}
+            className={`rounded-md px-2 py-0.5 text-[11px] font-semibold transition-colors ${
+              entregable.esMantenimiento
+                ? "bg-slate-600/15 text-slate-800 dark:text-slate-200"
+                : "border border-dashed border-border text-muted hover:border-foreground/40 hover:text-foreground"
+            }`}
+            title={
+              entregable.esMantenimiento
+                ? "Quitar etiqueta de mantenimiento"
+                : "Marcar como mantenimiento (consume tiempo, no factura en el árbol)"
+            }
+          >
+            {entregable.esMantenimiento ? "Mantenimiento" : "Mant."}
+          </button>
+        )}
+        {isMentor && entregable.esMantenimiento && (
+          <span className="rounded-md bg-slate-600/15 px-2 py-0.5 text-[11px] font-semibold text-slate-700 dark:text-slate-200">
+            Mantenimiento
+          </span>
+        )}
         {isDone && <span className="rounded-md bg-green-100 px-2 py-0.5 text-[11px] font-semibold text-green-700 dark:bg-green-500/10 dark:text-green-400">Hecho</span>}
         {isEmpresa && <ResponsableBadge nombre={entregable.responsable} editable={!isMentor} miembros={state.miembros} onChange={(v) => dispatch({ type: "UPDATE_ENTREGABLE", id: entregable.id, changes: { responsable: v || undefined } })} showUnassigned />}
         <SemanaIsoChips entregable={entregable} resultado={parentRes} />
