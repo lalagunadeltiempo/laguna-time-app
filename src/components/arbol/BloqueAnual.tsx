@@ -29,6 +29,7 @@ import {
   hijosSumaDirectosIdx,
   metaEfectivaNodoIdx,
   normalizarNombreNodo,
+  ordenarHojasAlfabetico,
   reajustarHermanosPorPin,
   realAnioPasadoAgregadoIdx,
   realEfectivoEnPeriodoIdx,
@@ -565,13 +566,7 @@ function FilaRamaEditable({
   const dispatch = useAppDispatch();
   const [formNuevaHojaOpen, setFormNuevaHojaOpen] = useState(false);
   const hojas = useMemo(
-    () =>
-      [...hijosSumaDirectosIdx(idx, rama.id)].sort(
-        (a, b) =>
-          (a.orden ?? 0) - (b.orden ?? 0) ||
-          (a.creado ?? "").localeCompare(b.creado ?? "") ||
-          a.id.localeCompare(b.id),
-      ),
+    () => ordenarHojasAlfabetico(hijosSumaDirectosIdx(idx, rama.id)),
     [idx, rama.id],
   );
   const tieneHojas = hojas.length > 0;
@@ -885,7 +880,7 @@ function FilaRamaEditable({
         {/* Hojas */}
         {tieneHojas && (
           <div className="space-y-2 border-l-2 border-accent/20 pl-3">
-            {hojas.map((hoja, i) => (
+            {hojas.map((hoja) => (
               <FilaHojaEditable
                 key={hoja.id}
                 hoja={hoja}
@@ -897,8 +892,6 @@ function FilaRamaEditable({
                 metaRama={rama.metaValor ?? 0}
                 reescaladoAuto={reescaladoAuto}
                 onDispararReajuste={onDispararReajuste}
-                canSubir={i > 0}
-                canBajar={i < hojas.length - 1}
               />
             ))}
           </div>
@@ -918,8 +911,6 @@ function FilaHojaEditable({
   metaRama,
   reescaladoAuto,
   onDispararReajuste,
-  canSubir,
-  canBajar,
 }: {
   hoja: NodoArbol;
   rama: NodoArbol;
@@ -936,8 +927,6 @@ function FilaHojaEditable({
     nuevoPctCambio: number;
     metaPadre: number;
   }) => void;
-  canSubir: boolean;
-  canBajar: boolean;
 }) {
   const state = useAppState();
   const dispatch = useAppDispatch();
@@ -1051,12 +1040,6 @@ function FilaHojaEditable({
                   changes: { trimestresPlan, metaPorTrimestre: undefined },
                 })
               }
-            />
-            <ReordenarBotones
-              canSubir={canSubir}
-              canBajar={canBajar}
-              onSubir={() => dispatch({ type: "REORDER_NODO_ARBOL", id: hoja.id, direction: "up" })}
-              onBajar={() => dispatch({ type: "REORDER_NODO_ARBOL", id: hoja.id, direction: "down" })}
             />
             <button
               type="button"

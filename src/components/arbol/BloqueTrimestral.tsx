@@ -20,6 +20,7 @@ import {
   hijosSumaDirectosIdx,
   mesesCerradosSet,
   metaParaNodoEnPeriodo,
+  ordenarHojasAlfabetico,
   planAgregadoEnPeriodoIdx,
   proporcionesMensualesAYParaNodo,
   realEfectivoEnPeriodoIdx,
@@ -273,7 +274,7 @@ function FilaRamaTrimestral({
   unidad: string;
   periodoKey: string;
 }) {
-  const hojas = hijosSumaDirectosIdx(idx, rama.id);
+  const hojas = ordenarHojasAlfabetico(hijosSumaDirectosIdx(idx, rama.id));
   const plan = useMemo(
     () => planAgregadoEnPeriodoIdx(idx, rama, "trimestre", periodoKey, config),
     [idx, rama, periodoKey, config],

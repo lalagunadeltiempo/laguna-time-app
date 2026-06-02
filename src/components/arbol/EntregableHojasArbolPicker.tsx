@@ -25,7 +25,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useAppState, useAppDispatch } from "@/lib/context";
-import { hijosSumaDirectos, parseLocalDateKey } from "@/lib/arbol-tiempo";
+import { hijosSumaDirectos, ordenarHojasAlfabetico, parseLocalDateKey } from "@/lib/arbol-tiempo";
 import type { Entregable } from "@/lib/types";
 import { LazyDetails } from "./arbol-comunes";
 
@@ -77,7 +77,7 @@ export function EntregableHojasArbolPicker({ entregable, layout = "card", mode =
     return hijosSumaDirectos(nodosAnio, raiz.id, anioArbol)
       .map((rama) => ({
         rama,
-        hojas: hijosSumaDirectos(nodosAnio, rama.id, anioArbol),
+        hojas: ordenarHojasAlfabetico(hijosSumaDirectos(nodosAnio, rama.id, anioArbol)),
       }))
       .filter((entry) => entry.hojas.length > 0);
   }, [raiz, nodosAnio, anioArbol]);

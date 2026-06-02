@@ -29,6 +29,18 @@ export function ordenarPorPctDesc(nodos: NodoArbol[]): NodoArbol[] {
   });
 }
 
+/**
+ * Ordena una lista de HOJAS alfabéticamente por `nombre`, de forma
+ * case-insensitive y tolerante a acentos. Pensado para la capa de
+ * presentación: NO altera el orden manual (`orden`) de las ramas, que se
+ * sigue gestionando con `ordenarPorPctDesc` / el orden de hijos del índice.
+ */
+export function ordenarHojasAlfabetico(hojas: NodoArbol[]): NodoArbol[] {
+  return [...hojas].sort((a, b) =>
+    a.nombre.localeCompare(b.nombre, "es", { sensitivity: "base" }),
+  );
+}
+
 /** Hijos directos que suman al padre (ramas y hojas), ordenados por % desc. */
 export function hijosSumaDirectos(nodos: NodoArbol[], parentId: string, anio: number): NodoArbol[] {
   return ordenarPorPctDesc(

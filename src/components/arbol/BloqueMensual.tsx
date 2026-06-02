@@ -37,6 +37,7 @@ import {
   mesKeyFromDate,
   mesesCerradosSet,
   metaParaNodoEnPeriodo,
+  ordenarHojasAlfabetico,
   parseLocalDateKey,
   planAgregadoEnPeriodoIdx,
   proporcionesMensualesAYParaNodo,
@@ -251,10 +252,15 @@ const TarjetaMes = memo(function TarjetaMes({
     [dispatch, year, periodoKey],
   );
 
-  const ramasConReal = useMemo(
-    () => ramas.filter((r) => r.relacionConPadre === "suma"),
-    [ramas],
-  );
+  const ramasConReal = useMemo(() => {
+    const sumables = ramas.filter((r) => r.relacionConPadre === "suma");
+    // Mes cerrado: ocultamos las ramas cuyo total real del mes sea 0 (todas
+    // sus hojas a 0). Al reabrir (cerrado=false) vuelven a verse todas.
+    if (!cerrado) return sumables;
+    return sumables.filter(
+      (r) => realEfectivoEnPeriodoIdx(idx, r.id, "mes", periodoKey) > 0,
+    );
+  }, [ramas, cerrado, idx, periodoKey]);
 
   const regRaiz = ramas.length === 0 ? regsIndex.get(claveRegistro(raiz.id, "mes", periodoKey)) : undefined;
 
@@ -414,6 +420,7 @@ const TarjetaMes = memo(function TarjetaMes({
                 year={year}
                 unidad={unidad}
                 periodoKey={periodoKey}
+                cerrado={cerrado}
               />
             ))}
           </div>
@@ -443,6 +450,7 @@ function FilaRamaMensual({
   year,
   unidad,
   periodoKey,
+  cerrado,
 }: {
   rama: NodoArbol;
   idx: ArbolIndices;
@@ -451,8 +459,17 @@ function FilaRamaMensual({
   year: number;
   unidad: string;
   periodoKey: string;
+  cerrado: boolean;
 }) {
-  const hojas = hijosSumaDirectosIdx(idx, rama.id);
+  // Hojas en orden alfabético (presentación). Si el mes está cerrado,
+  // ocultamos las hojas cuyo real del mes sea 0; al reabrir vuelven todas.
+  const hojas = useMemo(() => {
+    const ordenadas = ordenarHojasAlfabetico(hijosSumaDirectosIdx(idx, rama.id));
+    if (!cerrado) return ordenadas;
+    return ordenadas.filter(
+      (h) => realEfectivoEnPeriodoIdx(idx, h.id, "mes", periodoKey) > 0,
+    );
+  }, [idx, rama.id, cerrado, periodoKey]);
   const plan = useMemo(
     () => planAgregadoEnPeriodoIdx(idx, rama, "mes", periodoKey, config),
     [idx, rama, periodoKey, config],
