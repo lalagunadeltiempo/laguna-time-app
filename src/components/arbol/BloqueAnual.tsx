@@ -116,12 +116,15 @@ export function BloqueAnual({
       }),
     [ramas],
   );
+  // Suma del metaValor PROPIO de cada rama (lo que la usuaria teclea), no la
+  // agregación de sus hojas. Así el marcador superior refleja el reparto del
+  // objetivo anual por rama (nivel 1 de la planificación top-down).
   const planRamasSuma = useMemo(
     () =>
       ramas
         .filter((r) => r.relacionConPadre === "suma")
-        .reduce((acc, r) => acc + (metaEfectivaNodoIdx(idx, r) ?? 0), 0),
-    [ramas, idx],
+        .reduce((acc, r) => acc + (r.metaValor ?? 0), 0),
+    [ramas],
   );
   // Real anual (suma de todos los registros del año bajo la raíz). Se usa
   // para la barra de avance YTD que vive solo aquí, en la vista anual.
@@ -557,10 +560,15 @@ function FilaRamaEditable({
   const [formNuevaHojaOpen, setFormNuevaHojaOpen] = useState(false);
   const hojas = hijosSumaDirectosIdx(idx, rama.id);
   const tieneHojas = hojas.length > 0;
-  const metaEffRama = metaEfectivaNodoIdx(idx, rama);
   const metaPlaneada = rama.metaValor;
+  // El % de la rama refleja su PROPIO importe (lo que la usuaria teclea),
+  // no la agregación de hojas. Así € y % de la rama quedan coherentes y
+  // la usuaria puede repartir el objetivo anual por rama (nivel 1).
+  const metaPropiaRama = rama.metaValor;
   const pctTotal =
-    metaAnual > 0 && metaEffRama !== undefined ? (metaEffRama / metaAnual) * 100 : undefined;
+    metaAnual > 0 && metaPropiaRama !== undefined && Number.isFinite(metaPropiaRama)
+      ? (metaPropiaRama / metaAnual) * 100
+      : undefined;
   const planeadaOk = metaPlaneada !== undefined && metaPlaneada > 0;
   const realRama = useMemo(
     () => realEfectivoEnPeriodoIdx(idx, rama.id, "anio", String(year)),
@@ -578,6 +586,13 @@ function FilaRamaEditable({
   );
   const diffHojas = planeadaOk ? sumaHojasEff - metaPlaneada! : 0;
   const cuadreHojasOk = !planeadaOk || Math.abs(diffHojas) < 0.01;
+
+  // Marcador de hojas (nivel 2): % que suman las hojas respecto al importe
+  // propio de la rama. Verde dentro de 100% ± 0.5. Solo tiene sentido si la
+  // rama tiene meta propia > 0.
+  const sumaHojasPct = planeadaOk ? (sumaHojasEff / metaPlaneada!) * 100 : undefined;
+  const diffHojasPct = sumaHojasPct !== undefined ? sumaHojasPct - 100 : 0;
+  const cuadreHojasPctOk = sumaHojasPct !== undefined && Math.abs(diffHojasPct) <= 0.5;
 
   // Datos del año pasado por hoja para el botón "Aplicar proporción AY".
   const ayHojas = hojas.map((h) => ({
@@ -803,6 +818,34 @@ function FilaRamaEditable({
             onDispararReajuste={onDispararReajuste}
             onClose={() => setFormNuevaHojaOpen(false)}
           />
+        )}
+
+        {/* Marcador de hojas (nivel 2): coherente con el de porcentajes del bloque anual */}
+        {tieneHojas && (
+          planeadaOk && sumaHojasPct !== undefined ? (
+            <div
+              className={`rounded border px-2 py-1.5 text-[11px] ${
+                cuadreHojasPctOk
+                  ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-800 dark:text-emerald-200"
+                  : "border-amber-500/50 bg-amber-500/10 text-amber-900 dark:text-amber-100"
+              }`}
+            >
+              <strong className="mr-1">Hojas:</strong>
+              <span className="tabular-nums">suman {fmtNum(sumaHojasPct)}%</span>
+              {!cuadreHojasPctOk && (
+                <span className="ml-2 tabular-nums">
+                  {diffHojasPct < 0
+                    ? `faltan ${fmtNum(Math.abs(diffHojasPct))}%`
+                    : `sobran ${fmtNum(Math.abs(diffHojasPct))}%`}
+                </span>
+              )}
+            </div>
+          ) : (
+            <div className="rounded border border-border/60 bg-surface/40 px-2 py-1.5 text-[11px] text-muted">
+              <strong className="mr-1">Hojas:</strong>
+              <span>pon primero la meta de la rama para ver el % de las hojas</span>
+            </div>
+          )
         )}
 
         {/* Hojas */}
