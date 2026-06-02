@@ -31,14 +31,19 @@ import {
   normalizarNombreNodo,
   ordenarHojasAlfabetico,
   reajustarHermanosPorPin,
+  crecimientoVsAY,
   realAnioPasadoAgregadoIdx,
+  realAnioPasadoYTDIdx,
   realEfectivoEnPeriodoIdx,
+  realYTDEnMesesActivosIdx,
   type ArbolIndices,
 } from "@/lib/arbol-tiempo";
 import {
   LazyDetails,
   NumberInput,
   PercentInput,
+  accentVsAY,
+  fmtDeltaAY,
   fmtNum,
   usePersistedOpen,
 } from "./arbol-comunes";
@@ -133,6 +138,19 @@ export function BloqueAnual({
   const realRaiz = useMemo(
     () => realEfectivoEnPeriodoIdx(idx, raiz.id, "anio", String(year)),
     [idx, raiz.id, year],
+  );
+  const realYTD = useMemo(
+    () => realYTDEnMesesActivosIdx(idx, raiz.id, config),
+    [idx, raiz.id, config],
+  );
+  const realAYYTD = useMemo(
+    () => realAnioPasadoYTDIdx(idx, raiz.id, config),
+    [idx, raiz.id, config],
+  );
+  const realCompararYTD = realYTD > 0 ? realYTD : realRaiz;
+  const crecimientoYTD = useMemo(
+    () => crecimientoVsAY(realCompararYTD, realAYYTD),
+    [realCompararYTD, realAYYTD],
   );
   const diffRamas = metaAnual > 0 ? planRamasSuma - metaAnual : 0;
   const cuadreRamasOk = metaAnual === 0 || Math.abs(diffRamas) < 0.01;
@@ -236,7 +254,29 @@ export function BloqueAnual({
               <span>
                 Real YTD:{" "}
                 <strong className="tabular-nums text-foreground">
-                  {fmtNum(realRaiz)} {unidad}
+                  {fmtNum(realCompararYTD)} {unidad}
+                </strong>
+              </span>
+            )}
+            {metaAnual > 0 && crecimientoYTD && (
+              <span className="tabular-nums">
+                {realAYYTD !== undefined && realAYYTD > 0 && (
+                  <>
+                    {year - 1} (mismo tramo):{" "}
+                    <strong className="text-foreground">{fmtNum(realAYYTD)} {unidad}</strong>
+                    {" · "}
+                  </>
+                )}
+                <strong
+                  className={
+                    accentVsAY(realCompararYTD, realAYYTD) === "good"
+                      ? "text-emerald-700 dark:text-emerald-300"
+                      : accentVsAY(realCompararYTD, realAYYTD) === "bad"
+                        ? "text-red-700 dark:text-red-300"
+                        : "text-foreground"
+                  }
+                >
+                  {fmtDeltaAY(crecimientoYTD, unidad)}
                 </strong>
               </span>
             )}

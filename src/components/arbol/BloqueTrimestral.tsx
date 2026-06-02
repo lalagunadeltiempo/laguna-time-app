@@ -23,12 +23,13 @@ import {
   ordenarHojasAlfabetico,
   planAgregadoEnPeriodoIdx,
   proporcionesMensualesAYParaNodo,
+  realAnioPasadoAgregadoIdx,
   realEfectivoEnPeriodoIdx,
   replanTrimestralSerie,
   type ArbolIndices,
 } from "@/lib/arbol-tiempo";
 import { CierreTrimestre } from "./CierreTrimestre";
-import { LazyDetails, MetricLine, fmtNum } from "./arbol-comunes";
+import { InlineVsAY, LazyDetails, MetricLine, MetricLinesVsAY, fmtNum } from "./arbol-comunes";
 
 const TRIMESTRE_LABELS: { key: TrimestreKey; label: string }[] = [
   { key: "Q1", label: "Q1" },
@@ -153,6 +154,10 @@ const TarjetaTrimestre = memo(function TarjetaTrimestre({
     () => realEfectivoEnPeriodoIdx(idx, raiz.id, "trimestre", periodoKey),
     [idx, raiz.id, periodoKey],
   );
+  const realAY = useMemo(
+    () => realAnioPasadoAgregadoIdx(idx, raiz.id, "trimestre", periodoKey),
+    [idx, raiz.id, periodoKey],
+  );
   const estado = estadoPeriodo("trimestre", periodoKey, year);
 
   const deltaPlan = plan !== undefined ? real - plan : undefined;
@@ -210,6 +215,12 @@ const TarjetaTrimestre = memo(function TarjetaTrimestre({
             accent={deltaPlan >= 0 ? "good" : "bad"}
           />
         )}
+        <MetricLinesVsAY
+          labelAy={`Año ant. (${trimestreKey} ${year - 1})`}
+          real={real}
+          ay={realAY}
+          unidad={unidad}
+        />
       </div>
 
       {showProgress && (
@@ -283,6 +294,10 @@ function FilaRamaTrimestral({
     () => realEfectivoEnPeriodoIdx(idx, rama.id, "trimestre", periodoKey),
     [idx, rama.id, periodoKey],
   );
+  const realAY = useMemo(
+    () => realAnioPasadoAgregadoIdx(idx, rama.id, "trimestre", periodoKey),
+    [idx, rama.id, periodoKey],
+  );
   const deltaPlan = plan !== undefined ? real - plan : undefined;
 
   return (
@@ -301,6 +316,7 @@ function FilaRamaTrimestral({
                 {fmtNum(real)} {unidad}
               </strong>
             </span>
+            <InlineVsAY real={real} ay={realAY} unidad={unidad} />
           </span>
         </span>
       </summary>
@@ -309,6 +325,7 @@ function FilaRamaTrimestral({
           {hojas.map((hoja) => {
             const pHoja = planAgregadoEnPeriodoIdx(idx, hoja, "trimestre", periodoKey, config);
             const rHoja = realEfectivoEnPeriodoIdx(idx, hoja.id, "trimestre", periodoKey);
+            const ayHoja = realAnioPasadoAgregadoIdx(idx, hoja.id, "trimestre", periodoKey);
             const delta = pHoja !== undefined ? rHoja - pHoja : undefined;
             return (
               <div
@@ -327,6 +344,7 @@ function FilaRamaTrimestral({
                       {fmtNum(rHoja)} {unidad}
                     </strong>
                   </span>
+                  <InlineVsAY real={rHoja} ay={ayHoja} unidad={unidad} />
                 </span>
               </div>
             );

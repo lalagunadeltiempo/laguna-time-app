@@ -506,6 +506,86 @@ export function realAnioPasadoEnMesIdx(
   return realAnioPasadoAgregadoIdx(idx, nodoId, "mes", mesKey);
 }
 
+/** Resultado de comparar el real del año actual con el del año anterior. */
+export type CrecimientoVsAY = {
+  deltaEur: number;
+  /** % interanual; ausente si el producto es nuevo (AY = 0). */
+  deltaPct: number | undefined;
+  esNuevo: boolean;
+};
+
+/**
+ * Variación interanual (real actual − año anterior).
+ * - `ay` ausente se trata como 0.
+ * - Si ambos son 0 → `null` (no mostrar línea).
+ * - Si `ay = 0` y `real > 0` → `esNuevo: true` (sin %).
+ */
+export function crecimientoVsAY(real: number, ay: number | undefined): CrecimientoVsAY | null {
+  const ayEff = ay ?? 0;
+  if (ayEff === 0 && real === 0) return null;
+  if (ayEff === 0 && real > 0) {
+    return { deltaEur: real, deltaPct: undefined, esNuevo: true };
+  }
+  const deltaEur = real - ayEff;
+  const deltaPct = (deltaEur / ayEff) * 100;
+  return { deltaEur, deltaPct, esNuevo: false };
+}
+
+/** Meses del año destino con actividad: real > 0 o mes cerrado en config. */
+export function mesesActivosEnAnio(
+  idx: ArbolIndices,
+  nodoId: string,
+  config: PlanArbolConfigAnio | undefined,
+): string[] {
+  const cerrados = mesesCerradosSet(config);
+  const out: string[] = [];
+  for (let i = 1; i <= 12; i++) {
+    const mk = `${idx.year}-${String(i).padStart(2, "0")}`;
+    const realActual = realEfectivoEnPeriodoIdx(idx, nodoId, "mes", mk);
+    if (realActual > 0 || cerrados.has(mk)) out.push(mk);
+  }
+  return out;
+}
+
+/** Real acumulado del año destino solo en meses con actividad (YTD operativo). */
+export function realYTDEnMesesActivosIdx(
+  idx: ArbolIndices,
+  nodoId: string,
+  config: PlanArbolConfigAnio | undefined,
+): number {
+  let sum = 0;
+  for (const mk of mesesActivosEnAnio(idx, nodoId, config)) {
+    sum += realEfectivoEnPeriodoIdx(idx, nodoId, "mes", mk);
+  }
+  return sum;
+}
+
+/**
+ * Real del año anterior en el mismo tramo que el YTD actual: suma el real
+ * AY de cada mes donde 2026 tiene actividad (real > 0 o mes cerrado).
+ */
+export function realAnioPasadoYTDIdx(
+  idx: ArbolIndices,
+  nodoId: string,
+  config: PlanArbolConfigAnio | undefined,
+): number | undefined {
+  const meses = mesesActivosEnAnio(idx, nodoId, config);
+  if (meses.length === 0) return undefined;
+  let sum = 0;
+  let any = false;
+  for (const mk of meses) {
+    const ay = realAnioPasadoEnMesIdx(idx, nodoId, mk);
+    if (ay !== undefined && ay > 0) {
+      sum += ay;
+      any = true;
+    } else {
+      const realActual = realEfectivoEnPeriodoIdx(idx, nodoId, "mes", mk);
+      if (realActual > 0) any = true;
+    }
+  }
+  return any ? sum : undefined;
+}
+
 /**
  * Proporciones mensuales del REAL del año anterior para un nodo del año
  * destino. Devuelve un `Record<mesKey_destino, propMes>` donde `mesKey`

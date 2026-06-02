@@ -47,8 +47,10 @@ import {
   type ArbolIndices,
 } from "@/lib/arbol-tiempo";
 import {
+  InlineVsAY,
   LazyDetails,
   MetricLine,
+  MetricLinesVsAY,
   NumberInput,
   type RegistrosIndex,
   claveRegistro,
@@ -345,13 +347,12 @@ const TarjetaMes = memo(function TarjetaMes({
             accent={deltaPlan >= 0 ? "good" : "bad"}
           />
         )}
-        {realAY !== undefined && realAY > 0 && (
-          <MetricLine
-            label={etiquetaAY(periodoKey, year)}
-            value={`${fmtNum(realAY)} ${unidad}`}
-            accent="muted"
-          />
-        )}
+        <MetricLinesVsAY
+          labelAy={etiquetaAY(periodoKey, year)}
+          real={real}
+          ay={realAY}
+          unidad={unidad}
+        />
       </div>
 
       {showProgress && (
@@ -510,12 +511,7 @@ function FilaRamaMensual({
               <span>
                 Real: <strong className="text-foreground">{fmtNum(real)} {unidad}</strong>
               </span>
-              {realAY !== undefined && realAY > 0 && (
-                <span>
-                  {etiquetaAY(periodoKey, year)}:{" "}
-                  <strong className="text-foreground">{fmtNum(realAY)} {unidad}</strong>
-                </span>
-              )}
+              <InlineVsAY real={real} ay={realAY} unidad={unidad} prefix={etiquetaAY(periodoKey, year)} />
             </span>
           </span>
         </summary>
@@ -609,12 +605,7 @@ function FilaHojaMensual({
           <span>
             Real: <strong className="text-foreground">{fmtNum(real)} {unidad}</strong>
           </span>
-          {realAY !== undefined && realAY > 0 && (
-            <span>
-              {etiquetaAY(periodoKey, year)}:{" "}
-              <strong className="text-foreground">{fmtNum(realAY)} {unidad}</strong>
-            </span>
-          )}
+          <InlineVsAY real={real} ay={realAY} unidad={unidad} prefix={etiquetaAY(periodoKey, year)} />
         </span>
       </div>
       <FilaApunteDirecto

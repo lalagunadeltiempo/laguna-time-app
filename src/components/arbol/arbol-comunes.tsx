@@ -9,6 +9,7 @@
  */
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { useAppDispatch } from "@/lib/context";
+import { crecimientoVsAY, type CrecimientoVsAY } from "@/lib/arbol-tiempo";
 import { generateId } from "@/lib/store";
 import type { RegistroNodo } from "@/lib/types";
 
@@ -355,5 +356,80 @@ export function MetricLine({
       <span className="text-muted">{label}</span>
       <span className={`tabular-nums ${tone}`}>{value}</span>
     </div>
+  );
+}
+
+/** Tono verde/rojo según si el real actual supera al año anterior. */
+export function accentVsAY(real: number, ay: number | undefined): "good" | "bad" | undefined {
+  const ayEff = ay ?? 0;
+  if (ayEff === 0 && real === 0) return undefined;
+  return real >= ayEff ? "good" : "bad";
+}
+
+export function fmtDeltaAY(c: CrecimientoVsAY, unidad: string): string {
+  if (c.esNuevo) return `nuevo · +${fmtNum(c.deltaEur)} ${unidad}`;
+  const pct =
+    c.deltaPct !== undefined ? ` · ${fmtNum(c.deltaPct, { signed: true })}%` : "";
+  return `${fmtNum(c.deltaEur, { signed: true })} ${unidad}${pct}`;
+}
+
+/** Líneas de referencia AY + variación (€ y %) para bloques del árbol. */
+export function MetricLinesVsAY({
+  labelAy,
+  real,
+  ay,
+  unidad,
+}: {
+  labelAy: string;
+  real: number;
+  ay: number | undefined;
+  unidad: string;
+}) {
+  const c = crecimientoVsAY(real, ay);
+  if (!c) return null;
+  const tone = accentVsAY(real, ay);
+  const muestraAy = ay !== undefined && ay > 0;
+  return (
+    <>
+      {muestraAy && (
+        <MetricLine label={labelAy} value={`${fmtNum(ay)} ${unidad}`} accent="muted" />
+      )}
+      <MetricLine label="Δ vs AY" value={fmtDeltaAY(c, unidad)} accent={tone} />
+    </>
+  );
+}
+
+/** Fragmento inline "2025: X · Δ" para filas compactas (trimestral/mensual). */
+export function InlineVsAY({
+  real,
+  ay,
+  unidad,
+  prefix = "2025",
+}: {
+  real: number;
+  ay: number | undefined;
+  unidad: string;
+  prefix?: string;
+}) {
+  const c = crecimientoVsAY(real, ay);
+  if (!c) return null;
+  const tone = accentVsAY(real, ay);
+  const toneClass =
+    tone === "good"
+      ? "text-emerald-700 dark:text-emerald-300"
+      : tone === "bad"
+        ? "text-red-700 dark:text-red-300"
+        : "text-foreground";
+  return (
+    <span className="inline-flex flex-wrap items-baseline gap-x-1">
+      {(ay !== undefined && ay > 0) && (
+        <span>
+          {prefix}: <strong className="text-foreground">{fmtNum(ay)} {unidad}</strong>
+        </span>
+      )}
+      <span className={toneClass}>
+        <strong>{fmtDeltaAY(c, unidad)}</strong>
+      </span>
+    </span>
   );
 }
