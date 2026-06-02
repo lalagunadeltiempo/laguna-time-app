@@ -119,6 +119,14 @@ export function EntregableHojasArbolPicker({ entregable, layout = "card", mode =
     });
   }, [dirty, dispatch, entregable.id, draftSorted, anioArbol]);
 
+  const todasMarcadas =
+    hojasDisponibles.length > 0 && draft.length >= hojasDisponibles.length &&
+    hojasDisponibles.every((hoja) => draft.includes(hoja.id));
+  const marcarTodas = useCallback(() => {
+    setDraft(hojasDisponibles.map((hoja) => hoja.id));
+  }, [hojasDisponibles]);
+  const quitarTodas = useCallback(() => setDraft([]), []);
+
   const containerClass =
     mode === "popover"
       ? "relative inline-block"
@@ -161,6 +169,18 @@ export function EntregableHojasArbolPicker({ entregable, layout = "card", mode =
         </p>
       ) : (
         <>
+          <div className="flex items-center justify-between gap-2 pb-1">
+            <span className="text-[10px] text-muted">
+              {draft.length} de {hojasDisponibles.length}
+            </span>
+            <button
+              type="button"
+              onClick={todasMarcadas ? quitarTodas : marcarTodas}
+              className="rounded border border-border px-2 py-0.5 text-[10px] font-medium text-zinc-700 hover:bg-surface dark:text-zinc-200"
+            >
+              {todasMarcadas ? "Quitar todas" : "Marcar todas"}
+            </button>
+          </div>
           {ramasConHojas.map(({ rama, hojas }) => (
             <div key={rama.id} className="space-y-1">
               <p className="text-[11px] font-medium text-zinc-600 dark:text-zinc-300">{rama.nombre}</p>
