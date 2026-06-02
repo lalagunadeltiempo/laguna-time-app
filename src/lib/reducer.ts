@@ -201,6 +201,7 @@ export type Action =
   | { type: "UNLINK_ENTREGABLE_HOJA"; entregableId: string; hojaId: string }
   | { type: "SET_HOJAS_DE_ENTREGABLE"; entregableId: string; hojaIds: string[]; anio: number }
   | { type: "MOVE_NODO_ARBOL"; id: string; parentId?: string | null; orden?: number }
+  | { type: "REORDER_NODO_ARBOL"; id: string; direction: "up" | "down" }
   /** Trae la estructura (ramas + hojas, con sus %) de la raíz equivalente del año
    *  anterior bajo `raizId`. Si no existe año anterior con la misma raíz, no-op.
    *  `modo` decide si los % se derivan del plan (defecto) o del real del año
@@ -2194,6 +2195,54 @@ export function reducer(state: AppState, action: Action): AppState {
           actualizado: now,
         };
       });
+      return { ...state, arbol: { ...arbol, nodos } };
+    }
+
+    case "REORDER_NODO_ARBOL": {
+      // Reordena un nodo entre sus hermanos RESECUENCIANDO el campo
+      // `orden`. A diferencia de `REORDER_PASO` (orden fraccionario), aquí
+      // el árbol se pinta ordenado por `orden`, así que resecuenciamos
+      // todos los hermanos a múltiplos de 1024 tras el intercambio y
+      // sellamos `actualizado` en los que cambien (clave para el merge LWW
+      // de nodos, ver `preferNodoLWW` en merge.ts).
+      const arbol = state.arbol ?? EMPTY_ARBOL;
+      const node = arbol.nodos.find((n) => n.id === action.id);
+      if (!node) return state;
+
+      // Hermanos: mismo padre y mismo año. Ordenados por la MISMA clave de
+      // display que usa BloqueAnual (orden, luego creado, luego id).
+      const hermanos = arbol.nodos
+        .filter((n) => n.parentId === node.parentId && n.anio === node.anio)
+        .sort((a, b) => {
+          const d = (a.orden ?? 0) - (b.orden ?? 0);
+          if (d !== 0) return d;
+          const c = (a.creado ?? "").localeCompare(b.creado ?? "");
+          if (c !== 0) return c;
+          return a.id.localeCompare(b.id);
+        });
+
+      const pos = hermanos.findIndex((n) => n.id === action.id);
+      if (pos === -1) return state;
+      const vecino = action.direction === "up" ? pos - 1 : pos + 1;
+      if (vecino < 0 || vecino >= hermanos.length) return state;
+
+      // Intercambia el nodo con su vecino en la lista ordenada.
+      const reordenados = [...hermanos];
+      [reordenados[pos], reordenados[vecino]] = [reordenados[vecino], reordenados[pos]];
+
+      // Resecuencia a múltiplos de 1024; sella `actualizado` sólo en los
+      // que cambian de `orden`.
+      const now = new Date().toISOString();
+      const cambios = new Map<string, NodoArbol>();
+      reordenados.forEach((n, i) => {
+        const nuevoOrden = (i + 1) * 1024;
+        if (n.orden !== nuevoOrden) {
+          cambios.set(n.id, { ...n, orden: nuevoOrden, actualizado: now });
+        }
+      });
+      if (cambios.size === 0) return state;
+
+      const nodos = arbol.nodos.map((n) => cambios.get(n.id) ?? n);
       return { ...state, arbol: { ...arbol, nodos } };
     }
 

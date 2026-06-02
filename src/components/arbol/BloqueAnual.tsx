@@ -471,7 +471,7 @@ export function BloqueAnual({
               Todavía no has añadido ramas. Empieza por las líneas que más facturen.
             </p>
           ) : (
-            ramasOrdenadas.map((rama) => (
+            ramasOrdenadas.map((rama, i) => (
               <FilaRamaEditable
                 key={rama.id}
                 rama={rama}
@@ -484,6 +484,8 @@ export function BloqueAnual({
                 metaAnual={metaAnual}
                 reescaladoAuto={reescaladoAuto}
                 onDispararReajuste={dispararReajuste}
+                canSubir={i > 0}
+                canBajar={i < ramasOrdenadas.length - 1}
               />
             ))
           )}
@@ -538,6 +540,8 @@ function FilaRamaEditable({
   metaAnual,
   reescaladoAuto,
   onDispararReajuste,
+  canSubir,
+  canBajar,
 }: {
   rama: NodoArbol;
   raiz: NodoArbol;
@@ -555,10 +559,21 @@ function FilaRamaEditable({
     nuevoPctCambio: number;
     metaPadre: number;
   }) => void;
+  canSubir: boolean;
+  canBajar: boolean;
 }) {
   const dispatch = useAppDispatch();
   const [formNuevaHojaOpen, setFormNuevaHojaOpen] = useState(false);
-  const hojas = hijosSumaDirectosIdx(idx, rama.id);
+  const hojas = useMemo(
+    () =>
+      [...hijosSumaDirectosIdx(idx, rama.id)].sort(
+        (a, b) =>
+          (a.orden ?? 0) - (b.orden ?? 0) ||
+          (a.creado ?? "").localeCompare(b.creado ?? "") ||
+          a.id.localeCompare(b.id),
+      ),
+    [idx, rama.id],
+  );
   const tieneHojas = hojas.length > 0;
   const metaPlaneada = rama.metaValor;
   // El % de la rama refleja su PROPIO importe (lo que la usuaria teclea),
@@ -673,6 +688,12 @@ function FilaRamaEditable({
                 ariaLabel={`Porcentaje de ${rama.nombre}`}
               />
             </div>
+            <ReordenarBotones
+              canSubir={canSubir}
+              canBajar={canBajar}
+              onSubir={() => dispatch({ type: "REORDER_NODO_ARBOL", id: rama.id, direction: "up" })}
+              onBajar={() => dispatch({ type: "REORDER_NODO_ARBOL", id: rama.id, direction: "down" })}
+            />
             <button
               type="button"
               onClick={(e) => {
@@ -851,7 +872,7 @@ function FilaRamaEditable({
         {/* Hojas */}
         {tieneHojas && (
           <div className="space-y-2 border-l-2 border-accent/20 pl-3">
-            {hojas.map((hoja) => (
+            {hojas.map((hoja, i) => (
               <FilaHojaEditable
                 key={hoja.id}
                 hoja={hoja}
@@ -863,6 +884,8 @@ function FilaRamaEditable({
                 metaRama={rama.metaValor ?? 0}
                 reescaladoAuto={reescaladoAuto}
                 onDispararReajuste={onDispararReajuste}
+                canSubir={i > 0}
+                canBajar={i < hojas.length - 1}
               />
             ))}
           </div>
@@ -882,6 +905,8 @@ function FilaHojaEditable({
   metaRama,
   reescaladoAuto,
   onDispararReajuste,
+  canSubir,
+  canBajar,
 }: {
   hoja: NodoArbol;
   rama: NodoArbol;
@@ -898,6 +923,8 @@ function FilaHojaEditable({
     nuevoPctCambio: number;
     metaPadre: number;
   }) => void;
+  canSubir: boolean;
+  canBajar: boolean;
 }) {
   const state = useAppState();
   const dispatch = useAppDispatch();
@@ -1001,6 +1028,12 @@ function FilaHojaEditable({
                 ariaLabel={`Porcentaje de ${hoja.nombre}`}
               />
             </div>
+            <ReordenarBotones
+              canSubir={canSubir}
+              canBajar={canBajar}
+              onSubir={() => dispatch({ type: "REORDER_NODO_ARBOL", id: hoja.id, direction: "up" })}
+              onBajar={() => dispatch({ type: "REORDER_NODO_ARBOL", id: hoja.id, direction: "down" })}
+            />
             <button
               type="button"
               onMouseDown={stopSummaryToggle}
@@ -1407,6 +1440,49 @@ function InlineEditableText({
     >
       {value}
     </button>
+  );
+}
+
+function ReordenarBotones({
+  canSubir,
+  canBajar,
+  onSubir,
+  onBajar,
+}: {
+  canSubir: boolean;
+  canBajar: boolean;
+  onSubir: () => void;
+  onBajar: () => void;
+}) {
+  return (
+    <span className="flex items-center">
+      <button
+        type="button"
+        disabled={!canSubir}
+        onMouseDown={stopSummaryToggle}
+        onClick={(e) => {
+          e.stopPropagation();
+          onSubir();
+        }}
+        title="Subir"
+        className="rounded p-1 text-[12px] leading-none text-muted hover:text-foreground disabled:cursor-not-allowed disabled:opacity-30"
+      >
+        ↑
+      </button>
+      <button
+        type="button"
+        disabled={!canBajar}
+        onMouseDown={stopSummaryToggle}
+        onClick={(e) => {
+          e.stopPropagation();
+          onBajar();
+        }}
+        title="Bajar"
+        className="rounded p-1 text-[12px] leading-none text-muted hover:text-foreground disabled:cursor-not-allowed disabled:opacity-30"
+      >
+        ↓
+      </button>
+    </span>
   );
 }
 
