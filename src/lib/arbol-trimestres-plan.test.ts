@@ -107,6 +107,30 @@ describe("metaParaNodoEnPeriodo con trimestresPlan", () => {
   });
 });
 
+describe("metaParaNodoEnPeriodo ignora metaPorTrimestre legacy sin trimestresPlan", () => {
+  it("reparte lineal por días laborables aunque metaPorTrimestre concentre en Q3", () => {
+    // Residuo legacy típico de Aulas/Máster/Colaboraciones: {Q1:0,Q3:x}.
+    // Sin `trimestresPlan`, el "cuándo" no está fijado: debe repartir lineal
+    // (Q1 > 0) en lugar de arrastrar la concentración heredada.
+    const n = hoja("h1", "rama", 9000, undefined, { Q1: 0, Q2: 0, Q3: 9000 });
+    const q1 = metaParaNodoEnPeriodo(n, "trimestre", "2026-Q1", 2026, undefined) ?? 0;
+    const q2 = metaParaNodoEnPeriodo(n, "trimestre", "2026-Q2", 2026, undefined) ?? 0;
+    expect(q1).toBeGreaterThan(0);
+    expect(q2).toBeGreaterThan(0);
+    let sumaQ = 0;
+    for (const q of ["Q1", "Q2", "Q3", "Q4"] as TrimestreKey[]) {
+      sumaQ += metaParaNodoEnPeriodo(n, "trimestre", `2026-${q}`, 2026, undefined) ?? 0;
+    }
+    expect(sumaQ).toBeCloseTo(9000, 0);
+  });
+
+  it("el plan mensual de enero es > 0 con metaPorTrimestre residual {Q1:0}", () => {
+    const n = hoja("h1", "rama", 12000, undefined, { Q1: 0, Q2: 0 });
+    const ene = metaParaNodoEnPeriodo(n, "mes", "2026-01", 2026, undefined) ?? 0;
+    expect(ene).toBeGreaterThan(0);
+  });
+});
+
 describe("planAgregadoEnPeriodo agrega hojas por trimestre", () => {
   it("rama suma hojas en distintos trimestres", () => {
     const h1 = hoja("h1", "rama", 3000, ["Q1"]);

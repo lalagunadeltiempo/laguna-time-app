@@ -2000,17 +2000,16 @@ export function distribucionTrimestralEfectiva(
  *
  * Cascada de resolución:
  *  1. Si el nodo tiene `trimestresPlan` (1–3 trimestres), reparte
- *     `metaValor` solo entre esos trimestres (precedencia sobre legacy).
- *  2. Si el nodo tiene `metaPorTrimestre`, manda esa distribución
- *     (no se ve afectada por `distribucionMensual`: el plan trimestral
- *     fijado a mano siempre gana).
- *  3. Si `config.distribucionMensual === "patronAnioAnterior"` y se
+ *     `metaValor` solo entre esos trimestres. Es el ÚNICO mecanismo de
+ *     "cuándo": el antiguo `metaPorTrimestre` ya no influye en el reparto
+ *     (un residuo legacy no concentra nada; ver `distribucionTrimestralEfectiva`).
+ *  2. Si `config.distribucionMensual === "patronAnioAnterior"` y se
  *     proporciona `idx` y el nodo tiene cadencia anual con datos AY
  *     suficientes, el reparto mensual sigue las proporciones del real
  *     del MISMO nodo (o equivalente por path) en el año anterior. La
  *     suma de meses ≡ meta anual; el trimestre es la suma de sus 3
  *     meses; la semana se prorratea por días laborables dentro del mes.
- *  4. En cualquier otro caso, fallback al cálculo clásico por días
+ *  3. En cualquier otro caso, fallback al cálculo clásico por días
  *     laborables (`metaParaPeriodo`).
  *
  * `idx` es opcional: las llamadas que no lo pasan (p. ej. test legacy o
@@ -2025,9 +2024,11 @@ export function metaParaNodoEnPeriodo(
   config: PlanArbolConfigAnio | undefined,
   idx?: ArbolIndices,
 ): number | undefined {
-  const distTrim =
-    distribucionDesdeTrimestresPlan(nodo, anio, config) ??
-    distribucionTrimestralEfectiva(nodo, anio, config);
+  // El "cuándo" de una hoja lo fija EXCLUSIVAMENTE `trimestresPlan`
+  // (control "¿Cuándo?"). El antiguo `metaPorTrimestre` ya NO concentra el
+  // reparto: una hoja con residuo legacy pero sin `trimestresPlan` cae al
+  // reparto lineal por días laborables (rama final `metaParaPeriodo`).
+  const distTrim = distribucionDesdeTrimestresPlan(nodo, anio, config);
   if (distTrim) {
     if (vista === "anio") {
       return TRIMESTRES.reduce((acc, q) => acc + distTrim[q], 0);
@@ -2089,29 +2090,4 @@ export function metaParaNodoEnPeriodo(
     // Si proporciones está vacío, caemos al cálculo clásico abajo.
   }
   return metaParaPeriodo(nodo.cadencia, metaAnual, vista, periodoKey, anio, config);
-}
-
-/** Indica si el plan del periodo proviene de `metaPorTrimestre` (plan fijado) o del cálculo derivado anual. */
-export function planEsFijadoPorTrimestre(
-  nodo: NodoArbol,
-  vista: VistaPeriodoArbol,
-  periodoKey: string,
-): boolean {
-  if (!nodoTieneMetaPorTrimestre(nodo)) return false;
-  const mt = nodo.metaPorTrimestre!;
-  if (vista === "trimestre") {
-    const q = trimestreKeyDesdeQ(periodoKey);
-    return q ? mt[q] !== undefined && Number.isFinite(mt[q]!) : false;
-  }
-  if (vista === "mes") {
-    const q = trimestreKeyDesdeMes(periodoKey);
-    return q ? mt[q] !== undefined && Number.isFinite(mt[q]!) : false;
-  }
-  if (vista === "anio") return true;
-  if (vista === "semana") {
-    const mk = mesKeyFromDate(parseLocalDateKey(periodoKey));
-    const q = trimestreKeyDesdeMes(mk);
-    return q ? mt[q] !== undefined && Number.isFinite(mt[q]!) : false;
-  }
-  return false;
 }

@@ -138,11 +138,6 @@ export function BloqueAnual({
   const sumaPct = metaAnual > 0 ? (planRamasSuma / metaAnual) * 100 : 0;
   const diffPct = sumaPct - 100;
   const cuadrePctOk = Math.abs(diffPct) <= 0.5;
-  const nodosConMetaPorTrimestre = useMemo(
-    () => nodos.filter((n) => n.anio === year && n.metaPorTrimestre !== undefined).length,
-    [nodos, year],
-  );
-
   // Botón "Traer estructura de <año-1>": ofrecemos el botón si hay
   // CUALQUIER raíz en el año anterior. El matching exacto por nombre se
   // intenta primero pero hay fallback a la única raíz disponible (la
@@ -385,22 +380,6 @@ export function BloqueAnual({
                 <option value="patronAnioAnterior">patrón {anioAnterior}</option>
               </select>
             </label>
-            {nodosConMetaPorTrimestre > 0 && (
-              <button
-                type="button"
-                onClick={() => {
-                  const ok = window.confirm(
-                    `¿Limpiar el reparto manual por trimestres de ${nodosConMetaPorTrimestre} nodo(s)? ` +
-                      "El plan volverá a prorratearse por días laborables (o por el trimestre que marques en cada hoja).",
-                  );
-                  if (ok) dispatch({ type: "CLEAR_META_POR_TRIMESTRE_ANIO", anio: year });
-                }}
-                title="Quita metaPorTrimestre heredado de importaciones; no borra el «cuándo» que marques en cada hoja."
-                className="rounded border border-amber-500/50 bg-amber-500/10 px-2 py-1 text-[11px] font-medium text-amber-900 hover:bg-amber-500/20 dark:text-amber-100"
-              >
-                Limpiar reparto antiguo por trimestres ({nodosConMetaPorTrimestre})
-              </button>
-            )}
             {existeAnioAnterior && (
               <>
                 <button

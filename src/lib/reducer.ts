@@ -234,8 +234,6 @@ export type Action =
       anio: number;
       modo: "diasLaborables" | "patronAnioAnterior";
     }
-  /** Borra `metaPorTrimestre` en todos los nodos del año (residuo legacy). */
-  | { type: "CLEAR_META_POR_TRIMESTRE_ANIO"; anio: number }
   | { type: "REPLACE_ARBOL_STATE"; arbol: PlanArbolState }
   /** Reemplaza por completo el array de sesiones de un entregable. Se usa
    *  desde la migración de dedup (v27): el reducer no quería exponer
@@ -2301,19 +2299,6 @@ export function reducer(state: AppState, action: Action): AppState {
           configs: [...others, nextConfig].sort((a, b) => a.anio - b.anio),
         },
       };
-    }
-
-    case "CLEAR_META_POR_TRIMESTRE_ANIO": {
-      const arbol = state.arbol ?? EMPTY_ARBOL;
-      const now = new Date().toISOString();
-      let changed = false;
-      const nodos = arbol.nodos.map((n) => {
-        if (n.anio !== action.anio || !n.metaPorTrimestre) return n;
-        changed = true;
-        return { ...n, metaPorTrimestre: undefined, actualizado: now };
-      });
-      if (!changed) return state;
-      return { ...state, arbol: { ...arbol, nodos } };
     }
 
     case "UPSERT_REGISTRO_NODO": {
