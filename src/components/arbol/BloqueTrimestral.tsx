@@ -36,6 +36,7 @@ import {
   MetricLineAnoAnteriorValor,
   MetricLineVsAnioAnterior,
   fmtNum,
+  sufijoPctAnual,
 } from "./arbol-comunes";
 
 const TRIMESTRE_LABELS: { key: TrimestreKey; label: string }[] = [
@@ -85,6 +86,19 @@ export function BloqueTrimestral({ raiz, ramas, idx, config, year, unidad }: Blo
     [raiz.metaValor, realPorMes, mesesCerrados, year, config, proporcionesAYRaiz],
   );
 
+  const totalesAnuales = useMemo(() => {
+    let replanSum = 0;
+    for (const v of replanPorQ.values()) replanSum += v;
+    let realSum = 0;
+    for (const v of realPorMes.values()) realSum += v;
+    return {
+      plan: metaParaNodoEnPeriodo(raiz, "anio", String(year), year, config, idx) ?? 0,
+      real: realSum,
+      replan: replanSum,
+      realAY: realAnioPasadoAgregadoIdx(idx, raiz.id, "anio", String(year)) ?? 0,
+    };
+  }, [replanPorQ, realPorMes, raiz, year, config, idx]);
+
   return (
     <details open className="rounded-xl border border-border bg-background">
       <summary className="cursor-pointer list-none px-4 py-3 marker:content-none [&::-webkit-details-marker]:hidden">
@@ -120,6 +134,7 @@ export function BloqueTrimestral({ raiz, ramas, idx, config, year, unidad }: Blo
               label={label}
               replan={replanPorQ.get(periodoKey)}
               qCerrado={qCerrado}
+              totalesAnuales={totalesAnuales}
             />
           );
         })}
@@ -140,6 +155,7 @@ const TarjetaTrimestre = memo(function TarjetaTrimestre({
   label,
   replan,
   qCerrado,
+  totalesAnuales,
 }: {
   raiz: NodoArbol;
   ramas: NodoArbol[];
@@ -152,6 +168,7 @@ const TarjetaTrimestre = memo(function TarjetaTrimestre({
   label: string;
   replan: number | undefined;
   qCerrado: boolean;
+  totalesAnuales: { plan: number; real: number; replan: number; realAY: number };
 }) {
   const plan = useMemo(
     () => metaParaNodoEnPeriodo(raiz, "trimestre", periodoKey, year, config, idx),
@@ -197,7 +214,7 @@ const TarjetaTrimestre = memo(function TarjetaTrimestre({
       <div className="mt-3 space-y-1 border-t border-border/50 pt-2">
         <MetricLine
           label="Real"
-          value={`${fmtNum(real)} ${unidad}`}
+          value={`${fmtNum(real)} ${unidad}${sufijoPctAnual(real, totalesAnuales.real)}`}
           accent={
             deltaReplan !== undefined
               ? deltaReplan >= 0
@@ -210,15 +227,23 @@ const TarjetaTrimestre = memo(function TarjetaTrimestre({
                 : undefined
           }
         />
-        <MetricLine label="Plan" value={plan !== undefined ? `${fmtNum(plan)} ${unidad}` : "—"} accent="muted" />
+        <MetricLine
+          label="Plan"
+          value={
+            plan !== undefined
+              ? `${fmtNum(plan)} ${unidad}${sufijoPctAnual(plan, totalesAnuales.plan)}`
+              : "—"
+          }
+          accent="muted"
+        />
         {replanDistintoDePlan && (
           <MetricLine
             label={qCerrado ? "Replan que tocaba" : "Replan sugerido"}
-            value={`${fmtNum(replan)} ${unidad}`}
+            value={`${fmtNum(replan)} ${unidad}${sufijoPctAnual(replan as number, totalesAnuales.replan)}`}
             accent="muted"
           />
         )}
-        <MetricLineAnoAnteriorValor ay={realAY} unidad={unidad} />
+        <MetricLineAnoAnteriorValor ay={realAY} unidad={unidad} pctAnual={totalesAnuales.realAY} />
         {deltaPlan !== undefined && mostrarComparaciones && (
           <MetricLine
             label="vs plan"

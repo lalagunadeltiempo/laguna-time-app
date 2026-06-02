@@ -9,7 +9,7 @@
  */
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { useAppDispatch } from "@/lib/context";
-import { crecimientoVsAY, type CrecimientoVsAY } from "@/lib/arbol-tiempo";
+import { crecimientoVsAY, porcentajeDeTotal, type CrecimientoVsAY } from "@/lib/arbol-tiempo";
 import { generateId } from "@/lib/store";
 import type { RegistroNodo } from "@/lib/types";
 
@@ -47,6 +47,13 @@ export function fmtNum(n: number | undefined | null, { signed = false } = {}): s
   if (n > 0) return `+${s}`;
   if (n < 0) return `−${s}`;
   return s;
+}
+
+/** Sufijo « · X% »: peso de `valor` sobre el total anual de su propia serie. */
+export function sufijoPctAnual(valor: number, totalAnual: number): string {
+  const pct = porcentajeDeTotal(valor, totalAnual);
+  if (pct === undefined) return "";
+  return ` · ${fmtNum(pct)}%`;
 }
 
 export function formatDisplay(v: number | undefined, isEuro: boolean): string {
@@ -377,13 +384,20 @@ export function fmtDeltaVsAnioAnterior(c: CrecimientoVsAY, unidad: string): stri
 export function MetricLineAnoAnteriorValor({
   ay,
   unidad,
+  pctAnual,
 }: {
   ay: number | undefined;
   unidad: string;
+  /** Total anual del año anterior (denominador del %). */
+  pctAnual?: number;
 }) {
   if (ay === undefined || ay <= 0) return null;
   return (
-    <MetricLine label="Año anterior" value={`${fmtNum(ay)} ${unidad}`} accent="muted" />
+    <MetricLine
+      label="Año anterior"
+      value={`${fmtNum(ay)} ${unidad}${pctAnual !== undefined ? sufijoPctAnual(ay, pctAnual) : ""}`}
+      accent="muted"
+    />
   );
 }
 

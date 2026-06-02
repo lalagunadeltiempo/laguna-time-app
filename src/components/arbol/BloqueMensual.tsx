@@ -41,6 +41,7 @@ import {
   parseLocalDateKey,
   planAgregadoEnPeriodoIdx,
   proporcionesMensualesAYParaNodo,
+  realAnioPasadoAgregadoIdx,
   realAnioPasadoEnMesIdx,
   realEfectivoEnPeriodoIdx,
   replanMensualSerie,
@@ -56,6 +57,7 @@ import {
   type RegistrosIndex,
   claveRegistro,
   fmtNum,
+  sufijoPctAnual,
   usePersistedOpen,
   useUpsertRegistro,
 } from "./arbol-comunes";
@@ -119,6 +121,20 @@ export function BloqueMensual({ raiz, ramas, regsIndex, idx, config, year, unida
     [raiz.metaValor, realPorMes, mesesCerrados, year, config, proporcionesAYRaiz],
   );
 
+  // Totales anuales por serie (denominadores del % en cada tarjeta de mes).
+  const totalesAnuales = useMemo(() => {
+    let replanSum = 0;
+    for (const v of replanPorMes.values()) replanSum += v;
+    let realSum = 0;
+    for (const v of realPorMes.values()) realSum += v;
+    return {
+      plan: metaParaNodoEnPeriodo(raiz, "anio", String(year), year, config, idx) ?? 0,
+      real: realSum,
+      replan: replanSum,
+      realAY: realAnioPasadoAgregadoIdx(idx, raiz.id, "anio", String(year)) ?? 0,
+    };
+  }, [replanPorMes, realPorMes, raiz, year, config, idx]);
+
   return (
     <details open className="rounded-xl border border-border bg-background">
       <summary className="cursor-pointer list-none px-4 py-3 marker:content-none [&::-webkit-details-marker]:hidden">
@@ -156,6 +172,7 @@ export function BloqueMensual({ raiz, ramas, regsIndex, idx, config, year, unida
               label={MESES_ES[i]}
               replan={replanPorMes.get(periodoKey)}
               cerrado={mesesCerrados.has(periodoKey)}
+              totalesAnuales={totalesAnuales}
             />
           );
         })}
@@ -176,6 +193,7 @@ const TarjetaMes = memo(function TarjetaMes({
   label,
   replan,
   cerrado,
+  totalesAnuales,
 }: {
   raiz: NodoArbol;
   ramas: NodoArbol[];
@@ -188,6 +206,7 @@ const TarjetaMes = memo(function TarjetaMes({
   label: string;
   replan: number | undefined;
   cerrado: boolean;
+  totalesAnuales: { plan: number; real: number; replan: number; realAY: number };
 }) {
   const dispatch = useAppDispatch();
   const plan = useMemo(
@@ -288,7 +307,7 @@ const TarjetaMes = memo(function TarjetaMes({
       <div className="mt-3 space-y-1 border-t border-border/50 pt-2">
         <MetricLine
           label="Real"
-          value={`${fmtNum(real)} ${unidad}`}
+          value={`${fmtNum(real)} ${unidad}${sufijoPctAnual(real, totalesAnuales.real)}`}
           accent={
             deltaReplan !== undefined
               ? deltaReplan >= 0
@@ -301,15 +320,23 @@ const TarjetaMes = memo(function TarjetaMes({
                 : undefined
           }
         />
-        <MetricLine label="Plan" value={plan !== undefined ? `${fmtNum(plan)} ${unidad}` : "—"} accent="muted" />
+        <MetricLine
+          label="Plan"
+          value={
+            plan !== undefined
+              ? `${fmtNum(plan)} ${unidad}${sufijoPctAnual(plan, totalesAnuales.plan)}`
+              : "—"
+          }
+          accent="muted"
+        />
         {replanDistintoDePlan && (
           <MetricLine
             label={cerrado ? "Replan que tocaba" : "Replan sugerido"}
-            value={`${fmtNum(replan as number)} ${unidad}`}
+            value={`${fmtNum(replan as number)} ${unidad}${sufijoPctAnual(replan as number, totalesAnuales.replan)}`}
             accent="muted"
           />
         )}
-        <MetricLineAnoAnteriorValor ay={realAY} unidad={unidad} />
+        <MetricLineAnoAnteriorValor ay={realAY} unidad={unidad} pctAnual={totalesAnuales.realAY} />
         {plan !== undefined && deltaPlan !== undefined && mostrarDeltas && (
           <MetricLine
             label="vs plan"
