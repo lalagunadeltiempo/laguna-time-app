@@ -1910,6 +1910,50 @@ export function trimestreKeyDesdeQ(qKey: string): TrimestreKey | null {
  * - Si hay trimestres definidos y `metaValor` > suma definidos, el residuo se reparte entre los
  *   trimestres no definidos proporcional a días laborables (o equitativo si no hay config).
  */
+const TRIMESTRE_KEYS_SET = new Set<TrimestreKey>(TRIMESTRES);
+
+/** Normaliza `trimestresPlan` a claves Q1–Q4 únicas y ordenadas. */
+export function sanitizarTrimestresPlan(raw: unknown): TrimestreKey[] | undefined {
+  if (!Array.isArray(raw) || raw.length === 0) return undefined;
+  const out: TrimestreKey[] = [];
+  for (const v of raw) {
+    if (typeof v === "string" && TRIMESTRE_KEYS_SET.has(v as TrimestreKey) && !out.includes(v as TrimestreKey)) {
+      out.push(v as TrimestreKey);
+    }
+  }
+  if (out.length === 0) return undefined;
+  out.sort((a, b) => TRIMESTRES.indexOf(a) - TRIMESTRES.indexOf(b));
+  return out;
+}
+
+/**
+ * Distribución trimestral derivada de `trimestresPlan`: reparte `metaValor`
+ * entre los trimestres elegidos por días laborables. Devuelve null si no hay
+ * plan válido (0, 4 trimestres, o sin meta).
+ */
+export function distribucionDesdeTrimestresPlan(
+  nodo: NodoArbol,
+  anio: number,
+  config: PlanArbolConfigAnio | undefined,
+): Record<TrimestreKey, number> | null {
+  const plan = sanitizarTrimestresPlan(nodo.trimestresPlan);
+  if (!plan || plan.length === 0 || plan.length >= 4) return null;
+  const meta = nodo.metaValor;
+  if (meta === undefined || !Number.isFinite(meta) || meta <= 0) return null;
+
+  const asignado: Record<TrimestreKey, number> = { Q1: 0, Q2: 0, Q3: 0, Q4: 0 };
+  const pesos = plan.map((q) => {
+    const diasQ = diasLaborablesEnTrimestre(`${anio}-${q}`, anio, config);
+    return diasQ > 0 ? diasQ : 1;
+  });
+  const sumaPesos = pesos.reduce((a, b) => a + b, 0);
+  if (sumaPesos <= 0) return null;
+  plan.forEach((q, i) => {
+    asignado[q] = (meta * pesos[i]) / sumaPesos;
+  });
+  return asignado;
+}
+
 export function distribucionTrimestralEfectiva(
   nodo: NodoArbol,
   anio: number,
@@ -1955,16 +1999,18 @@ export function distribucionTrimestralEfectiva(
  * Plan del periodo para un nodo, teniendo en cuenta `metaPorTrimestre` si está definido.
  *
  * Cascada de resolución:
- *  1. Si el nodo tiene `metaPorTrimestre`, manda esa distribución
+ *  1. Si el nodo tiene `trimestresPlan` (1–3 trimestres), reparte
+ *     `metaValor` solo entre esos trimestres (precedencia sobre legacy).
+ *  2. Si el nodo tiene `metaPorTrimestre`, manda esa distribución
  *     (no se ve afectada por `distribucionMensual`: el plan trimestral
  *     fijado a mano siempre gana).
- *  2. Si `config.distribucionMensual === "patronAnioAnterior"` y se
+ *  3. Si `config.distribucionMensual === "patronAnioAnterior"` y se
  *     proporciona `idx` y el nodo tiene cadencia anual con datos AY
  *     suficientes, el reparto mensual sigue las proporciones del real
  *     del MISMO nodo (o equivalente por path) en el año anterior. La
  *     suma de meses ≡ meta anual; el trimestre es la suma de sus 3
  *     meses; la semana se prorratea por días laborables dentro del mes.
- *  3. En cualquier otro caso, fallback al cálculo clásico por días
+ *  4. En cualquier otro caso, fallback al cálculo clásico por días
  *     laborables (`metaParaPeriodo`).
  *
  * `idx` es opcional: las llamadas que no lo pasan (p. ej. test legacy o
@@ -1979,7 +2025,9 @@ export function metaParaNodoEnPeriodo(
   config: PlanArbolConfigAnio | undefined,
   idx?: ArbolIndices,
 ): number | undefined {
-  const distTrim = distribucionTrimestralEfectiva(nodo, anio, config);
+  const distTrim =
+    distribucionDesdeTrimestresPlan(nodo, anio, config) ??
+    distribucionTrimestralEfectiva(nodo, anio, config);
   if (distTrim) {
     if (vista === "anio") {
       return TRIMESTRES.reduce((acc, q) => acc + distTrim[q], 0);

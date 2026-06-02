@@ -477,6 +477,14 @@ export interface NodoArbol {
    * el plan por periodo se prorratea por días laborables.
    */
   metaPorTrimestre?: Partial<Record<TrimestreKey, number>>;
+  /**
+   * Trimestre(s) en los que cae el plan de esta hoja (opcional). Vacío o
+   * ausente = repartido lineal por días laborables en todo el año. Si hay
+   * 1–3 trimestres, el importe anual (`metaValor`) se reparte solo entre
+   * esos trimestres (por días laborables entre ellos). Tiene precedencia
+   * sobre `metaPorTrimestre` (legacy).
+   */
+  trimestresPlan?: TrimestreKey[];
   proyectoIds?: string[];
   entregableIds?: string[];
   contadorModo: "manual" | "derivado";

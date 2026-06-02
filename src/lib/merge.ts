@@ -105,6 +105,7 @@ export function preferNodoLWW(
   preferDefined("relacionConPadre");
   preferDefined("contadorModo");
   preferDefined("anio");
+  preferDefined("trimestresPlan");
   // `creado` no se toca: se mantiene el del primer arg (`x`), idéntico
   // al del segundo en condiciones normales (es el ts de creación del
   // nodo). En estados legacy con timestamps distintos preferimos no

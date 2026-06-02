@@ -20,6 +20,7 @@ import {
   type NodoArbol,
   type PlanArbolConfigAnio,
   type RegistroNodo,
+  type TrimestreKey,
 } from "@/lib/types";
 import {
   collectSubtreeIds,
@@ -137,6 +138,10 @@ export function BloqueAnual({
   const sumaPct = metaAnual > 0 ? (planRamasSuma / metaAnual) * 100 : 0;
   const diffPct = sumaPct - 100;
   const cuadrePctOk = Math.abs(diffPct) <= 0.5;
+  const nodosConMetaPorTrimestre = useMemo(
+    () => nodos.filter((n) => n.anio === year && n.metaPorTrimestre !== undefined).length,
+    [nodos, year],
+  );
 
   // Botón "Traer estructura de <año-1>": ofrecemos el botón si hay
   // CUALQUIER raíz en el año anterior. El matching exacto por nombre se
@@ -380,6 +385,22 @@ export function BloqueAnual({
                 <option value="patronAnioAnterior">patrón {anioAnterior}</option>
               </select>
             </label>
+            {nodosConMetaPorTrimestre > 0 && (
+              <button
+                type="button"
+                onClick={() => {
+                  const ok = window.confirm(
+                    `¿Limpiar el reparto manual por trimestres de ${nodosConMetaPorTrimestre} nodo(s)? ` +
+                      "El plan volverá a prorratearse por días laborables (o por el trimestre que marques en cada hoja).",
+                  );
+                  if (ok) dispatch({ type: "CLEAR_META_POR_TRIMESTRE_ANIO", anio: year });
+                }}
+                title="Quita metaPorTrimestre heredado de importaciones; no borra el «cuándo» que marques en cada hoja."
+                className="rounded border border-amber-500/50 bg-amber-500/10 px-2 py-1 text-[11px] font-medium text-amber-900 hover:bg-amber-500/20 dark:text-amber-100"
+              >
+                Limpiar reparto antiguo por trimestres ({nodosConMetaPorTrimestre})
+              </button>
+            )}
             {existeAnioAnterior && (
               <>
                 <button
@@ -608,6 +629,10 @@ function FilaRamaEditable({
   const sumaHojasPct = planeadaOk ? (sumaHojasEff / metaPlaneada!) * 100 : undefined;
   const diffHojasPct = sumaHojasPct !== undefined ? sumaHojasPct - 100 : 0;
   const cuadreHojasPctOk = sumaHojasPct !== undefined && Math.abs(diffHojasPct) <= 0.5;
+  const hojasSinTrimestre = useMemo(
+    () => hojas.filter((h) => !h.trimestresPlan?.length).length,
+    [hojas],
+  );
 
   // Datos del año pasado por hoja para el botón "Aplicar proporción AY".
   const ayHojas = hojas.map((h) => ({
@@ -841,6 +866,15 @@ function FilaRamaEditable({
           />
         )}
 
+        {tieneHojas && hojasSinTrimestre > 0 && (
+          <div className="rounded border border-amber-500/40 bg-amber-500/10 px-2 py-1.5 text-[11px] text-amber-900 dark:text-amber-100">
+            <strong className="mr-1">Cuándo:</strong>
+            {hojasSinTrimestre === hojas.length
+              ? "ninguna hoja tiene trimestre asignado (repartido lineal en todo el año)"
+              : `${hojasSinTrimestre} hoja(s) sin trimestre — marcan «Repartido» hasta que elijas Q1–Q4`}
+          </div>
+        )}
+
         {/* Marcador de hojas (nivel 2): coherente con el de porcentajes del bloque anual */}
         {tieneHojas && (
           planeadaOk && sumaHojasPct !== undefined ? (
@@ -1028,6 +1062,17 @@ function FilaHojaEditable({
                 ariaLabel={`Porcentaje de ${hoja.nombre}`}
               />
             </div>
+            <TrimestrePlanToggle
+              hojaId={hoja.id}
+              trimestresPlan={hoja.trimestresPlan}
+              onChange={(trimestresPlan) =>
+                dispatch({
+                  type: "UPDATE_NODO_ARBOL",
+                  id: hoja.id,
+                  changes: { trimestresPlan, metaPorTrimestre: undefined },
+                })
+              }
+            />
             <ReordenarBotones
               canSubir={canSubir}
               canBajar={canBajar}
@@ -1440,6 +1485,73 @@ function InlineEditableText({
     >
       {value}
     </button>
+  );
+}
+
+const TRIMESTRES_PLAN: TrimestreKey[] = ["Q1", "Q2", "Q3", "Q4"];
+
+function TrimestrePlanToggle({
+  hojaId,
+  trimestresPlan,
+  onChange,
+}: {
+  hojaId: string;
+  trimestresPlan: TrimestreKey[] | undefined;
+  onChange: (next: TrimestreKey[] | undefined) => void;
+}) {
+  const seleccionados = new Set(trimestresPlan ?? []);
+  const esRepartido = seleccionados.size === 0 || seleccionados.size === 4;
+
+  const toggle = (q: TrimestreKey) => {
+    const next = new Set(seleccionados);
+    if (next.has(q)) next.delete(q);
+    else next.add(q);
+    const arr = TRIMESTRES_PLAN.filter((k) => next.has(k));
+    onChange(arr.length === 0 || arr.length === 4 ? undefined : arr);
+  };
+
+  return (
+    <span
+      className="inline-flex flex-wrap items-center gap-0.5"
+      onClick={stopSummaryToggle}
+      onMouseDown={stopSummaryToggle}
+      role="group"
+      aria-label={`Trimestre planificado de hoja ${hojaId}`}
+    >
+      <span className="mr-0.5 text-[9px] text-muted" title="¿En qué trimestre(s) cae el plan de esta hoja? Sin marcar = repartido en todo el año.">
+        ¿Cuándo?
+      </span>
+      {TRIMESTRES_PLAN.map((q) => {
+        const on = !esRepartido && seleccionados.has(q);
+        return (
+          <button
+            key={q}
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              toggle(q);
+            }}
+            className={`min-w-[1.65rem] rounded border px-1 py-0.5 text-[9px] font-medium tabular-nums ${
+              on
+                ? "border-accent bg-accent/15 text-accent"
+                : "border-border/80 bg-background/80 text-muted hover:border-accent/40 hover:text-foreground"
+            }`}
+            title={
+              on
+                ? `Quitar ${q} (vuelve a repartido si no queda ninguno)`
+                : `Asignar plan a ${q}`
+            }
+          >
+            {q}
+          </button>
+        );
+      })}
+      {esRepartido && (
+        <span className="ml-0.5 text-[9px] text-muted" title="Repartido lineal por días laborables en todo el año">
+          ↻
+        </span>
+      )}
+    </span>
   );
 }
 

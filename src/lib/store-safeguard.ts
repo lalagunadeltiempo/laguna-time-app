@@ -1,4 +1,13 @@
+import { sanitizarTrimestresPlan } from "./arbol-tiempo";
 import type { AppState, NodoArbol } from "./types";
+
+/** Valida y normaliza `trimestresPlan` al cargar o persistir nodos. */
+export function normalizarTrimestresPlanEnNodo(n: NodoArbol): NodoArbol {
+  if (n.trimestresPlan === undefined) return n;
+  const sane = sanitizarTrimestresPlan(n.trimestresPlan);
+  if (sane === n.trimestresPlan) return n;
+  return { ...n, trimestresPlan: sane };
+}
 
 /**
  * Resultado del chequeo anti-pisada que se hace ANTES de hacer upsert
