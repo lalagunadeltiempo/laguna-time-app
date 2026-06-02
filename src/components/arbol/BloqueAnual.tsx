@@ -105,6 +105,17 @@ export function BloqueAnual({
   );
 
   const metaAnual = raiz.metaValor ?? 0;
+  const ramasOrdenadas = useMemo(
+    () =>
+      [...ramas].sort((a, b) => {
+        if (a.orden !== b.orden) return a.orden - b.orden;
+        const creadoA = a.creado ?? "";
+        const creadoB = b.creado ?? "";
+        if (creadoA !== creadoB) return creadoA.localeCompare(creadoB);
+        return a.id.localeCompare(b.id);
+      }),
+    [ramas],
+  );
   const planRamasSuma = useMemo(
     () =>
       ramas
@@ -120,6 +131,9 @@ export function BloqueAnual({
   );
   const diffRamas = metaAnual > 0 ? planRamasSuma - metaAnual : 0;
   const cuadreRamasOk = metaAnual === 0 || Math.abs(diffRamas) < 0.01;
+  const sumaPct = metaAnual > 0 ? (planRamasSuma / metaAnual) * 100 : 0;
+  const diffPct = sumaPct - 100;
+  const cuadrePctOk = Math.abs(diffPct) <= 0.5;
 
   // Botón "Traer estructura de <año-1>": ofrecemos el botón si hay
   // CUALQUIER raíz en el año anterior. El matching exacto por nombre se
@@ -236,6 +250,23 @@ export function BloqueAnual({
                   {diffRamas > 0
                     ? `te pasas ${fmtNum(Math.abs(diffRamas))} ${unidad}`
                     : `te faltan ${fmtNum(Math.abs(diffRamas))} ${unidad}`}
+                </span>
+              )}
+            </span>
+            <span>
+              Porcentajes:{" "}
+              <strong
+                className={`tabular-nums ${
+                  cuadrePctOk ? "text-emerald-600 dark:text-emerald-400" : "text-amber-700 dark:text-amber-200"
+                }`}
+              >
+                suman {fmtNum(sumaPct)}%
+              </strong>
+              {!cuadrePctOk && (
+                <span className="ml-2 rounded bg-amber-500/15 px-1.5 py-0.5 text-amber-900 dark:text-amber-100">
+                  {diffPct < 0
+                    ? `faltan ${fmtNum(Math.abs(diffPct))}%`
+                    : `sobran ${fmtNum(Math.abs(diffPct))}%`}
                 </span>
               )}
             </span>
@@ -414,13 +445,30 @@ export function BloqueAnual({
         )}
 
         {/* Listado de ramas */}
+        <div
+          className={`rounded border px-2 py-1.5 text-[11px] ${
+            cuadrePctOk
+              ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-800 dark:text-emerald-200"
+              : "border-amber-500/50 bg-amber-500/10 text-amber-900 dark:text-amber-100"
+          }`}
+        >
+          <strong className="mr-1">Porcentajes:</strong>
+          <span className="tabular-nums">suman {fmtNum(sumaPct)}%</span>
+          {!cuadrePctOk && (
+            <span className="ml-2 tabular-nums">
+              {diffPct < 0
+                ? `faltan ${fmtNum(Math.abs(diffPct))}%`
+                : `sobran ${fmtNum(Math.abs(diffPct))}%`}
+            </span>
+          )}
+        </div>
         <div className="space-y-2">
           {ramas.length === 0 ? (
             <p className="rounded border border-dashed border-border px-3 py-3 text-sm text-muted">
               Todavía no has añadido ramas. Empieza por las líneas que más facturen.
             </p>
           ) : (
-            ramas.map((rama) => (
+            ramasOrdenadas.map((rama) => (
               <FilaRamaEditable
                 key={rama.id}
                 rama={rama}
