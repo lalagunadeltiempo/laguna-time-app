@@ -164,15 +164,23 @@ export function normalizarNombreNodo(nombre: string | undefined | null): string 
   return lower.endsWith("s") ? lower.slice(0, -1) : lower;
 }
 
+/**
+ * Path normalizado **relativo a la raíz** (sin el segmento de la raíz).
+ * Así ramas/hojas emparejan entre años aunque la raíz cambie de nombre.
+ * La raíz del árbol usa path vacío `""` (una raíz por año en la práctica).
+ */
 function pathDeNodoDesdeMap(nodoId: string, nodosByIdAll: Map<string, NodoArbol>): string {
   const parts: string[] = [];
   let cur: NodoArbol | undefined = nodosByIdAll.get(nodoId);
   const guard = new Set<string>();
   while (cur && !guard.has(cur.id)) {
     guard.add(cur.id);
-    parts.unshift(normalizarNombreNodo(cur.nombre));
-    if (!cur.parentId) break;
-    cur = nodosByIdAll.get(cur.parentId);
+    if (cur.parentId) {
+      parts.unshift(normalizarNombreNodo(cur.nombre));
+      cur = nodosByIdAll.get(cur.parentId);
+    } else {
+      break;
+    }
   }
   return parts.join("/");
 }
@@ -183,7 +191,7 @@ export type ArbolIndices = {
   nodosPorParent: Map<string, NodoArbol[]>;
   nodosById: Map<string, NodoArbol>;
   year: number;
-  /** Path normalizado (raiz/rama/.../nodo) para cualquier nodoId, de cualquier año. */
+  /** Path relativo a la raíz (rama/.../hoja; raíz = ""). Cualquier año. */
   pathByNodoId: Map<string, string>;
   /** path normalizado → nodoId, indexado por año. Permite resolver equivalentes entre árboles de años distintos. */
   nodoIdPorPathByAnio: Map<number, Map<string, string>>;
@@ -257,7 +265,7 @@ export function resolverNodoEquivalenteEnAnio(
   anio: number,
 ): string | null {
   const path = idx.pathByNodoId.get(nodoId);
-  if (!path) return null;
+  if (path === undefined) return null;
   const byPath = idx.nodoIdPorPathByAnio.get(anio);
   if (!byPath) return null;
   return byPath.get(path) ?? null;

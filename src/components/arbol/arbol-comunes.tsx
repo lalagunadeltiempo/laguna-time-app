@@ -366,21 +366,33 @@ export function accentVsAY(real: number, ay: number | undefined): "good" | "bad"
   return real >= ayEff ? "good" : "bad";
 }
 
-export function fmtDeltaAY(c: CrecimientoVsAY, unidad: string): string {
+export function fmtDeltaVsAnioAnterior(c: CrecimientoVsAY, unidad: string): string {
   if (c.esNuevo) return `nuevo · +${fmtNum(c.deltaEur)} ${unidad}`;
   const pct =
     c.deltaPct !== undefined ? ` · ${fmtNum(c.deltaPct, { signed: true })}%` : "";
   return `${fmtNum(c.deltaEur, { signed: true })} ${unidad}${pct}`;
 }
 
-/** Líneas de referencia AY + variación (€ y %) para bloques del árbol. */
-export function MetricLinesVsAY({
-  labelAy,
+/** Valor del año anterior (línea de contexto, sin variación). */
+export function MetricLineAnoAnteriorValor({
+  ay,
+  unidad,
+}: {
+  ay: number | undefined;
+  unidad: string;
+}) {
+  if (ay === undefined || ay <= 0) return null;
+  return (
+    <MetricLine label="Año anterior" value={`${fmtNum(ay)} ${unidad}`} accent="muted" />
+  );
+}
+
+/** Comparación interanual: euros y % (única comparación con %). */
+export function MetricLineVsAnioAnterior({
   real,
   ay,
   unidad,
 }: {
-  labelAy: string;
   real: number;
   ay: number | undefined;
   unidad: string;
@@ -388,28 +400,39 @@ export function MetricLinesVsAY({
   const c = crecimientoVsAY(real, ay);
   if (!c) return null;
   const tone = accentVsAY(real, ay);
-  const muestraAy = ay !== undefined && ay > 0;
+  return (
+    <MetricLine
+      label="vs año anterior"
+      value={fmtDeltaVsAnioAnterior(c, unidad)}
+      accent={tone}
+    />
+  );
+}
+
+/** @deprecated Usar MetricLineAnoAnteriorValor + MetricLineVsAnioAnterior */
+export function MetricLinesVsAY(props: {
+  labelAy: string;
+  real: number;
+  ay: number | undefined;
+  unidad: string;
+}) {
   return (
     <>
-      {muestraAy && (
-        <MetricLine label={labelAy} value={`${fmtNum(ay)} ${unidad}`} accent="muted" />
-      )}
-      <MetricLine label="Δ vs AY" value={fmtDeltaAY(c, unidad)} accent={tone} />
+      <MetricLineAnoAnteriorValor ay={props.ay} unidad={props.unidad} />
+      <MetricLineVsAnioAnterior real={props.real} ay={props.ay} unidad={props.unidad} />
     </>
   );
 }
 
-/** Fragmento inline "2025: X · Δ" para filas compactas (trimestral/mensual). */
+/** Fragmento inline para filas compactas: Año anterior + vs año anterior. */
 export function InlineVsAY({
   real,
   ay,
   unidad,
-  prefix = "2025",
 }: {
   real: number;
   ay: number | undefined;
   unidad: string;
-  prefix?: string;
 }) {
   const c = crecimientoVsAY(real, ay);
   if (!c) return null;
@@ -422,13 +445,16 @@ export function InlineVsAY({
         : "text-foreground";
   return (
     <span className="inline-flex flex-wrap items-baseline gap-x-1">
-      {(ay !== undefined && ay > 0) && (
+      {ay !== undefined && ay > 0 && (
         <span>
-          {prefix}: <strong className="text-foreground">{fmtNum(ay)} {unidad}</strong>
+          Año anterior:{" "}
+          <strong className="text-foreground">
+            {fmtNum(ay)} {unidad}
+          </strong>
         </span>
       )}
       <span className={toneClass}>
-        <strong>{fmtDeltaAY(c, unidad)}</strong>
+        <strong>{fmtDeltaVsAnioAnterior(c, unidad)}</strong>
       </span>
     </span>
   );

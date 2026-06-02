@@ -29,7 +29,14 @@ import {
   type ArbolIndices,
 } from "@/lib/arbol-tiempo";
 import { CierreTrimestre } from "./CierreTrimestre";
-import { InlineVsAY, LazyDetails, MetricLine, MetricLinesVsAY, fmtNum } from "./arbol-comunes";
+import {
+  InlineVsAY,
+  LazyDetails,
+  MetricLine,
+  MetricLineAnoAnteriorValor,
+  MetricLineVsAnioAnterior,
+  fmtNum,
+} from "./arbol-comunes";
 
 const TRIMESTRE_LABELS: { key: TrimestreKey; label: string }[] = [
   { key: "Q1", label: "Q1" },
@@ -162,6 +169,9 @@ const TarjetaTrimestre = memo(function TarjetaTrimestre({
 
   const deltaPlan = plan !== undefined ? real - plan : undefined;
   const deltaReplan = replan !== undefined ? real - replan : undefined;
+  const replanDistintoDePlan =
+    plan !== undefined && replan !== undefined && Math.abs(replan - plan) >= 1;
+  const mostrarComparaciones = real > 0 || estado !== "futuro";
   const pct = plan && plan > 0 ? Math.min(100, Math.round((real / plan) * 100)) : 0;
   const showProgress = estado === "pasado" || estado === "actual";
 
@@ -185,14 +195,6 @@ const TarjetaTrimestre = memo(function TarjetaTrimestre({
       </div>
 
       <div className="mt-3 space-y-1 border-t border-border/50 pt-2">
-        <MetricLine label="Plan" value={plan !== undefined ? `${fmtNum(plan)} ${unidad}` : "—"} accent="muted" />
-        {replan !== undefined && plan !== undefined && Math.abs(replan - plan) >= 1 && (
-          <MetricLine
-            label={qCerrado ? "Replan que tocaba" : "Replan sugerido"}
-            value={`${fmtNum(replan)} ${unidad}`}
-            accent="muted"
-          />
-        )}
         <MetricLine
           label="Real"
           value={`${fmtNum(real)} ${unidad}`}
@@ -208,19 +210,30 @@ const TarjetaTrimestre = memo(function TarjetaTrimestre({
                 : undefined
           }
         />
-        {deltaPlan !== undefined && estado === "pasado" && (
+        <MetricLine label="Plan" value={plan !== undefined ? `${fmtNum(plan)} ${unidad}` : "—"} accent="muted" />
+        {replanDistintoDePlan && (
           <MetricLine
-            label="Δ vs plan"
+            label={qCerrado ? "Replan que tocaba" : "Replan sugerido"}
+            value={`${fmtNum(replan)} ${unidad}`}
+            accent="muted"
+          />
+        )}
+        <MetricLineAnoAnteriorValor ay={realAY} unidad={unidad} />
+        {deltaPlan !== undefined && mostrarComparaciones && (
+          <MetricLine
+            label="vs plan"
             value={`${fmtNum(deltaPlan, { signed: true })} ${unidad}`}
             accent={deltaPlan >= 0 ? "good" : "bad"}
           />
         )}
-        <MetricLinesVsAY
-          labelAy={`Año ant. (${trimestreKey} ${year - 1})`}
-          real={real}
-          ay={realAY}
-          unidad={unidad}
-        />
+        {replanDistintoDePlan && deltaReplan !== undefined && mostrarComparaciones && (
+          <MetricLine
+            label="vs replan"
+            value={`${fmtNum(deltaReplan, { signed: true })} ${unidad}`}
+            accent={deltaReplan >= 0 ? "good" : "bad"}
+          />
+        )}
+        <MetricLineVsAnioAnterior real={real} ay={realAY} unidad={unidad} />
       </div>
 
       {showProgress && (

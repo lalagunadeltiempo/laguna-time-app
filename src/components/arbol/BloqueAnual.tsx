@@ -43,7 +43,7 @@ import {
   NumberInput,
   PercentInput,
   accentVsAY,
-  fmtDeltaAY,
+  fmtDeltaVsAnioAnterior,
   fmtNum,
   usePersistedOpen,
 } from "./arbol-comunes";
@@ -252,7 +252,7 @@ export function BloqueAnual({
             </span>
             {metaAnual > 0 && (
               <span>
-                Real YTD:{" "}
+                Acumulado {year}:{" "}
                 <strong className="tabular-nums text-foreground">
                   {fmtNum(realCompararYTD)} {unidad}
                 </strong>
@@ -262,7 +262,7 @@ export function BloqueAnual({
               <span className="tabular-nums">
                 {realAYYTD !== undefined && realAYYTD > 0 && (
                   <>
-                    {year - 1} (mismo tramo):{" "}
+                    Año anterior (mismo tramo):{" "}
                     <strong className="text-foreground">{fmtNum(realAYYTD)} {unidad}</strong>
                     {" · "}
                   </>
@@ -276,7 +276,7 @@ export function BloqueAnual({
                         : "text-foreground"
                   }
                 >
-                  {fmtDeltaAY(crecimientoYTD, unidad)}
+                  vs año anterior: {fmtDeltaVsAnioAnterior(crecimientoYTD, unidad)}
                 </strong>
               </span>
             )}
@@ -750,7 +750,7 @@ function FilaRamaEditable({
               <PinIcon filled={!!rama.metaPctFijo} />
             </button>
             <span className="ml-auto text-[11px] text-muted">
-              YTD: <strong className="tabular-nums text-foreground">{fmtNum(realRama)} {unidad}</strong>
+              Acumulado {year}: <strong className="tabular-nums text-foreground">{fmtNum(realRama)} {unidad}</strong>
             </span>
             <span className="text-[11px] text-muted">
               hojas: <strong className="tabular-nums text-foreground">{fmtNum(sumaHojasEff)} {unidad}</strong>
@@ -1098,11 +1098,11 @@ function FilaHojaEditable({
               <PinIcon filled={!!hoja.metaPctFijo} />
             </button>
             <span className="ml-auto text-[10px] text-muted">
-              YTD: <strong className="tabular-nums text-foreground">{fmtNum(realHoja)} {unidad}</strong>
+              Acumulado {year}: <strong className="tabular-nums text-foreground">{fmtNum(realHoja)} {unidad}</strong>
             </span>
-            {ayHoja !== undefined && (
+            {ayHoja !== undefined && ayHoja > 0 && (
               <span className="text-[10px] text-muted">
-                AY {year - 1}: <strong className="tabular-nums text-foreground">{fmtNum(ayHoja)} {unidad}</strong>
+                Año anterior: <strong className="tabular-nums text-foreground">{fmtNum(ayHoja)} {unidad}</strong>
               </span>
             )}
             <button

@@ -125,6 +125,88 @@ describe("resolverNodoEquivalenteEnAnio", () => {
     expect(resolverNodoEquivalenteEnAnio(idx, "np26", 2025)).toBeNull();
     expect(resolverNodoEquivalenteEnAnio(idx, "ac26", 2024)).toBeNull();
   });
+
+  it("empareja aunque la raíz tenga nombre distinto entre años", () => {
+    const raiz2025Renombrada = mkNodo({
+      id: "r25b",
+      anio: 2025,
+      orden: 0,
+      nombre: "Objetivo Raíz y Objetivos de Facturación por Ramas y Hojas",
+      tipo: "resultado",
+      cadencia: "anual",
+      relacionConPadre: "explica",
+      contadorModo: "manual",
+      metaUnidad: "€",
+    });
+    const aulas2025b = mkNodo({
+      id: "a25b",
+      anio: 2025,
+      parentId: "r25b",
+      orden: 0,
+      nombre: "Aulas",
+      tipo: "palanca",
+      cadencia: "anual",
+      relacionConPadre: "suma",
+      contadorModo: "manual",
+    });
+    const acidez2025b = mkNodo({
+      id: "ac25b",
+      anio: 2025,
+      parentId: "a25b",
+      orden: 0,
+      nombre: "Acidez",
+      tipo: "palanca",
+      cadencia: "anual",
+      relacionConPadre: "suma",
+      contadorModo: "manual",
+    });
+    const raiz2026Renombrada = mkNodo({
+      id: "r26b",
+      anio: 2026,
+      orden: 0,
+      nombre: "Objetivo Raíz",
+      tipo: "resultado",
+      cadencia: "anual",
+      relacionConPadre: "explica",
+      contadorModo: "manual",
+      metaUnidad: "€",
+      metaValor: 624_000,
+    });
+    const aulas2026b = mkNodo({
+      id: "a26b",
+      anio: 2026,
+      parentId: "r26b",
+      orden: 0,
+      nombre: "Aulas",
+      tipo: "palanca",
+      cadencia: "anual",
+      relacionConPadre: "suma",
+      contadorModo: "manual",
+    });
+    const acidez2026b = mkNodo({
+      id: "ac26b",
+      anio: 2026,
+      parentId: "a26b",
+      orden: 0,
+      nombre: "Acidez",
+      tipo: "palanca",
+      cadencia: "anual",
+      relacionConPadre: "suma",
+      contadorModo: "manual",
+    });
+    const nodosDistintoRoot = [
+      raiz2025Renombrada,
+      aulas2025b,
+      acidez2025b,
+      raiz2026Renombrada,
+      aulas2026b,
+      acidez2026b,
+    ];
+    const idx = buildArbolIndices([], nodosDistintoRoot, 2026);
+    expect(resolverNodoEquivalenteEnAnio(idx, "ac26b", 2025)).toBe("ac25b");
+    expect(resolverNodoEquivalenteEnAnio(idx, "a26b", 2025)).toBe("a25b");
+    expect(resolverNodoEquivalenteEnAnio(idx, "r26b", 2025)).toBe("r25b");
+  });
 });
 
 describe("realAnioPasadoAgregadoIdx con cruce por path", () => {

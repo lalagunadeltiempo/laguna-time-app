@@ -50,7 +50,8 @@ import {
   InlineVsAY,
   LazyDetails,
   MetricLine,
-  MetricLinesVsAY,
+  MetricLineAnoAnteriorValor,
+  MetricLineVsAnioAnterior,
   NumberInput,
   type RegistrosIndex,
   claveRegistro,
@@ -73,28 +74,6 @@ const MESES_ES = [
   "Noviembre",
   "Diciembre",
 ];
-
-const MESES_ES_CORTO = [
-  "ene",
-  "feb",
-  "mar",
-  "abr",
-  "may",
-  "jun",
-  "jul",
-  "ago",
-  "sep",
-  "oct",
-  "nov",
-  "dic",
-];
-
-/** Etiqueta corta "AY ene 2025" para la línea de referencia AY. */
-function etiquetaAY(periodoKey: string, anio: number): string {
-  const m = parseInt(periodoKey.split("-")[1] ?? "0", 10);
-  const corto = MESES_ES_CORTO[m - 1] ?? "";
-  return `AY ${corto} ${anio - 1}`;
-}
 
 interface BloqueMensualProps {
   raiz: NodoArbol;
@@ -154,9 +133,9 @@ export function BloqueMensual({ raiz, ramas, regsIndex, idx, config, year, unida
 
       <p className="border-t border-border/60 px-4 pt-3 text-[11px] leading-snug text-muted">
         Al cerrar un mes verás dos diferencias:
-        <strong className="ml-1 text-foreground">Δ vs plan</strong> (real − compromiso de inicio
+        <strong className="ml-1 text-foreground">vs plan</strong> (real − compromiso de inicio
         de año) te ayuda a aprender de cara al próximo año, y
-        <strong className="ml-1 text-foreground">Δ vs replan</strong> (real − lo que tocaba a
+        <strong className="ml-1 text-foreground">vs replan</strong> (real − lo que tocaba a
         esa altura) te ayuda a decidir el siguiente mes y trimestre.
       </p>
 
@@ -234,8 +213,8 @@ const TarjetaMes = memo(function TarjetaMes({
     ? Math.min(100, Math.round((real / referenciaBarra) * 100))
     : 0;
   const showProgress = estado === "pasado" || estado === "actual" || cerrado;
-  // Mostrar Δ vs replan sólo si el replan se diferencia del plan en algo
-  // visible (>= 1 unidad). Si replan ≈ plan, Δ vs replan repetiría Δ vs
+  // Mostrar vs replan sólo si el replan se diferencia del plan en algo
+  // visible (>= 1 unidad). Si replan ≈ plan, vs replan repetiría vs
   // plan y aporta ruido.
   const replanDistintoDePlan =
     plan !== undefined && replan !== undefined && Math.abs(replan - plan) >= 1;
@@ -307,9 +286,6 @@ const TarjetaMes = memo(function TarjetaMes({
       </div>
 
       <div className="mt-3 space-y-1 border-t border-border/50 pt-2">
-        {/* Orden pensado para que el ojo vaya al Real (lo que pasó) y luego
-            a las decisiones operativas: replan vivo y su delta. Plan y Δ
-            vs plan quedan como contexto histórico al final. */}
         <MetricLine
           label="Real"
           value={`${fmtNum(real)} ${unidad}`}
@@ -325,6 +301,7 @@ const TarjetaMes = memo(function TarjetaMes({
                 : undefined
           }
         />
+        <MetricLine label="Plan" value={plan !== undefined ? `${fmtNum(plan)} ${unidad}` : "—"} accent="muted" />
         {replanDistintoDePlan && (
           <MetricLine
             label={cerrado ? "Replan que tocaba" : "Replan sugerido"}
@@ -332,27 +309,22 @@ const TarjetaMes = memo(function TarjetaMes({
             accent="muted"
           />
         )}
-        {replanDistintoDePlan && deltaReplan !== undefined && mostrarDeltas && (
-          <MetricLine
-            label="Δ vs replan"
-            value={`${fmtNum(deltaReplan, { signed: true })} ${unidad}`}
-            accent={deltaReplan >= 0 ? "good" : "bad"}
-          />
-        )}
-        <MetricLine label="Plan" value={plan !== undefined ? `${fmtNum(plan)} ${unidad}` : "—"} accent="muted" />
+        <MetricLineAnoAnteriorValor ay={realAY} unidad={unidad} />
         {plan !== undefined && deltaPlan !== undefined && mostrarDeltas && (
           <MetricLine
-            label="Δ vs plan"
+            label="vs plan"
             value={`${fmtNum(deltaPlan, { signed: true })} ${unidad}`}
             accent={deltaPlan >= 0 ? "good" : "bad"}
           />
         )}
-        <MetricLinesVsAY
-          labelAy={etiquetaAY(periodoKey, year)}
-          real={real}
-          ay={realAY}
-          unidad={unidad}
-        />
+        {replanDistintoDePlan && deltaReplan !== undefined && mostrarDeltas && (
+          <MetricLine
+            label="vs replan"
+            value={`${fmtNum(deltaReplan, { signed: true })} ${unidad}`}
+            accent={deltaReplan >= 0 ? "good" : "bad"}
+          />
+        )}
+        <MetricLineVsAnioAnterior real={real} ay={realAY} unidad={unidad} />
       </div>
 
       {showProgress && (
@@ -511,7 +483,7 @@ function FilaRamaMensual({
               <span>
                 Real: <strong className="text-foreground">{fmtNum(real)} {unidad}</strong>
               </span>
-              <InlineVsAY real={real} ay={realAY} unidad={unidad} prefix={etiquetaAY(periodoKey, year)} />
+              <InlineVsAY real={real} ay={realAY} unidad={unidad} />
             </span>
           </span>
         </summary>
@@ -605,7 +577,7 @@ function FilaHojaMensual({
           <span>
             Real: <strong className="text-foreground">{fmtNum(real)} {unidad}</strong>
           </span>
-          <InlineVsAY real={real} ay={realAY} unidad={unidad} prefix={etiquetaAY(periodoKey, year)} />
+          <InlineVsAY real={real} ay={realAY} unidad={unidad} />
         </span>
       </div>
       <FilaApunteDirecto
