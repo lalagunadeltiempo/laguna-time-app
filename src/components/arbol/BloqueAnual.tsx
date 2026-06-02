@@ -24,13 +24,19 @@ import {
 } from "@/lib/types";
 import {
   collectSubtreeIds,
+  estadoPeriodo,
   findRaizOrigenAnioAnterior,
   hijosSumaDirectos,
   hijosSumaDirectosIdx,
+  mesesCerradosSet,
   metaEfectivaNodoIdx,
+  metaParaNodoEnPeriodo,
   normalizarNombreNodo,
   ordenarHojasAlfabetico,
+  planAgregadoEnPeriodoIdx,
+  proporcionesMensualesAYParaNodo,
   reajustarHermanosPorPin,
+  replanTrimestralSerie,
   crecimientoVsAY,
   realAnioPasadoAgregadoIdx,
   realAnioPasadoYTDIdx,
@@ -40,6 +46,9 @@ import {
 } from "@/lib/arbol-tiempo";
 import {
   LazyDetails,
+  MetricLine,
+  MetricLineAnoAnteriorValor,
+  MetricLineVsAnioAnterior,
   NumberInput,
   PercentInput,
   accentVsAY,
@@ -73,6 +82,121 @@ function BarraReal({ real, meta }: { real: number; meta: number | undefined }) {
         {pct.toFixed(0)}%
       </span>
     </span>
+  );
+}
+
+/**
+ * Replan ANUAL de un nodo: no existe una serie de replan a nivel año, así
+ * que lo reconstruimos sumando los 4 trimestres de `replanTrimestralSerie`
+ * (mismo helper que usa el bloque Trimestral). Cada trimestre asume "cumple
+ * plan" los meses abiertos anteriores y el real de los cerrados; el total
+ * anual es por tanto "lo que tocaba en todo el año a la luz de lo ya
+ * realizado".
+ *
+ * Sólo lo calculamos para el TOTAL (la raíz): el `pisoMensual` de la config
+ * está declarado a nivel del total, de modo que aplicarlo a una rama u hoja
+ * concreta distorsionaría su replan. Por eso ramas y hojas muestran Real,
+ * Plan, Año anterior, vs plan y vs año anterior, pero no "Replan" (decisión
+ * de producto, ver query). El replan a nivel total es donde resulta claro y
+ * útil.
+ */
+function replanAnualDeNodo(opts: {
+  nodo: NodoArbol;
+  idx: ArbolIndices;
+  config: PlanArbolConfigAnio | undefined;
+  year: number;
+  mesesCerrados: ReadonlySet<string>;
+}): number {
+  const { nodo, idx, config, year, mesesCerrados } = opts;
+  const realPorMes = new Map<string, number>();
+  for (let i = 1; i <= 12; i++) {
+    const k = `${year}-${String(i).padStart(2, "0")}`;
+    realPorMes.set(k, realEfectivoEnPeriodoIdx(idx, nodo.id, "mes", k));
+  }
+  const serie = replanTrimestralSerie({
+    metaAnual: nodo.metaValor ?? 0,
+    realPorMes,
+    mesesCerrados,
+    anio: year,
+    config,
+    proporcionesAY: proporcionesMensualesAYParaNodo(idx, nodo.id),
+  });
+  let total = 0;
+  for (let q = 1; q <= 4; q++) total += serie.get(`${year}-Q${q}`) ?? 0;
+  return total;
+}
+
+/**
+ * Filas de comparación del año, con el MISMO patrón y orden que las tarjetas
+ * de Trimestral/Mensual: valores primero (Real, Plan, Replan si difiere, Año
+ * anterior) y después comparaciones (vs plan, vs replan si hay replan, vs año
+ * anterior). El % sólo aparece en "vs año anterior".
+ *
+ * Todas las cifras son del TOTAL del año (año completo), nunca el acumulado
+ * por meses activos: el real del año en curso es parcial por naturaleza, lo
+ * que ya se refleja al comparar contra el plan anual completo.
+ */
+function MetricasComparativasAnual({
+  real,
+  plan,
+  replan,
+  realAY,
+  mostrarComparaciones,
+  unidad,
+}: {
+  real: number;
+  plan: number | undefined;
+  replan?: number | undefined;
+  realAY: number | undefined;
+  mostrarComparaciones: boolean;
+  unidad: string;
+}) {
+  const deltaPlan = plan !== undefined ? real - plan : undefined;
+  const deltaReplan = replan !== undefined ? real - replan : undefined;
+  const replanDistintoDePlan =
+    plan !== undefined && replan !== undefined && Math.abs(replan - plan) >= 1;
+  return (
+    <div className="space-y-1 rounded border border-border/60 bg-surface/30 px-2 py-2">
+      <MetricLine
+        label="Real"
+        value={`${fmtNum(real)} ${unidad}`}
+        accent={
+          replanDistintoDePlan && deltaReplan !== undefined
+            ? deltaReplan >= 0
+              ? "good"
+              : "bad"
+            : deltaPlan !== undefined
+              ? deltaPlan >= 0
+                ? "good"
+                : "bad"
+              : undefined
+        }
+      />
+      <MetricLine
+        label="Plan"
+        value={plan !== undefined ? `${fmtNum(plan)} ${unidad}` : "—"}
+        accent="muted"
+      />
+      {replanDistintoDePlan && (
+        <MetricLine label="Replan" value={`${fmtNum(replan as number)} ${unidad}`} accent="muted" />
+      )}
+      <MetricLineAnoAnteriorValor ay={realAY} unidad={unidad} />
+      {deltaPlan !== undefined && mostrarComparaciones && (
+        <MetricLine
+          label="vs plan"
+          value={`${fmtNum(deltaPlan, { signed: true })} ${unidad}`}
+          accent={deltaPlan >= 0 ? "good" : "bad"}
+        />
+      )}
+      {replanDistintoDePlan && deltaReplan !== undefined && mostrarComparaciones && (
+        <MetricLine
+          label="vs replan"
+          value={`${fmtNum(deltaReplan, { signed: true })} ${unidad}`}
+          accent={deltaReplan >= 0 ? "good" : "bad"}
+        />
+      )}
+      <MetricLineVsAnioAnterior real={real} ay={realAY} unidad={unidad} />
+    </div>
   );
 }
 
@@ -152,6 +276,23 @@ export function BloqueAnual({
     () => crecimientoVsAY(realCompararYTD, realAYYTD),
     [realCompararYTD, realAYYTD],
   );
+  // Filas de comparación del TOTAL del año (año completo, no acumulado por
+  // meses activos). Mismo patrón que las cabeceras de Trimestral/Mensual.
+  const planRaizTotal = useMemo(
+    () => metaParaNodoEnPeriodo(raiz, "anio", String(year), year, config, idx),
+    [raiz, year, config, idx],
+  );
+  const realAYRaiz = useMemo(
+    () => realAnioPasadoAgregadoIdx(idx, raiz.id, "anio", String(year)),
+    [idx, raiz.id, year],
+  );
+  const mesesCerrados = useMemo(() => mesesCerradosSet(config), [config]);
+  const replanRaizTotal = useMemo(
+    () => replanAnualDeNodo({ nodo: raiz, idx, config, year, mesesCerrados }),
+    [raiz, idx, config, year, mesesCerrados],
+  );
+  const estadoAnio = useMemo(() => estadoPeriodo("anio", String(year), year), [year]);
+  const mostrarComparacionesAnio = realRaiz > 0 || estadoAnio !== "futuro";
   const diffRamas = metaAnual > 0 ? planRamasSuma - metaAnual : 0;
   const cuadreRamasOk = metaAnual === 0 || Math.abs(diffRamas) < 0.01;
   const sumaPct = metaAnual > 0 ? (planRamasSuma / metaAnual) * 100 : 0;
@@ -320,6 +461,15 @@ export function BloqueAnual({
       </summary>
 
       <div className="space-y-3 border-t border-border/60 p-4">
+        {/* Comparativa del TOTAL del año: mismas filas y orden que Trimestral/Mensual. */}
+        <MetricasComparativasAnual
+          real={realRaiz}
+          plan={planRaizTotal}
+          replan={replanRaizTotal}
+          realAY={realAYRaiz}
+          mostrarComparaciones={mostrarComparacionesAnio}
+          unidad={unidad}
+        />
         <div className="flex flex-wrap items-center gap-2 rounded border border-border/80 bg-surface/40 px-2 py-2">
           <InlineEditableText
             value={raiz.nombre}
@@ -520,6 +670,7 @@ export function BloqueAnual({
                 idx={idx}
                 nodos={nodos}
                 registros={registros}
+                config={config}
                 year={year}
                 unidad={unidad}
                 metaAnual={metaAnual}
@@ -576,6 +727,7 @@ function FilaRamaEditable({
   idx,
   nodos,
   registros,
+  config,
   year,
   unidad,
   metaAnual,
@@ -589,6 +741,7 @@ function FilaRamaEditable({
   idx: ArbolIndices;
   nodos: NodoArbol[];
   registros: RegistroNodo[];
+  config: PlanArbolConfigAnio | undefined;
   year: number;
   unidad: string;
   metaAnual: number;
@@ -624,6 +777,17 @@ function FilaRamaEditable({
     () => realEfectivoEnPeriodoIdx(idx, rama.id, "anio", String(year)),
     [idx, rama.id, year],
   );
+  // Comparativa del TOTAL del año para la rama (mismo patrón que el total).
+  const planRamaTotal = useMemo(
+    () => planAgregadoEnPeriodoIdx(idx, rama, "anio", String(year), config),
+    [idx, rama, year, config],
+  );
+  const realAYRama = useMemo(
+    () => realAnioPasadoAgregadoIdx(idx, rama.id, "anio", String(year)),
+    [idx, rama.id, year],
+  );
+  const mostrarComparacionesRama =
+    realRama > 0 || estadoPeriodo("anio", String(year), year) !== "futuro";
 
   // Suma de hojas vs meta planeada de la rama (para el avisito de cuadre).
   const sumaHojasEff = useMemo(
@@ -792,6 +956,14 @@ function FilaRamaEditable({
       }
     >
       <div className="space-y-2 border-t border-border/50 px-2 py-2">
+        {/* Comparativa del TOTAL del año para la rama. */}
+        <MetricasComparativasAnual
+          real={realRama}
+          plan={planRamaTotal}
+          realAY={realAYRama}
+          mostrarComparaciones={mostrarComparacionesRama}
+          unidad={unidad}
+        />
         {/* Inputs de la rama */}
         <div className="grid grid-cols-1 gap-2 sm:grid-cols-4">
           <label className="flex flex-col gap-1 text-[11px] text-muted">
@@ -926,6 +1098,7 @@ function FilaRamaEditable({
                 hoja={hoja}
                 rama={rama}
                 idx={idx}
+                config={config}
                 year={year}
                 unidad={unidad}
                 nodos={nodos}
@@ -945,6 +1118,7 @@ function FilaHojaEditable({
   hoja,
   rama,
   idx,
+  config,
   year,
   unidad,
   nodos,
@@ -955,6 +1129,7 @@ function FilaHojaEditable({
   hoja: NodoArbol;
   rama: NodoArbol;
   idx: ArbolIndices;
+  config: PlanArbolConfigAnio | undefined;
   year: number;
   unidad: string;
   nodos: NodoArbol[];
@@ -982,6 +1157,13 @@ function FilaHojaEditable({
     () => realEfectivoEnPeriodoIdx(idx, hoja.id, "anio", String(year)),
     [idx, hoja.id, year],
   );
+  // Comparativa del TOTAL del año para la hoja (mismo patrón que total/rama).
+  const planHojaTotal = useMemo(
+    () => planAgregadoEnPeriodoIdx(idx, hoja, "anio", String(year), config),
+    [idx, hoja, year, config],
+  );
+  const mostrarComparacionesHoja =
+    realHoja > 0 || estadoPeriodo("anio", String(year), year) !== "futuro";
   const entregablesConectados = useMemo(
     () =>
       (hoja.entregableIds ?? [])
@@ -1134,6 +1316,14 @@ function FilaHojaEditable({
       }
     >
       <div className="space-y-2 border-t border-border/40 px-2 py-2">
+        {/* Comparativa del TOTAL del año para la hoja. */}
+        <MetricasComparativasAnual
+          real={realHoja}
+          plan={planHojaTotal}
+          realAY={ayHoja}
+          mostrarComparaciones={mostrarComparacionesHoja}
+          unidad={unidad}
+        />
         <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
           <label className="flex flex-col gap-1 text-[11px] text-muted">
             Descripción

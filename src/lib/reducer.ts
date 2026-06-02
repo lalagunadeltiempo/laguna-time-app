@@ -1289,6 +1289,34 @@ export function reducer(state: AppState, action: Action): AppState {
       const mensajesBorrados = (state.mensajes ?? [])
         .filter((m) => m.entregableId === action.id)
         .map((m) => m.id);
+
+      // Limpia los vínculos MAPA→Árbol: quita el `entregableId` borrado de
+      // los `entregableIds` de cualquier hoja que lo tuviera y deja un
+      // tombstone LWW por cada par (hoja, entregable) para que un merge
+      // multi-dispositivo no resucite el vínculo (mismo patrón que
+      // `UNLINK_ENTREGABLE_HOJA`).
+      const arbol = state.arbol ?? EMPTY_ARBOL;
+      const now = new Date().toISOString();
+      const linkTombstones: { hojaId: string; entregableId: string }[] = [];
+      let arbolChanged = false;
+      const nodos = arbol.nodos.map((n) => {
+        const nextEntregableIds = removeEntregableId(n.entregableIds, action.id);
+        if (nextEntregableIds === n.entregableIds) return n;
+        arbolChanged = true;
+        linkTombstones.push({ hojaId: n.id, entregableId: action.id });
+        return { ...n, entregableIds: nextEntregableIds, actualizado: now };
+      });
+
+      const deleted = addEntregableHojaLinkTombstones(
+        addTombstones(state.deleted, {
+          entregables: [action.id],
+          pasos: cascadedPasos,
+          mensajes: mensajesBorrados,
+        }),
+        linkTombstones,
+        now,
+      );
+
       return {
         ...state,
         entregables: state.entregables.filter((e) => e.id !== action.id),
@@ -1296,11 +1324,8 @@ export function reducer(state: AppState, action: Action): AppState {
         mensajes: (state.mensajes ?? []).filter((m) => m.entregableId !== action.id),
         pasosActivos: clearPasosActivos(state, eIds),
         ejecuciones: state.ejecuciones.filter((ej) => ej.entregableId !== action.id),
-        deleted: addTombstones(state.deleted, {
-          entregables: [action.id],
-          pasos: cascadedPasos,
-          mensajes: mensajesBorrados,
-        }),
+        arbol: arbolChanged ? { ...arbol, nodos } : state.arbol,
+        deleted,
       };
     }
 
@@ -2143,15 +2168,21 @@ export function reducer(state: AppState, action: Action): AppState {
       const arbol = state.arbol ?? EMPTY_ARBOL;
       const nodosYear = arbol.nodos.filter((n) => n.anio === action.anio);
       if (nodosYear.length === 0) return state;
+      // Definición de "hoja" idéntica a la del picker
+      // (`EntregableHojasArbolPicker`): raíz → ramas (hijos `suma` directos
+      // de la raíz) → hojas (hijos `suma` directos de cada rama). Es clave
+      // exigir `relacionConPadre === "suma"` en AMBOS niveles para no tratar
+      // como hojas a nodos que cuelgan de ramas `explica` (que el picker no
+      // lista). Ver `hijosSumaDirectos` en `arbol-tiempo.ts`.
       const roots = new Set(nodosYear.filter((n) => !n.parentId).map((n) => n.id));
       const ramas = new Set(
         nodosYear
-          .filter((n) => n.parentId && roots.has(n.parentId))
+          .filter((n) => n.parentId && roots.has(n.parentId) && n.relacionConPadre === "suma")
           .map((n) => n.id),
       );
       const hojaIdsYear = new Set(
         nodosYear
-          .filter((n) => n.parentId && ramas.has(n.parentId))
+          .filter((n) => n.parentId && ramas.has(n.parentId) && n.relacionConPadre === "suma")
           .map((n) => n.id),
       );
       if (hojaIdsYear.size === 0) return state;

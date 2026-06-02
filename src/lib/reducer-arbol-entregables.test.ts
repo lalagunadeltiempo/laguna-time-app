@@ -201,6 +201,75 @@ describe("Reducer árbol-entregables", () => {
     expect(next.deleted?.entregableHojaLinks?.["hoja-1::ent-1"]).toBe("2026-06-01T10:00:00.000Z");
   });
 
+  it("DELETE_ENTREGABLE quita el entregableId de TODAS las hojas que lo enlazaban", () => {
+    const raiz = makeNodo("raiz-2026", 2026, undefined, "Objetivo 2026");
+    const rama = makeNodo("rama-1", 2026, "raiz-2026", "Rama 1");
+    const hojaA = { ...makeNodo("hoja-a", 2026, "rama-1", "Hoja A"), entregableIds: ["ent-1", "ent-2"] };
+    const hojaB = { ...makeNodo("hoja-b", 2026, "rama-1", "Hoja B"), entregableIds: ["ent-1"] };
+    const hojaC = { ...makeNodo("hoja-c", 2026, "rama-1", "Hoja C"), entregableIds: ["ent-2"] };
+    const entregable = makeEntregable("ent-1");
+    const state = baseState({
+      entregables: [entregable],
+      arbol: { ...EMPTY_ARBOL, nodos: [raiz, rama, hojaA, hojaB, hojaC] },
+    });
+    const next = reducer(state, { type: "DELETE_ENTREGABLE", id: "ent-1" });
+
+    // El entregable se borra y ninguna hoja conserva el vínculo zombie.
+    expect(next.entregables.find((e) => e.id === "ent-1")).toBeUndefined();
+    for (const n of next.arbol.nodos) {
+      expect(n.entregableIds ?? []).not.toContain("ent-1");
+    }
+    // Otros vínculos quedan intactos.
+    expect(next.arbol.nodos.find((n) => n.id === "hoja-a")?.entregableIds).toEqual(["ent-2"]);
+    expect(next.arbol.nodos.find((n) => n.id === "hoja-c")?.entregableIds).toEqual(["ent-2"]);
+    // La hoja que se queda sin entregables pasa a undefined (no [] vacío).
+    expect(next.arbol.nodos.find((n) => n.id === "hoja-b")?.entregableIds).toBeUndefined();
+  });
+
+  it("DELETE_ENTREGABLE crea tombstones de vínculo y sella `actualizado` en las hojas afectadas", () => {
+    const raiz = makeNodo("raiz-2026", 2026, undefined, "Objetivo 2026");
+    const rama = makeNodo("rama-1", 2026, "raiz-2026", "Rama 1");
+    const hojaA = { ...makeNodo("hoja-a", 2026, "rama-1", "Hoja A"), entregableIds: ["ent-1"] };
+    const hojaB = { ...makeNodo("hoja-b", 2026, "rama-1", "Hoja B"), entregableIds: ["ent-1", "ent-2"] };
+    const hojaSinVinculo = makeNodo("hoja-c", 2026, "rama-1", "Hoja C");
+    const state = baseState({
+      entregables: [makeEntregable("ent-1")],
+      arbol: { ...EMPTY_ARBOL, nodos: [raiz, rama, hojaA, hojaB, hojaSinVinculo] },
+    });
+    const next = reducer(state, { type: "DELETE_ENTREGABLE", id: "ent-1" });
+
+    expect(next.deleted?.entregableHojaLinks?.["hoja-a::ent-1"]).toBe("2026-06-01T10:00:00.000Z");
+    expect(next.deleted?.entregableHojaLinks?.["hoja-b::ent-1"]).toBe("2026-06-01T10:00:00.000Z");
+    // Sólo las hojas afectadas sellan `actualizado`; la que no tenía el
+    // vínculo no se toca (sin tombstone espurio).
+    expect(next.arbol.nodos.find((n) => n.id === "hoja-a")?.actualizado).toBe("2026-06-01T10:00:00.000Z");
+    expect(next.arbol.nodos.find((n) => n.id === "hoja-b")?.actualizado).toBe("2026-06-01T10:00:00.000Z");
+    expect(next.deleted?.entregableHojaLinks?.["hoja-c::ent-1"]).toBeUndefined();
+    expect(next.arbol.nodos.find((n) => n.id === "hoja-c")?.actualizado).toBeUndefined();
+  });
+
+  it("SET_HOJAS_DE_ENTREGABLE usa el mismo criterio de hoja que el picker (ignora nodos bajo ramas `explica`)", () => {
+    const raiz = makeNodo("raiz-2026", 2026, undefined, "Objetivo 2026");
+    const ramaSuma = makeNodo("rama-suma", 2026, "raiz-2026", "Rama suma");
+    const hojaSuma = makeNodo("hoja-suma", 2026, "rama-suma", "Hoja suma");
+    const ramaExplica = { ...makeNodo("rama-explica", 2026, "raiz-2026", "Rama explica"), relacionConPadre: "explica" as const };
+    const nodoBajoExplica = makeNodo("nodo-explica", 2026, "rama-explica", "Nodo bajo explica");
+    const state = baseState({
+      arbol: { ...EMPTY_ARBOL, nodos: [raiz, ramaSuma, hojaSuma, ramaExplica, nodoBajoExplica] },
+    });
+    const next = reducer(state, {
+      type: "SET_HOJAS_DE_ENTREGABLE",
+      entregableId: "ent-1",
+      hojaIds: ["hoja-suma", "nodo-explica"],
+      anio: 2026,
+    });
+    // La hoja real (bajo rama suma) sí recibe el vínculo.
+    expect(next.arbol.nodos.find((n) => n.id === "hoja-suma")?.entregableIds).toContain("ent-1");
+    // El nodo bajo una rama `explica` NO es hoja para el picker → el reducer
+    // tampoco debe asignarle el vínculo.
+    expect(next.arbol.nodos.find((n) => n.id === "nodo-explica")?.entregableIds ?? []).not.toContain("ent-1");
+  });
+
   it("SET_HOJAS_DE_ENTREGABLE escribe tombstones SOLO para las hojas que pierden el vínculo", () => {
     const raiz = makeNodo("raiz-2026", 2026, undefined, "Objetivo 2026");
     const rama = makeNodo("rama-1", 2026, "raiz-2026", "Rama 1");
