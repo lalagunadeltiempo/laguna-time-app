@@ -1420,8 +1420,18 @@ function metaParaPeriodoAnual(
   anio: number,
   config: PlanArbolConfigAnio | undefined,
   totalDias: number,
+  pisoScale: number = 1,
 ): number {
-  const pisos = config?.pisoMensual ?? {};
+  const rawPisos = config?.pisoMensual ?? {};
+  // El piso mensual se declara a nivel del TOTAL (raíz). Para que no se
+  // aplique entero a cada nodo por separado (lo que tragaba hojas pequeñas
+  // enteras en el mes con piso), lo escalamos por el peso del nodo respecto
+  // a la raíz. Con pisoScale=1 (raíz o llamadas sin idx) el comportamiento
+  // es idéntico al histórico.
+  const scale = Number.isFinite(pisoScale) ? Math.min(1, Math.max(0, pisoScale)) : 1;
+  const pisos: Record<string, number> = Object.fromEntries(
+    Object.entries(rawPisos).map(([k, v]) => [k, (Number.isFinite(v) ? (v as number) : 0) * scale]),
+  );
   const sumPisos = Object.values(pisos).reduce((a, b) => a + (Number.isFinite(b) ? b : 0), 0);
   const tienePisos = sumPisos > 0;
   if (!tienePisos) {
@@ -1492,11 +1502,12 @@ export function metaParaPeriodo(
   periodoKey: string,
   anio: number,
   config: PlanArbolConfigAnio | undefined,
+  pisoScale: number = 1,
 ): number | undefined {
   if (metaValor === undefined) return undefined;
   const totalDias = diasLaborablesEnAnio(anio, config);
   if (cadencia === "anual" && totalDias > 0) {
-    return metaParaPeriodoAnual(metaValor, vista, periodoKey, anio, config, totalDias);
+    return metaParaPeriodoAnual(metaValor, vista, periodoKey, anio, config, totalDias, pisoScale);
   }
   if (cadencia === "semanal" && vista === "semana") return metaValor;
   if (cadencia === "semanal" && vista === "mes")
@@ -2089,5 +2100,35 @@ export function metaParaNodoEnPeriodo(
     }
     // Si proporciones está vacío, caemos al cálculo clásico abajo.
   }
-  return metaParaPeriodo(nodo.cadencia, metaAnual, vista, periodoKey, anio, config);
+  // El piso mensual (config.pisoMensual) está declarado a nivel del TOTAL
+  // (raíz). Para que cada nodo reciba sólo la parte del piso que le
+  // corresponde por su peso, escalamos el piso por metaAnual / metaRaiz.
+  // Así la suma de las hojas en el mes con piso reconstituye el piso global
+  // y ninguna hoja pequeña se traga el piso entero. Con trimestresPlan ese
+  // camino ya retornó arriba y nunca llega aquí (el "¿Cuándo?" tiene
+  // prioridad y sigue ignorando el piso).
+  let pisoScale = 1;
+  if (idx && metaAnual != null && Number.isFinite(metaAnual)) {
+    const raiz = raizDeNodo(nodo, idx);
+    const rootMeta = raiz ? metaAnualEfectivaDeNodo(raiz) : undefined;
+    if (rootMeta != null && Number.isFinite(rootMeta) && rootMeta > 0) {
+      pisoScale = Math.min(1, Math.max(0, metaAnual / rootMeta));
+    }
+  }
+  return metaParaPeriodo(nodo.cadencia, metaAnual, vista, periodoKey, anio, config, pisoScale);
+}
+
+/** Camina `parentId` con el índice hasta encontrar la raíz (nodo sin parentId). */
+function raizDeNodo(nodo: NodoArbol, idx: ArbolIndices): NodoArbol | undefined {
+  let actual: NodoArbol | undefined = nodo;
+  const visitados = new Set<string>();
+  while (actual && actual.parentId) {
+    if (visitados.has(actual.id)) return undefined; // ciclo defensivo
+    visitados.add(actual.id);
+    const padre: NodoArbol | undefined =
+      idx.nodosById.get(actual.parentId) ?? idx.nodosByIdAll.get(actual.parentId);
+    if (!padre) break;
+    actual = padre;
+  }
+  return actual;
 }
