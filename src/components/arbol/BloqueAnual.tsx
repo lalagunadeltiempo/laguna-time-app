@@ -282,6 +282,22 @@ export function BloqueAnual({
             />
           </div>
           <div className="ml-auto flex items-center gap-2">
+            {!reescaladoAuto && ramas.length > 0 && metaAnual > 0 && (
+              <button
+                type="button"
+                onClick={() =>
+                  dispatch({
+                    type: "UPDATE_META_NODO_RESCALAR_HIJOS",
+                    id: raiz.id,
+                    metaValor: metaAnual,
+                  })
+                }
+                title="Reparte ahora las ramas para que encajen con el objetivo anual manteniendo proporciones."
+                className="rounded border border-border px-2 py-1 text-[11px] font-medium text-foreground hover:bg-surface"
+              >
+                Repartir ahora
+              </button>
+            )}
             <button
               type="button"
               aria-expanded={opcionesOpen}
@@ -442,14 +458,16 @@ export function BloqueAnual({
                 metaValor: nuevoMeta,
               };
               dispatch({ type: "ADD_NODO_ARBOL", payload: nodoNuevo });
-              const pctCambio = metaAnual > 0 ? ((nuevoMeta ?? 0) / metaAnual) * 100 : 0;
-              dispararReajuste({
-                nodosBase: [...nodos, nodoNuevo],
-                parentId: raiz.id,
-                cambioId: nodoNuevo.id,
-                nuevoPctCambio: pctCambio,
-                metaPadre: metaAnual,
-              });
+              if (reescaladoAuto) {
+                const pctCambio = metaAnual > 0 ? ((nuevoMeta ?? 0) / metaAnual) * 100 : 0;
+                dispararReajuste({
+                  nodosBase: [...nodos, nodoNuevo],
+                  parentId: raiz.id,
+                  cambioId: nodoNuevo.id,
+                  nuevoPctCambio: pctCambio,
+                  metaPadre: metaAnual,
+                });
+              }
             }
           }
         />
@@ -546,17 +564,19 @@ function FilaRamaEditable({
                   } else {
                     dispatch({ type: "UPDATE_NODO_ARBOL", id: rama.id, changes: { metaValor: v } });
                   }
-                  const nuevoPct = metaAnual > 0 ? (((v ?? 0) / metaAnual) * 100) : 0;
-                  const nodosConCambio = nodos.map((n) =>
-                    n.id === rama.id ? { ...n, metaValor: v } : n,
-                  );
-                  onDispararReajuste({
-                    nodosBase: nodosConCambio,
-                    parentId: raiz.id,
-                    cambioId: rama.id,
-                    nuevoPctCambio: nuevoPct,
-                    metaPadre: metaAnual,
-                  });
+                  if (reescaladoAuto) {
+                    const nuevoPct = metaAnual > 0 ? (((v ?? 0) / metaAnual) * 100) : 0;
+                    const nodosConCambio = nodos.map((n) =>
+                      n.id === rama.id ? { ...n, metaValor: v } : n,
+                    );
+                    onDispararReajuste({
+                      nodosBase: nodosConCambio,
+                      parentId: raiz.id,
+                      cambioId: rama.id,
+                      nuevoPctCambio: nuevoPct,
+                      metaPadre: metaAnual,
+                    });
+                  }
                 }}
                 ariaLabel={`Meta anual de ${rama.nombre}`}
                 unidad={unidad}
@@ -574,16 +594,18 @@ function FilaRamaEditable({
                   } else {
                     dispatch({ type: "UPDATE_NODO_ARBOL", id: rama.id, changes: { metaValor: nuevo } });
                   }
-                  const nodosConCambio = nodos.map((n) =>
-                    n.id === rama.id ? { ...n, metaValor: nuevo } : n,
-                  );
-                  onDispararReajuste({
-                    nodosBase: nodosConCambio,
-                    parentId: raiz.id,
-                    cambioId: rama.id,
-                    nuevoPctCambio: p,
-                    metaPadre: metaAnual,
-                  });
+                  if (reescaladoAuto) {
+                    const nodosConCambio = nodos.map((n) =>
+                      n.id === rama.id ? { ...n, metaValor: nuevo } : n,
+                    );
+                    onDispararReajuste({
+                      nodosBase: nodosConCambio,
+                      parentId: raiz.id,
+                      cambioId: rama.id,
+                      nuevoPctCambio: p,
+                      metaPadre: metaAnual,
+                    });
+                  }
                 }}
                 ariaLabel={`Porcentaje de ${rama.nombre}`}
               />
@@ -619,13 +641,15 @@ function FilaRamaEditable({
                 if (!ok) return;
                 const idsDelete = collectSubtreeIds(nodos, rama.id);
                 const nodosFiltrados = nodos.filter((n) => !idsDelete.has(n.id));
-                onDispararReajuste({
-                  nodosBase: nodosFiltrados,
-                  parentId: raiz.id,
-                  cambioId: rama.id,
-                  nuevoPctCambio: 0,
-                  metaPadre: metaAnual,
-                });
+                if (reescaladoAuto) {
+                  onDispararReajuste({
+                    nodosBase: nodosFiltrados,
+                    parentId: raiz.id,
+                    cambioId: rama.id,
+                    nuevoPctCambio: 0,
+                    metaPadre: metaAnual,
+                  });
+                }
                 dispatch({ type: "DELETE_NODO_ARBOL", id: rama.id });
               }}
               title="Eliminar rama"
@@ -727,6 +751,7 @@ function FilaRamaEditable({
             registros={registros}
             year={year}
             unidad={unidad}
+            reescaladoAuto={reescaladoAuto}
             onDispararReajuste={onDispararReajuste}
             onClose={() => setFormNuevaHojaOpen(false)}
           />
@@ -745,6 +770,7 @@ function FilaRamaEditable({
                 unidad={unidad}
                 nodos={nodos}
                 metaRama={rama.metaValor ?? 0}
+                reescaladoAuto={reescaladoAuto}
                 onDispararReajuste={onDispararReajuste}
               />
             ))}
@@ -763,6 +789,7 @@ function FilaHojaEditable({
   unidad,
   nodos,
   metaRama,
+  reescaladoAuto,
   onDispararReajuste,
 }: {
   hoja: NodoArbol;
@@ -772,6 +799,7 @@ function FilaHojaEditable({
   unidad: string;
   nodos: NodoArbol[];
   metaRama: number;
+  reescaladoAuto: boolean;
   onDispararReajuste: (opts: {
     nodosBase: NodoArbol[];
     parentId: string;
@@ -835,17 +863,19 @@ function FilaHojaEditable({
                 compact
                 onCommit={(v) => {
                   dispatch({ type: "UPDATE_NODO_ARBOL", id: hoja.id, changes: { metaValor: v } });
-                  const pctCambio = metaRama > 0 ? (((v ?? 0) / metaRama) * 100) : 0;
-                  const nodosConCambio = nodos.map((n) =>
-                    n.id === hoja.id ? { ...n, metaValor: v } : n,
-                  );
-                  onDispararReajuste({
-                    nodosBase: nodosConCambio,
-                    parentId: rama.id,
-                    cambioId: hoja.id,
-                    nuevoPctCambio: pctCambio,
-                    metaPadre: metaRama,
-                  });
+                  if (reescaladoAuto) {
+                    const pctCambio = metaRama > 0 ? (((v ?? 0) / metaRama) * 100) : 0;
+                    const nodosConCambio = nodos.map((n) =>
+                      n.id === hoja.id ? { ...n, metaValor: v } : n,
+                    );
+                    onDispararReajuste({
+                      nodosBase: nodosConCambio,
+                      parentId: rama.id,
+                      cambioId: hoja.id,
+                      nuevoPctCambio: pctCambio,
+                      metaPadre: metaRama,
+                    });
+                  }
                 }}
                 ariaLabel={`Meta de ${hoja.nombre}`}
                 unidad={unidad}
@@ -864,16 +894,18 @@ function FilaHojaEditable({
                     id: hoja.id,
                     changes: { metaValor: nuevoMeta },
                   });
-                  const nodosConCambio = nodos.map((n) =>
-                    n.id === hoja.id ? { ...n, metaValor: nuevoMeta } : n,
-                  );
-                  onDispararReajuste({
-                    nodosBase: nodosConCambio,
-                    parentId: rama.id,
-                    cambioId: hoja.id,
-                    nuevoPctCambio: p,
-                    metaPadre: metaPlaneadaRama,
-                  });
+                  if (reescaladoAuto) {
+                    const nodosConCambio = nodos.map((n) =>
+                      n.id === hoja.id ? { ...n, metaValor: nuevoMeta } : n,
+                    );
+                    onDispararReajuste({
+                      nodosBase: nodosConCambio,
+                      parentId: rama.id,
+                      cambioId: hoja.id,
+                      nuevoPctCambio: p,
+                      metaPadre: metaPlaneadaRama,
+                    });
+                  }
                 }}
                 ariaLabel={`Porcentaje de ${hoja.nombre}`}
               />
@@ -910,13 +942,15 @@ function FilaHojaEditable({
                 const ok = window.confirm(`¿Eliminar la hoja «${hoja.nombre}» y sus apuntes?`);
                 if (!ok) return;
                 const nodosFiltrados = nodos.filter((n) => n.id !== hoja.id);
-                onDispararReajuste({
-                  nodosBase: nodosFiltrados,
-                  parentId: rama.id,
-                  cambioId: hoja.id,
-                  nuevoPctCambio: 0,
-                  metaPadre: metaRama,
-                });
+                if (reescaladoAuto) {
+                  onDispararReajuste({
+                    nodosBase: nodosFiltrados,
+                    parentId: rama.id,
+                    cambioId: hoja.id,
+                    nuevoPctCambio: 0,
+                    metaPadre: metaRama,
+                  });
+                }
                 dispatch({ type: "DELETE_NODO_ARBOL", id: hoja.id });
               }}
               title="Eliminar hoja"
@@ -1010,6 +1044,7 @@ function FormNuevaHojaInline({
   registros,
   year,
   unidad,
+  reescaladoAuto,
   onDispararReajuste,
   onClose,
 }: {
@@ -1018,6 +1053,7 @@ function FormNuevaHojaInline({
   registros: RegistroNodo[];
   year: number;
   unidad: string;
+  reescaladoAuto: boolean;
   onDispararReajuste: (opts: {
     nodosBase: NodoArbol[];
     parentId: string;
@@ -1073,14 +1109,16 @@ function FormNuevaHojaInline({
       type: "ADD_NODO_ARBOL",
       payload: nodoNuevo,
     });
-    const pctCambio = metaPadre > 0 ? ((metaFinal ?? 0) / metaPadre) * 100 : 0;
-    onDispararReajuste({
-      nodosBase: [...nodos, nodoNuevo],
-      parentId: rama.id,
-      cambioId: nodoNuevo.id,
-      nuevoPctCambio: pctCambio,
-      metaPadre,
-    });
+    if (reescaladoAuto) {
+      const pctCambio = metaPadre > 0 ? ((metaFinal ?? 0) / metaPadre) * 100 : 0;
+      onDispararReajuste({
+        nodosBase: [...nodos, nodoNuevo],
+        parentId: rama.id,
+        cambioId: nodoNuevo.id,
+        nuevoPctCambio: pctCambio,
+        metaPadre,
+      });
+    }
     if (tieneRegsPropios) {
       dispatch({ type: "REASSIGN_REGISTROS_NODO", fromNodoId: rama.id, toNodoId: hojaId });
     }
