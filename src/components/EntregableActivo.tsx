@@ -3,7 +3,7 @@
 import { useState, useCallback, useRef, useMemo, useEffect } from "react";
 import { useAppState, useAppDispatch } from "@/lib/context";
 import { useArbol } from "@/lib/hooks";
-import { useUsuario } from "@/lib/usuario";
+import { useUsuario, useIsMentor } from "@/lib/usuario";
 import { generateId } from "@/lib/store";
 import type { Contexto, Implicado, UrlRef, Entregable, Paso, SesionEntregable, PausaEntry, Nota } from "@/lib/types";
 import { AREA_COLORS } from "@/lib/types";
@@ -52,6 +52,7 @@ export function EntregableActivoCard({ entregable, mode = "trabajo" }: Props) {
   const state = useAppState();
   const dispatch = useAppDispatch();
   const { nombre: currentUser } = useUsuario();
+  const isMentor = useIsMentor();
   const { resultado, proyecto } = useArbol(entregable.id);
   // Presencia: anuncia al resto que estamos dentro de este entregable y pinta
   // los chips de otros miembros que lo tengan abierto a la vez.
@@ -285,6 +286,16 @@ export function EntregableActivoCard({ entregable, mode = "trabajo" }: Props) {
 
   const pasosTotales = pasosDelEntregable.length;
   const pasosHechos = pasosDelEntregable.filter((p) => p.estado === "hecho" || p.finTs).length;
+  // El reducer CONVERT_ENTREGABLE_TO_SOP exige al menos 1 paso con `finTs`:
+  // el SOP se genera a partir de los pasos completados (con hora de fin).
+  const pasosCompletadosConFin = pasosDelEntregable.filter((p) => !!p.finTs).length;
+
+  // Conversión a SOP: solo para entregables "normales" (ni rutina ni sop) y
+  // nunca en modo mentor. Convive con la conversión inline del Mapa.
+  const esRutina = entregable.tipo === "rutina";
+  const esSop = entregable.tipo === "sop" || !!entregable.plantillaId;
+  const puedeConvertirASop = !isMentor && !esRutina && !esSop;
+  const puedeConvertirASopAhora = puedeConvertirASop && pasosCompletadosConFin >= 1;
   const progreso = pasosTotales > 0
     ? Math.round((pasosHechos / pasosTotales) * 100)
     : Math.min(100, (entregable.diasHechos / Math.max(1, entregable.diasEstimados)) * 100);
@@ -605,8 +616,28 @@ export function EntregableActivoCard({ entregable, mode = "trabajo" }: Props) {
             />
           </div>
 
-          {/* Rutina: subir a rutina / ciclo mensual + histórico */}
-          <RutinaPanel entregable={entregable} />
+          {/* Conversiones: subir a rutina / convertir en SOP (mismo sitio). */}
+          <div className="flex flex-wrap items-center gap-2">
+            <RutinaPanel entregable={entregable} />
+            {puedeConvertirASop && (
+              <button
+                type="button"
+                disabled={!puedeConvertirASopAhora}
+                onClick={() => dispatch({ type: "CONVERT_ENTREGABLE_TO_SOP", entregableId: entregable.id })}
+                className="flex items-center gap-1.5 rounded-lg border border-indigo-300 bg-indigo-50 px-2.5 py-1.5 text-[11px] font-semibold text-indigo-700 transition-colors hover:bg-indigo-100 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-indigo-50 dark:border-indigo-500/40 dark:bg-indigo-500/10 dark:text-indigo-300 dark:hover:bg-indigo-500/20"
+                title={
+                  puedeConvertirASopAhora
+                    ? "Convertir este entregable en un SOP a partir de sus pasos completados"
+                    : "Completa al menos un paso (con hora de fin) para crear el SOP a partir de los pasos completados"
+                }
+              >
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><polyline points="14 2 14 8 20 8" />
+                </svg>
+                Convertir en SOP
+              </button>
+            )}
+          </div>
 
 
           {/* Progreso */}
