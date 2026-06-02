@@ -789,6 +789,33 @@ export function mesesCerradosSet(config: PlanArbolConfigAnio | undefined): Set<s
   return new Set(config.mesesCerrados ?? []);
 }
 
+/** Claves de los 12 meses de un año calendario (`YYYY-01` … `YYYY-12`). */
+export function mesesCalendarioAnio(year: number): string[] {
+  return Array.from({ length: 12 }, (_, i) =>
+    `${year}-${String(i + 1).padStart(2, "0")}`,
+  );
+}
+
+/**
+ * Año «cerrado» para la vista ANUAL: ya pasó en calendario o los 12 meses
+ * están marcados como cerrados en config (cierre anticipado).
+ */
+export function anioEstaCerrado(
+  config: PlanArbolConfigAnio | undefined,
+  year: number,
+  hoy: Date = new Date(),
+): boolean {
+  if (estadoPeriodo("anio", String(year), year, hoy) === "pasado") return true;
+  const cerrados = mesesCerradosSet(config);
+  return mesesCalendarioAnio(year).every((mk) => cerrados.has(mk));
+}
+
+/** % de `parte` sobre `total`; undefined si total <= 0 o no finito. */
+export function porcentajeDeTotal(parte: number, total: number): number | undefined {
+  if (!Number.isFinite(parte) || !Number.isFinite(total) || total <= 0) return undefined;
+  return (parte / total) * 100;
+}
+
 /**
  * Set de mondayKey marcadas como descanso, resolviendo LWW con los
  * tombstones de "esta semana ya no es descanso" (`semanasActivasTs`).
