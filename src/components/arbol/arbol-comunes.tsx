@@ -10,6 +10,7 @@
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { useAppDispatch } from "@/lib/context";
 import { crecimientoVsAY, porcentajeDeTotal, type CrecimientoVsAY } from "@/lib/arbol-tiempo";
+import type { RentabilidadHoja } from "@/lib/rentabilidad";
 import { generateId } from "@/lib/store";
 import type { PrioridadEstrategica, RegistroNodo } from "@/lib/types";
 
@@ -470,6 +471,44 @@ export function AvisoDobleConteo() {
     <p className="mt-1 rounded border border-amber-400/40 bg-amber-500/10 px-2 py-1 text-[10px] leading-snug text-amber-800 dark:text-amber-200">
       <strong>Aviso:</strong> hay real apuntado en semanas y también en el mes para este objetivo; se están{" "}
       <strong>sumando ambos</strong>. Apunta el real en un solo nivel para evitar doble conteo.
+    </p>
+  );
+}
+
+/**
+ * Línea de "Rentabilidad = ventas ÷ tiempo" (€/hora) de una hoja en el mes.
+ * Muestra también las horas registradas para que se vea la fiabilidad del
+ * dato. Casos:
+ *  - Sin horas → "sin horas registradas" (no se divide por cero).
+ *  - Hoja "flor" → "inversión, aún no rinde" en vez de alarmar por €/h bajo.
+ *  - Con horas de mantenimiento → se indica discretamente "incl. Y h
+ *    mantenimiento" (esas horas cuentan y bajan el €/h).
+ * Estética coherente con la pista de entregables (dark mode incluido).
+ */
+export function LineaRentabilidad({ r }: { r: RentabilidadHoja }) {
+  if (r.horas === 0) {
+    return (
+      <p className="mt-1 text-[10px] text-muted">
+        Rentabilidad: <span className="italic">sin horas registradas</span>
+      </p>
+    );
+  }
+  const horasTxt = `${fmtNum(r.horas)} h registradas`;
+  const mantenimiento =
+    r.horasMantenimiento > 0
+      ? ` · incl. ${fmtNum(r.horasMantenimiento)} h mantenimiento`
+      : "";
+  return (
+    <p className="mt-1 text-[10px] text-muted">
+      Rentabilidad:{" "}
+      {r.esFlor ? (
+        <span className="text-amber-700 dark:text-amber-300">inversión, aún no rinde</span>
+      ) : (
+        <strong className="tabular-nums text-foreground">{fmtNum(r.eurosPorHora)} €/h</strong>
+      )}
+      {" · "}
+      <span className="tabular-nums">{horasTxt}</span>
+      {mantenimiento}
     </p>
   );
 }

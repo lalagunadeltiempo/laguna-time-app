@@ -56,6 +56,7 @@ import {
   AvisoDobleConteo,
   InlineVsAY,
   LazyDetails,
+  LineaRentabilidad,
   MetricLine,
   MetricLineAnoAnteriorValor,
   MetricLineVsAnioAnterior,
@@ -67,6 +68,7 @@ import {
   usePersistedOpen,
   useUpsertRegistro,
 } from "./arbol-comunes";
+import { rentabilidadDeHojaEnMes, type HojaRentabilidad } from "@/lib/rentabilidad";
 
 const MESES_ES = [
   "Enero",
@@ -603,6 +605,37 @@ function FilaHojaMensual({
     };
   }, [hoja.id, hoja.entregableIds, periodoKey, state.entregables, year, config]);
 
+  // Conjunto de todas las hojas del año con entregables: necesario para
+  // repartir a partes iguales el tiempo de un entregable compartido por
+  // varias hojas (denominador = nº de hojas vinculadas). Sólo depende del
+  // árbol, no del mes.
+  const todasLasHojas = useMemo<HojaRentabilidad[]>(
+    () =>
+      Array.from(idx.nodosById.values())
+        .filter((n) => (n.entregableIds?.length ?? 0) > 0)
+        .map((n) => ({
+          id: n.id,
+          entregableIds: n.entregableIds,
+          prioridadEstrategica: n.prioridadEstrategica,
+        })),
+    [idx],
+  );
+  const rentabilidad = useMemo(
+    () =>
+      rentabilidadDeHojaEnMes(
+        {
+          id: hoja.id,
+          entregableIds: hoja.entregableIds,
+          prioridadEstrategica: hoja.prioridadEstrategica,
+        },
+        todasLasHojas,
+        state.entregables,
+        periodoKey,
+        real,
+      ),
+    [hoja.id, hoja.entregableIds, hoja.prioridadEstrategica, todasLasHojas, state.entregables, periodoKey, real],
+  );
+
   return (
     <div className="rounded border border-border/40 bg-surface/50 px-2 py-1.5">
       <div className="mb-1 flex flex-wrap items-baseline justify-between gap-2 text-[11px]">
@@ -641,6 +674,7 @@ function FilaHojaMensual({
           </span>
         </p>
       )}
+      {(hoja.entregableIds?.length ?? 0) > 0 && <LineaRentabilidad r={rentabilidad} />}
     </div>
   );
 }
