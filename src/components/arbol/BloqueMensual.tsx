@@ -5,9 +5,13 @@
  *
  * El plan es sólo lectura (derivado del anual por días laborables). El
  * "real" de cada mes se puede editar directamente por hoja; si la rama
- * no tiene hojas, se edita al nivel de rama. La lógica de
- * `realEfectivoEnPeriodo` prioriza el registro del mes sobre la suma
- * de semanas cuando ambos están presentes.
+ * no tiene hojas, se edita al nivel de rama. La agregación al mes
+ * (`sumarRegistrosNodoSimpleLista`) SUMA los registros semanales que caen
+ * en el mes MÁS el registro mensual del mismo nodo: no se prioriza un
+ * nivel sobre otro. Por eso, si un mismo nodo tiene apuntes en semanas y
+ * además en el mes, se cuentan ambos (doble conteo); para ese caso se
+ * muestra un aviso inline (`AvisoDobleConteo`) recomendando apuntar en un
+ * solo nivel.
  *
  * Cierre de mes:
  *  - El usuario marca "Cerrar mes" cuando da el mes por finalizado.
@@ -37,6 +41,7 @@ import {
   mesKeyFromDate,
   mesesCerradosSet,
   metaParaNodoEnPeriodo,
+  nodoTieneDobleConteoEnMesIdx,
   ordenarHojasAlfabetico,
   parseLocalDateKey,
   planAgregadoEnPeriodoIdx,
@@ -48,6 +53,7 @@ import {
   type ArbolIndices,
 } from "@/lib/arbol-tiempo";
 import {
+  AvisoDobleConteo,
   InlineVsAY,
   LazyDetails,
   MetricLine,
@@ -436,6 +442,7 @@ const TarjetaMes = memo(function TarjetaMes({
             unidad={unidad}
             ariaLabel={`Real ${label} de ${raiz.nombre}`}
           />
+          {nodoTieneDobleConteoEnMesIdx(idx, raiz.id, periodoKey) && <AvisoDobleConteo />}
         </div>
       )}
     </div>
@@ -518,13 +525,16 @@ function FilaRamaMensual({
     >
       <div className="border-t border-border/40 p-2">
         {hojas.length === 0 ? (
-          <FilaApunteDirecto
-            nodoId={rama.id}
-            periodoKey={periodoKey}
-            existing={existingRama}
-            unidad={unidad}
-            ariaLabel={`Real ${periodoKey} de ${rama.nombre}`}
-          />
+          <>
+            <FilaApunteDirecto
+              nodoId={rama.id}
+              periodoKey={periodoKey}
+              existing={existingRama}
+              unidad={unidad}
+              ariaLabel={`Real ${periodoKey} de ${rama.nombre}`}
+            />
+            {nodoTieneDobleConteoEnMesIdx(idx, rama.id, periodoKey) && <AvisoDobleConteo />}
+          </>
         ) : (
           <div className="space-y-2">
             {hojas.map((hoja) => (
@@ -614,6 +624,7 @@ function FilaHojaMensual({
         unidad={unidad}
         ariaLabel={`Real ${periodoKey} de ${hoja.nombre}`}
       />
+      {nodoTieneDobleConteoEnMesIdx(idx, hoja.id, periodoKey) && <AvisoDobleConteo />}
       {pistaEntregables && (
         <p className="mt-1 text-[10px] text-muted">
           {pistaEntregables.cantidadEntregables}{" "}

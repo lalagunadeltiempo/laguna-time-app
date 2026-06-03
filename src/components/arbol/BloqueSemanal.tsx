@@ -21,13 +21,16 @@ import {
   mesKeyFromDate,
   mesesCerradosSet,
   mondaysInCalendarYear,
+  nodoTieneDobleConteoEnMesIdx,
   parseLocalDateKey,
   planAgregadoEnPeriodoIdx,
   realEfectivoEnPeriodoIdx,
+  replanSemanalSerie,
   semanasNoActivasSet,
   type ArbolIndices,
 } from "@/lib/arbol-tiempo";
 import {
+  AvisoDobleConteo,
   LazyDetails,
   NumberInput,
   type RegistrosIndex,
@@ -36,6 +39,9 @@ import {
   useUpsertRegistro,
   usePersistedOpen,
 } from "./arbol-comunes";
+
+/** Map: nodoId → (mondayKey → replan semanal). */
+type ReplanPorNodoSemana = ReadonlyMap<string, ReadonlyMap<string, number>>;
 
 interface BloqueSemanalProps {
   raiz: NodoArbol;
@@ -55,6 +61,34 @@ export function BloqueSemanal({ raiz, ramas, regsIndex, idx, config, year, unida
   }, [year, config]);
 
   const mesesCerrados = useMemo(() => mesesCerradosSet(config), [config]);
+
+  // Replan semanal por nodo (raíz + ramas suma + sus hojas suma). Mismo
+  // significado que el replan mensual/trimestral pero a granularidad de
+  // semana: «lo que queda por facturar repartido entre las semanas activas
+  // restantes». Se calcula una serie por nodo (O(nodos × semanas)) y se
+  // baja a las filas vía lookup O(1) por (nodoId, mondayKey).
+  const replanPorNodoSemana = useMemo<ReplanPorNodoSemana>(() => {
+    const nodos: NodoArbol[] = [raiz];
+    for (const r of ramas) {
+      if (r.relacionConPadre !== "suma") continue;
+      nodos.push(r);
+      for (const h of hijosSumaDirectosIdx(idx, r.id)) nodos.push(h);
+    }
+    const m = new Map<string, ReadonlyMap<string, number>>();
+    for (const nodo of nodos) {
+      const metaAnual = planAgregadoEnPeriodoIdx(idx, nodo, "anio", String(year), config) ?? 0;
+      if (metaAnual <= 0) continue;
+      const realPorSemana = new Map<string, number>();
+      for (const mk of semanasActivas) {
+        realPorSemana.set(mk, realEfectivoEnPeriodoIdx(idx, nodo.id, "semana", mk));
+      }
+      m.set(
+        nodo.id,
+        replanSemanalSerie({ metaAnual, realPorSemana, mesesCerrados, anio: year, config }),
+      );
+    }
+    return m;
+  }, [raiz, ramas, idx, year, config, semanasActivas, mesesCerrados]);
 
   // Toggle estético: por defecto NO mostramos las semanas vacías de meses
   // cerrados (la usuaria no quiere verlas si no llegó a usarlas). El
@@ -133,6 +167,7 @@ export function BloqueSemanal({ raiz, ramas, regsIndex, idx, config, year, unida
               year={year}
               unidad={unidad}
               mondayKey={mondayKey}
+              replanPorNodoSemana={replanPorNodoSemana}
             />
           ))
         )}
@@ -150,6 +185,7 @@ const FilaSemana = memo(function FilaSemana({
   year,
   unidad,
   mondayKey,
+  replanPorNodoSemana,
 }: {
   raiz: NodoArbol;
   ramas: NodoArbol[];
@@ -159,6 +195,7 @@ const FilaSemana = memo(function FilaSemana({
   year: number;
   unidad: string;
   mondayKey: string;
+  replanPorNodoSemana: ReplanPorNodoSemana;
 }) {
   const label = isoWeekLabelFromMondayKey(mondayKey);
   const rango = formatWeekRange(mondayKey);
@@ -166,11 +203,17 @@ const FilaSemana = memo(function FilaSemana({
   const plan = planAgregadoEnPeriodoIdx(idx, raiz, "semana", mondayKey, config);
   const real = realEfectivoEnPeriodoIdx(idx, raiz.id, "semana", mondayKey);
   const deltaPlan = plan !== undefined ? real - plan : undefined;
+  const replan = replanPorNodoSemana.get(raiz.id)?.get(mondayKey);
+  const mostrarReplan =
+    plan !== undefined && replan !== undefined && Math.abs(replan - plan) >= 1;
+  const mesKey = mesKeyFromDate(parseLocalDateKey(mondayKey));
   const ramasConReal = useMemo(
     () => ramas.filter((r) => r.relacionConPadre === "suma"),
     [ramas],
   );
   const regRaiz = ramas.length === 0 ? regsIndex.get(claveRegistro(raiz.id, "semana", mondayKey)) : undefined;
+  const avisoDobleConteoRaiz =
+    ramas.length === 0 && nodoTieneDobleConteoEnMesIdx(idx, raiz.id, mesKey);
 
   return (
     <LazyDetails
@@ -199,6 +242,12 @@ const FilaSemana = memo(function FilaSemana({
                 Plan:{" "}
                 <strong className="text-foreground">{plan !== undefined ? `${fmtNum(plan)} ${unidad}` : "—"}</strong>
               </span>
+              {mostrarReplan && (
+                <span>
+                  Replan:{" "}
+                  <strong className="text-foreground">{fmtNum(replan as number)} {unidad}</strong>
+                </span>
+              )}
               <span>
                 Real:{" "}
                 <strong
@@ -218,13 +267,16 @@ const FilaSemana = memo(function FilaSemana({
     >
       <div className="space-y-2 border-t border-border/60 px-3 py-2">
         {ramasConReal.length === 0 && ramas.length === 0 ? (
-          <FilaApunteSemanal
-            nodoId={raiz.id}
-            periodoKey={mondayKey}
-            existing={regRaiz}
-            unidad={unidad}
-            ariaLabel={`Real semana ${label} de ${raiz.nombre}`}
-          />
+          <>
+            <FilaApunteSemanal
+              nodoId={raiz.id}
+              periodoKey={mondayKey}
+              existing={regRaiz}
+              unidad={unidad}
+              ariaLabel={`Real semana ${label} de ${raiz.nombre}`}
+            />
+            {avisoDobleConteoRaiz && <AvisoDobleConteo />}
+          </>
         ) : (
           ramasConReal.map((rama) => (
             <FilaRamaSemanal
@@ -235,6 +287,7 @@ const FilaSemana = memo(function FilaSemana({
               config={config}
               unidad={unidad}
               mondayKey={mondayKey}
+              replanPorNodoSemana={replanPorNodoSemana}
             />
           ))
         )}
@@ -250,6 +303,7 @@ function FilaRamaSemanal({
   config,
   unidad,
   mondayKey,
+  replanPorNodoSemana,
 }: {
   rama: NodoArbol;
   idx: ArbolIndices;
@@ -257,11 +311,17 @@ function FilaRamaSemanal({
   config: PlanArbolConfigAnio | undefined;
   unidad: string;
   mondayKey: string;
+  replanPorNodoSemana: ReplanPorNodoSemana;
 }) {
   const hojas = hijosSumaDirectosIdx(idx, rama.id);
   const plan = planAgregadoEnPeriodoIdx(idx, rama, "semana", mondayKey, config);
   const real = realEfectivoEnPeriodoIdx(idx, rama.id, "semana", mondayKey);
   const existingRama = regsIndex.get(claveRegistro(rama.id, "semana", mondayKey));
+  const mesKey = mesKeyFromDate(parseLocalDateKey(mondayKey));
+  const replanRama = replanPorNodoSemana.get(rama.id)?.get(mondayKey);
+  const mostrarReplanRama =
+    plan !== undefined && replanRama !== undefined && Math.abs(replanRama - plan) >= 1;
+  const avisoRama = hojas.length === 0 && nodoTieneDobleConteoEnMesIdx(idx, rama.id, mesKey);
 
   return (
     <div className="rounded border border-border/50 bg-background/60 p-2">
@@ -271,33 +331,53 @@ function FilaRamaSemanal({
           <span>
             Plan: <strong className="text-foreground">{plan !== undefined ? `${fmtNum(plan)} ${unidad}` : "—"}</strong>
           </span>
+          {mostrarReplanRama && (
+            <span>
+              Replan: <strong className="text-foreground">{fmtNum(replanRama as number)} {unidad}</strong>
+            </span>
+          )}
           <span>
             Real: <strong className="text-foreground">{fmtNum(real)} {unidad}</strong>
           </span>
         </span>
       </div>
       {hojas.length === 0 ? (
-        <FilaApunteSemanal
-          nodoId={rama.id}
-          periodoKey={mondayKey}
-          existing={existingRama}
-          unidad={unidad}
-          ariaLabel={`Real semana de ${rama.nombre}`}
-        />
+        <>
+          <FilaApunteSemanal
+            nodoId={rama.id}
+            periodoKey={mondayKey}
+            existing={existingRama}
+            unidad={unidad}
+            ariaLabel={`Real semana de ${rama.nombre}`}
+          />
+          {avisoRama && <AvisoDobleConteo />}
+        </>
       ) : (
         <div className="space-y-1.5">
           {hojas.map((hoja) => {
             const pHoja = planAgregadoEnPeriodoIdx(idx, hoja, "semana", mondayKey, config);
             const existingHoja = regsIndex.get(claveRegistro(hoja.id, "semana", mondayKey));
+            const replanHoja = replanPorNodoSemana.get(hoja.id)?.get(mondayKey);
+            const mostrarReplanHoja =
+              pHoja !== undefined && replanHoja !== undefined && Math.abs(replanHoja - pHoja) >= 1;
+            const avisoHoja = nodoTieneDobleConteoEnMesIdx(idx, hoja.id, mesKey);
             return (
               <div key={hoja.id} className="rounded border border-border/40 bg-surface/50 px-2 py-1.5">
                 <div className="mb-1 flex flex-wrap items-baseline justify-between gap-2 text-[11px]">
                   <span className="text-foreground">{hoja.nombre}</span>
-                  <span className="tabular-nums text-muted">
-                    Plan:{" "}
-                    <strong className="text-foreground">
-                      {pHoja !== undefined ? `${fmtNum(pHoja)} ${unidad}` : "—"}
-                    </strong>
+                  <span className="flex gap-x-2 tabular-nums text-muted">
+                    <span>
+                      Plan:{" "}
+                      <strong className="text-foreground">
+                        {pHoja !== undefined ? `${fmtNum(pHoja)} ${unidad}` : "—"}
+                      </strong>
+                    </span>
+                    {mostrarReplanHoja && (
+                      <span>
+                        Replan:{" "}
+                        <strong className="text-foreground">{fmtNum(replanHoja as number)} {unidad}</strong>
+                      </span>
+                    )}
                   </span>
                 </div>
                 <FilaApunteSemanal
@@ -307,6 +387,7 @@ function FilaRamaSemanal({
                   unidad={unidad}
                   ariaLabel={`Real semana de ${hoja.nombre}`}
                 />
+                {avisoHoja && <AvisoDobleConteo />}
               </div>
             );
           })}

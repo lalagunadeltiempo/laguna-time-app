@@ -1961,6 +1961,104 @@ export function replanTrimestralSerie(opts: {
   return result;
 }
 
+/**
+ * Replan semana a semana: misma lógica que `replanMensualSerie` pero a
+ * granularidad de semana ISO (lunes) y sobre las SEMANAS ACTIVAS del año
+ * (excluye descansos). Significado: «lo que queda por facturar repartido
+ * entre las semanas activas restantes», recalculado a medida que entra el
+ * real semanal.
+ *
+ * Peso de cada semana = días laborables de esa semana dentro del año. El
+ * reparto semanal es SIEMPRE por días laborables (la granularidad del
+ * patrón AY es mensual, no semanal), igual que el prorrateo de un mes a
+ * sus semanas. Por la misma razón los `pisoMensual` NO se aplican aquí:
+ * la semana no «sabe» del piso del mes (ver `PlanArbolConfigAnio.pisoMensual`).
+ *
+ * Cierre: una semana «cuenta su real» en el acumulado previo cuando su mes
+ * está cerrado (`mesesCerrados`); si el mes está abierto se asume plan
+ * lineal, para no penalizar el replan de las semanas siguientes. Así se
+ * mantiene la consistencia con el cierre mensual existente (el real
+ * semanal ya sube a meses).
+ *
+ * Independiente de la fecha «hoy»: funciona igual para años pasados,
+ * actual o futuros.
+ */
+export function replanSemanalSerie(opts: {
+  metaAnual: number;
+  /** Real por semana (`mondayKey` lunes ISO `YYYY-MM-DD`) del nodo. */
+  realPorSemana: ReadonlyMap<string, number>;
+  /** Meses (`YYYY-MM`) cerrados: sus semanas aportan el real al acumulado. */
+  mesesCerrados?: ReadonlySet<string>;
+  anio: number;
+  config: PlanArbolConfigAnio | undefined;
+}): Map<string, number> {
+  const result = new Map<string, number>();
+  const cerrados = opts.mesesCerrados ?? new Set<string>();
+  const noActivas = semanasNoActivasSet(opts.config);
+  const semanas = mondaysInCalendarYear(opts.anio).filter((m) => !noActivas.has(m));
+  const pesoSemana = semanas.map((m) => diasLaborablesEnSemanaISO(m, opts.anio, opts.config));
+
+  // Peso RESTANTE (semana i .. última) para el denominador del replan de
+  // cada semana. Análogo a `pesoDesdeSinPiso` en `replanMensualSerie`.
+  const pesoDesde: number[] = new Array(semanas.length).fill(0);
+  let acumPeso = 0;
+  for (let i = semanas.length - 1; i >= 0; i--) {
+    acumPeso += pesoSemana[i];
+    pesoDesde[i] = acumPeso;
+  }
+  const pesoTotal = semanas.length > 0 ? pesoDesde[0] : 0;
+  // Plan lineal de cada semana: prorrateo de la meta anual por su peso.
+  const planLinealSemana = semanas.map((_, i) =>
+    pesoTotal > 0 ? (opts.metaAnual * pesoSemana[i]) / pesoTotal : 0,
+  );
+
+  let realAcumAntes = 0;
+  for (let i = 0; i < semanas.length; i++) {
+    const m = semanas[i];
+    const falta = Math.max(0, opts.metaAnual - realAcumAntes);
+    const replanI = pesoDesde[i] > 0 ? (falta * pesoSemana[i]) / pesoDesde[i] : 0;
+    result.set(m, replanI);
+    // Aporte al acumulado de la semana siguiente: mes cerrado → real
+    // (incluso 0); mes abierto → plan lineal (no penaliza el futuro).
+    const mes = mesKeyFromDate(parseLocalDateKey(m));
+    const aporte = cerrados.has(mes) ? opts.realPorSemana.get(m) ?? 0 : planLinealSemana[i];
+    realAcumAntes += aporte;
+  }
+  return result;
+}
+
+/**
+ * ¿El nodo tiene registros SEMANALES y además un registro MENSUAL en el
+ * MISMO mes (`YYYY-MM`)? La agregación al mes SUMA ambos niveles (ver
+ * `sumarRegistrosNodoSimpleLista`), de modo que apuntar en los dos
+ * provoca doble conteo. Sólo cuenta valores != 0 (los ceros residuales no
+ * deben disparar el aviso).
+ */
+export function nodoTieneDobleConteoEnMes(
+  registrosDelNodo: RegistroNodo[] | undefined,
+  mesKey: string,
+): boolean {
+  if (!registrosDelNodo?.length) return false;
+  let tieneMes = false;
+  let tieneSemana = false;
+  for (const r of registrosDelNodo) {
+    if (!Number.isFinite(r.valor) || r.valor === 0) continue;
+    if (r.periodoTipo === "mes" && r.periodoKey === mesKey) tieneMes = true;
+    else if (r.periodoTipo === "semana" && mondayEnMes(r.periodoKey, mesKey)) tieneSemana = true;
+    if (tieneMes && tieneSemana) return true;
+  }
+  return false;
+}
+
+/** Variante sobre índice: lee `idx.regsPorNodo` para el nodo dado. */
+export function nodoTieneDobleConteoEnMesIdx(
+  idx: ArbolIndices,
+  nodoId: string,
+  mesKey: string,
+): boolean {
+  return nodoTieneDobleConteoEnMes(idx.regsPorNodo.get(nodoId), mesKey);
+}
+
 /** Cuota ajustada: reparte lo que falta entre los días laborables restantes del año (lun–vie sin descanso ni festivo). */
 export function cuotaAjustada(opts: {
   metaAnual: number;

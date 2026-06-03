@@ -459,6 +459,21 @@ export function MetricLinesVsAY(props: {
   );
 }
 
+/**
+ * Aviso inline (no bloqueante) de doble conteo: el nodo tiene real
+ * apuntado en semanas y también en el mes, y la agregación al mes SUMA
+ * ambos niveles. Estética coherente con los avisos en ámbar del resto de
+ * la pantalla (dark mode incluido).
+ */
+export function AvisoDobleConteo() {
+  return (
+    <p className="mt-1 rounded border border-amber-400/40 bg-amber-500/10 px-2 py-1 text-[10px] leading-snug text-amber-800 dark:text-amber-200">
+      <strong>Aviso:</strong> hay real apuntado en semanas y también en el mes para este objetivo; se están{" "}
+      <strong>sumando ambos</strong>. Apunta el real en un solo nivel para evitar doble conteo.
+    </p>
+  );
+}
+
 /** Fragmento inline para filas compactas: Año anterior + vs año anterior. */
 export function InlineVsAY({
   real,
