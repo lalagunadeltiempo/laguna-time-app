@@ -3,6 +3,7 @@ import { reducer } from "./reducer";
 import type { AppState, Entregable, Paso } from "./types";
 import { EMPTY_ARBOL } from "./types";
 import { rutinaApareceEnDia } from "./rutina-utils";
+import { semanasDeMes } from "./semana-utils";
 
 function base(overrides: Partial<AppState> = {}): AppState {
   return {
@@ -69,6 +70,26 @@ describe("CONVERT_ENTREGABLE_TO_RUTINA", () => {
     const s1 = reducer(s0, { type: "CONVERT_ENTREGABLE_TO_RUTINA", entregableId: "e-1", mes: "2026-05" });
     expect(s1.entregables[0].diasSemanaRutina).toEqual([1, 3, 5]);
   });
+
+  it("rellena semanasActivas con los lunes ISO del mes activo", () => {
+    const s0 = base({ entregables: [mkEnt("e-1")] });
+    const s1 = reducer(s0, { type: "CONVERT_ENTREGABLE_TO_RUTINA", entregableId: "e-1", mes: "2026-06" });
+    expect(s1.entregables[0].semanasActivas).toEqual(
+      semanasDeMes("2026-06"),
+    );
+  });
+
+  it("hace unión sin duplicar con las semanasActivas previas", () => {
+    const s0 = base({
+      entregables: [mkEnt("e-1", { semanasActivas: ["2026-06-01", "2099-01-04"] })],
+    });
+    const s1 = reducer(s0, { type: "CONVERT_ENTREGABLE_TO_RUTINA", entregableId: "e-1", mes: "2026-06" });
+    const sem = s1.entregables[0].semanasActivas ?? [];
+    // No duplica 2026-06-01 y conserva la semana suelta previa.
+    expect(sem.filter((s) => s === "2026-06-01")).toHaveLength(1);
+    expect(sem).toContain("2099-01-04");
+    for (const m of semanasDeMes("2026-06")) expect(sem).toContain(m);
+  });
 });
 
 describe("ROLAR_RUTINA_MES", () => {
@@ -110,6 +131,59 @@ describe("ROLAR_RUTINA_MES", () => {
     const s0 = base({ entregables: [mkEnt("e-1", { tipo: "raw" })] });
     const s1 = reducer(s0, { type: "ROLAR_RUTINA_MES", id: "e-1", nuevoMes: "2026-06", mantener: { notas: [], urls: [], pasos: [] } });
     expect(s1).toBe(s0);
+  });
+
+  it("reemplaza semanasActivas: quita las del mes archivado y pone las del nuevo", () => {
+    const ent = mkEnt("e-1", {
+      tipo: "rutina",
+      mesActivoRutina: "2026-05",
+      semanasActivas: semanasDeMes("2026-05"),
+    });
+    const s0 = base({ entregables: [ent] });
+    const s1 = reducer(s0, {
+      type: "ROLAR_RUTINA_MES",
+      id: "e-1",
+      nuevoMes: "2026-06",
+      mantener: { notas: [], urls: [], pasos: [] },
+    });
+    expect(s1.entregables[0].semanasActivas).toEqual(semanasDeMes("2026-06"));
+  });
+
+  it("conserva semanas sueltas ajenas a ambos meses al rolar", () => {
+    const ent = mkEnt("e-1", {
+      tipo: "rutina",
+      mesActivoRutina: "2026-05",
+      semanasActivas: [...semanasDeMes("2026-05"), "2099-01-04"],
+    });
+    const s0 = base({ entregables: [ent] });
+    const s1 = reducer(s0, {
+      type: "ROLAR_RUTINA_MES",
+      id: "e-1",
+      nuevoMes: "2026-06",
+      mantener: { notas: [], urls: [], pasos: [] },
+    });
+    const sem = s1.entregables[0].semanasActivas ?? [];
+    expect(sem).toContain("2099-01-04");
+    for (const m of semanasDeMes("2026-06")) expect(sem).toContain(m);
+    // Ninguna semana exclusiva de mayo debe sobrevivir.
+    const soloMayo = semanasDeMes("2026-05").filter((s) => !semanasDeMes("2026-06").includes(s));
+    for (const m of soloMayo) expect(sem).not.toContain(m);
+  });
+
+  it("es idempotente al rolar al mismo mes", () => {
+    const ent = mkEnt("e-1", {
+      tipo: "rutina",
+      mesActivoRutina: "2026-06",
+      semanasActivas: semanasDeMes("2026-06"),
+    });
+    const s0 = base({ entregables: [ent] });
+    const s1 = reducer(s0, {
+      type: "ROLAR_RUTINA_MES",
+      id: "e-1",
+      nuevoMes: "2026-06",
+      mantener: { notas: [], urls: [], pasos: [] },
+    });
+    expect(s1.entregables[0].semanasActivas).toEqual(semanasDeMes("2026-06"));
   });
 });
 

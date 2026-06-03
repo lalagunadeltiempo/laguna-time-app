@@ -9,8 +9,9 @@ import { buildPersonalSeedData } from "./seed-personal";
 import { buildEmpresaSeedProyectos } from "./seed-proyectos-empresa";
 import { mondayKey, mesKey, mesesDeTrimestre } from "./semana-utils";
 import { planearDedupSesionesEnEstado } from "./sesion-dedup";
+import { planearSaneoRutinaSemanas } from "./migration-plan-v30-rutina-semanas";
 
-export const CURRENT_MIGRATION = 29;
+export const CURRENT_MIGRATION = 30;
 
 type Dispatch = (action: Action) => void;
 
@@ -94,6 +95,10 @@ export function runMigrations(state: AppState, dispatch: Dispatch): void {
     migrateSeedFranjas(state, dispatch);
   }
 
+  if (version < 30) {
+    migrateRutinaSemanasActivas(state, dispatch);
+  }
+
   if (version < CURRENT_MIGRATION) {
     dispatch({ type: "SET_MIGRATION_VERSION", version: CURRENT_MIGRATION });
   }
@@ -138,6 +143,33 @@ function migrateSesionesAsignarAutor(state: AppState, dispatch: Dispatch): void 
 function migrateSeedFranjas(state: AppState, dispatch: Dispatch): void {
   const franjas = planearSeedFranjasV29(state.franjas);
   if (franjas) dispatch({ type: "SET_FRANJAS", franjas });
+}
+
+/**
+ * Migración v30: sanea `semanasActivas` de las rutinas existentes.
+ *
+ * Hasta ahora, al convertir un entregable en rutina (o al rolar de mes) no se
+ * tocaba `semanasActivas`, así que las rutinas se quedaban con semanas de un
+ * mes antiguo "pegadas" (p. ej. S18–S23 de mayo) o sin ninguna semana. Como
+ * Plan-Semana/Hoy/Mes filtran por `semanasActivas`, las rutinas aparecían de
+ * forma incoherente.
+ *
+ * Para una rutina la fuente de verdad de su programación semanal es su
+ * `mesActivoRutina`: debe estar activa en TODAS las semanas que tocan ese mes.
+ * Por eso aquí REEMPLAZAMOS `semanasActivas` por exactamente los lunes ISO del
+ * mes activo (no unión: queremos descartar lo pegado de meses anteriores).
+ *
+ * Idempotente: aplicar dos veces deja el mismo resultado. Sólo dispara
+ * `UPDATE_ENTREGABLE` cuando el conjunto difiere del actual.
+ */
+function migrateRutinaSemanasActivas(state: AppState, dispatch: Dispatch): void {
+  for (const c of planearSaneoRutinaSemanas(state.entregables)) {
+    dispatch({
+      type: "UPDATE_ENTREGABLE",
+      id: c.id,
+      changes: { semanasActivas: c.semanasActivas },
+    });
+  }
 }
 
 /**

@@ -31,7 +31,7 @@ import { DIAS_SEMANA_RUTINA_DEFAULT, dateKeysDeMesPorDiaSemana } from "./rutina-
 import { PLAN_CONFIG_DEFAULT, EMPTY_ARBOL } from "./types";
 import { minutosEfectivos } from "./duration";
 import { localDateKeyFromIso, toDateKey } from "./date-utils";
-import { mesKey, mesesDeTrimestre, mondayKey, trimestreDeMes } from "./semana-utils";
+import { mesKey, mesesDeTrimestre, mondayKey, trimestreDeMes, semanasDeMes } from "./semana-utils";
 import {
   clonarEstructuraDeAnioAnterior,
   collectSubtreeIds,
@@ -1823,6 +1823,11 @@ export function reducer(state: AppState, action: Action): AppState {
       const ent = state.entregables.find((e) => e.id === action.entregableId);
       if (!ent) return state;
       const mes = action.mes ?? mesKey(toDateKey(new Date())) ?? ent.mesActivoRutina;
+      // Al convertir en rutina, activamos automáticamente todas las semanas
+      // (lunes ISO) del mes activo. Unión sin duplicar con lo que ya hubiera,
+      // para no perder semanas que la usuaria hubiese marcado a mano.
+      const semanasMes = mes ? semanasDeMes(mes) : [];
+      const semanasActivas = [...new Set([...(ent.semanasActivas ?? []), ...semanasMes])].sort();
       return {
         ...state,
         entregables: state.entregables.map((e) =>
@@ -1835,6 +1840,7 @@ export function reducer(state: AppState, action: Action): AppState {
                   e.diasSemanaRutina && e.diasSemanaRutina.length > 0
                     ? e.diasSemanaRutina
                     : [...DIAS_SEMANA_RUTINA_DEFAULT],
+                semanasActivas,
               }
             : e,
         ),
@@ -1870,9 +1876,23 @@ export function reducer(state: AppState, action: Action): AppState {
         pasosEnt.filter((p) => !mantenerPasos.has(p.id)).map((p) => p.id),
       );
 
+      // Recalcular las semanas activas: quitamos las del mes que se archiva
+      // y añadimos las del nuevo mes. Conservamos cualquier semana suelta que
+      // no perteneciera al mes archivado (no debería haberlas en una rutina,
+      // pero así no se pierde nada marcado a mano).
+      const semanasArchivadas = new Set(semanasDeMes(mesArchivado));
+      const semanasNuevoMes = semanasDeMes(action.nuevoMes);
+      const semanasActivasRol = [
+        ...new Set([
+          ...(ent.semanasActivas ?? []).filter((s) => !semanasArchivadas.has(s)),
+          ...semanasNuevoMes,
+        ]),
+      ].sort();
+
       const nextEnt: Entregable = {
         ...ent,
         mesActivoRutina: action.nuevoMes,
+        semanasActivas: semanasActivasRol,
         notas: notasActuales.filter((n) => mantenerNotas.has(n.id)),
         contexto: ent.contexto
           ? { ...ent.contexto, urls: urlsActuales.filter((u) => mantenerUrls.has(u.url)) }
