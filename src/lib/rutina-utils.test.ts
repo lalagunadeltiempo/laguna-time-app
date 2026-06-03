@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { dateKeysDeMesPorDiaSemana, diaSemanaLunes1 } from "./rutina-utils";
+import {
+  dateKeysDeMesPorDiaSemana,
+  diaSemanaLunes1,
+  mesesDesde,
+  trimestresDesde,
+  rangoDeMes,
+  rangoDeTrimestre,
+} from "./rutina-utils";
 
 describe("dateKeysDeMesPorDiaSemana", () => {
   it("expande L-V sobre un mes de 31 días (mayo 2026)", () => {
@@ -69,5 +76,70 @@ describe("dateKeysDeMesPorDiaSemana", () => {
     const dias = dateKeysDeMesPorDiaSemana("2026-06", [1, 1, 8, 0]);
     // Sólo los lunes (1) tienen efecto; 0 y 8 no existen como día de semana.
     expect(dias).toEqual(["2026-06-01", "2026-06-08", "2026-06-15", "2026-06-22", "2026-06-29"]);
+  });
+});
+
+describe("mesesDesde", () => {
+  it("enumera N meses consecutivos incluyendo el inicial", () => {
+    expect(mesesDesde("2026-01", 3)).toEqual(["2026-01", "2026-02", "2026-03"]);
+  });
+
+  it("salta de año correctamente", () => {
+    expect(mesesDesde("2026-11", 4)).toEqual(["2026-11", "2026-12", "2027-01", "2027-02"]);
+  });
+
+  it("n=1 devuelve sólo el mes inicial", () => {
+    expect(mesesDesde("2026-06", 1)).toEqual(["2026-06"]);
+  });
+
+  it("n<=0 o mes inválido → []", () => {
+    expect(mesesDesde("2026-06", 0)).toEqual([]);
+    expect(mesesDesde("2026-06", -2)).toEqual([]);
+    expect(mesesDesde("2026-13", 3)).toEqual([]);
+    expect(mesesDesde("no-es-mes", 3)).toEqual([]);
+  });
+
+  it("trunca n no entero con Math.floor", () => {
+    expect(mesesDesde("2026-01", 2.9)).toEqual(["2026-01", "2026-02"]);
+  });
+});
+
+describe("trimestresDesde", () => {
+  it("enumera N trimestres consecutivos incluyendo el inicial", () => {
+    expect(trimestresDesde("2026-Q1", 3)).toEqual(["2026-Q1", "2026-Q2", "2026-Q3"]);
+  });
+
+  it("salta de año correctamente", () => {
+    expect(trimestresDesde("2026-Q3", 4)).toEqual(["2026-Q3", "2026-Q4", "2027-Q1", "2027-Q2"]);
+  });
+
+  it("trimestre inválido o n<=0 → []", () => {
+    expect(trimestresDesde("2026-Q5", 2)).toEqual([]);
+    expect(trimestresDesde("2026-02", 2)).toEqual([]);
+    expect(trimestresDesde("2026-Q1", 0)).toEqual([]);
+  });
+});
+
+describe("rangoDeMes", () => {
+  it("devuelve primer y último día del mes (incluye bisiesto)", () => {
+    expect(rangoDeMes("2026-02")).toEqual({ min: "2026-02-01", max: "2026-02-28" });
+    expect(rangoDeMes("2028-02")).toEqual({ min: "2028-02-01", max: "2028-02-29" });
+    expect(rangoDeMes("2026-04")).toEqual({ min: "2026-04-01", max: "2026-04-30" });
+  });
+
+  it("mes inválido → null", () => {
+    expect(rangoDeMes("2026-13")).toBeNull();
+    expect(rangoDeMes("nope")).toBeNull();
+  });
+});
+
+describe("rangoDeTrimestre", () => {
+  it("abarca del primer día del primer mes al último del tercero", () => {
+    expect(rangoDeTrimestre("2026-Q1")).toEqual({ min: "2026-01-01", max: "2026-03-31" });
+    expect(rangoDeTrimestre("2026-Q4")).toEqual({ min: "2026-10-01", max: "2026-12-31" });
+  });
+
+  it("trimestre inválido → null", () => {
+    expect(rangoDeTrimestre("2026-Q9")).toBeNull();
   });
 });

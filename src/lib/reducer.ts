@@ -99,6 +99,27 @@ export type Action =
    *  - modo "limpiar": elimina sólo los días de ese mes del usuario actual,
    *    dejando intactos los días de otros meses. */
   | { type: "PLANIFICAR_MES_ENTREGABLE"; id: string; usuario: string; mes: string; diasSemana: number[]; modo: "rellenar" | "limpiar" }
+  /** "Planificar periodo": rellena/limpia un conjunto EXPLÍCITO de días
+   *  ("YYYY-MM-DD") en la planificación del entregable. A diferencia de
+   *  `PLANIFICAR_MES_ENTREGABLE` (que expande un patrón de días de la semana de
+   *  UN mes), aquí los días vienen ya calculados por quien dispara la acción.
+   *  Casos de uso: frecuencia MENSUAL/TRIMESTRAL del planificador, donde la
+   *  usuaria marca a mano UNA aparición por periodo.
+   *  - `alcance: "usuario"` → escribe sólo en `diasPlanificadosByUser[usuario]`.
+   *  - `alcance: "equipo"`  → escribe los MISMOS días en cada miembro de
+   *    `state.miembros` (planificación de equipo). Si no hay miembros, recae en
+   *    `usuario`. NO pisa los días de otros meses/periodos de cada miembro.
+   *  - modo "rellenar": unión sin duplicar; sincroniza `semanasActivas` y
+   *    propaga hacia arriba como el resto de acciones de días.
+   *  - modo "limpiar": elimina exactamente esos días (en cada usuario del alcance). */
+  | {
+      type: "PLANIFICAR_PERIODO_ENTREGABLE";
+      id: string;
+      dias: string[];
+      alcance: "usuario" | "equipo";
+      usuario: string;
+      modo: "rellenar" | "limpiar";
+    }
   /** Toggle de una semana (lunes ISO) en `Entregable.semanasActivas`. Cascada hacia arriba:
    *  añade su mes al `Resultado.mesesActivos` y `Resultado.semanasActivas`, y
    *  añade ese mes y trimestre al `Proyecto.mesesActivos`/`trimestresActivos`. */
@@ -1183,6 +1204,78 @@ export function reducer(state: AppState, action: Action): AppState {
           ? {
               ...e,
               diasPlanificadosByUser,
+              semana: newSemana,
+              semanasActivas: semanasNext,
+              estado: newEstado,
+              enEsperaDe: reabrir ? null : e.enEsperaDe,
+              enEsperaDesde: reabrir ? null : e.enEsperaDesde,
+            }
+          : e),
+      };
+      for (const wk of semanasNuevas) {
+        nextState = propagarSemanaArriba(nextState, action.id, wk);
+      }
+      return nextState;
+    }
+
+    case "PLANIFICAR_PERIODO_ENTREGABLE": {
+      const ent = state.entregables.find((e) => e.id === action.id);
+      if (!ent) return state;
+      // La rutina tiene su propio mecanismo; no se planifica por días concretos.
+      if (ent.tipo === "rutina") return state;
+
+      const dias = [...new Set(action.dias)].filter((d) => /^\d{4}-\d{2}-\d{2}$/.test(d));
+      if (dias.length === 0) return state;
+      const diasSet = new Set(dias);
+
+      // Alcance: a quién se le escriben los días. Para "equipo" se aplican los
+      // MISMOS días a todos los miembros; si no hay equipo, recae en el usuario.
+      const targetUsuarios =
+        action.alcance === "equipo" && state.miembros.length > 0
+          ? state.miembros.map((m) => m.nombre)
+          : [action.usuario];
+
+      const byUser: Record<string, string[]> = { ...(ent.diasPlanificadosByUser ?? {}) };
+      let cambio = false;
+      for (const u of targetUsuarios) {
+        const current = Array.isArray(byUser[u]) ? byUser[u] : [];
+        const next =
+          action.modo === "limpiar"
+            ? current.filter((d) => !diasSet.has(d))
+            : [...new Set([...current, ...dias])].sort();
+        if (next.length !== current.length) {
+          byUser[u] = next;
+          cambio = true;
+        }
+      }
+      if (!cambio) return state;
+
+      // Para "rellenar" sincronizamos semanas y propagamos hacia arriba, igual
+      // que el resto de acciones de días. Para "limpiar" no añadimos semanas.
+      let semanasNext = Array.isArray(ent.semanasActivas) ? ent.semanasActivas : [];
+      let newSemana = ent.semana;
+      let newEstado = ent.estado;
+      let reabrir = false;
+      const semanasNuevas = new Set<string>();
+
+      if (action.modo === "rellenar") {
+        const semanasActivas = semanasNext;
+        for (const d of dias) {
+          const mk = mondayKey(d);
+          if (mk && !semanasActivas.includes(mk)) semanasNuevas.add(mk);
+        }
+        semanasNext = [...new Set([...semanasActivas, ...semanasNuevas])].sort();
+        newSemana = !ent.semana ? mondayKey([...dias].sort()[0]) : ent.semana;
+        reabrir = ent.estado === "en_espera";
+        newEstado = reabrir ? "planificado" : ent.estado;
+      }
+
+      let nextState: AppState = {
+        ...state,
+        entregables: state.entregables.map((e) => e.id === action.id
+          ? {
+              ...e,
+              diasPlanificadosByUser: byUser,
               semana: newSemana,
               semanasActivas: semanasNext,
               estado: newEstado,
