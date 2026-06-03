@@ -617,35 +617,6 @@ export function EntregableActivoCard({ entregable, mode = "trabajo" }: Props) {
             />
           </div>
 
-          {/* Conversiones: subir a rutina / convertir en SOP (mismo sitio). */}
-          <div className="flex flex-wrap items-center gap-2">
-            <RutinaPanel entregable={entregable} />
-            {puedeConvertirASop && (
-              <button
-                type="button"
-                disabled={!puedeConvertirASopAhora}
-                onClick={() => dispatch({ type: "CONVERT_ENTREGABLE_TO_SOP", entregableId: entregable.id })}
-                className="flex items-center gap-1.5 rounded-lg border border-indigo-300 bg-indigo-50 px-2.5 py-1.5 text-[11px] font-semibold text-indigo-700 transition-colors hover:bg-indigo-100 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-indigo-50 dark:border-indigo-500/40 dark:bg-indigo-500/10 dark:text-indigo-300 dark:hover:bg-indigo-500/20"
-                title={
-                  puedeConvertirASopAhora
-                    ? "Convertir este entregable en un SOP a partir de sus pasos completados"
-                    : "Completa al menos un paso (con hora de fin) para crear el SOP a partir de los pasos completados"
-                }
-              >
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><polyline points="14 2 14 8 20 8" />
-                </svg>
-                Convertir en SOP
-              </button>
-            )}
-          </div>
-
-          {/* Planificar mes: rellenar días concretos "a lo rutina pero acotado"
-              sin convertir el entregable en rutina. Sólo en la vista de detalle
-              (Mapa/Plan), no en Hoy Operativo, y fuera de modo mentor. */}
-          {mode === "detalle" && !esRutina && !isMentor && <PlanificarMesPanel entregable={entregable} />}
-
-
           {/* Progreso */}
           <div className="flex items-center gap-2">
             <div className="h-1.5 flex-1 rounded-full bg-zinc-100 dark:bg-zinc-800">
@@ -753,51 +724,6 @@ export function EntregableActivoCard({ entregable, mode = "trabajo" }: Props) {
             )}
           </div>
 
-          {/* 2. Mensajes (hilo de chat del entregable). */}
-          <HiloEntregable entregableId={entregable.id} />
-
-          {/* 3. Pasos pendientes. Siempre visibles: son el trabajo por hacer. */}
-          <div className="space-y-1">
-            <p className="text-[10px] font-semibold uppercase tracking-wider text-zinc-400 dark:text-zinc-500">
-              Pasos pendientes ({pasosPendientes.length})
-            </p>
-            <div className="space-y-0.5">
-              {pasosPendientes.length === 0 && (
-                <p className="px-2 py-1 text-[11px] italic text-muted">
-                  No quedan pasos pendientes en este entregable.
-                </p>
-              )}
-              {pasosPendientes.map((p, idx) => renderPasoRow(p, idx === 0, idx === pasosPendientes.length - 1))}
-              {showAddPaso ? (
-                <div className="flex items-center gap-1 px-2 py-1">
-                  <input
-                    ref={addPasoRef}
-                    type="text"
-                    value={newPasoName}
-                    onChange={(e) => setNewPasoName(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" && newPasoName.trim()) addPaso();
-                      if (e.key === "Escape") { setShowAddPaso(false); setNewPasoName(""); }
-                    }}
-                    autoFocus
-                    placeholder="Nombre del paso..."
-                    className="flex-1 rounded border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 px-1.5 py-1 text-[10px] focus:outline-none text-zinc-800 dark:text-zinc-200"
-                    style={{ borderColor: `${borderColor}60` }}
-                  />
-                  <button type="button" onClick={addPaso} className="rounded px-2 py-1 text-[10px] font-medium text-white" style={{ backgroundColor: borderColor }}>+</button>
-                  <button type="button" onClick={() => { setShowAddPaso(false); setNewPasoName(""); }} className="text-[10px] text-zinc-400 hover:text-zinc-600">✕</button>
-                </div>
-              ) : (
-                <button type="button" onClick={() => setShowAddPaso(true)}
-                  className="flex items-center gap-1 px-2 py-1 text-[10px] hover:text-zinc-700"
-                  style={{ color: `${borderColor}99` }}>
-                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></svg>
-                  Añadir paso
-                </button>
-              )}
-            </div>
-          </div>
-
           {/* 4. URLs. Plegable: tanto la consulta como el formulario de alta
                van dentro para que no ocupen sitio cuando hay muchas. */}
           <details className="group space-y-1.5">
@@ -862,6 +788,51 @@ export function EntregableActivoCard({ entregable, mode = "trabajo" }: Props) {
             </div>
           </details>
 
+          {/* 3. Pasos pendientes. Siempre visibles: son el trabajo por hacer. */}
+          <div className="space-y-1">
+            <p className="text-[10px] font-semibold uppercase tracking-wider text-zinc-400 dark:text-zinc-500">
+              Pasos pendientes ({pasosPendientes.length})
+            </p>
+            <div className="space-y-0.5">
+              {pasosPendientes.length === 0 && (
+                <p className="px-2 py-1 text-[11px] italic text-muted">
+                  No quedan pasos pendientes en este entregable.
+                </p>
+              )}
+              {pasosPendientes.map((p, idx) => renderPasoRow(p, idx === 0, idx === pasosPendientes.length - 1))}
+              {showAddPaso ? (
+                <div className="flex items-center gap-1 px-2 py-1">
+                  <input
+                    ref={addPasoRef}
+                    type="text"
+                    value={newPasoName}
+                    onChange={(e) => setNewPasoName(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" && newPasoName.trim()) addPaso();
+                      if (e.key === "Escape") { setShowAddPaso(false); setNewPasoName(""); }
+                    }}
+                    autoFocus
+                    placeholder="Nombre del paso..."
+                    className="flex-1 rounded border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 px-1.5 py-1 text-[10px] focus:outline-none text-zinc-800 dark:text-zinc-200"
+                    style={{ borderColor: `${borderColor}60` }}
+                  />
+                  <button type="button" onClick={addPaso} className="rounded px-2 py-1 text-[10px] font-medium text-white" style={{ backgroundColor: borderColor }}>+</button>
+                  <button type="button" onClick={() => { setShowAddPaso(false); setNewPasoName(""); }} className="text-[10px] text-zinc-400 hover:text-zinc-600">✕</button>
+                </div>
+              ) : (
+                <button type="button" onClick={() => setShowAddPaso(true)}
+                  className="flex items-center gap-1 px-2 py-1 text-[10px] hover:text-zinc-700"
+                  style={{ color: `${borderColor}99` }}>
+                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></svg>
+                  Añadir paso
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* 2. Mensajes (hilo de chat del entregable). */}
+          <HiloEntregable entregableId={entregable.id} />
+
           {/* 6. Pasos dados (ya terminados). Plegable: si hay muchos no estorban. */}
           <details className="group space-y-1.5">
             <summary className="flex cursor-pointer list-none items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-zinc-400 dark:text-zinc-500">
@@ -916,6 +887,34 @@ export function EntregableActivoCard({ entregable, mode = "trabajo" }: Props) {
               )}
             </div>
           </details>
+
+          {/* Conversiones: subir a rutina / convertir en SOP (mismo sitio). */}
+          <div className="flex flex-wrap items-center gap-2">
+            <RutinaPanel entregable={entregable} />
+            {puedeConvertirASop && (
+              <button
+                type="button"
+                disabled={!puedeConvertirASopAhora}
+                onClick={() => dispatch({ type: "CONVERT_ENTREGABLE_TO_SOP", entregableId: entregable.id })}
+                className="flex items-center gap-1.5 rounded-lg border border-indigo-300 bg-indigo-50 px-2.5 py-1.5 text-[11px] font-semibold text-indigo-700 transition-colors hover:bg-indigo-100 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-indigo-50 dark:border-indigo-500/40 dark:bg-indigo-500/10 dark:text-indigo-300 dark:hover:bg-indigo-500/20"
+                title={
+                  puedeConvertirASopAhora
+                    ? "Convertir este entregable en un SOP a partir de sus pasos completados"
+                    : "Completa al menos un paso (con hora de fin) para crear el SOP a partir de los pasos completados"
+                }
+              >
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><polyline points="14 2 14 8 20 8" />
+                </svg>
+                Convertir en SOP
+              </button>
+            )}
+          </div>
+
+          {/* Planificar mes: rellenar días concretos "a lo rutina pero acotado"
+              sin convertir el entregable en rutina. Sólo en la vista de detalle
+              (Mapa/Plan), no en Hoy Operativo, y fuera de modo mentor. */}
+          {mode === "detalle" && !esRutina && !isMentor && <PlanificarMesPanel entregable={entregable} />}
 
           {/* Acciones */}
           {!isDetalle && (

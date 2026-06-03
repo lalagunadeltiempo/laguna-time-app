@@ -153,7 +153,7 @@ export function EntregableHojasArbolPicker({ entregable, layout = "card", mode =
   ) : (
     <summary className="flex cursor-pointer list-none items-center gap-1.5 px-2.5 py-2 text-[10px] font-semibold uppercase tracking-wider text-zinc-400 marker:content-none [&::-webkit-details-marker]:hidden">
       <span aria-hidden className="text-[10px] transition-transform">{open ? "▼" : "▶"}</span>
-      Hojas del árbol asociadas
+      Hojas del árbol asociadas ({seleccionActual.length})
     </summary>
   );
 
