@@ -641,9 +641,9 @@ export function EntregableActivoCard({ entregable, mode = "trabajo" }: Props) {
           </div>
 
           {/* Planificar mes: rellenar días concretos "a lo rutina pero acotado"
-              sin convertir el entregable en rutina. Sólo entregables normales y
-              fuera de modo mentor. */}
-          {!esRutina && !isMentor && <PlanificarMesPanel entregable={entregable} />}
+              sin convertir el entregable en rutina. Sólo en la vista de detalle
+              (Mapa/Plan), no en Hoy Operativo, y fuera de modo mentor. */}
+          {mode === "detalle" && !esRutina && !isMentor && <PlanificarMesPanel entregable={entregable} />}
 
 
           {/* Progreso */}
