@@ -12,6 +12,36 @@ export function diaSemanaLunes1(dateKey: string): number {
   return d.getDay() || 7;
 }
 
+/**
+ * Expande un patrón de días de la semana (1=lunes .. 7=domingo) sobre un mes
+ * "YYYY-MM" y devuelve la lista ORDENADA de dateKeys "YYYY-MM-DD" cuyos días
+ * de la semana caen dentro del patrón.
+ *
+ * Es la lógica pura detrás de "Planificar mes": permite rellenar un entregable
+ * normal "a lo rutina pero acotado" (días concretos de un mes) sin convertirlo
+ * en rutina. Reutiliza `diaSemanaLunes1` para el cálculo del día de la semana.
+ *
+ * - `mes` mal formado, mes fuera de rango o patrón vacío → `[]`.
+ * - El resultado ya viene ascendente por construcción (recorre el mes en orden).
+ */
+export function dateKeysDeMesPorDiaSemana(mes: string, diasSemana: number[]): string[] {
+  const m = /^(\d{4})-(\d{2})$/.exec(mes);
+  if (!m) return [];
+  const dias = new Set(diasSemana);
+  if (dias.size === 0) return [];
+  const year = Number(m[1]);
+  const month = Number(m[2]); // 1..12
+  if (month < 1 || month > 12) return [];
+  // Día 0 del mes siguiente = último día del mes actual (hora local).
+  const ultimoDia = new Date(year, month, 0).getDate();
+  const result: string[] = [];
+  for (let d = 1; d <= ultimoDia; d++) {
+    const dateKey = `${m[1]}-${m[2]}-${String(d).padStart(2, "0")}`;
+    if (dias.has(diaSemanaLunes1(dateKey))) result.push(dateKey);
+  }
+  return result;
+}
+
 /** Días efectivos de una rutina (con fallback al default L-V). */
 export function diasSemanaDeRutina(ent: Pick<Entregable, "diasSemanaRutina">): number[] {
   return ent.diasSemanaRutina && ent.diasSemanaRutina.length > 0

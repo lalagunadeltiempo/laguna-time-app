@@ -18,6 +18,7 @@ import { useFocoEntregable, usePresenciaEntregable } from "@/lib/presence";
 import { RegistrarSesionIconButton, EditarSesionPopover } from "./shared/RegistrarSesionPopover";
 import { EntregableHojasArbolPicker } from "./arbol/EntregableHojasArbolPicker";
 import { RutinaPanel } from "./shared/RutinaPanel";
+import { PlanificarMesPanel } from "./shared/PlanificarMesPanel";
 
 interface Props {
   entregable: Entregable;
@@ -638,6 +639,11 @@ export function EntregableActivoCard({ entregable, mode = "trabajo" }: Props) {
               </button>
             )}
           </div>
+
+          {/* Planificar mes: rellenar días concretos "a lo rutina pero acotado"
+              sin convertir el entregable en rutina. Sólo entregables normales y
+              fuera de modo mentor. */}
+          {!esRutina && !isMentor && <PlanificarMesPanel entregable={entregable} />}
 
 
           {/* Progreso */}
