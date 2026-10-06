@@ -312,7 +312,6 @@ function FilaRamaTrimestral({
   rama,
   idx,
   config,
-  year,
   unidad,
   periodoKey,
 }: {

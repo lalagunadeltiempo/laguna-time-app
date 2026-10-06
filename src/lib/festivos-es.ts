@@ -23,11 +23,6 @@ export const COMUNIDADES_AUTONOMAS_OPCIONES: { id: string; nombre: string }[] = 
   return [{ id: "", nombre: "Solo festivos nacionales" }, ...entries];
 })();
 
-function parseLocalDateKey(key: string): Date {
-  const [y, mo, d] = key.split("-").map((s) => parseInt(s, 10));
-  return new Date(y, mo - 1, d);
-}
-
 /** Lunes ISO local como YYYY-MM-DD */
 export function lunesDeFechaLocal(d: Date): string {
   const x = new Date(d);

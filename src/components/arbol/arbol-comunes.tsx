@@ -113,6 +113,7 @@ export function NumberInput({
   const [text, setText] = useState(() => formatDisplay(value, isEuro));
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- input controlado: sincroniza el texto con el valor externo salvo mientras se edita
     if (!focused) setText(formatDisplay(value, isEuro));
   }, [value, isEuro, focused]);
 
@@ -179,6 +180,7 @@ export function PercentInput({
   const [text, setText] = useState(() => formatPctDisplay(value));
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- input controlado: sincroniza el texto con el valor externo salvo mientras se edita
     if (!focused) setText(formatPctDisplay(value));
   }, [value, focused]);
 

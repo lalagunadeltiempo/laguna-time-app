@@ -24,7 +24,7 @@ export function ambitoDeArea(area: Area): Ambito {
     : "empresa";
 }
 
-export type RolUsuario = "admin" | "miembro" | "mentor";
+export type RolUsuario = "admin" | "miembro";
 
 export interface DiaNoDisponible {
   desde: string;

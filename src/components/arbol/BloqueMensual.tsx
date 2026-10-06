@@ -603,7 +603,7 @@ function FilaHojaMensual({
       diasPlanificados,
       haySinDiasPlanificados,
     };
-  }, [hoja.id, hoja.entregableIds, periodoKey, state.entregables, year, config]);
+  }, [hoja.entregableIds, periodoKey, state.entregables, year, config]);
 
   // Conjunto de todas las hojas del año con entregables: necesario para
   // repartir a partes iguales el tiempo de un entregable compartido por

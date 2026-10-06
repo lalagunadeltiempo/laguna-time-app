@@ -27,7 +27,6 @@ interface Props {
 
 export function VistaMapa({ onBack, onOpenDetalle }: Props) {
   const state = useAppState();
-  const dispatch = useAppDispatch();
   const [subView, setSubView] = useState<SubView>(null);
   const [filterArea, setFilterArea] = useState<Area | null>(null);
   const [filterPersona, setFilterPersona] = useState<string | null>(null);

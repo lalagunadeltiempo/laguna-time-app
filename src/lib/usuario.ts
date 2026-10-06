@@ -19,9 +19,9 @@ export function useUsuario() {
   return useContext(UsuarioContext);
 }
 
+/** El perfil mentor se eliminó: nadie tiene rol de solo lectura. */
 export function useIsMentor() {
-  const { rol } = useUsuario();
-  return rol === "mentor";
+  return false;
 }
 
 /** Solo Gabi y Beltrán pueden ver el Árbol de objetivos. */

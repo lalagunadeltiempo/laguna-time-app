@@ -104,6 +104,7 @@ export function HoraTextInput({
   const focusedRef = useRef(false);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- input controlado: sincroniza el borrador con el valor externo salvo mientras se edita
     if (!focusedRef.current) setDraft(value ?? "");
   }, [value]);
 

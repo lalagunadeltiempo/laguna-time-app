@@ -85,7 +85,7 @@ export function NuevoPaso({ onClose }: Props) {
         dispatch({ type: "ADD_PROYECTO", payload: { id: pId, nombre: newProyecto.trim(), area: newProyectoArea, creado: now, fechaInicio: null, descripcion: null } });
       }
       if (!pId) {
-        let defaultProj = state.proyectos.find((p) => p.nombre === "General");
+        const defaultProj = state.proyectos.find((p) => p.nombre === "General");
         if (!defaultProj) {
           pId = generateId();
           dispatch({ type: "ADD_PROYECTO", payload: { id: pId, nombre: "General", area: "administrativa", creado: now, fechaInicio: null, descripcion: null } });
@@ -100,7 +100,7 @@ export function NuevoPaso({ onClose }: Props) {
         dispatch({ type: "ADD_RESULTADO", payload: { id: rId, nombre: newResultado.trim(), descripcion: null, proyectoId: pId, creado: now, semana: null, fechaLimite: null, fechaInicio: null, diasEstimados: null, responsable: currentUser } });
       }
       if (!rId) {
-        let defaultRes = state.resultados.find((r) => r.proyectoId === pId);
+        const defaultRes = state.resultados.find((r) => r.proyectoId === pId);
         if (!defaultRes) {
           rId = generateId();
           dispatch({ type: "ADD_RESULTADO", payload: { id: rId, nombre: "General", descripcion: null, proyectoId: pId, creado: now, semana: null, fechaLimite: null, fechaInicio: null, diasEstimados: null, responsable: currentUser } });

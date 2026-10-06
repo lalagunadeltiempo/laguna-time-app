@@ -90,7 +90,7 @@ export function EntregableActivoCard({ entregable, mode = "trabajo" }: Props) {
   );
 
   const contexto: Contexto = entregable.contexto ?? EMPTY_CONTEXTO;
-  const implicados: Implicado[] = entregable.implicados ?? [];
+  const implicados: Implicado[] = useMemo(() => entregable.implicados ?? [], [entregable.implicados]);
 
   // Promoción automática (one-shot por sesión): cuando se abre un entregable,
   // las notas y URLs que vivían en sus pasos antiguos se promocionan al
@@ -554,7 +554,7 @@ export function EntregableActivoCard({ entregable, mode = "trabajo" }: Props) {
         {!isDetalle && sesionAbierta && (
           <button
             type="button"
-            onClick={(e) => { e.stopPropagation(); isPaused ? handleResume() : handlePause(); }}
+            onClick={(e) => { e.stopPropagation(); if (isPaused) { handleResume(); } else { handlePause(); } }}
             className="shrink-0 rounded-lg p-1.5 transition-colors"
             style={{ backgroundColor: isPaused ? `${borderColor}30` : "#fef3c7", color: isPaused ? borderColor : "#d97706" }}
             title={isPaused ? "Reanudar" : "Pausar"}

@@ -92,10 +92,12 @@ export function CerrarPaso({ paso, onClose }: Props) {
   }, [entregable, onClose]);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- si ya no quedan pasos, propone "fin" como siguiente
     if (allStepsDone) setSigTipo("fin");
   }, [allStepsDone]);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- precarga una sugerencia de nombre solo si el campo sigue vacío
     if (firstSuggestion) setSigNombre((prev) => prev || firstSuggestion);
   }, [firstSuggestion]);
 

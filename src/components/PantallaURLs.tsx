@@ -321,6 +321,7 @@ function Favicon({ url }: { url: string }) {
   }
 
   return (
+    // eslint-disable-next-line @next/next/no-img-element -- favicon externo de tamaño fijo con fallback; next/image no aporta aquí
     <img
       src={`https://www.google.com/s2/favicons?domain=${domain}&sz=32`}
       alt={domain}

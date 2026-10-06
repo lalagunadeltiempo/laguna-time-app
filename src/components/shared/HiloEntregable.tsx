@@ -113,7 +113,7 @@ export function HiloEntregable({ entregableId, defaultCollapsed = false }: Props
     dispatch({ type: "MARCAR_MENSAJES_LEIDOS", entregableId, usuario: currentUser });
   }, [open, currentUser, isMentor, mensajes, entregableId, dispatch]);
 
-  const miembros = state.miembros ?? [];
+  const miembros = useMemo(() => state.miembros ?? [], [state.miembros]);
   const otrosMiembros = useMemo(
     () => miembros.filter((m) => m.nombre !== currentUser),
     [miembros, currentUser],

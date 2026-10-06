@@ -163,6 +163,7 @@ export function PlanHoy({ selectedDate }: Props) {
       if (raw) {
         const arr = JSON.parse(raw);
         if (Array.isArray(arr) && arr.every((x) => typeof x === "string")) {
+          // eslint-disable-next-line react-hooks/set-state-in-effect -- carga el orden manual persistido en localStorage al montar
           setSinHoraOrden(arr);
           return;
         }

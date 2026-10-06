@@ -60,7 +60,6 @@ interface Props { selectedDate: Date }
 
 export function PlanTrimestre({ selectedDate }: Props) {
   const state = useAppState();
-  const dispatch = useAppDispatch();
   const isMentor = useIsMentor();
   const veArbol = usePuedeVerArbol();
   const { nombre: currentUser } = useUsuario();

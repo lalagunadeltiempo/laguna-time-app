@@ -156,11 +156,8 @@ export default function Home() {
   );
 }
 
-const MENTOR_VIEWS: Vista[] = ["mapa", "plan"];
-
 function AppShell({ userId, displayName }: { userId: string; displayName: string }) {
-  const isMentorUser = userId === "mentor";
-  const [vista, setVista] = useState<Vista>(isMentorUser ? "mapa" : "hoy");
+  const [vista, setVista] = useState<Vista>("hoy");
   const [planTab, setPlanTab] = useState<PlanTab>("hoy");
   const [collapsed, setCollapsed] = useState(false);
   const [showBuscador, setShowBuscador] = useState(false);
@@ -174,15 +171,16 @@ function AppShell({ userId, displayName }: { userId: string; displayName: string
     setHighlightId(id);
   }, []);
   const veArbol = puedeVerArbolObjetivos(displayName);
-  const navItems = (isMentorUser ? NAV_ITEMS.filter((i) => MENTOR_VIEWS.includes(i.id)) : NAV_ITEMS).filter(
+  const navItems = NAV_ITEMS.filter(
     (i) => i.id !== "arbol-objetivos" || veArbol,
   );
 
   useEffect(() => {
     if (vista === "arbol-objetivos" && !veArbol) {
-      setVista(isMentorUser ? "mapa" : "hoy");
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- corrige una vista inválida si el usuario pierde acceso al árbol
+      setVista("hoy");
     }
-  }, [vista, veArbol, isMentorUser]);
+  }, [vista, veArbol]);
 
   useEffect(() => {
     const onOpenTree = () => {
@@ -246,7 +244,7 @@ function AppShell({ userId, displayName }: { userId: string; displayName: string
           </div>
 
           {/* Search */}
-          {!isMentorUser && (
+          {(
             <div className="px-2 pt-3">
               <button
                 onClick={() => setShowBuscador(true)}
@@ -329,7 +327,6 @@ function AppShell({ userId, displayName }: { userId: string; displayName: string
                   {isMapa && !collapsed && (
                     <div className="ml-9 mt-0.5 flex flex-col gap-0.5 border-l border-border/60 pl-2">
                       {MAPA_SUBNAV
-                        .filter((g) => !isMentorUser || g.group === "empresa")
                         .map((group) => (
                           <div key={group.group} className="mt-1 first:mt-0">
                             <p className="px-2 pt-0.5 pb-0.5 text-[10px] font-semibold uppercase tracking-wider text-muted/70">
@@ -422,7 +419,7 @@ function AppShell({ userId, displayName }: { userId: string; displayName: string
             )}
             {vista === "resultado" && detalleResultadoId && (
               <div className="mx-auto max-w-3xl">
-                <ResultadoDetalle resultadoId={detalleResultadoId} onBack={() => setVista(isMentorUser ? "mapa" : "hoy")} />
+                <ResultadoDetalle resultadoId={detalleResultadoId} onBack={() => setVista("hoy")} />
               </div>
             )}
           </div>
@@ -445,7 +442,7 @@ function AppShell({ userId, displayName }: { userId: string; displayName: string
               </button>
             );
           })}
-          {!isMentorUser && (
+          {(
             <button
               onClick={() => setShowBuscador(true)}
               className="flex flex-1 flex-col items-center gap-0.5 py-2.5 text-muted transition-colors"
@@ -478,9 +475,8 @@ function AppShell({ userId, displayName }: { userId: string; displayName: string
 
 function UsuarioWithRol({ userId, nombre, children }: { userId: string; nombre: string; children: ReactNode }) {
   const state = useAppState();
-  const isMentorLogin = userId === "mentor";
-  const member = isMentorLogin ? undefined : state.miembros.find((m) => m.nombre === nombre || m.id === userId);
-  const rol: RolUsuario = isMentorLogin ? "mentor" : (member?.rol as RolUsuario) ?? "miembro";
+  const member = state.miembros.find((m) => m.nombre === nombre || m.id === userId);
+  const rol: RolUsuario = (member?.rol as RolUsuario) ?? "miembro";
   return (
     <UsuarioContext.Provider value={{ userId, nombre, rol }}>
       {children}
@@ -489,15 +485,10 @@ function UsuarioWithRol({ userId, nombre, children }: { userId: string; nombre: 
 }
 
 function UserFooter({ collapsed }: { collapsed: boolean }) {
-  const { nombre, userId } = useUsuario();
+  const { nombre } = useUsuario();
 
   async function handleLogout() {
     flushPendingCloudSave();
-    if (userId === "mentor") {
-      sessionStorage.removeItem("laguna-mentor-session");
-      window.location.reload();
-      return;
-    }
     const supabase = getSupabase();
     if (supabase) await supabase.auth.signOut();
   }
@@ -608,6 +599,7 @@ function StaleStepHandler() {
 
   useEffect(() => {
     if (rescheduledNames.length === 0) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- muestra el banner de pasos reprogramados tras el barrido
     setBannerNames(rescheduledNames);
     setBannerVisible(true);
     const timer = setTimeout(() => setBannerVisible(false), 8000);
@@ -616,6 +608,7 @@ function StaleStepHandler() {
 
   useEffect(() => {
     if (staleSopSteps.length === 0) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- traslada los pasos SOP vencidos a la cola de decisión
     setPendingSopSteps(staleSopSteps);
   }, [staleSopSteps]);
 

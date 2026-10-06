@@ -100,6 +100,7 @@ export function EntregableHojasArbolPicker({ entregable, layout = "card", mode =
   // está abierto, p. ej. al moverlo de semana en otra pantalla).
   useEffect(() => {
     if (!open) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- reinicia el borrador con la selección real al abrir el panel
     setDraft(seleccionActual);
   }, [open, seleccionActual, anioArbol]);
 

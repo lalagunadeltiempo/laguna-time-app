@@ -79,6 +79,7 @@ export function PantallaHoy() {
       return;
     }
     dispatch({ type: "AUTO_CLOSE_STALE_SESIONES", todayKey });
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- avisa del cierre automático de sesiones vencidas tras procesarlas
     setAutoClosedNotice({ count: stale.length, ts: new Date().toISOString() });
     autoCloseDoneForDayRef.current = todayKey;
   }, [todayKey, state.entregables, dispatch]);

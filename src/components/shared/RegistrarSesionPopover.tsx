@@ -259,20 +259,26 @@ export function EditarSesionPopover({
     finTsActual ? toLocalDateTimeStr(new Date(finTsActual)) : toLocalDateTimeStr(new Date()),
   );
 
+  // Para sesiones "en curso" la duración depende del tiempo actual: lo
+  // guardamos en estado y lo refrescamos con un intervalo (nunca leemos el
+  // reloj durante el render, que debe ser puro).
+  const [ahora, setAhora] = useState(() => Date.now());
+  useEffect(() => {
+    if (!sigueEnCurso) return;
+    const t = setInterval(() => setAhora(Date.now()), 30000);
+    return () => clearInterval(t);
+  }, [sigueEnCurso]);
+
   const duracionMin = useMemo(() => {
     try {
-      if (sigueEnCurso) {
-        const ms = Date.now() - new Date(inicio).getTime();
-        if (!Number.isFinite(ms) || ms <= 0) return 0;
-        return Math.round(ms / 60000);
-      }
-      const ms = new Date(fin).getTime() - new Date(inicio).getTime();
+      const finMs = sigueEnCurso ? ahora : new Date(fin).getTime();
+      const ms = finMs - new Date(inicio).getTime();
       if (!Number.isFinite(ms) || ms <= 0) return 0;
       return Math.round(ms / 60000);
     } catch {
       return 0;
     }
-  }, [inicio, fin, sigueEnCurso]);
+  }, [inicio, fin, sigueEnCurso, ahora]);
 
   const canSubmit = !!inicio && duracionMin > 0;
 

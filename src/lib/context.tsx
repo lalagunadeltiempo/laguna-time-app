@@ -167,16 +167,13 @@ export function AppProvider({ userId, displayName, children }: ProviderProps) {
   const logName = displayName || userId;
   const [state, dispatch] = useReducer(reducer, INITIAL_STATE);
   const stateRef = useRef(state);
-  stateRef.current = state;
+  useEffect(() => {
+    stateRef.current = state;
+  });
+  // `AppProvider` se monta con `key={userId}` (ver AppShell), así que al
+  // cambiar de usuario se remonta con estos refs a su valor inicial. No hace
+  // falta resetearlos manualmente durante el render.
   const initialized = useRef(false);
-  const prevUserId = useRef(userId);
-
-  // Reset initialization when userId changes
-  if (prevUserId.current !== userId) {
-    prevUserId.current = userId;
-    initialized.current = false;
-  }
-
   const initDone = useRef(false);
 
   useEffect(() => {
@@ -189,16 +186,6 @@ export function AppProvider({ userId, displayName, children }: ProviderProps) {
 
       if (cloudResult.data) {
         setLoadedSuccessfully(true);
-
-        const isMentorUser = userId === "mentor";
-
-        if (isMentorUser) {
-          markCloudLoadOk();
-          dispatch({ type: "INIT", state: cloudResult.data });
-          runMigrations(cloudResult.data, dispatch);
-          initDone.current = true;
-          return;
-        }
 
         const localState = loadStateLocal();
         const hasLocal = localState !== INITIAL_STATE;
@@ -223,10 +210,6 @@ export function AppProvider({ userId, displayName, children }: ProviderProps) {
         console.warn("[init] Cloud load failed — loading local only, cloud saves blocked");
         const localState = loadStateLocal();
         dispatch({ type: "INIT", state: localState });
-        if (userId === "mentor") {
-          runMigrations(localState, dispatch);
-          markCloudLoadOk();
-        }
         initDone.current = true;
         return;
       }
@@ -237,9 +220,7 @@ export function AppProvider({ userId, displayName, children }: ProviderProps) {
       if (didLoadSuccessfully()) {
         runMigrations(localState, dispatch);
 
-        if (userId === "mentor") {
-          markCloudLoadOk();
-        } else if (userId !== "local" && localState !== INITIAL_STATE) {
+        if (userId !== "local" && localState !== INITIAL_STATE) {
           markCloudLoadOk();
           saveStateCloud(userId, localState);
           console.log("[init] Datos locales migrados a la nube");
@@ -261,14 +242,14 @@ export function AppProvider({ userId, displayName, children }: ProviderProps) {
   useEffect(() => {
     if (state === INITIAL_STATE) return;
     if (!initDone.current) return;
-    if (userId !== "mentor") scheduleSaveStateLocal(state);
+    scheduleSaveStateLocal(state);
     saveStateCloud(userId, state, (merged) => {
       // Si el cloud contenía tombstones/entidades que nuestro state local no tenía,
       // el merged difiere: re-aplicamos para que esta sesión refleje lo mismo que se subió.
       const cur = stateRef.current;
       if (statesDiffer(cur, merged)) {
         dispatch({ type: "INIT", state: merged });
-        if (userId !== "mentor") saveStateLocal(merged);
+        saveStateLocal(merged);
       }
     });
   }, [state, userId]);

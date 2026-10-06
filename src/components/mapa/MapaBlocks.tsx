@@ -33,7 +33,6 @@ import {
   type PlantillaProceso,
   type TipoEntregable,
   type PlanNivel,
-  type EstadoEntregable,
   type Programacion,
 } from "@/lib/types";
 
@@ -51,37 +50,6 @@ export function formatFechaInicio(f: string, planNivel?: PlanNivel): string {
     return MESES_LARGOS[d.getMonth()];
   }
   return d.toLocaleDateString("es-ES", { day: "numeric", month: "short" });
-}
-
-function formatDateRange(inicio: string | null | undefined, fin: string | null | undefined): string | null {
-  if (!inicio && !fin) return null;
-  const fmt = (d: string) => {
-    const dt = new Date(d + "T12:00:00");
-    return isNaN(dt.getTime()) ? d : dt.toLocaleDateString("es-ES", { day: "numeric", month: "short" });
-  };
-  if (inicio && fin) return `${fmt(inicio)} – ${fmt(fin)}`;
-  if (inicio) return `Desde ${fmt(inicio)}`;
-  return `Hasta ${fmt(fin!)}`;
-}
-
-function computeEstadoOnPlan(planNivel: PlanNivel, fechaInicio: string, currentEstado: EstadoEntregable): EstadoEntregable {
-  if (currentEstado === "hecho" || currentEstado === "cancelada" || currentEstado === "en_espera") return currentEstado;
-  if (planNivel === "trimestre") return "planificado";
-  const now = new Date();
-  const target = new Date(fechaInicio + "T12:00:00");
-  if (planNivel === "mes") {
-    const isCurrent = target.getFullYear() === now.getFullYear() && target.getMonth() === now.getMonth();
-    return isCurrent ? "en_proceso" : "planificado";
-  }
-  if (planNivel === "semana") {
-    const dow = now.getDay() || 7;
-    const monday = new Date(now); monday.setDate(now.getDate() - dow + 1); monday.setHours(0, 0, 0, 0);
-    const sunday = new Date(monday); sunday.setDate(monday.getDate() + 6); sunday.setHours(23, 59, 59);
-    return target >= monday && target <= sunday ? "en_proceso" : "planificado";
-  }
-  // dia
-  const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
-  return fechaInicio <= todayStr ? "en_proceso" : "planificado";
 }
 
 function PlanPicker({ onSelect, onCancel, showDayLevel = true }: {
@@ -504,12 +472,10 @@ export function AreaSection({ areaId, hideSops, forceOpen }: { areaId: Area; hid
   const { nombre: currentUser } = useUsuario();
   const filter = useMapaFilter();
   const highlight = useHighlight();
-  const hasFilter = !!filter;
   const c = AREA_COLORS[areaId];
   const label = areaLabel(areaId);
 
   const allProyectos = state.proyectos.filter((p) => p.area === areaId);
-  const hideFiltered = useContext(HideFilteredCtx);
   const [showInactive, setShowInactive] = useState(false);
   const visibleProyectos = showInactive ? allProyectos : allProyectos.filter((p) => { const e = p.estado ?? "plan"; return e !== "completado" && e !== "pausado"; });
   const hiddenCount = allProyectos.length - visibleProyectos.length;
@@ -519,9 +485,11 @@ export function AreaSection({ areaId, hideSops, forceOpen }: { areaId: Area; hid
   const [openSOP, setOpenSOP] = useState(false);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- abrir el bloque al resaltar/forzar desde otra pantalla
     if (highlight?.ancestors.has(areaId)) { setOpen(true); setOpenProj(true); }
   }, [highlight, areaId]);
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- abrir el bloque cuando se fuerza su apertura
     if (forceOpen) { setOpen(true); setOpenProj(true); }
   }, [forceOpen]);
   const sops = state.plantillas.filter((pl) => pl.area === areaId);
@@ -1056,6 +1024,7 @@ function ProyectoBlock({ proyecto, index, total }: { proyecto: Proyecto; index: 
   const [showMoveArea, setShowMoveArea] = useState(false);
   const hlRef = useRef<HTMLDivElement>(null);
 
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- abrir el bloque cuando es ancestro/objetivo de una navegación
   useEffect(() => { if (isAncestor || isTarget) setOpen(true); }, [isAncestor, isTarget]);
   useEffect(() => {
     if (isTarget && hlRef.current) {
@@ -1066,7 +1035,6 @@ function ProyectoBlock({ proyecto, index, total }: { proyecto: Proyecto; index: 
   const allResultados = state.resultados.filter((r) => r.proyectoId === proyecto.id);
   const resIds = new Set(allResultados.map((r) => r.id));
   const projEntregables = state.entregables.filter((e) => resIds.has(e.resultadoId));
-  const hasActiveWork = projEntregables.some((e) => e.estado === "en_proceso" || state.pasos.some((p) => p.entregableId === e.id && p.inicioTs && !p.finTs));
   const notasCount = (proyecto.notas ?? []).length;
   const projEstado = proyecto.estado ?? "plan";
   const isOff = projEstado === "pausado";
@@ -1231,6 +1199,7 @@ function ResultadoBlock({ resultado, index, total }: { resultado: Resultado; ind
   const [showMove, setShowMove] = useState(false);
   const hlRef = useRef<HTMLDivElement>(null);
 
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- abrir el bloque cuando es ancestro/objetivo de una navegación
   useEffect(() => { if (isAncestor || isTarget) setOpen(true); }, [isAncestor, isTarget]);
   useEffect(() => {
     if (isTarget && hlRef.current) hlRef.current.scrollIntoView({ behavior: "smooth", block: "center" });
@@ -1354,12 +1323,14 @@ function EntregableBlock({ entregable, index, total }: { entregable: Entregable;
         const entPasoNames = state.pasos.filter((p) => p.entregableId === entregable.id).map((p) => p.nombre.toLowerCase().trim());
         const templateNames = plantilla.pasos.map((p) => p.nombre.toLowerCase().trim());
         const differ = entPasoNames.length !== templateNames.length || entPasoNames.some((n, i) => n !== templateNames[i]);
+        // eslint-disable-next-line react-hooks/set-state-in-effect -- avisar de sincronizar SOP cuando el entregable pasa a "hecho"
         if (differ) setShowSyncPrompt(true);
       }
     }
     prevEstadoRef.current = entregable.estado;
   }, [entregable.estado, entregable.plantillaId, entregable.id, state.plantillas, state.pasos]);
 
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- abrir el bloque cuando es ancestro/objetivo de una navegación
   useEffect(() => { if (isAncestor || isTarget) setOpen(true); }, [isAncestor, isTarget]);
   useEffect(() => {
     if (isTarget && hlRef.current) hlRef.current.scrollIntoView({ behavior: "smooth", block: "center" });
@@ -2013,6 +1984,7 @@ function SOPBatchDialog({ sop, onConfirm, onCancel }: { sop: PlantillaProceso; o
   const [dates, setDates] = useState<string[]>([]);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- proyección derivada de `items` (nombres/fechas de la previsualización)
     setNames(items.map((i) => i.name));
     setDates(items.map((i) => i.dateKey));
   }, [items]);
@@ -2066,7 +2038,6 @@ function SOPBatchDialog({ sop, onConfirm, onCancel }: { sop: PlantillaProceso; o
 
 function SOPDestinoPicker({ sop }: { sop: PlantillaProceso }) {
   const state = useAppState();
-  const dispatch = useAppDispatch();
   const [editing, setEditing] = useState(false);
 
   const linkedProj = sop.proyectoId ? state.proyectos.find((p) => p.id === sop.proyectoId) : null;

@@ -1,36 +1,75 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Laguna del Tiempo (laguna-time-app)
 
-## Getting Started
+Aplicación de planificación y seguimiento (proyectos, resultados,
+entregables, pasos, árbol de objetivos, mapa y plan diario/semanal/
+mensual/trimestral/anual). Es una app Next.js 100% cliente: todo el
+estado vive en un único `AppState` que se guarda en el navegador
+(localStorage) y se sincroniza con Supabase.
 
-First, run the development server:
+## Stack
+
+- **Next.js 16** (App Router, Turbopack, React Compiler)
+- **React 19**
+- **Supabase** (`@supabase/ssr`) para auth y persistencia del estado
+- **Tailwind CSS 4**
+- **Vitest** para los tests
+
+## Puesta en marcha
+
+1. Instalar dependencias:
+
+```bash
+npm install
+```
+
+2. Crear `.env.local` en la raíz con las variables de Supabase:
+
+```bash
+NEXT_PUBLIC_SUPABASE_URL=https://<tu-proyecto>.supabase.co
+NEXT_PUBLIC_SUPABASE_ANON_KEY=<tu-anon-key>
+```
+
+Sin estas variables la app arranca en modo local (sin nube), usando
+solo el almacenamiento del navegador.
+
+3. Arrancar en desarrollo:
 
 ```bash
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Abrir http://localhost:3000.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Scripts
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+- `npm run dev` — servidor de desarrollo.
+- `npm run build` — build de producción.
+- `npm run start` — sirve el build de producción.
+- `npm run lint` — ESLint.
+- `npm test` — tests (Vitest).
 
-## Learn More
+## Modelo de datos y sincronización
 
-To learn more about Next.js, take a look at the following resources:
+- El estado completo (`AppState`, ver `src/lib/types.ts`) se serializa
+  como un único blob JSONB en Supabase, en la tabla `user_data`, en una
+  fila compartida `user_id = "workspace-laguna"` (ver
+  `src/lib/store.ts`). Gabi y Beltrán comparten ese mismo workspace.
+- La sincronización entre sesiones (varias pestañas/dispositivos) se
+  resuelve con un merge tipo CRDT en cliente (`src/lib/merge.ts`),
+  salvaguardas anti-pisada (`src/lib/store-safeguard.ts`) y un historial
+  de versiones restaurable (`src/lib/cloud-history.ts`).
+- Las "migraciones" del estado se hacen en cliente
+  (`src/lib/migrations.ts`). Ver `docs/` para notas de auditoría del
+  merge y de trabajo multi-sesión.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## Autenticación
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+Login por email/contraseña con Supabase Auth. **No hay alta pública de
+usuarios**: las cuentas se crean a mano desde el panel de Supabase.
 
-## Deploy on Vercel
+## Migraciones SQL (Supabase)
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Los cambios de esquema y de políticas RLS están en
+`supabase/migrations/` y se aplican **a mano** desde el SQL Editor de
+Supabase. Ver `supabase/migrations/README.md`. Importante aplicar
+`2026_07_21_rls_lockdown.sql`, que blinda el acceso a los datos.

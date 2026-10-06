@@ -718,7 +718,7 @@ export function useStaleStepCleanup(): { rescheduledNames: string[]; staleSopSte
   const [rescheduledNames, setRescheduledNames] = useState<string[]>([]);
   const [staleSopSteps, setStaleSopSteps] = useState<StaleSopStep[]>([]);
 
-  function classifyAndProcess(pasos: Paso[], targetDate: string) {
+  const classifyAndProcess = useCallback((pasos: Paso[], targetDate: string) => {
     const sopSteps: StaleSopStep[] = [];
     const reopenedNames: string[] = [];
 
@@ -742,7 +742,7 @@ export function useStaleStepCleanup(): { rescheduledNames: string[]; staleSopSte
     }
 
     return { sopSteps, reopenedNames };
-  }
+  }, [dispatch, state.entregables, state.plantillas]);
 
   const staleCleaned = useRef(false);
   useEffect(() => {
@@ -753,9 +753,10 @@ export function useStaleStepCleanup(): { rescheduledNames: string[]; staleSopSte
     staleCleaned.current = true;
 
     const { sopSteps, reopenedNames } = classifyAndProcess(stale, today);
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- limpieza puntual de pasos vencidos: notifica al usuario tras procesarlos
     if (reopenedNames.length > 0) setRescheduledNames(reopenedNames);
     if (sopSteps.length > 0) setStaleSopSteps(sopSteps);
-  }, [pasosActivos, dispatch, state.entregables, state.plantillas]);
+  }, [pasosActivos, classifyAndProcess]);
 
   const autoCloseAtMidnight = useCallback(() => {
     if (pasosActivos.length === 0) return;
@@ -763,7 +764,7 @@ export function useStaleStepCleanup(): { rescheduledNames: string[]; staleSopSte
     const { sopSteps, reopenedNames } = classifyAndProcess(pasosActivos, tomorrow);
     if (reopenedNames.length > 0) setRescheduledNames(reopenedNames);
     if (sopSteps.length > 0) setStaleSopSteps(sopSteps);
-  }, [pasosActivos, dispatch, state.entregables, state.plantillas]);
+  }, [pasosActivos, classifyAndProcess]);
 
   useEffect(() => {
     if (pasosActivos.length === 0) return;

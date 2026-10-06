@@ -25,3 +25,11 @@ de aplicación automática; cada migración debe aplicarse a mano.
   entradas tras cada save significativo; si la tabla no existe, los
   inserts fallan en silencio y la app sigue funcionando con normalidad
   (solo se pierde la posibilidad de restaurar versiones anteriores).
+- `2026_07_21_rls_lockdown.sql` — **Aplicar manualmente. Importante
+  (seguridad).** Rehace las políticas RLS de `user_data` y
+  `user_data_history` para exigir sesión iniciada (`authenticated`).
+  Antes, la condición `OR user_id = 'workspace-laguna'` dejaba la fila
+  accesible al rol `anon`, es decir, a cualquiera con la anon key
+  pública. Tras aplicarlo, hay que **desactivar el alta de usuarios
+  nuevos** en Supabase (Authentication → "Allow new users to sign up"
+  = OFF) para que solo Gabi y Beltrán tengan cuenta.

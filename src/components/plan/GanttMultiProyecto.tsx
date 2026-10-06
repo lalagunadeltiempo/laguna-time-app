@@ -590,7 +590,7 @@ function ProjectRow({
         ))}
       {open && enRango > 0 && rango.start && rango.end && entregablesFiltrados.length < gp.entregables.length && (
         <div className="py-1 pl-12 text-[9px] italic text-muted/40">
-          Mostrando {entregablesFiltrados.length} de {gp.entregables.length} entregables (rango visible). Cambia a "Todo" para verlos todos.
+          Mostrando {entregablesFiltrados.length} de {gp.entregables.length} entregables (rango visible). Cambia a &quot;Todo&quot; para verlos todos.
         </div>
       )}
     </div>

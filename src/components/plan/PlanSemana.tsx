@@ -68,6 +68,7 @@ export function PlanSemana({ selectedDate, onOpenInMapa }: Props) {
   const franjas = useMemo(() => state.franjas ?? [], [state.franjas]);
   const [carryOverDismissed, setCarryOverDismissed] = useState<string | null>(null);
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- carga el valor persistido en localStorage al montar
     try { setCarryOverDismissed(localStorage.getItem("laguna-carryover-dismissed")); }
     catch { /* noop */ }
   }, []);
@@ -77,6 +78,7 @@ export function PlanSemana({ selectedDate, onOpenInMapa }: Props) {
   useEffect(() => {
     try {
       const v = localStorage.getItem("laguna-proyectos-semana-collapsed");
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- restaura el estado de plegado persistido al montar
       if (v === "1") setProyectosOpen(false);
     } catch { /* noop */ }
   }, []);
@@ -101,6 +103,7 @@ export function PlanSemana({ selectedDate, onOpenInMapa }: Props) {
       if (raw) {
         const arr = JSON.parse(raw);
         if (Array.isArray(arr) && arr.every((x) => typeof x === "string")) {
+          // eslint-disable-next-line react-hooks/set-state-in-effect -- carga el orden manual persistido en localStorage al montar
           setProyectosOrdenManual(arr);
         }
       }

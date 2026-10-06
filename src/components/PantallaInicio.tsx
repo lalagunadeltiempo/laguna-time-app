@@ -28,7 +28,7 @@ interface Props {
   onOpenDetalle?: (resultadoId: string) => void;
 }
 
-export function PantallaInicio({ onOpenBuscador, onOpenDetalle }: Props) {
+export function PantallaInicio({ onOpenDetalle }: Props) {
   const state = useAppState();
   const dispatch = useAppDispatch();
   const { nombre: currentUser } = useUsuario();
@@ -256,7 +256,7 @@ export function PantallaInicio({ onOpenBuscador, onOpenDetalle }: Props) {
 
 /* ---- Pendiente card ---- */
 
-function PendienteCard({ pendiente, onStart, onOpenDetalle }: {
+function PendienteCard({ pendiente, onStart }: {
   pendiente: Pendiente; onStart: () => void; onOpenDetalle: () => void;
 }) {
   const p = pendiente;
