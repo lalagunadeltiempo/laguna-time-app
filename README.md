@@ -62,6 +62,17 @@ Abrir http://localhost:3000.
   (`src/lib/migrations.ts`). Ver `docs/` para notas de auditoría del
   merge y de trabajo multi-sesión.
 
+## Copias de seguridad
+
+El botón "Descargar copia de seguridad" de la app genera un JSON con
+todo el `AppState`. Esas copias **no van en el repositorio**: guárdalas
+en `~/Documents/Laguna Time App/copias/`. Las copias históricas de mayo
+de 2026 (previas a la importación y al reinicio del árbol) están en
+`~/Documents/Laguna Time App/copias-historicas-2026-05/`.
+
+La copia que cuenta en el día a día es la fila `workspace-laguna` de
+`user_data` en Supabase, más su historial en `user_data_history`.
+
 ## Autenticación
 
 Login por email/contraseña con Supabase Auth. **No hay alta pública de
